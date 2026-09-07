@@ -156,6 +156,28 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     containerWidth: number;
   } | null>(null);
 
+  // Declared ahead of the main lifecycle effect (below) so `oninitialized`'s
+  // remount catch-up can route through `sendResultOnce` instead of sending
+  // directly — both are stable across renders (`sendWhenReady` has no deps,
+  // and `sendResultOnce` depends only on it), so capturing them here is safe.
+  const sendWhenReady = useCallback((fn: (bridge: AppBridge) => void) => {
+    if (initializedRef.current && bridgeRef.current) {
+      fn(bridgeRef.current);
+    } else {
+      pendingRef.current.push(fn);
+    }
+  }, []);
+
+  const sendResultOnce = useCallback(
+    (toolCallId: string, raw: unknown) => {
+      if (sentResultForCallRef.current === toolCallId) return;
+      sentResultForCallRef.current = toolCallId;
+      const toolResult = toCallToolResult(raw);
+      sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
+    },
+    [sendWhenReady],
+  );
+
   // Main lifecycle effect
   useEffect(() => {
     if (!iframeEl || !uiResource) {
@@ -293,19 +315,24 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
             });
           }
 
-          // If the tool already completed (e.g. component remounted after
-          // scrolling back into the virtualized list), send the result now
-          // since the subscription event was missed.
+          // If the tool already completed — a remount after scrolling back
+          // into the virtualized list, or the first mount of a row whose
+          // result arrived before the bridge finished initializing — send
+          // the result now instead of waiting on a subscription event that
+          // already fired (or never will, for a call that resolved before
+          // this component existed). Routed through `sendResultOnce` so this
+          // can't double-send: the exec-replay effect may have already
+          // queued the same result in `pendingRef` below, and both paths
+          // share the `sentResultForCallRef` guard.
           if (
             tc.rawOutput &&
             (tc.status === "completed" || tc.status === "failed")
           ) {
-            const toolResult = toCallToolResult(tc.rawOutput);
             log.debug("Sending existing tool result to app (remount)", {
               serverName: latestRef.current.serverName,
-              toolResult,
+              toolCallId: tc.toolCallId,
             });
-            bridge.sendToolResult(toolResult);
+            sendResultOnce(tc.toolCallId, tc.rawOutput);
           }
 
           // Flush pending
@@ -367,7 +394,7 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       // legitimately redeliver instead of silently dropping it forever.
       sentResultForCallRef.current = null;
     };
-  }, [iframeEl, uiResource, args.serverName]); // Only re-run when iframe element or resource identity changes
+  }, [iframeEl, uiResource, args.serverName, sendResultOnce]); // Only re-run when iframe element or resource identity changes (sendResultOnce is referentially stable)
 
   // Host context change effect — sends deltas when theme/displayMode/containerWidth change
   useEffect(() => {
@@ -410,24 +437,6 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       bridge.sendHostContextChange(delta as McpUiHostContext);
     }
   }, [args.isDarkMode, args.displayMode, args.containerWidth]);
-
-  const sendWhenReady = useCallback((fn: (bridge: AppBridge) => void) => {
-    if (initializedRef.current && bridgeRef.current) {
-      fn(bridgeRef.current);
-    } else {
-      pendingRef.current.push(fn);
-    }
-  }, []);
-
-  const sendResultOnce = useCallback(
-    (toolCallId: string, raw: unknown) => {
-      if (sentResultForCallRef.current === toolCallId) return;
-      sentResultForCallRef.current = toolCallId;
-      const toolResult = toCallToolResult(raw);
-      sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
-    },
-    [sendWhenReady],
-  );
 
   return { sendWhenReady, sendResultOnce };
 }
