@@ -83,7 +83,10 @@ export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
     }),
     loaders(({ values }) => ({
         definitions: [
-            {} as EventDefinitionsByName,
+            // Event names come from the customer, so one can be `constructor` or `__proto__`. These
+            // maps carry no prototype, so `in` and an indexed read see only names PostHog resolved,
+            // and a write to `__proto__` adds a key instead of re-parenting the map.
+            Object.create(null) as EventDefinitionsByName,
             {
                 requestEventNames: async (_, breakpoint) => {
                     // One page of actions asks for its events row by row, so wait for the burst to settle.
@@ -94,7 +97,7 @@ export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
                     }
                     const response = await api.eventDefinitions.list({ names: missing, limit: missing.length })
                     breakpoint()
-                    const resolved: EventDefinitionsByName = { ...values.definitions }
+                    const resolved: EventDefinitionsByName = Object.assign(Object.create(null), values.definitions)
                     for (const name of missing) {
                         resolved[name] = null
                     }
@@ -110,7 +113,7 @@ export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
         eventHealthIssues: [
             (s) => [s.definitions],
             (definitions: EventDefinitionsByName): Record<string, EventHealthIssue> => {
-                const issues: Record<string, EventHealthIssue> = {}
+                const issues: Record<string, EventHealthIssue> = Object.create(null)
                 for (const [name, definition] of Object.entries(definitions)) {
                     if (!definition) {
                         issues[name] = { status: 'missing' }

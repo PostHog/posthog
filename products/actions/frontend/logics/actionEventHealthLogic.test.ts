@@ -23,6 +23,8 @@ describe('actionEventHealthLogic', () => {
                     const results = [
                         { id: '1', name: 'fresh_event', last_seen_at: dayjs().subtract(1, 'hour').toISOString() },
                         { id: '2', name: 'stale_event', last_seen_at: dayjs().subtract(90, 'day').toISOString() },
+                        { id: '3', name: 'constructor', last_seen_at: dayjs().subtract(1, 'hour').toISOString() },
+                        { id: '4', name: '__proto__', last_seen_at: dayjs().subtract(1, 'hour').toISOString() },
                     ].filter((definition) => names.includes(definition.name))
                     return [200, { count: results.length, results }]
                 },
@@ -75,5 +77,16 @@ describe('actionEventHealthLogic', () => {
 
         expect(requestedSearches).toHaveLength(0)
         expect(logic.values.eventHealthIssues['purchase,completed']).toBeUndefined()
+    })
+
+    // Held through a normal object these names read as already resolved, so the request never went
+    // out, and the health map handed back a value off Object.prototype. Both drew a "Not seen" tag
+    // on a healthy event.
+    it.each(['constructor', '__proto__'])('treats %s as an ordinary event name', async (event) => {
+        logic.actions.requestEventNames([event])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedSearches[0]?.getAll('names')).toEqual([event])
+        expect(logic.values.eventHealthIssues[event]).toBeUndefined()
     })
 })
