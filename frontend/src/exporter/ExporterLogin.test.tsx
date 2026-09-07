@@ -99,4 +99,27 @@ describe('loginLogic', () => {
             },
         })
     })
+
+    it('reports an error when the connection drops after the password is accepted', async () => {
+        fetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
+            if (options.method === 'POST') {
+                return { status: 200, json: async () => ({ shareToken: 'jwt-token' }) }
+            }
+            throw new TypeError('Failed to fetch')
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setLoginValue('password', 'correct')
+            logic.actions.submitLogin()
+        }).toFinishAllListeners()
+
+        expectLogic(logic).toMatchValues({
+            unlockedData: null,
+            isSuccess: false,
+            generalError: {
+                code: 'unlock_failed',
+                detail: 'Password accepted, but the content did not load. Try again.',
+            },
+        })
+    })
 })

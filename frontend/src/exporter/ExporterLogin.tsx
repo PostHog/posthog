@@ -104,31 +104,32 @@ export type loginLogicType = MakeLogicType<loginLogicValues, loginLogicActions>
  * iframe request - a reload would put an embedded viewer back on the unlock screen forever.
  */
 async function fetchUnlockedData(shareToken: string): Promise<ExportedData | null> {
-    const response = await fetch(window.location.href, {
-        headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${shareToken}`,
-        },
-    })
-    if (!response.ok) {
-        return null
-    }
-    let exportedData: ExportedData
     try {
+        const response = await fetch(window.location.href, {
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${shareToken}`,
+            },
+        })
+        if (!response.ok) {
+            return null
+        }
         // An unauthenticated share answers with the unlock page as HTML, which is not JSON
-        exportedData = await response.json()
+        const exportedData: ExportedData = await response.json()
+        if (exportedData.type === ExportType.Unlock) {
+            return null
+        }
+        if (exportedData.rootClassName) {
+            // Appended the same way the server-rendered page does it (see index.html). The public
+            // `force_type` param feeds this value unvalidated, and `classList.add` throws on whitespace.
+            document.documentElement.className += ` ${exportedData.rootClassName}`
+        }
+        return { ...exportedData, shareToken }
     } catch {
+        // A dropped connection means the same thing to the person as any other failure to load,
+        // so it must return null rather than escape into an unhandled rejection with no message
         return null
     }
-    if (exportedData.type === ExportType.Unlock) {
-        return null
-    }
-    if (exportedData.rootClassName) {
-        // Appended the same way the server-rendered page does it (see index.html). The public
-        // `force_type` param feeds this value unvalidated, and `classList.add` throws on whitespace.
-        document.documentElement.className += ` ${exportedData.rootClassName}`
-    }
-    return { ...exportedData, shareToken }
 }
 
 export const loginLogic = kea<loginLogicType>([
