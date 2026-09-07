@@ -78,6 +78,7 @@ from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     AgentPeerMessage,
     Channel,
+    ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -10182,6 +10183,32 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         for client in (self.client, recipient_client):
             self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
 
+    def test_handoff_adds_recipient_to_a_private_space(self):
+        recipient = self.create_organization_user("recipient")
+        private = tasks_facade.create_private_channel(
+            self.team.id, self.user.id, name="squad", member_ids=[], star=False
+        )
+        assert private is not None
+        with team_scope(self.team.id):
+            channel = Channel.objects.get(id=private.id)
+        task = self.create_task(created_by=self.user)
+        task.channel = channel
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.channel_id, channel.id)
+        self.assertTrue(
+            ChannelMembership.objects.unscoped().filter(channel_id=channel.id, user_id=recipient.id).exists()
+        )
+
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        for client in (self.client, recipient_client):
+            self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
+
     def test_handoff_requires_control_of_the_task(self):
         colleague = self.create_organization_user("colleague")
         with team_scope(self.team.id):
@@ -14160,6 +14187,7 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertTrue(body["created"])
         analysis_task = Task.objects.get(id=body["analysis_task_id"])
         self.assertEqual(analysis_task.origin_product, Task.OriginProduct.TASK_ANALYSIS)
+        self.assertTrue(analysis_task.internal)
         self.assertIn("analyzing-task-runs", analysis_task.description)
         run = analysis_task.latest_run
         assert run is not None
