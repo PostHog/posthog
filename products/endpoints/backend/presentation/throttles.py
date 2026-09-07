@@ -47,10 +47,19 @@ def _get_endpoint_info_from_request(request, view) -> tuple[int | None, str | No
 
 def _is_materialized_endpoint_request(request, view) -> bool:
     """Check if this request will be served from a materialized endpoint version."""
+    try:
+        body = request.data
+    except Exception:
+        # A body DRF cannot read takes the inline rate, because the view rejects the request.
+        # This has to be the first access to request.data: DRF replaces an unparsable body with
+        # an empty one, and an empty body reads as a clean materialized request. An unsupported
+        # media type instead raises on every access, and an error that escapes a throttle skips
+        # rate accounting for every scope.
+        return False
     team_id, endpoint_name, version = _get_endpoint_info_from_request(request, view)
     if not team_id or not endpoint_name:
         return False
-    return is_materialized_request(team_id, endpoint_name, version, getattr(request, "data", None))
+    return is_materialized_request(team_id, endpoint_name, version, body)
 
 
 class _MaterializedRateMixin(SimpleRateThrottle):

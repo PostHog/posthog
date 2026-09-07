@@ -8,6 +8,9 @@ from django.test import TestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
@@ -389,6 +392,22 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         view = MagicMock()
         view.team_id = 123
         view.kwargs = {"name": "test"}
+
+        self.assertFalse(_is_materialized_endpoint_request(request, view))
+
+    @parameterized.expand(
+        [
+            ("malformed_json", "{not json", "application/json"),
+            ("unsupported_media_type", "<xml/>", "application/xml"),
+        ]
+    )
+    def test_unreadable_body_takes_the_inline_rate(self, name, body, content_type):
+        _create_ready_materialized_endpoint(self.team, self.user, name, timezone.now())
+
+        request = Request(APIRequestFactory().post("/", data=body, content_type=content_type), parsers=[JSONParser()])
+        view = MagicMock()
+        view.team_id = self.team.id
+        view.kwargs = {"name": name}
 
         self.assertFalse(_is_materialized_endpoint_request(request, view))
 
