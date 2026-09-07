@@ -74,12 +74,14 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
     const payload: NewTaskLinkPayload = {
       action: "new",
       prompt,
+      source:
+        params.get("source") === "agent_action" ? "agent_action" : undefined,
       ...shared,
     };
 
     this.log.info("Handling new task link", {
       hasPrompt: !!prompt,
-      repo: shared.repo,
+      hasRepository: !!shared.repo,
     });
     return this.emitOrQueue(payload);
   }
@@ -107,7 +109,7 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
 
     this.log.info("Handling plan link", {
       planLength: plan.length,
-      repo: shared.repo,
+      hasRepository: !!shared.repo,
     });
     return this.emitOrQueue(payload);
   }
@@ -122,7 +124,7 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
 
     const parsed = parseGitHubIssueUrl(url);
     if (!parsed) {
-      this.log.warn("Issue link has invalid GitHub issue URL", { url });
+      this.log.warn("Issue link has invalid GitHub issue URL");
       return false;
     }
 
@@ -136,11 +138,7 @@ export class NewTaskLinkService extends TypedEventEmitter<NewTaskLinkEvents> {
       ...shared,
     };
 
-    this.log.info("Handling issue link", {
-      owner: parsed.owner,
-      repo: parsed.repo,
-      number: parsed.number,
-    });
+    this.log.info("Handling issue link");
     return this.emitOrQueue(payload);
   }
 

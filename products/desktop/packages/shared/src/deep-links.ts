@@ -117,7 +117,11 @@ export interface NewTaskSharedParams {
 }
 
 export type NewTaskLinkPayload =
-  | ({ action: "new"; prompt?: string } & NewTaskSharedParams)
+  | ({
+      action: "new";
+      prompt?: string;
+      source?: "agent_action";
+    } & NewTaskSharedParams)
   | ({ action: "plan"; plan: string } & NewTaskSharedParams)
   | ({
       action: "issue";

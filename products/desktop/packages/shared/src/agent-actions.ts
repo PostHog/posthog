@@ -16,9 +16,10 @@ const requiredField = z.string().trim().min(1);
 const composeFields = {
   kind: z.literal("compose"),
   prompt: requiredField.describe(
-    "Text to prefill in a separate new task. This does not send a prompt in " +
-      "the current session. Do not use compose for approval, confirmation, " +
-      "or continued work in the current task.",
+    "Text to prefill in a separate new task. Make the prompt self-contained " +
+      "with the goal, relevant context, constraints, and expected result. " +
+      "This does not send a prompt in the current session. Do not use compose " +
+      "for approval, confirmation, or continued work in the current task.",
   ),
   repo: requiredField
     .optional()
@@ -130,7 +131,7 @@ export function buildActionUrl(action: AgentAction, scheme: string): string {
       const query = action.repo
         ? `${prompt}&repo=${encodeURIComponent(action.repo)}`
         : prompt;
-      return `${scheme}://new?${query}`;
+      return `${scheme}://new?${query}&source=agent_action`;
     }
     case "open_space":
       return `${scheme}://channel/${encodeURIComponent(action.channel_id)}`;

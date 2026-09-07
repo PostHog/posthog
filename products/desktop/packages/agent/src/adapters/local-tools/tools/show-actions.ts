@@ -21,7 +21,11 @@ const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "`prompt` (and `repo` when given). It never sends a prompt in the current " +
   "session. The user reads, edits, and sends the new task. Do not use " +
   "`compose` for an approval, a confirmation, or more work in the current " +
-  "task. Ask the user in your message instead. " +
+  "task. Ask the user in your message instead. When you and the user " +
+  "explicitly agree on a separate follow-up, offer one `compose` action. " +
+  "Turn that agreement into a self-contained prompt with the goal, relevant " +
+  "context, constraints, and expected result. Include the repository when you " +
+  "know it. Do not offer the action when the follow-up is tentative. " +
   "A `compose` action also takes an optional `description`, which no other " +
   "kind accepts. Giving one draws that button as a larger card instead of a " +
   "pill, so use it for the offers that matter most. Write one short sentence " +

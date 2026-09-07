@@ -465,6 +465,7 @@ export interface DeepLinkNewTaskProperties {
   has_repo: boolean;
   mode?: string;
   model?: string;
+  source?: "agent_action";
 }
 
 export interface DeepLinkPlanProperties {
