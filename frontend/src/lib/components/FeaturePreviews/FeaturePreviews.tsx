@@ -38,6 +38,16 @@ const FEATURE_PREVIEW_WARNINGS: Record<string, FeaturePreviewWarning> = {
     },
 }
 
+/**
+ * Labels for previews whose switch does not itself grant access — a downloadable app, for example.
+ * The card promotes the feature's documentation link to a primary action once the preview is on,
+ * so enrolling leads somewhere instead of stopping at the switch.
+ */
+const FEATURE_PREVIEW_ENABLED_CTA_LABELS: Record<string, string> = {
+    // PostHog Desktop. Anyone can download the app, so the switch gates nothing on its own.
+    twig: 'Download the app',
+}
+
 const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError
 
 // Feature previews can be linked to by using hash in the url
@@ -264,6 +274,18 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     )
 }
 
+function EnabledCta({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element | null {
+    const label = FEATURE_PREVIEW_ENABLED_CTA_LABELS[feature.flagKey]
+    if (!feature.enabled || !label || !feature.documentationUrl) {
+        return null
+    }
+    return (
+        <LemonButton type="primary" size="small" to={feature.documentationUrl} targetBlank className="w-fit">
+            {label}
+        </LemonButton>
+    )
+}
+
 interface FeaturePreviewProps {
     feature: EnrichedEarlyAccessFeature
     /** Optional warning rendered under the description (e.g. plan/add-on requirements). */
@@ -330,6 +352,7 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
             }
             actions={
                 <div className="flex flex-col gap-2">
+                    <EnabledCta feature={feature} />
                     <div className="whitespace-nowrap">
                         {documentationUrl && (
                             <Link to={documentationUrl} target="_blank">
