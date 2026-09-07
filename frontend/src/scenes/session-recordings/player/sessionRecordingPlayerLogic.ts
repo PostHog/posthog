@@ -1875,24 +1875,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const renderability = seekRenderability(firstWindowSegment.startTimestamp)
-                if (renderability.kind !== 'clampToFullSnapshot' || firstWindowSegment.windowId === undefined) {
+                if (renderability.kind !== 'clampToFullSnapshot') {
                     return 0
                 }
-                // An idle tab backdates a non-rendering bookkeeping event to the last activity, which
-                // pulls the recording start back by the whole idle span. Nothing renders in that span,
-                // so only call it unplayable when real screen content sits before the recovery point.
+                // A backdated `sessionIdle` Custom event pulls `start` back over the idle span, and the SDK
+                // drops everything else while idle, so a Custom-only span is empty rather than lost.
+                // Anything else before the recovery point means the FullSnapshot was dropped.
                 const recoveryTimestamp = renderability.timestamp
-                // The recovery point is the earliest renderable full snapshot across all windows, so the
-                // content check must span all windows too. A lost initial snapshot in any window leaves
-                // real screen content before recovery, even when the first window holds only bookkeeping.
-                const allEvents = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
-                const hasContentBeforeRecovery = allEvents.some(
-                    (event: eventWithTime) =>
-                        event.type === EventType.IncrementalSnapshot &&
-                        event.timestamp >= start &&
-                        event.timestamp < recoveryTimestamp
-                )
-                return hasContentBeforeRecovery ? Math.max(0, recoveryTimestamp - start) : 0
+                for (const events of Object.values(sessionPlayerData.snapshotsByWindowId)) {
+                    for (const event of events) {
+                        if (event.timestamp >= recoveryTimestamp) {
+                            break
+                        }
+                        if (event.type !== EventType.Custom) {
+                            return recoveryTimestamp - start
+                        }
+                    }
+                }
+                return 0
             },
         ],
 
