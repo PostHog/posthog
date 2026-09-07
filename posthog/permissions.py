@@ -27,6 +27,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
     is_mcp_request,
+    is_user_delegated_token_request,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -918,6 +919,80 @@ class MCPAccessPermission(ScopeBasePermission):
             self.message = denial
             return False
         return True
+
+
+def deactivated_organization_denial(organization: Organization) -> str:
+    """The denial message for a deactivated organization. It mirrors the app's
+    deactivated-organization screen, the operator's reason included, so a person reads the same
+    explanation through a token as they do in the app."""
+    reason = (organization.is_not_active_reason or "").strip()
+    message = "Your organization has been deactivated."
+    return f"{message} {reason}" if reason else message
+
+
+class ActiveOrganizationPermission(BasePermission):
+    """Denies token-authenticated requests to a deactivated organization.
+
+    `Organization.is_active = False` means an operator revoked the organization's access for an
+    unpaid balance, a compliance review, or a terms-of-service violation.
+    `ActiveOrganizationMiddleware` locks the organization out of the app, but that middleware
+    ignores `/api`, so a personal API key, an OAuth token, or the MCP server kept full read and
+    write access after the revocation. This class closes that pathway.
+
+    Session auth stays with the middleware, which keeps the deactivated-organization screen and the
+    billing flow that reactivates the organization usable. Ingestion is a different decision, made
+    by the billing quota limiter.
+    """
+
+    # `user` is the caller's own profile, not organization data, and `/api/users/@me/` is what a
+    # client reads to find out about the deactivation. `billing` must stay reachable so a revoked
+    # organization can still read what it owes and pay it.
+    EXEMPT_SCOPE_OBJECTS = frozenset({"user", "billing"})
+
+    def has_permission(self, request, view) -> bool:
+        if not is_user_delegated_token_request(request) or self._is_exempt(view):
+            return True
+
+        # Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and
+        # `get_organization_from_view` falls back to the user's current organization there, which is
+        # a UI preference, not the request's target. A revocation denial must never land on a
+        # healthy organization, so this method only caps a target the URL names. A retrieve, update
+        # or destroy is capped in `has_object_permission`, which resolves the target from the
+        # fetched object. A list is left to the queryset filter, which already confines the rows to
+        # the caller's own organizations. A create has no object and lands in the resolved
+        # organization (what the serializer's create uses), so the fallback is correct for it.
+        target_in_url = bool(view.parent_query_kwargs) or bool(view.param_derived_from_user_current_team)
+        if not target_in_url and getattr(view, "action", None) != "create":
+            return True
+
+        return self._admits(self._target_organization(view))
+
+    def has_object_permission(self, request, view, object) -> bool:
+        if not is_user_delegated_token_request(request) or self._is_exempt(view):
+            return True
+        if isinstance(object, Organization):
+            return self._admits(object)
+        organization = getattr(object, "organization", None)
+        if isinstance(organization, Organization):
+            return self._admits(organization)
+        return True
+
+    def _is_exempt(self, view) -> bool:
+        return getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS
+
+    @staticmethod
+    def _target_organization(view) -> Optional[Organization]:
+        try:
+            return get_organization_from_view(view)
+        except (ValueError, NotFound):
+            return None
+
+    def _admits(self, organization: Optional[Organization]) -> bool:
+        # `is_active` is nullable and null means active, so only an explicit False revokes.
+        if organization is None or organization.is_active is not False:
+            return True
+        self.message = deactivated_organization_denial(organization)
+        return False
 
 
 class AccessControlPermission(ScopeBasePermission):
