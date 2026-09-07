@@ -1130,7 +1130,9 @@ def update_customer_profile_config(
     previous = CustomerProfileConfig.objects.get(pk=config.pk)
     for attr, value in fields.items():
         setattr(config, attr, value)
-    config.save()
+    # Write only the sent columns, so a concurrent write to a column this request did not send
+    # is not rewritten from the snapshot loaded above.
+    config.save(update_fields=[*fields, "updated_at"])
     _log_customer_profile_config_activity(
         instance=config,
         activity="updated",
