@@ -126,6 +126,16 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert task.mcp_builtin_agent_key == "workflow"
         assert task.mcp_gateway_server_allowlist == []
 
+    def test_derives_the_runtime_adapter_from_the_selected_model(self) -> None:
+        response = self._post({"model": "gpt-5.6-terra", "reasoning_effort": "high"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["runtime_adapter"] == "codex"
+        assert run.state["provider"] == "openai"
+        assert run.state["model"] == "gpt-5.6-terra"
+        assert run.state["reasoning_effort"] == "high"
+
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
