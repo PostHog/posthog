@@ -278,6 +278,13 @@ impl Scheduler for SchedulerImpl {
             SchedulerImpl::KeyTable(scheduler) => scheduler.on_deadline(snapshot, deadline),
         }
     }
+
+    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
+        match self {
+            SchedulerImpl::PinStash(scheduler) => scheduler.on_partitions_revoked(partitions),
+            SchedulerImpl::KeyTable(scheduler) => scheduler.on_partitions_revoked(partitions),
+        }
+    }
 }
 
 /// The scheduler and the load table, behind the dispatcher's single Mutex.
@@ -751,6 +758,17 @@ impl Dispatcher {
     /// The scheduler selected at construction.
     pub fn scheduler_kind(&self) -> SchedulerKind {
         self.scheduler_kind
+    }
+
+    /// Drop the scheduler's queued messages for revoked partitions, as
+    /// `(topic, partition)`. Called from the consumer's rebalance callback.
+    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
+        let mut inner = self.inner.lock().unwrap();
+        let effects = inner.scheduler.on_partitions_revoked(partitions);
+        debug_assert!(effects.dispatches.is_empty(), "a purge never dispatches");
+        for key in &effects.evicted_keys {
+            self.key_sentinel.evict(key);
+        }
     }
 
     /// Whether the key table holds queued or in-flight work. The pump's

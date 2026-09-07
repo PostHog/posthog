@@ -17,7 +17,7 @@
 //! Not selected by any production caller yet; the scheduler switch is the
 //! next change.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use metrics::{counter, gauge};
 
@@ -221,6 +221,48 @@ impl KeyTable {
             }
             _ => false,
         }
+    }
+
+    /// Drop queued messages on revoked partitions and the keys that emptied,
+    /// unless still outstanding. Returns the purged message count and the
+    /// evicted keys.
+    fn purge_partitions(&mut self, revoked: &[(String, i32)]) -> (usize, Vec<String>) {
+        let revoked: HashSet<(&str, i32)> = revoked
+            .iter()
+            .map(|(topic, partition)| (topic.as_str(), *partition))
+            .collect();
+        let mut purged = 0usize;
+        let mut purged_bytes = 0usize;
+        for state in self.keys.values_mut() {
+            let before = state.queue.len();
+            state.queue.retain(|(_, message)| {
+                let keep = !revoked.contains(&(message.topic.as_str(), message.partition));
+                if !keep {
+                    purged_bytes += message.payload_bytes();
+                }
+                keep
+            });
+            purged += before - state.queue.len();
+            if state.queue.is_empty() {
+                state.parked = false;
+                state.redelivering = false;
+            }
+        }
+        self.queued_messages = self.queued_messages.saturating_sub(purged);
+        self.queued_bytes = self.queued_bytes.saturating_sub(purged_bytes);
+
+        let keys = &mut self.keys;
+        self.parked
+            .retain(|key| keys.get(key).is_some_and(|state| state.parked));
+        let evicted: Vec<String> = keys
+            .iter()
+            .filter(|(_, state)| state.queue.is_empty() && !state.outstanding && !state.parked)
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in &evicted {
+            keys.remove(key);
+        }
+        (purged, evicted)
     }
 
     /// Drop the key when nothing is queued, outstanding, or parked, so its
@@ -456,6 +498,17 @@ impl Scheduler for KeyTableScheduler {
             });
         }
 
+        self.record_gauges();
+        effects
+    }
+
+    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
+        let mut effects = SchedulerEffects::default();
+        let (purged, evicted) = self.table.purge_partitions(partitions);
+        if purged > 0 {
+            counter!("ingestion_consumer_key_table_purged_messages_total").increment(purged as u64);
+        }
+        effects.evicted_keys = evicted;
         self.record_gauges();
         effects
     }
@@ -938,6 +991,37 @@ mod tests {
 
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].worker, wid(B));
+    }
+
+    #[test]
+    fn test_revoked_partitions_purge_queued_messages() {
+        let mut sched = scheduler();
+        // Key a queues behind its outstanding request; key b parks unroutable.
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b3", 0, vec![run("t:b", &[1])]);
+
+        // An unrelated partition purges nothing.
+        let effects = sched.on_partitions_revoked(&[("test".to_string(), 7)]);
+        assert!(effects.evicted_keys.is_empty());
+        assert_eq!(sched.table().queued_messages(), 2);
+
+        let effects = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+
+        assert_eq!(sched.table().queued_messages(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
+        assert_eq!(sched.table().parked_keys(), 0);
+        assert_eq!(
+            effects.evicted_keys,
+            vec!["t:b".to_string()],
+            "the emptied parked key goes; the outstanding key stays"
+        );
+        assert_eq!(sched.table().outstanding_keys(), 1);
+
+        // The outstanding key's settlement finds nothing queued and evicts it.
+        let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(sched.table().key_count(), 0);
     }
 
     // ---- lifecycle ----

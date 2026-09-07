@@ -228,6 +228,12 @@ pub trait Scheduler {
         snapshot: &WorkerSnapshot,
         deadline: Deadline<'_>,
     ) -> SchedulerEffects;
+
+    /// Partitions were revoked, as `(topic, partition)`. Queued messages for
+    /// them must drop: the new partition owner replays them.
+    fn on_partitions_revoked(&mut self, _partitions: &[(String, i32)]) -> SchedulerEffects {
+        SchedulerEffects::default()
+    }
 }
 
 /// Sticky pin for one routing key. Tracks which worker owns the key and how

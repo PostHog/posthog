@@ -180,6 +180,11 @@ impl Batcher {
         self.inner.dispatcher.key_order_sentinel()
     }
 
+    /// The dispatcher, for the consumer's revocation hook.
+    pub fn dispatcher(&self) -> Arc<Dispatcher> {
+        Arc::clone(&self.inner.dispatcher)
+    }
+
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
     /// order. Returns the assignment epoch stamped on the poll's completions,
     /// so the consumer can correlate them without a second epoch read.

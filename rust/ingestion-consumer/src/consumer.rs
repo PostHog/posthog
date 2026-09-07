@@ -262,6 +262,12 @@ impl IngestionConsumer {
         // callbacks reset the same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let purge_dispatcher = Arc::clone(&dispatcher);
+        consumer
+            .context()
+            .set_revoke_hook(Box::new(move |partitions| {
+                purge_dispatcher.purge_revoked(partitions)
+            }));
         let (batcher, outputs) = Batcher::new(
             dispatcher,
             Arc::clone(&transport),
@@ -325,6 +331,10 @@ impl IngestionConsumer {
             Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
+        let purge_dispatcher = batcher.dispatcher();
+        context.set_revoke_hook(Box::new(move |partitions| {
+            purge_dispatcher.purge_revoked(partitions)
+        }));
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
