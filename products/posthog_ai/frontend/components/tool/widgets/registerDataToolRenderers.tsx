@@ -102,9 +102,19 @@ register(
 
 // --- Data tools: notebooks ---
 // The generated CRUD tools and the handwritten notebook-edit (the collab-safe content editor) all
-// return the same REST notebook payload.
+// return the same REST notebook payload. A feature flag swaps that set for the markdown notebook
+// tools, so both sets are registered — a thread only ever contains calls from the set its own run
+// was served. The cell tools (add / update / delete) stay on the generic card: they return a cell
+// run, not a notebook, so this card has nothing to show for them.
 register(
-    ['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit'],
+    [
+        'notebooks-create',
+        'notebooks-partial-update',
+        'notebooks-retrieve',
+        'notebook-edit',
+        'notebooks-create-markdown',
+        'notebooks-get',
+    ],
     'Notebook',
     <IconNotebook />,
     NotebookRenderer

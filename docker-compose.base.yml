@@ -878,7 +878,11 @@ services:
                 echo "SeaweedFS ready with posthog bucket"
                 wait $$WEED_PID
             - --
-        command: ['server', '-s3', '-s3.port=8333', '-dir=/data']
+        # volume.max mirrors the objectstorage service above: SeaweedFS defaults to 8
+        # volume slots, which sustained recording ingestion exhausts long before the disk
+        # is full — writes then fail ("no writable volumes") and the sessionreplay blob
+        # flusher crash-loops on flush timeouts.
+        command: ['server', '-s3', '-s3.port=8333', '-dir=/data', '-volume.max=1000']
 
     duckgres:
         # DuckLake 0.4 + DuckDB 1.5.1, multi-arch (posthog/duckgres@5cfca88)

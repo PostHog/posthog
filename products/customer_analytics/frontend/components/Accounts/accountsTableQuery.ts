@@ -40,6 +40,7 @@ import {
     isAccountPropertyFilter,
     isAccountRelationshipFilter,
 } from './accountsPropertyFilters'
+import type { AssignmentStatus } from './accountsViewState'
 
 const RELATIONSHIP_COLUMN_REGEX = /^accounts\.relationships\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
 const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
@@ -115,7 +116,7 @@ export interface BuildAccountsTableQueryPlanInput {
     visibleColumnNames: string[]
     searchQuery: string
     tagsFilter: string[]
-    allRolesUnassigned: boolean
+    assignmentStatus: AssignmentStatus
     assignedToFilter: RoleFilterValue
     accountIdFilter: string | null
     tileFilter: TileFilter | null
@@ -305,12 +306,20 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     if (input.tagsFilter.length > 0) {
         filters.push({ kind: 'tags', tagNames: input.tagsFilter } satisfies AccountsTableTagsFilter)
     }
-    if (input.allRolesUnassigned) {
+    // `all` omits the assignment filter entirely so both assigned and unassigned accounts
+    // show. `assigned` narrows to assigned accounts, further restricted to specific users
+    // when any are selected.
+    if (input.assignmentStatus === 'unassigned') {
         filters.push({ kind: 'unassigned' } satisfies AccountsTableUnassignedFilter)
-    } else if (input.assignedToFilter.length > 0) {
-        filters.push({ kind: 'assigned_to', userIds: input.assignedToFilter } satisfies AccountsTableAssignedToFilter)
-    } else {
-        filters.push({ kind: 'assigned' } satisfies AccountsTableAssignedFilter)
+    } else if (input.assignmentStatus === 'assigned') {
+        if (input.assignedToFilter.length > 0) {
+            filters.push({
+                kind: 'assigned_to',
+                userIds: input.assignedToFilter,
+            } satisfies AccountsTableAssignedToFilter)
+        } else {
+            filters.push({ kind: 'assigned' } satisfies AccountsTableAssignedFilter)
+        }
     }
     for (const filter of input.accountFilters) {
         const translatedFilter = isAccountPropertyFilter(filter)

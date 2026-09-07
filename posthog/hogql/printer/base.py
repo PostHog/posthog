@@ -520,7 +520,7 @@ class BasePrinter(Visitor[str]):
         node_type: ast.TableOrSelectType | None,
     ) -> list[ast.Expr]:
         """Return predicate expressions from the table definition, resolved against the table's type."""
-        predicates = table_type.table.get_predicates()
+        predicates = table_type.table.get_predicates(self.context)
         if not predicates or node_type is None:
             return []
 
@@ -544,6 +544,15 @@ class BasePrinter(Visitor[str]):
     ) -> ast.Expr | None:
         """Floor events-table scans to the team's retention window. Overridden by the ClickHouse dialect;
         default no-op — the HogQL and warehouse dialects don't enforce events retention."""
+        return None
+
+    def _postgres_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor a federated table declaring a `retention_field` to its entitlement window. Overridden
+        by the ClickHouse dialect; default no-op — only that dialect reads these tables."""
         return None
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
@@ -617,6 +626,9 @@ class BasePrinter(Visitor[str]):
             retention_floor = self._events_retention_floor(table_type, node.type)
             if retention_floor is not None:
                 predicate_exprs = [*predicate_exprs, retention_floor]
+            postgres_floor = self._postgres_retention_floor(table_type, node.type)
+            if postgres_floor is not None:
+                predicate_exprs = [*predicate_exprs, postgres_floor]
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
                     if on_clause_guard is None:
@@ -1537,9 +1549,13 @@ class BasePrinter(Visitor[str]):
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
             return "UTC"
+        if self.context.timezone is not None:
+            return self.context.timezone
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:
+        if self.context.week_start_day is not None:
+            return self.context.week_start_day
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_type_nullable(self, node_type: ast.Type) -> bool | None:

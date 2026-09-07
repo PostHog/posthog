@@ -128,6 +128,40 @@ describe("registerAppVersion", () => {
   });
 });
 
+describe("registerAdapterSubscription", () => {
+  it("reports the saved access when connected", async () => {
+    const { initializePostHog, registerAdapterSubscription } =
+      await loadAnalytics();
+    initializePostHog();
+
+    registerAdapterSubscription("claude", {
+      access: "own-subscription",
+      connected: true,
+    });
+
+    expect(mockPosthog.register).toHaveBeenCalledWith({
+      claude_model_access: "own-subscription",
+      claude_subscription_connected: true,
+    });
+  });
+
+  it("reports the gateway as effective access when disconnected", async () => {
+    const { initializePostHog, registerAdapterSubscription } =
+      await loadAnalytics();
+    initializePostHog();
+
+    registerAdapterSubscription("claude", {
+      access: "own-subscription",
+      connected: false,
+    });
+
+    expect(mockPosthog.register).toHaveBeenCalledWith({
+      claude_model_access: "posthog-gateway",
+      claude_subscription_connected: false,
+    });
+  });
+});
+
 describe("track", () => {
   it("stamps inbox_client on inbox events", async () => {
     const { initializePostHog, track } = await loadAnalytics();
@@ -141,6 +175,23 @@ describe("track", () => {
 
     expect(mockPosthog.capture).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,
+      expect.objectContaining({ inbox_client: "code" }),
+    );
+  });
+
+  it("stamps inbox_client on triage events", async () => {
+    const { initializePostHog, track } = await loadAnalytics();
+    initializePostHog();
+
+    track(ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED, {
+      triage_id: "triage-1",
+      queue_size: 3,
+      scope: "for-you",
+      has_active_filters: false,
+    });
+
+    expect(mockPosthog.capture).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
       expect.objectContaining({ inbox_client: "code" }),
     );
   });

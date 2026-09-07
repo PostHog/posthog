@@ -18,6 +18,7 @@
 import type { Redis } from 'ioredis'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { observeStreamWriteSkipped } from '@/hono/metrics.js'
 import type { Config } from '@/lib/config.js'
 import {
     MAX_EVENT_LINE_BYTES,
@@ -26,7 +27,7 @@ import {
     HEARTBEAT_THROTTLE_SECONDS,
 } from '@/lib/constants.js'
 import { logger } from '@/lib/logging.js'
-import { TaskRunRedisStream, getCompletedKey, getStreamKey } from '@/lib/redis-stream.js'
+import { TaskRunRedisStream, getCompletedKey, getStreamKey, getWatchedKey } from '@/lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
 
@@ -303,6 +304,9 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         runId: 'run-123',
         taskId: 'task-abc',
         teamId: 42,
+        presenceGated: false,
+        thinTail: false,
+        originProduct: 'unknown',
         ...overrides,
     }
 }
@@ -460,6 +464,53 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(200)
         const body = await decodeJson(res)
         expect(body).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+    })
+
+    // -----------------------------------------------------------------------
+    // Presence gating
+    // -----------------------------------------------------------------------
+
+    it.each([
+        { name: 'skips the mirror when no reader is attached', watched: false, expectedEntries: 0 },
+        { name: 'mirrors when a reader is attached', watched: true, expectedEntries: 1 },
+    ])('presence-gated ingest $name', async ({ watched, expectedEntries }) => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true, originProduct: 'signals_scout' }))
+        if (watched) {
+            await fakeRedis.set(getWatchedKey(getStreamKey(RUN_ID)), '1', 'EX', 300)
+        }
+        const config = makeConfig()
+        const ndjson = JSON.stringify({ seq: 1, event: { type: 'message' } }) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        expect(await decodeJson(res)).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+        expect(await redisStream.getLastSequence()).toBe(1)
+        expect(await fakeRedis.xrange(getStreamKey(RUN_ID))).toHaveLength(expectedEntries)
+        if (watched) {
+            expect(observeStreamWriteSkipped).not.toHaveBeenCalled()
+        } else {
+            expect(observeStreamWriteSkipped).toHaveBeenCalledWith('ingest', 'signals_scout')
+        }
+    })
+
+    it('still writes the completion sentinel for a presence-gated run with no reader', async () => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true }))
+        const config = makeConfig()
+        const ndjson =
+            JSON.stringify({ seq: 1, event: { type: 'message' } }) +
+            '\n' +
+            JSON.stringify({ type: '_posthog/stream_complete', final_seq: 1 }) +
+            '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+        expect(JSON.parse(entries[0]![1]['data']!)).toEqual({ type: 'STREAM_STATUS', status: 'complete' })
     })
 
     it('writes complete NDJSON lines before the request body closes', async () => {
@@ -1232,6 +1283,27 @@ describe('ingest-handler', () => {
         global.fetch = originalFetch
     })
 
+    it('keeps the command claim when the Django callback answers 400', async () => {
+        const originalFetch = global.fetch
+        global.fetch = vi.fn(async () => new Response('', { status: 400 })) as typeof fetch
+
+        const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+
+        const commandEvent = {
+            type: 'notification',
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
+        }
+        const ndjson = JSON.stringify({ seq: 1, event: commandEvent }) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+        expect(res.status).toBe(200)
+
+        await new Promise((r) => setTimeout(r, 10))
+
+        expect(await redisStream.claimFirstAgentCommand()).toBe(false)
+        global.fetch = originalFetch
+    })
+
     it('still returns 200 when the Django callback returns a non-2xx status', async () => {
         const originalFetch = global.fetch
         global.fetch = vi.fn(async () => new Response('', { status: 500 })) as typeof fetch
@@ -1275,6 +1347,41 @@ describe('ingest-handler', () => {
 
             global.fetch = originalFetch
         })
+
+        const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
+        const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
+        const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
+
+        it.each([
+            ['awaiting_input', turnComplete, 'network failure', networkFailure, 2],
+            ['awaiting_input', turnComplete, '503', new Response('', { status: 503 }), 2],
+            ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
+            ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
+            ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
+        ])(
+            'a %s callback whose first attempt ends in a %s is sent %i time(s) in total',
+            async (_kind, event, _label, firstOutcome, expectedCalls) => {
+                vi.useFakeTimers()
+                const originalFetch = global.fetch
+                const fetchMock = vi
+                    .fn()
+                    .mockImplementationOnce(() =>
+                        firstOutcome instanceof Error ? Promise.reject(firstOutcome) : Promise.resolve(firstOutcome)
+                    )
+                    .mockResolvedValue(new Response('{"dispatched": true}', { status: 200 }))
+                global.fetch = fetchMock as typeof fetch
+
+                const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+                await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+                await vi.advanceTimersByTimeAsync(2000)
+
+                expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
+                expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+
+                global.fetch = originalFetch
+                vi.useRealTimers()
+            }
+        )
 
         it('sets agent active and fires heartbeat for a session/update event', async () => {
             const fired: { kind: string }[] = []

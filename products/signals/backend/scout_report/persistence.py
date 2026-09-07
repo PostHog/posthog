@@ -32,6 +32,7 @@ from datetime import datetime
 from functools import partial
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -155,8 +156,9 @@ def create_scout_report(
     Unlike the autostart inputs they're written whatever the judged status, so a suppressed report
     keeps the exhibits behind it for whoever reviews the suppression.
 
-    `suggested_prompts`, when supplied, become the questions the inbox offers above the report's
-    "Ask AI" box. Written on the same terms as `charts`, and for the same reason.
+    `suggested_prompts`, when supplied, become the prompts (questions or next-step actions) the
+    inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
+    the same reason.
 
     `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
     defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
@@ -297,6 +299,21 @@ def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
 
 
+def scout_report_exists(*, team_id: int, report_id: str) -> bool:
+    """Team-scoped existence check for the edit path's pre-judge gate. Validates the id shape the way
+    the write paths do, so a malformed id is a caller error rather than an uncaught 500. A cost gate
+    only — the write paths keep their own fail-closed resolution under their transactions."""
+    _validate_report_id(report_id)
+    return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
+
+
+def get_scout_report_signal_count(*, team_id: int, report_id: str) -> int | None:
+    """Team-scoped signal-count lookup, for the edit path's pre-judge evidence cap. Returns None when
+    the report doesn't exist for the team. A cost gate only — `append_report_evidence` re-checks the
+    cap under the report lock."""
+    return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("signal_count", flat=True).first()
+
+
 def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
     """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
     have its content pushed to a configured destination, matching emit. Returns None when the report
@@ -312,12 +329,21 @@ def update_scout_report(
     title: str | None = None,
     summary: str | None = None,
     attribution: ArtefactAttribution | None = None,
+    reviewed: bool = False,
 ) -> list[str]:
     """Rewrite an existing report's `title`/`summary` in place (the `edit_report` content path).
 
     Team-scoped fail-closed: a `report_id` the team doesn't own raises, never silently no-ops. Returns
     the modified field names. Title/summary edits are best-effort authorship — the pipeline may later
     re-research and overwrite them (decision #6); that is documented in the scout-facing contract.
+
+    `reviewed=True` means the caller ran the safety judge over the full document this save leaves
+    behind — both `title` and `summary` as they will be stored (the `edit_report` tool path on a full
+    rewrite) — so the save re-embeds the report instead of retracting its embedding. Callers must not
+    set it for a partial edit: the stored other half may itself be unreviewed, and re-embedding would
+    republish it. The default keeps unjudged callers fail-closed. A reviewed rewrite that changes
+    nothing still saves, marked for re-indexing: re-sending the stored document through the judge is
+    the recovery route for an embedding an earlier unreviewed edit tombstoned.
 
     When `attribution` is supplied and the content actually changes, a typed `title_change` /
     `summary_change` artefact is appended to the report's work log for each edited field, recording the
@@ -339,10 +365,12 @@ def update_scout_report(
         old_title, old_summary = report.title, report.summary
         updated_fields = report.update_authored_content(title=title, summary=summary)
         if updated_fields:
-            # Agent-authored text that the safety judge has not seen; the report's existing verdict was
-            # reached on the text this edit replaces. Marking the save retracts the report's embedding
-            # rather than indexing unreviewed content under a stale approval (see receivers.py).
-            report._unreviewed_edit = True  # type: ignore[attr-defined]
+            if not reviewed:
+                # Agent-authored text that the safety judge has not seen; the report's existing verdict
+                # was reached on the text this edit replaces. Marking the save retracts the report's
+                # embedding rather than indexing unreviewed content under a stale approval (see
+                # receivers.py).
+                report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             if attribution is not None:
                 edit_artefacts: list[TitleChange | SummaryChange] = []
@@ -357,6 +385,16 @@ def update_scout_report(
                         content=content,
                         attribution=attribution,
                     )
+        elif reviewed and title is not None and summary is not None:
+            # A judged rewrite to the exact stored document: nothing changes in Postgres, but the
+            # embedding row may be a tombstone from an earlier unreviewed edit, and only a save marked
+            # as re-indexable lets the receiver restore it (see receivers.py). The receiver cannot see
+            # whether the row is live, so this spends one re-embed of identical text when it was — a
+            # judged re-send is rare, and a supersede write is cheap. No change artefacts, and
+            # `updated_at` stays out of the save: nothing changed, so the report must not jump the
+            # inbox's recency ordering or read as edited.
+            report._reviewed_reindex = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "summary"])
 
     logger.info(
         "signals_scout.edit_report: content updated",
@@ -395,6 +433,97 @@ def append_report_note(
         )
     logger.info("signals_scout.edit_report: note appended", extra={"team_id": team_id, "report_id": report_id})
     return report_id
+
+
+def append_report_evidence(
+    *,
+    team_id: int,
+    report_id: str,
+    signals: Sequence[ScoutReportSignal],
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> list[str]:
+    """Add backing signal rows to an existing report (the `edit_report` evidence path).
+
+    Additive, the way a note is: the supplied observations join the ones the report already carries
+    instead of replacing them. `signal_count` and `total_weight` move with them, because the inbox
+    card, the Slack context line and the ranking features read those columns — leaving them stale
+    would show fewer signals than the evidence rail renders.
+
+    Team-scoped fail-closed like `append_report_note`, and capped: emit plus every append share
+    `MAX_REPORT_SIGNALS`, checked under the report lock so two concurrent appends cannot both pass.
+    A deleted report is refused under the same lock.
+
+    Returns the ClickHouse `document_id`s to write, in input order. Only the Postgres side runs here.
+    The caller emits the rows with `emit_appended_report_evidence` AFTER the edit commits, so a
+    rolled-back edit never leaves orphan signals bound to the report — the rule `create_scout_report`
+    follows for the same reason.
+    """
+    if not signals:
+        raise InvalidScoutReportError("append_report_evidence needs at least one observation")
+    _validate_report_id(report_id)
+    document_ids = [signal.document_id or str(uuid.uuid4()) for signal in signals]
+    appended_weight = sum(signal.weight for signal in signals)
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("signal_count", "status")
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        stored_count, stored_status = stored
+        # Deletion tombstones every signal row bound to the report, so a live row appended after that
+        # supersedes the tombstone and pulls later pipeline signals back into the dead group. The
+        # grouping pipeline declines to move a deleted report's counters for the same reason, and the
+        # embedding receiver drops its document write. Checked under the lock, so a deletion that
+        # commits while this call runs still blocks the append.
+        if stored_status == SignalReport.Status.DELETED:
+            raise InvalidScoutReportError(f"report {report_id} is deleted; evidence cannot be appended")
+        if stored_count + len(signals) > MAX_REPORT_SIGNALS:
+            raise InvalidScoutReportError(
+                f"report {report_id} holds {stored_count} signals; appending {len(signals)} "
+                f"exceeds the {MAX_REPORT_SIGNALS} cap"
+            )
+        # `F()` rather than a read-modify-write on the locked row: the counters are also bumped by the
+        # grouping pipeline when a pipeline signal matches this report, outside this lock.
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            signal_count=F("signal_count") + len(signals),
+            total_weight=F("total_weight") + appended_weight,
+            updated_at=timezone.now(),
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(note=_evidence_edit_note(len(signals)), author=author),
+            attribution=attribution,
+        )
+
+    logger.info(
+        "signals_scout.edit_report: evidence appended",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(signals)},
+    )
+    return document_ids
+
+
+def emit_appended_report_evidence(
+    *,
+    team_id: int,
+    report_id: str,
+    signals: Sequence[ScoutReportSignal],
+    document_ids: Sequence[str],
+    skill_name: str | None = None,
+) -> None:
+    """Write the rows `append_report_evidence` reserved, once the edit has committed.
+
+    Sequential rather than an `on_commit` hook, mirroring `create_scout_report`: a broker failure
+    surfaces to the caller instead of being swallowed."""
+    for signal, document_id in zip(signals, document_ids):
+        _emit_bound_signal(
+            team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
+        )
 
 
 def set_report_charts(
@@ -472,11 +601,11 @@ def set_report_suggested_prompts(
 
     The same contract `set_report_charts` has, one level down: team-scoped fail-closed, the sequence
     is the full set the report should offer rather than an addition, and an empty sequence is a real
-    write that takes the questions down. A caller that means "leave them alone" does not call this.
+    write that takes the prompts down. A caller that means "leave them alone" does not call this.
 
     Returns whether the stored set actually changed, so a re-send of what is already there doesn't
     count as an edit and notify the report's destination a second time about nothing. Compared after
-    normalizing, since a question that differs only in trailing whitespace is the same question.
+    normalizing, since a prompt that differs only in trailing whitespace is the same prompt.
     """
     _validate_report_id(report_id)
     payload = normalize_suggested_prompts(suggested_prompts)
@@ -558,8 +687,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
             # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
             # would keep a former owner, re-added as a normal reviewer, excluded from autostart
-            # identity selection on stale evidence.
+            # identity selection on stale evidence. `source_skill` is the fresh stamp too: dropping
+            # it here would strip the atomic provenance from exactly the entries a scout re-picks,
+            # leaving autostart's owner exclusion resting on the best-effort tally alone.
             "is_skill_owner": entry.is_skill_owner,
+            "source_skill": entry.source_skill,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))
@@ -898,6 +1030,10 @@ def _chart_edit_note(count: int) -> str:
     if count == 0:
         return "Removed the report's charts via edit_report."
     return f"Replaced report charts ({count}) via edit_report."
+
+
+def _evidence_edit_note(count: int) -> str:
+    return f"Appended {count} evidence item{'s' if count != 1 else ''} via edit_report."
 
 
 def _suggested_prompts_edit_note(count: int) -> str:

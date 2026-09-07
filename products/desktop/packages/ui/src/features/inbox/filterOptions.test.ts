@@ -71,7 +71,7 @@ describe("filterInboxSourceOptions", () => {
 
   it("keeps only the warehouse sources that are switched on", () => {
     expect(values(new Set(["github", "zendesk"]))).toEqual([
-      "session_replay",
+      "replay_vision",
       "error_tracking",
       "llm_analytics",
       "conversations",
@@ -84,7 +84,7 @@ describe("filterInboxSourceOptions", () => {
 
   it("keeps PostHog's own products when nothing is switched on", () => {
     expect(values(new Set())).toEqual([
-      "session_replay",
+      "replay_vision",
       "error_tracking",
       "llm_analytics",
       "conversations",

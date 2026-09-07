@@ -84,6 +84,7 @@ export type { DebugLogsMenuProps } from '../components/DebugLogsMenu'
 
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'
+export { parseSandboxQuestions } from '../policy/questionUtils'
 export { ResourcesBar } from '../components/ResourcesBar'
 export { ContextUsageBar } from '../components/ContextUsageBar'
 export { QuestionField, MultiFieldQuestion, isFieldValid } from '../components/QuestionField'

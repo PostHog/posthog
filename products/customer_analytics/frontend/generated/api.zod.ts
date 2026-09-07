@@ -409,6 +409,13 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+/**
+ * Run a Customer Analytics accounts table query.
+ */
+export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
     channels: zod
@@ -856,6 +863,71 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
     sidebar: zod.unknown().optional(),
 })
 
+export const customerTasksCreateBodyNameMax = 400
+
+export const customerTasksCreateBodyStatusDefault = `open`
+
+export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null for an accountless task.'),
+    name: zod.string().max(customerTasksCreateBodyNameMax).describe('Task name.'),
+    description: zod.string().nullish().describe('Task description, or null to leave it empty.'),
+    assigned_to_id: zod.number().nullish().describe('PostHog user ID to assign, or null to leave unassigned.'),
+    due_at: zod.iso.datetime({ offset: true }).nullish().describe('ISO 8601 deadline, or null for no deadline.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .default(customerTasksCreateBodyStatusDefault)
+        .describe(
+            'Initial task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
+export const customerTasksUpdateBodyNameMax = 400
+
+export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+    name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+    assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    due_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .optional()
+        .describe(
+            'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
+export const customerTasksPartialUpdateBodyNameMax = 400
+
+export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+    assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    due_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .optional()
+        .describe(
+            'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
 /**
  * The caller's event stream: a live feed of selected accounts' events posted to a
  * Slack channel of their choice. Per-user — each team member owns at most one stream, and
@@ -1094,8 +1166,10 @@ export const featureRequestsCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault = ``
 export const featureRequestsCreateBodyEvidenceOneEvidenceSourceMax = 200
 
-export const featureRequestsCreateBodyEvidenceOneSourceUrlDefault = ``
-export const featureRequestsCreateBodyEvidenceOneSourceUrlMax = 2000
+export const featureRequestsCreateBodyEvidenceOneSourceUrlOneDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSourceUrlOneMax = 2000
+
+export const featureRequestsCreateBodyEvidenceOneSourceUrlTwoMax = 0
 
 export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
@@ -1126,9 +1200,14 @@ export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
                     .max(featureRequestsCreateBodyEvidenceOneEvidenceSourceMax)
                     .describe('Free-form name of the source where this evidence was recorded.'),
                 source_url: zod
-                    .url()
-                    .max(featureRequestsCreateBodyEvidenceOneSourceUrlMax)
-                    .default(featureRequestsCreateBodyEvidenceOneSourceUrlDefault)
+                    .union([
+                        zod
+                            .url()
+                            .max(featureRequestsCreateBodyEvidenceOneSourceUrlOneMax)
+                            .default(featureRequestsCreateBodyEvidenceOneSourceUrlOneDefault),
+                        zod.string().max(featureRequestsCreateBodyEvidenceOneSourceUrlTwoMax),
+                    ])
+                    .optional()
                     .describe('Optional HTTP or HTTPS link to the source.'),
                 requested_on: zod.iso
                     .date()
@@ -1234,8 +1313,10 @@ export const featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax = 200
 
-export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault = ``
-export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax = 2000
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneMax = 2000
+
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlTwoMax = 0
 
 export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
@@ -1259,9 +1340,14 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
                     .max(featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax)
                     .describe('Free-form name of the source where this evidence was recorded.'),
                 source_url: zod
-                    .url()
-                    .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax)
-                    .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault)
+                    .union([
+                        zod
+                            .url()
+                            .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneMax)
+                            .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneDefault),
+                        zod.string().max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlTwoMax),
+                    ])
+                    .optional()
                     .describe('Optional HTTP or HTTPS link to the source.'),
                 requested_on: zod.iso
                     .date()
@@ -1282,8 +1368,10 @@ export const featureRequestsAddEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsAddEvidenceCreateBodyEvidenceSourceMax = 200
 
-export const featureRequestsAddEvidenceCreateBodySourceUrlDefault = ``
-export const featureRequestsAddEvidenceCreateBodySourceUrlMax = 2000
+export const featureRequestsAddEvidenceCreateBodySourceUrlOneDefault = ``
+export const featureRequestsAddEvidenceCreateBodySourceUrlOneMax = 2000
+
+export const featureRequestsAddEvidenceCreateBodySourceUrlTwoMax = 0
 
 export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
     summary: zod
@@ -1299,9 +1387,14 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
         .max(featureRequestsAddEvidenceCreateBodyEvidenceSourceMax)
         .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
-        .url()
-        .max(featureRequestsAddEvidenceCreateBodySourceUrlMax)
-        .default(featureRequestsAddEvidenceCreateBodySourceUrlDefault)
+        .union([
+            zod
+                .url()
+                .max(featureRequestsAddEvidenceCreateBodySourceUrlOneMax)
+                .default(featureRequestsAddEvidenceCreateBodySourceUrlOneDefault),
+            zod.string().max(featureRequestsAddEvidenceCreateBodySourceUrlTwoMax),
+        ])
+        .optional()
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
     image_ids: zod
@@ -1341,8 +1434,10 @@ export const featureRequestsUpdateEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax = 200
 
-export const featureRequestsUpdateEvidenceCreateBodySourceUrlDefault = ``
-export const featureRequestsUpdateEvidenceCreateBodySourceUrlMax = 2000
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlOneDefault = ``
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlOneMax = 2000
+
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlTwoMax = 0
 
 export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.object({
     summary: zod
@@ -1358,9 +1453,14 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
         .max(featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax)
         .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
-        .url()
-        .max(featureRequestsUpdateEvidenceCreateBodySourceUrlMax)
-        .default(featureRequestsUpdateEvidenceCreateBodySourceUrlDefault)
+        .union([
+            zod
+                .url()
+                .max(featureRequestsUpdateEvidenceCreateBodySourceUrlOneMax)
+                .default(featureRequestsUpdateEvidenceCreateBodySourceUrlOneDefault),
+            zod.string().max(featureRequestsUpdateEvidenceCreateBodySourceUrlTwoMax),
+        ])
+        .optional()
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
     image_ids: zod

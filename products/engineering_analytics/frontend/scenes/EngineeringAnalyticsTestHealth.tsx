@@ -120,6 +120,12 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                     loading={trunkQuarantineLoading}
                 />
             </div>
+            {trunkQuarantine && !trunkQuarantine.ownersResolved && (
+                <LemonBanner type="warning">
+                    We could not read {trunkQuarantine.repository}'s ownership files, so every test below is listed as
+                    unowned. Try again in a few minutes.
+                </LemonBanner>
+            )}
             <LemonTable
                 data-attr="engineering-analytics-trunk-debt-teams-table"
                 size="small"

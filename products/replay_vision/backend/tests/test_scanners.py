@@ -12,13 +12,13 @@ from products.replay_vision.backend.temporal.scanners import (
     MonitorScanner,
     ScorerOutput,
     ScorerScanner,
-    SummarizerFacetsResponse,
     SummarizerOutput,
     SummarizerScanner,
     SummarizerSummaryResponse,
     scanner_from_db,
 )
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
 from products.replay_vision.backend.temporal.types import EventTable
 
 
@@ -28,7 +28,7 @@ def _build_replay_scanner(**overrides) -> ReplayScanner:
         "name": "test-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "did the user export?"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
         "emits_signals": False,
     }
     defaults.update(overrides)
@@ -377,9 +377,9 @@ class TestClassifierScanner:
         schema_class = scanner.llm_response_schema
         # Unknown tag rejected at parse time (schema-level Literal enforcement).
         with pytest.raises(ValidationError):
-            schema_class(tags=["a", "z"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=["a", "z"], reasoning="r", confidence=0.9)
         # Subset accepted.
-        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)
         assert ok.tags == ["a"]  # type: ignore[attr-defined]
 
     def test_full_pipeline_finalize_returns_classifier_output(self) -> None:
@@ -388,7 +388,7 @@ class TestClassifierScanner:
                 scanner_type=ScannerType.CLASSIFIER, scanner_config={"prompt": "x", "tags": ["a", "b"]}
             )
         )
-        llm_response = scanner.llm_response_schema(tags=["a"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(tags=["a"], reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ClassifierOutput)
         assert scanner.validate_semantics(finalized) is None
@@ -402,10 +402,10 @@ class TestClassifierScanner:
         )
         schema_class = scanner.llm_response_schema
         with pytest.raises(ValidationError):
-            schema_class(tags=["a", "b"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=["a", "b"], reasoning="r", confidence=0.9)
         with pytest.raises(ValidationError):
-            schema_class(tags=[], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
-        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=[], reasoning="r", confidence=0.9)
+        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)
         assert ok.tags == ["a"]  # type: ignore[attr-defined]
 
     def test_freeform_default_off_rejects_freeform_in_validate(self) -> None:
@@ -429,10 +429,10 @@ class TestClassifierScanner:
             )
         )
         schema_class = scanner.llm_response_schema
-        ok = schema_class(tags=["a"], tags_freeform=["custom_one", "custom_two"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        ok = schema_class(tags=["a"], tags_freeform=["custom_one", "custom_two"], reasoning="r", confidence=0.9)
         assert ok.tags_freeform == ["custom_one", "custom_two"]  # type: ignore[attr-defined]
         with pytest.raises(ValidationError):
-            schema_class(tags=["a"], tags_freeform=[f"t{i}" for i in range(6)], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=["a"], tags_freeform=[f"t{i}" for i in range(6)], reasoning="r", confidence=0.9)
 
     def test_freeform_prompt_block_only_when_enabled(self) -> None:
         on = scanner_from_db(
@@ -475,7 +475,7 @@ class TestClassifierScanner:
             tags_freeform=["loginfailure", "ONBOARDING", "billing"],
             reasoning="r",
             confidence=0.9,
-        )  # ty: ignore[pydantic-discarded-extra-argument]
+        )
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ClassifierOutput)
         assert finalized.tags_freeform == ["billing"]
@@ -492,7 +492,7 @@ class TestClassifierScanner:
             tags_freeform=["Password Reset", "PASSWORD reset", "  rate-limit  ", "Slow Checkout!"],
             reasoning="r",
             confidence=0.9,
-        )  # ty: ignore[pydantic-discarded-extra-argument]
+        )
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ClassifierOutput)
         assert finalized.tags_freeform == ["password_reset", "rate-limit", "slow_checkout"]
@@ -587,7 +587,7 @@ class TestScorerScanner:
         schema_class = scanner.llm_response_schema
         # Out-of-range value rejected at the LLM-response layer.
         with pytest.raises(ValidationError):
-            schema_class(score=99, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(score=99, reasoning="r", confidence=0.9)
 
     def test_finalize_stamps_label_from_config(self) -> None:
         scanner = scanner_from_db(
@@ -596,7 +596,7 @@ class TestScorerScanner:
                 scanner_config={"prompt": "rate", "scale": {"min": 1, "max": 5, "label": "frustration"}},
             )
         )
-        llm_response = scanner.llm_response_schema(score=3, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(score=3, reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ScorerOutput)
         assert finalized.score == 3
@@ -608,7 +608,7 @@ class TestScorerScanner:
                 scanner_type=ScannerType.SCORER, scanner_config={"prompt": "rate", "scale": {"min": 0, "max": 1}}
             )
         )
-        llm_response = scanner.llm_response_schema(score=0.5, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(score=0.5, reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ScorerOutput)
         assert finalized.label is None
@@ -620,7 +620,7 @@ class TestScorerScanner:
                 scanner_config={"prompt": "rate", "scale": {"min": 1, "max": 5, "label": "frustration"}},
             )
         )
-        llm_response = scanner.llm_response_schema(score=4, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(score=4, reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ScorerOutput)
         assert finalized.label == "frustration"
@@ -675,16 +675,14 @@ class TestSummarizerScanner:
 
 
 class TestSummarizerScannerSteps:
-    def test_core_steps_are_summary_then_facets(self) -> None:
+    def test_core_steps_are_a_single_required_summary_turn(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         steps = scanner.core_steps()
-        assert [s.name for s in steps] == ["summary", "facets"]
+        assert [s.name for s in steps] == ["summary"]
         assert steps[0].response_model is SummarizerSummaryResponse
-        assert steps[1].response_model is SummarizerFacetsResponse
-        # Facets are best-effort: a failed facet turn must not lose the summary it follows.
-        assert steps[1].required is False
+        assert steps[0].required is True
 
     def test_summary_step_makes_title_follow_operator_naming_convention(self) -> None:
         scanner = scanner_from_db(
@@ -692,89 +690,46 @@ class TestSummarizerScannerSteps:
         )
         assert "naming convention" in scanner.core_steps()[0].instruction
 
-    def test_summary_step_opts_into_citations_facets_step_forbids_them(self) -> None:
+    def test_summary_step_opts_into_citations(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
-        summary_step, facets_step = scanner.core_steps()
+        (summary_step,) = scanner.core_steps()
         assert "(t " in summary_step.instruction
-        # Facets are embedded for search, so they stay plain text — no citation markers.
-        assert "plain text" in facets_step.instruction
-        assert "citation markers would just be noise" in facets_step.instruction
 
-    def test_assemble_merges_summary_and_facets(self) -> None:
+    def test_assemble_builds_output_from_summary_turn(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         summary = SummarizerSummaryResponse(title="Onboarding", summary="Walked through demo", confidence=0.8)
-        facets = SummarizerFacetsResponse(
-            intent="Try the demo", outcome="Finished", friction_points=["empty state"], keywords=["demo"]
-        )
-        out, signals = scanner.assemble({"summary": summary, "facets": facets})
+        out, signals = scanner.assemble({"summary": summary})
         assert isinstance(out, SummarizerOutput)
         assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", 0.8)
-        assert out.intent == "Try the demo"
-        assert out.friction_points == ["empty state"]
         assert signals == []
 
-    def test_assemble_keeps_summary_when_facets_turn_missing(self) -> None:
-        # A facet turn that failed validation is simply absent; the summary still persists.
-        scanner = scanner_from_db(
-            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
-        )
-        summary = SummarizerSummaryResponse(title="t", summary="s", confidence=0.7)
-        out, _ = scanner.assemble({"summary": summary})
-        assert isinstance(out, SummarizerOutput)
-        assert out.title == "t"
-        assert out.has_any_facet() is False
-
-    def test_facets_response_lowercases_and_dedupes_keywords_and_friction_points(self) -> None:
-        scanner = scanner_from_db(
-            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
-        )
-        summary = SummarizerSummaryResponse(title="Auth", summary="Tried to log in", confidence=0.9)
-        facets = SummarizerFacetsResponse(
-            intent="Authenticate",
-            outcome="Reached reset page",
-            friction_points=["Invalid Password Error", "Buffering Page", "invalid password error"],
-            keywords=["Login", "Failed Attempt", "Reset", "login"],
-        )
-        out, _ = scanner.assemble({"summary": summary, "facets": facets})
-        assert isinstance(out, SummarizerOutput)
-        assert out.friction_points == ["invalid password error", "buffering page"]
-        assert out.keywords == ["login", "failed attempt", "reset"]
-
-    def test_output_round_trip_carries_facets(self) -> None:
-        out = SummarizerOutput(
-            title="Onboarding",
-            summary="Walked through demo",
-            intent="Try the demo",
-            outcome="Finished",
-            friction_points=["empty state"],
-            keywords=["demo", "onboarding", "walkthrough"],
-            confidence=0.9,
-        )
-        round_tripped = SummarizerOutput.model_validate_json(out.model_dump_json())
-        assert round_tripped == out
-
-    def test_facets_default_to_empty(self) -> None:
-        out = SummarizerOutput(title="t", summary="s", confidence=0.9)
-        assert out.intent == ""
-        assert out.outcome == ""
-        assert out.friction_points == []
-        assert out.keywords == []
+    def test_output_round_trip_ignores_legacy_facet_fields(self) -> None:
+        # Rows written by the old facet turn still load; the extra keys are dropped rather than rejected.
+        stored = {
+            "scanner_type": "summarizer",
+            "title": "Onboarding",
+            "summary": "Walked through demo",
+            "confidence": 0.9,
+            "intent": "Try the demo",
+            "friction_points": ["empty state"],
+            "keywords": ["demo"],
+        }
+        out = SummarizerOutput.model_validate(stored)
+        assert out == SummarizerOutput(title="Onboarding", summary="Walked through demo", confidence=0.9)
 
 
-class TestSummarizerOutputHasAnyFacet:
-    def test_returns_false_when_all_facets_empty(self) -> None:
-        out = SummarizerOutput(title="t", summary="s", confidence=0.9)
-        assert out.has_any_facet() is False
+class TestSummaryEmbeddingText:
+    def test_joins_title_and_summary(self) -> None:
+        out = SummarizerOutput(title="Login attempt", summary="The form failed twice.", confidence=0.9)
+        assert summary_embedding_text(out) == "Login attempt\n\nThe form failed twice."
 
-    def test_returns_true_when_any_facet_filled(self) -> None:
-        assert SummarizerOutput(title="t", summary="s", intent="i", confidence=0.9).has_any_facet() is True
-        assert SummarizerOutput(title="t", summary="s", outcome="o", confidence=0.9).has_any_facet() is True
-        assert SummarizerOutput(title="t", summary="s", friction_points=["x"], confidence=0.9).has_any_facet() is True
-        assert SummarizerOutput(title="t", summary="s", keywords=["x"], confidence=0.9).has_any_facet() is True
+    def test_skips_blank_parts(self) -> None:
+        assert summary_embedding_text(SummarizerOutput(title="  ", summary="Body", confidence=0.9)) == "Body"
+        assert summary_embedding_text(SummarizerOutput(title="", summary="   ", confidence=0.9)) == ""
 
 
 class TestToEventProperties:

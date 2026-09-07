@@ -2,7 +2,7 @@ from typing import cast
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.insights.utils.aggregations import (
+from posthog.hogql_queries.utils.aggregations import (
     FirstTimeForUserDataWarehouseConfig,
     FirstTimeForUserEventsQueryAlternator,
 )
