@@ -15,6 +15,7 @@ export interface PinnedProfilePropertiesLogicProps {
 export interface pinnedProfilePropertiesLogicValues {
     customerProfileConfig: CustomerProfileConfigType | undefined // customerProfileConfigLogic
     pinnedGroupProperties: string[] | null // userPreferencesLogic
+    pinnedGroupPropertiesByScope: Partial<Record<CustomerProfileScope, string[] | null>> // userPreferencesLogic
     pinnedPersonProperties: string[] | null // userPreferencesLogic
     defaultPinnedGroupProperties: string[] // userPreferencesLogic
     defaultPinnedPersonProperties: string[] // userPreferencesLogic
@@ -31,8 +32,12 @@ export interface pinnedProfilePropertiesLogicActions {
     createConfig: (config: Partial<CustomerProfileConfigType>) => {
         config: Partial<CustomerProfileConfigType>
     } // customerProfileConfigLogic
-    setPinnedGroupProperties: (props: string[] | null) => {
+    setPinnedGroupProperties: (
+        scope: CustomerProfileScope,
         props: string[] | null
+    ) => {
+        props: string[] | null
+        scope: CustomerProfileScope
     } // userPreferencesLogic
     setPinnedPersonProperties: (props: string[] | null) => {
         props: string[] | null
@@ -62,7 +67,12 @@ export interface pinnedProfilePropertiesLogicActions {
 export interface pinnedProfilePropertiesLogicMeta {
     key: CustomerProfileScope
     __keaTypeGenInternalSelectorTypes: {
-        ownPinnedProperties: (a: string[] | null, b: string[] | null, c: any) => string[] | null
+        ownPinnedProperties: (
+            a: string[] | null,
+            b: Partial<Record<CustomerProfileScope, string[] | null>>,
+            c: string[] | null,
+            d: any
+        ) => string[] | null
         hasOwnPins: (a: string[] | null) => boolean
         teamPinnedProperties: (a: CustomerProfileConfigType | undefined) => string[] | null
         defaultPinnedProperties: (a: string[], b: string[], c: any) => string[]
@@ -93,6 +103,7 @@ export const pinnedProfilePropertiesLogic = kea<pinnedProfilePropertiesLogicType
             [
                 'pinnedPersonProperties',
                 'pinnedGroupProperties',
+                'pinnedGroupPropertiesByScope',
                 'defaultPinnedPersonProperties',
                 'defaultPinnedGroupProperties',
             ],
@@ -137,9 +148,26 @@ export const pinnedProfilePropertiesLogic = kea<pinnedProfilePropertiesLogicType
 
     selectors({
         ownPinnedProperties: [
-            (s) => [s.pinnedPersonProperties, s.pinnedGroupProperties, (_, props) => props.scope],
-            (pinnedPersonProperties, pinnedGroupProperties, scope): string[] | null =>
-                scope === CustomerProfileScope.PERSON ? pinnedPersonProperties : pinnedGroupProperties,
+            (s) => [
+                s.pinnedPersonProperties,
+                s.pinnedGroupPropertiesByScope,
+                s.pinnedGroupProperties,
+                (_, props) => props.scope,
+            ],
+            (
+                pinnedPersonProperties,
+                pinnedGroupPropertiesByScope,
+                legacyPinnedGroupProperties,
+                scope: CustomerProfileScope
+            ): string[] | null => {
+                if (scope === CustomerProfileScope.PERSON) {
+                    return pinnedPersonProperties
+                }
+                const ownPins = pinnedGroupPropertiesByScope[scope]
+                // A group scope with no entry of its own reads the pins this person made before
+                // group pins were kept per group type, so their view stays as it was.
+                return ownPins === undefined ? legacyPinnedGroupProperties : ownPins
+            },
         ],
         hasOwnPins: [(s) => [s.ownPinnedProperties], (ownPinnedProperties): boolean => ownPinnedProperties !== null],
         teamPinnedProperties: [
@@ -168,7 +196,7 @@ export const pinnedProfilePropertiesLogic = kea<pinnedProfilePropertiesLogicType
             if (props.scope === CustomerProfileScope.PERSON) {
                 actions.setPinnedPersonProperties(pins)
             } else {
-                actions.setPinnedGroupProperties(pins)
+                actions.setPinnedGroupProperties(props.scope, pins)
             }
         }
 
