@@ -4,7 +4,6 @@ import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,12 +12,20 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { toParams } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DateMappingOption, OrganizationType } from '~/types'
+
+import {
+    getBillingUsageExportDownloadUrl,
+    getBillingUsageTimeseriesRetrieveUrl,
+} from 'products/billing/frontend/generated/api'
+import type {
+    BillingUsageExportDownloadParams,
+    BillingUsageTimeseriesRetrieveParams,
+} from 'products/billing/frontend/generated/api.schemas'
 
 import type { BillingPeriod, BillingType } from '../../types'
 import {
@@ -57,9 +64,9 @@ export enum BillingUsageResponseBreakdownType {
 }
 
 export interface BillingUsageResponse {
-    status: 'ok'
-    type: 'timeseries'
-    customer_id: string
+    count: number
+    next: string | null
+    previous: string | null
     results: Array<{
         id: number
         label: string
@@ -68,7 +75,6 @@ export interface BillingUsageResponse {
         breakdown_type: BillingUsageResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
-    next?: string
 }
 
 const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label: string }> = {
@@ -192,8 +198,6 @@ export interface billingUsageLogicValues {
     }[]
     showEmptyState: boolean
     showSeries: boolean
-    teamIdOptions: number[]
-    teamIdOptionsLoading: boolean
     teamOptions: {
         key: string
         label: string
@@ -222,21 +226,6 @@ export interface billingUsageLogicActions {
     ) => {
         billingUsageResponse: BillingUsageResponse | null
         payload?: void
-    }
-    loadTeamIdOptions: () => any
-    loadTeamIdOptionsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadTeamIdOptionsSuccess: (
-        teamIdOptions: number[],
-        payload?: any
-    ) => {
-        teamIdOptions: number[]
-        payload?: any
     }
     resetFilters: () => {
         value: true
@@ -396,10 +385,7 @@ export interface billingUsageLogicMeta {
                 label: string
             }[]
         ) => number[] | undefined
-        teamOptions: (
-            currentOrganization: OrganizationType | null,
-            teamIdOptions: number[]
-        ) => {
+        teamOptions: (currentOrganization: OrganizationType | null) => {
             key: string
             label: string
         }[]
@@ -421,7 +407,7 @@ function usageExportUrlFor(
     effectiveTeamIds: number[] | undefined,
     withChartCap: boolean
 ): string {
-    const params = {
+    const params: BillingUsageExportDownloadParams = {
         ...(filters.usage_types?.length ? { usage_types: JSON.stringify(filters.usage_types) } : {}),
         ...(effectiveTeamIds?.length ? { team_ids: JSON.stringify(effectiveTeamIds) } : {}),
         ...(filters.breakdowns?.length ? { breakdowns: JSON.stringify(filters.breakdowns) } : {}),
@@ -432,7 +418,7 @@ function usageExportUrlFor(
             ? { top_projects: filters.top_projects }
             : {}),
     }
-    return `/api/billing/usage/export/?${toParams(params)}`
+    return getBillingUsageExportDownloadUrl('@current', params)
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
@@ -471,22 +457,6 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         setBillingUsageError: (error: BillingUsageError | null) => ({ error }),
     }),
     loaders(({ values, actions }) => ({
-        teamIdOptions: [
-            [] as number[],
-            {
-                // The project filter's options, loaded once and apart from the chart, so a chart
-                // that fails or has not answered leaves the filter as it was. Billing reads them
-                // from every report the organization has filed, cached for a day on its side.
-                loadTeamIdOptions: async (): Promise<number[]> => {
-                    try {
-                        const response = await api.get('api/billing/usage/team_options/')
-                        return response?.team_id_options ?? []
-                    } catch {
-                        return []
-                    }
-                },
-            },
-        ],
         billingUsageResponse: [
             null as BillingUsageResponse | null,
             {
@@ -511,7 +481,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     // Only meaningful with a project breakdown - without one there is no
                     // per-project series to fold, and sending it would just be noise.
                     const breakingDownByTeam = !!breakdowns?.includes('team')
-                    const params = {
+                    const params: BillingUsageTimeseriesRetrieveParams = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
@@ -525,7 +495,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         // itself when there is a cap, and reads every project on every key in one
                         // pass when there is not, so nothing is asked per usage type or per page.
                         // Past what it can hold it refuses with guidance, which the catch below shows.
-                        return await api.get(`api/billing/usage/?${toParams(params)}`)
+                        return await api.get<BillingUsageResponse>(
+                            getBillingUsageTimeseriesRetrieveUrl('@current', params)
+                        )
                     } catch (error) {
                         const billingUsageError = getBillingUsageError(error)
                         const isActionable =
@@ -775,23 +747,12 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 selectionCoversEveryProject(filters.team_ids, teamOptions) ? undefined : filters.team_ids,
         ],
         teamOptions: [
-            (s) => [s.currentOrganization, s.teamIdOptions],
-            (currentOrganization: OrganizationType | null, teamIdOptions: number[]) => {
-                const liveTeams = currentOrganization?.teams || []
-                const liveTeamIds = liveTeams.map((team) => team.id)
-                const liveOptions = sortBy(
-                    liveTeams.map((team) => ({ key: String(team.id), label: team.name })),
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null) =>
+                sortBy(
+                    (currentOrganization?.teams || []).map((team) => ({ key: String(team.id), label: team.name })),
                     'label'
-                )
-
-                const deletedTeamIds = difference(teamIdOptions, liveTeamIds)
-                const deletedOptions = sortBy(deletedTeamIds).map((teamId: number) => ({
-                    key: String(teamId),
-                    label: `ID: ${teamId} (deleted)`,
-                }))
-
-                return [...liveOptions, ...deletedOptions]
-            },
+                ),
         ],
     }),
 
@@ -977,7 +938,6 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         },
     })),
     afterMount(({ actions }: billingUsageLogicType) => {
-        actions.loadTeamIdOptions()
         actions.loadBillingUsage()
     }),
 ])

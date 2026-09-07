@@ -3,7 +3,7 @@ import './BillingUsage.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonMenu, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonMenu } from '@posthog/lemon-ui'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -59,7 +59,6 @@ export function BillingSpendView(): JSX.Element {
         showSeries,
         showEmptyState,
         teamOptions,
-        teamIdOptionsLoading,
         billingPeriodMarkers,
     } = useValues(logic)
     const {
@@ -110,24 +109,20 @@ export function BillingSpendView(): JSX.Element {
                     {/* Projects */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Projects</LemonLabel>
-                        {teamIdOptionsLoading ? (
-                            <LemonInput className="w-50 h-10" placeholder="Loading projects…" disabled />
-                        ) : (
-                            <LemonInputSelect
-                                mode="multiple"
-                                displayMode="count"
-                                bulkActions="select-and-clear-all"
-                                className="w-50 h-10"
-                                value={(filters.team_ids || []).map(String)}
-                                onChange={(value: string[]) =>
-                                    setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
-                                }
-                                placeholder="All projects"
-                                options={teamOptions}
-                                allowCustomValues={false}
-                                data-attr="billing-spend-projects"
-                            />
-                        )}
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            className="w-50 h-10"
+                            value={(filters.team_ids || []).map(String)}
+                            onChange={(value: string[]) =>
+                                setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
+                            }
+                            placeholder="All projects"
+                            options={teamOptions}
+                            allowCustomValues={false}
+                            data-attr="billing-spend-projects"
+                        />
                     </div>
 
                     {/* Breakdowns */}

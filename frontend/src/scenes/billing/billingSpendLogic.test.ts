@@ -22,9 +22,9 @@ describe('billingSpendLogic chart type', () => {
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/billing/spend/': () => [
+            '/api/organizations/@current/billing/spend/timeseries/': () => [
                 200,
-                { status: 'ok', type: 'timeseries', customer_id: 'cus_1234', results: [] },
+                { count: 0, next: null, previous: null, results: [] },
             ],
         },
     })
@@ -43,19 +43,6 @@ describe('billingSpendLogic chart type', () => {
 
     afterEach(() => {
         logic?.unmount()
-    })
-
-    it('loads the project options on mount, apart from the chart', async () => {
-        const base = mocks()
-        useMocks({
-            ...base,
-            get: { ...base.get, '/api/billing/usage/team_options/': () => [200, { team_id_options: [3, 17] }] },
-        })
-        await mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.teamIdOptions).toEqual([3, 17])
-        expect(logic.values.teamIdOptionsLoading).toBe(false)
     })
 
     it('always allows stacking, because spend is dollars in every breakdown', async () => {
@@ -102,7 +89,7 @@ describe('billingSpendLogic project breakdown requests', () => {
     let logic: ReturnType<typeof billingSpendLogic.build>
     let requests: { types: string; page_size: string | null; after: string | null; top_projects: string | null }[]
 
-    const empty = { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }
+    const empty = { count: 0, next: null, previous: null, results: [] }
 
     const record = (request: Request): URLSearchParams => {
         const params = new URL(request.url).searchParams
@@ -147,7 +134,7 @@ describe('billingSpendLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/spend/': ({ request }) => {
+                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -163,7 +150,7 @@ describe('billingSpendLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/spend/': ({ request }) => {
+                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
                     record(request)
                     return [200, { ...empty, results: seriesFor('1') }]
                 },
@@ -181,7 +168,7 @@ describe('billingSpendLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/spend/': ({ request }) => {
+                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -242,12 +229,12 @@ describe('billing spend load triggers', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/spend/': ({ request }) => {
+                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
                     requests += 1
                     const params = new URL(request.url).searchParams
                     startDates.push(params.get('start_date') ?? '')
                     endDates.push(params.get('end_date') ?? '')
-                    return [200, { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }]
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
             },
         })
@@ -303,9 +290,9 @@ describe('billingSpendLogic export', () => {
         Array.from({ length: count }, (_, i) => dayjs('2025-09-01').add(i, 'day').format('YYYY-MM-DD'))
 
     const response = (periods: number): BillingSpendResponse => ({
-        status: 'ok',
-        type: 'timeseries',
-        customer_id: 'c',
+        count: 1,
+        next: null,
+        previous: null,
         results: [
             {
                 id: 0,
@@ -319,14 +306,10 @@ describe('billingSpendLogic export', () => {
     })
 
     // useMocks has to be called from the test body: the hooks lint rule rejects it in a helper.
-    const mocks = (teams: number, periods: number): Parameters<typeof useMocks>[0] => ({
+    const mocks = (periods: number): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/billing/spend/': () => [200, response(periods)],
-            '/api/billing/usage/team_options/': () => [
-                200,
-                { team_id_options: Array.from({ length: teams }, (_, i) => i + 1) },
-            ],
+            '/api/organizations/@current/billing/spend/timeseries/': () => [200, response(periods)],
         },
     })
 
@@ -349,7 +332,7 @@ describe('billingSpendLogic export', () => {
     })
 
     it('exports every project without the chart cap, and the chart series with it', async () => {
-        useMocks(mocks(3, 2))
+        useMocks(mocks(2))
         await mount({ breakdowns: ['type', 'team'], top_projects: 20, interval: 'day' })
 
         const every = params(logic.values.spendExportUrl)

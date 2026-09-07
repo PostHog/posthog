@@ -3,7 +3,7 @@ import './BillingUsage.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSelect, LemonMenu, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect, LemonMenu } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -49,7 +49,6 @@ export function BillingUsage(): JSX.Element {
         showSeries,
         showEmptyState,
         teamOptions,
-        teamIdOptionsLoading,
         billingPeriodMarkers,
         usageExportUrl,
         usageChartExportUrl,
@@ -104,24 +103,18 @@ export function BillingUsage(): JSX.Element {
                     {/* Teams */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Projects</LemonLabel>
-                        {teamIdOptionsLoading ? (
-                            <LemonInput className="w-50 h-10" placeholder="Loading projects…" disabled />
-                        ) : (
-                            <LemonInputSelect
-                                mode="multiple"
-                                displayMode="count"
-                                bulkActions="select-and-clear-all"
-                                className="w-50 h-10"
-                                value={(filters.team_ids || []).map(String)}
-                                onChange={(value) =>
-                                    setFilters({ team_ids: value.map(Number).filter((n) => !isNaN(n)) })
-                                }
-                                placeholder="All projects"
-                                options={teamOptions}
-                                allowCustomValues={false}
-                                data-attr="billing-usage-projects"
-                            />
-                        )}
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            className="w-50 h-10"
+                            value={(filters.team_ids || []).map(String)}
+                            onChange={(value) => setFilters({ team_ids: value.map(Number).filter((n) => !isNaN(n)) })}
+                            placeholder="All projects"
+                            options={teamOptions}
+                            allowCustomValues={false}
+                            data-attr="billing-usage-projects"
+                        />
                     </div>
 
                     {/* Breakdowns */}

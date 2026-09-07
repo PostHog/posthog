@@ -233,9 +233,9 @@ const mockBillingUsageResponse: BillingUsageResponse = {
             breakdown_value: 'events',
         },
     ],
-    status: 'ok',
-    type: 'timeseries',
-    customer_id: '123',
+    count: 1,
+    next: null,
+    previous: null,
 }
 
 const mockBillingSpendResponse: BillingSpendResponse = {
@@ -249,9 +249,9 @@ const mockBillingSpendResponse: BillingSpendResponse = {
             breakdown_value: 'events',
         },
     ],
-    status: 'ok',
-    type: 'timeseries',
-    customer_id: '123',
+    count: 1,
+    next: null,
+    previous: null,
 }
 
 const mockDestinations: HogFunctionType[] = [
@@ -266,8 +266,8 @@ describe('maxBillingContextLogic', () => {
         useMocks({
             get: {
                 '/api/billing/': mockBilling,
-                '/api/billing/usage/': mockBillingUsageResponse,
-                '/api/billing/spend/': mockBillingSpendResponse,
+                '/api/organizations/@current/billing/usage/timeseries/': mockBillingUsageResponse,
+                '/api/organizations/@current/billing/spend/timeseries/': mockBillingSpendResponse,
                 '/api/billing/usage_limit_alerts/': [],
                 '/api/billing/compute_spend': {},
                 '/api/organizations/@current/': {

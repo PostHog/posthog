@@ -102,34 +102,14 @@ describe('billingUsageLogic loader', () => {
     let logic: ReturnType<typeof billingUsageLogic.build>
     let toastErrorSpy: jest.SpyInstance
 
-    it('loads the project options on mount, apart from the chart', async () => {
-        useMocks({
-            get: {
-                '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': () => [200, { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }],
-                '/api/billing/usage/team_options/': () => [200, { team_id_options: [3, 17] }],
-            },
-        })
-        billingLogic.mount()
-        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
-        logic = billingUsageLogic()
-        logic.mount()
-        await expectLogic(logic)
-            .toDispatchActions(['loadTeamIdOptions', 'loadTeamIdOptionsSuccess'])
-            .toFinishAllListeners()
-
-        expect(logic.values.teamIdOptions).toEqual([3, 17])
-        expect(logic.values.teamIdOptionsLoading).toBe(false)
-    })
-
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {
         const endDates: string[] = []
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': ({ request }) => {
+                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
                     endDates.push(new URL(request.url).searchParams.get('end_date') ?? '')
-                    return [200, { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }]
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
             },
         })
@@ -160,7 +140,7 @@ describe('billingUsageLogic loader', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': () => [
+                '/api/organizations/@current/billing/usage/timeseries/': () => [
                     400,
                     { code: BILLING_USAGE_QUERY_TOO_LARGE_CODE, detail: 'Select a product.' },
                 ],
@@ -201,9 +181,9 @@ describe('billingUsageLogic series toggling', () => {
     const mocksFor = (results: BillingUsageResponse['results']): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/billing/usage/': () => [
+            '/api/organizations/@current/billing/usage/timeseries/': () => [
                 200,
-                { status: 'ok', type: 'timeseries', customer_id: 'cus_1234', results } as BillingUsageResponse,
+                { count: results.length, next: null, previous: null, results } as BillingUsageResponse,
             ],
         },
     })
@@ -274,9 +254,9 @@ describe('billingUsageLogic chart type', () => {
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/billing/usage/': () => [
+            '/api/organizations/@current/billing/usage/timeseries/': () => [
                 200,
-                { status: 'ok', type: 'timeseries', customer_id: 'cus_1234', results: [] },
+                { count: 0, next: null, previous: null, results: [] },
             ],
         },
     })
@@ -351,7 +331,7 @@ describe('billingUsageLogic project breakdown requests', () => {
     let logic: ReturnType<typeof billingUsageLogic.build>
     let requests: { types: string; page_size: string | null; after: string | null; top_projects: string | null }[]
 
-    const empty = { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }
+    const empty = { count: 0, next: null, previous: null, results: [] }
 
     const record = (request: Request): URLSearchParams => {
         const params = new URL(request.url).searchParams
@@ -396,7 +376,7 @@ describe('billingUsageLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': ({ request }) => {
+                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -412,7 +392,7 @@ describe('billingUsageLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': ({ request }) => {
+                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
                     record(request)
                     return [200, { ...empty, results: seriesFor('1') }]
                 },
@@ -430,7 +410,7 @@ describe('billingUsageLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': ({ request }) => {
+                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -453,9 +433,9 @@ describe('billing section URL scoping', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/billing/usage/': () => {
+                '/api/organizations/@current/billing/usage/timeseries/': () => {
                     usageRequests += 1
-                    return [200, { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }]
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
             },
         })
@@ -505,7 +485,10 @@ describe('billingUsageLogic export', () => {
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/billing/usage/': () => [200, { status: 'ok', type: 'timeseries', customer_id: 'c', results: [] }],
+            '/api/organizations/@current/billing/usage/timeseries/': () => [
+                200,
+                { count: 0, next: null, previous: null, results: [] },
+            ],
         },
     })
 

@@ -4,7 +4,6 @@ import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,12 +12,20 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { toParams } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DateMappingOption, OrganizationType } from '~/types'
+
+import {
+    getBillingSpendExportDownloadUrl,
+    getBillingSpendTimeseriesRetrieveUrl,
+} from 'products/billing/frontend/generated/api'
+import type {
+    BillingSpendExportDownloadParams,
+    BillingSpendTimeseriesRetrieveParams,
+} from 'products/billing/frontend/generated/api.schemas'
 
 import type { BillingPeriod, BillingType } from '../../types'
 import {
@@ -49,9 +56,9 @@ export enum BillingSpendResponseBreakdownType {
 }
 
 export interface BillingSpendResponse {
-    status: 'ok'
-    type: 'timeseries'
-    customer_id: string
+    count: number
+    next: string | null
+    previous: string | null
     results: Array<{
         id: number
         label: string
@@ -60,7 +67,6 @@ export interface BillingSpendResponse {
         breakdown_type: BillingSpendResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
-    next?: string
 }
 
 export const DEFAULT_BILLING_SPEND_FILTERS: BillingFilters = {
@@ -126,8 +132,6 @@ export interface billingSpendLogicValues {
     showSeries: boolean
     spendChartExportUrl: string
     spendExportUrl: string
-    teamIdOptions: number[]
-    teamIdOptionsLoading: boolean
     teamOptions: {
         key: string
         label: string
@@ -154,21 +158,6 @@ export interface billingSpendLogicActions {
     ) => {
         billingSpendResponse: BillingSpendResponse | null
         payload?: void
-    }
-    loadTeamIdOptions: () => any
-    loadTeamIdOptionsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadTeamIdOptionsSuccess: (
-        teamIdOptions: number[],
-        payload?: any
-    ) => {
-        teamIdOptions: number[]
-        payload?: any
     }
     resetFilters: () => {
         value: true
@@ -323,10 +312,7 @@ export interface billingSpendLogicMeta {
             usage_types?: string[] | undefined
         }) => string
         headingTooltip: (dateTo: string | null) => string | null
-        teamOptions: (
-            currentOrganization: OrganizationType | null,
-            teamIdOptions: number[]
-        ) => {
+        teamOptions: (currentOrganization: OrganizationType | null) => {
             key: string
             label: string
         }[]
@@ -348,7 +334,7 @@ function spendExportUrlFor(
     effectiveTeamIds: number[] | undefined,
     withChartCap: boolean
 ): string {
-    const params = {
+    const params: BillingSpendExportDownloadParams = {
         ...(filters.usage_types?.length ? { usage_types: JSON.stringify(filters.usage_types) } : {}),
         ...(effectiveTeamIds?.length ? { team_ids: JSON.stringify(effectiveTeamIds) } : {}),
         ...(filters.breakdowns?.length ? { breakdowns: JSON.stringify(filters.breakdowns) } : {}),
@@ -359,7 +345,7 @@ function spendExportUrlFor(
             ? { top_projects: filters.top_projects }
             : {}),
     }
-    return `/api/billing/spend/export/?${toParams(params)}`
+    return getBillingSpendExportDownloadUrl('@current', params)
 }
 
 export const billingSpendLogic = kea<billingSpendLogicType>([
@@ -398,22 +384,6 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         resetFilters: true,
     }),
     loaders(({ values, actions }) => ({
-        teamIdOptions: [
-            [] as number[],
-            {
-                // The project filter's options, loaded once and apart from the chart, so a chart
-                // that fails or has not answered leaves the filter as it was. Billing reads them
-                // from every report the organization has filed, cached for a day on its side.
-                loadTeamIdOptions: async (): Promise<number[]> => {
-                    try {
-                        const response = await api.get('api/billing/usage/team_options/')
-                        return response?.team_id_options ?? []
-                    } catch {
-                        return []
-                    }
-                },
-            },
-        ],
         billingSpendResponse: [
             null as BillingSpendResponse | null,
             {
@@ -437,7 +407,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     // Only meaningful with a project breakdown - there is nothing to rank
                     // otherwise, and sending it would just be noise.
                     const breakingDownByTeam = !!breakdowns?.includes('team')
-                    const params = {
+                    const params: BillingSpendTimeseriesRetrieveParams = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
@@ -453,7 +423,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         // itself when there is a cap, and reads every project on every product in
                         // one pass when there is not, so nothing is asked per product or per page.
                         // Past what it can hold it refuses with guidance, which the catch below shows.
-                        return await api.get(`api/billing/spend/?${toParams(params)}`)
+                        return await api.get<BillingSpendResponse>(
+                            getBillingSpendTimeseriesRetrieveUrl('@current', params)
+                        )
                     } catch (error) {
                         // An actionable error names something the person can change, so it is
                         // shown in the page rather than as a toast that says contact support.
@@ -695,23 +667,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         teamOptions: [
-            (s) => [s.currentOrganization, s.teamIdOptions],
-            (currentOrganization: OrganizationType | null, teamIdOptions: number[]) => {
-                const liveTeams = currentOrganization?.teams || []
-                const liveTeamIds = liveTeams.map((team) => team.id)
-                const liveOptions = sortBy(
-                    liveTeams.map((team) => ({ key: String(team.id), label: team.name })),
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null) =>
+                sortBy(
+                    (currentOrganization?.teams || []).map((team) => ({ key: String(team.id), label: team.name })),
                     'label'
-                )
-
-                const deletedTeamIds = difference(teamIdOptions, liveTeamIds)
-                const deletedOptions = sortBy(deletedTeamIds).map((teamId: number) => ({
-                    key: String(teamId),
-                    label: `ID: ${teamId} (deleted)`,
-                }))
-
-                return [...liveOptions, ...deletedOptions]
-            },
+                ),
         ],
     }),
 
@@ -900,7 +861,6 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
     })),
     afterMount((logic: billingSpendLogicType) => {
-        logic.actions.loadTeamIdOptions()
         logic.actions.loadBillingSpend()
     }),
 ])
