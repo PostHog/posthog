@@ -8,27 +8,162 @@
 # budgets, since absolute timings flake in CI; time is only the materiality gate for
 # NEW arrivals.
 #
+# Because time is the only gate, a name missing from this file fails as soon as a slow or
+# busy runner inflates its measured cost, even when the import has been on the path for
+# months. The lists below are therefore a full snapshot of what setup imports today, not
+# only the expensive part of it. Every name already on the path is listed, which leaves
+# the guard the one job it can do reliably: report a name that was not there before.
+# Names measured below ~1ms are left out. Nothing that small has crossed the gate.
+#
 # Before adding an entry: defer the import instead (function-local, TYPE_CHECKING, lazy
 # facade, or a light activity_logging/visibility module for ready() wiring). Add here only
 # when every process truly needs the package during django.setup(), with a comment saying
-# why. Entries are top-level package names for third-party, full module names for
-# first-party.
+# why. Entries are top-level package names for third-party (and stdlib), full module names
+# for first-party.
 #
-# Third-party packages on the setup path today (cheap entries listed too, so a slow CI
-# runner cannot push a known package over the threshold):
+# Third-party and stdlib packages on the setup path today. Django and its installed apps,
+# the celery/kombu stack, the database and ClickHouse drivers, the auth and SSO stack, and
+# the transitive dependencies all of those pull in.
+OpenSSL
+PIL
+amqp
+annotated_types
+anyio
+asgiref
+asn1crypto
+ast
+asyncio
+attr
+awscrt
+axes
+billiard
+boto3
 botocore
+cbor2
 celery
+cffi
+chardet
+charset_normalizer
+click
 clickhouse_driver
+configparser
+confluent_kafka
 cryptography
+ctypes
+dateutil
+defusedxml
 django
+django_filters
 dns
+drf_spectacular
+email
+encodings
+enum
+fakeredis
+filelock
+fractions
 google
+greenlet
 grpc
+h11
+h2
+hogql_parser
+hpack
+html
+http
+httpcore
+httpx
+idna
+importlib
+importlib_metadata
+infi
+inspect
+isodate
+jaraco
+jinja2
+jmespath
+jsonpath_ng
+jwcrypto
+jwt
 kombu
+limits
+logging
+lxml
+markdown
+more_itertools
+multiprocessing
 oauth2_provider
+oauthlib
+onelogin
+openid
+opentelemetry
+packaging
 pkg_resources
+ply
+posthoganalytics
+prometheus_client
 psycopg
+psycopg_binary
+pydantic
+pydantic_core
+pygments
+pytz
+re
+re2
 redis
+regex
+requests
+rest_framework
 rich
+semantic_version
+simplejson
+site
+slack_sdk
+social_core
+sortedcontainers
+sqlparse
+ssl
+statshog
+structlog
+tarfile
+tenacity
+tiktoken
+tldextract
 trio
-# First-party modules with a known, structural import cost:
+typing
+typing_extensions
+typing_inspection
+unittest
+uritemplate
+urllib
+urllib3
+webauthn
+wrapt
+xml
+xmlsec
+yaml
+zipfile
+zxcvbn
+# First-party modules with a known, structural import cost. Almost all are pydantic model
+# or dataclass modules whose cost is class construction at import: the product facade
+# contracts, the HogQL AST and database schema, and the generated schema enums.
+posthog.clickhouse.query_tagging
+posthog.hogql.ast
+posthog.hogql.database.database
+posthog.hogql.database.models
+posthog.hogql.database.schema.information_schema
+posthog.hogql.database.schema.system
+posthog.models.activity_logging.signal_handlers
+posthog.models.team.team
+posthog.schema_enums
+posthog.settings.web
+products.ai_observability.backend.models.evaluation_configs
+products.customer_analytics.backend.facade.hogql
+products.revenue_analytics.backend.views
+products.review_hog.backend.reviewer.artefact_content
+products.signals.backend.artefact_schemas
+products.signals.backend.contracts
+products.signals.backend.scout_harness.suggestions
+products.tasks.backend.facade.contracts
+products.warehouse_sources.backend.facade.contracts
+products.warehouse_sources.backend.facade.types

@@ -1124,13 +1124,31 @@ jobs:
                   # products-only diffs and drafts. They need no service containers.
                   # Branches that predate the directory still carry the guards at their
                   # old paths, so fall back to those rather than failing on a missing arg.
+                  # The import-cost guard runs on its own below: it reads a wall clock,
+                  # and the seven other branches of this group saturate the runner while
+                  # it measures. -k matches nothing on a branch that predates the test,
+                  # which deselects nothing there rather than failing.
                   - name: Run repo invariants (whole-repo pytest guards)
                     run: |
                         if [ -d posthog/test/repo_invariants ]; then
-                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                            pytest -p no:cacheprovider posthog/test/repo_invariants -k "not no_new_heavy_imports_at_setup"
                         else
-                            pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
+                            pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py -k "not no_new_heavy_imports_at_setup"
                         fi
+            # Split out of the parallel group above so the importtime capture gets the
+            # runner to itself: contention inflated a long-standing package's measured
+            # self-time past the threshold and failed the job. Costs ~15s.
+            - name: Measure setup import cost (needs an idle runner)
+              run: |
+                  if [ -d posthog/test/repo_invariants ]; then
+                      target=posthog/test/repo_invariants
+                  else
+                      target=posthog/test/test_startup_import_budget.py
+                  fi
+                  pytest -p no:cacheprovider "$target" -k no_new_heavy_imports_at_setup || {
+                      # 5 = nothing matched, on a branch predating the guard. Not a failure.
+                      [ $? -eq 5 ]
+                  }
             # Block deleting historical migration files (see safe-django-migrations.md).
             # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
             - name: Check deleted migrations
