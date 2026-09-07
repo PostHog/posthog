@@ -49,18 +49,28 @@ function getAiSubscriptionDisplayCompactSummary(resolved: AiSubscriptionDisplayC
     if (Object.values(resolved).every(Boolean)) {
         return 'Full report'
     }
-    if (
-        resolved.include_images &&
-        !resolved.include_feedback &&
-        !resolved.include_manage_link &&
-        !resolved.include_posthog_hint
-    ) {
-        return 'Text and charts'
-    }
     if (!Object.values(resolved).some(Boolean)) {
         return 'Text only'
     }
-    return 'Custom'
+
+    const includedContent = ['Text']
+    if (resolved.include_images) {
+        includedContent.push('charts')
+    }
+    if (resolved.include_feedback) {
+        includedContent.push('feedback')
+    }
+    if (resolved.include_manage_link && resolved.include_posthog_hint) {
+        includedContent.push('PostHog')
+    } else if (resolved.include_manage_link) {
+        includedContent.push('manage link')
+    } else if (resolved.include_posthog_hint) {
+        includedContent.push('PostHog suggestions')
+    }
+
+    return includedContent.length === 2 && includedContent[1] === 'charts'
+        ? 'Text and charts'
+        : includedContent.join(' + ')
 }
 
 function getAiSubscriptionDisplayReviewSummary(resolved: AiSubscriptionDisplayConfig): string {

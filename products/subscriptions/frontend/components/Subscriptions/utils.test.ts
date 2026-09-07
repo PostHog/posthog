@@ -107,14 +107,74 @@ describe('AI subscription display options', () => {
             'Text and charts',
         ],
         [
-            'recognizes a custom combination',
+            'names feedback-only content',
             {
                 include_images: false,
                 include_feedback: true,
                 include_manage_link: false,
                 include_posthog_hint: false,
             },
-            'Custom',
+            'Text + feedback',
+        ],
+        [
+            'names PostHog-only content',
+            {
+                include_images: false,
+                include_feedback: false,
+                include_manage_link: true,
+                include_posthog_hint: true,
+            },
+            'Text + PostHog',
+        ],
+        [
+            'names charts and feedback content',
+            {
+                include_images: true,
+                include_feedback: true,
+                include_manage_link: false,
+                include_posthog_hint: false,
+            },
+            'Text + charts + feedback',
+        ],
+        [
+            'names charts and PostHog content',
+            {
+                include_images: true,
+                include_feedback: false,
+                include_manage_link: true,
+                include_posthog_hint: true,
+            },
+            'Text + charts + PostHog',
+        ],
+        [
+            'names feedback and PostHog content',
+            {
+                include_images: false,
+                include_feedback: true,
+                include_manage_link: true,
+                include_posthog_hint: true,
+            },
+            'Text + feedback + PostHog',
+        ],
+        [
+            'names an API-managed manage-link-only state',
+            {
+                include_images: false,
+                include_feedback: false,
+                include_manage_link: true,
+                include_posthog_hint: false,
+            },
+            'Text + manage link',
+        ],
+        [
+            'names an API-managed suggestion-only state',
+            {
+                include_images: false,
+                include_feedback: false,
+                include_manage_link: false,
+                include_posthog_hint: true,
+            },
+            'Text + PostHog suggestions',
         ],
     ] as const)('%s', (_label, deliveryConfig, expected) => {
         expect(getAiSubscriptionDisplaySummary(deliveryConfig)).toBe(expected)
