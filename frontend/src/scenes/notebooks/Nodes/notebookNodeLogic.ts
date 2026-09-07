@@ -941,7 +941,7 @@ export interface notebookNodeLogicValues {
     sourceComment: CommentType | null | undefined
     sqlV2ReturnVariable: string
     sqlV2ReturnVariableUsage: NotebookDependencyUsage[]
-    title: any
+    title: string
     titlePlaceholder: string
     titleStatus: NotebookComponentToolbarTitleStatus | null
     usageByVariable: Record<string, NotebookDependencyUsage[]>
@@ -1087,7 +1087,7 @@ export interface notebookNodeLogicMeta {
         Settings: (arg: any) => NotebookNodeSettings | null
         settingsPlacement: (arg: any) => NotebookNodeSettingsPlacement
         editableTitle: (arg: any) => boolean
-        title: (titlePlaceholder: string, nodeAttributes: any, editableTitle: boolean) => any
+        title: (titlePlaceholder: string, nodeAttributes: any, editableTitle: boolean) => string
         children: (nodeAttributes: any) => NotebookNodeResource[]
         exportedGlobals: (nodeAttributes: any) => {
             name: string
