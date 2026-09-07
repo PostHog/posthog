@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSessionStore, mockTokenStore } = vi.hoisted(() => ({
+const { mockSessionStore, mockTokenStore, mockTokenWriteError } = vi.hoisted(() => ({
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
+    // Set to make every token-cache write reject, standing in for a Redis reconnect.
+    mockTokenWriteError: { current: undefined as Error | undefined },
 }))
 
 vi.mock('@/lib/posthog/flags', () => ({
@@ -27,39 +29,36 @@ vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
     },
 }))
 
-vi.mock('@/hono/request-context', () => {
-    type MockCache = {
-        get: (key: string) => Promise<unknown>
-        set: (key: string, value: unknown) => Promise<void>
-        setMany: (entries: Record<string, unknown>) => Promise<void>
-        delete: (key: string) => Promise<void>
-        clear: () => Promise<void>
-    }
+vi.mock('@/hono/request-context', async () => {
+    // Extends the real cache base class so `warm`/`warmMany` keep their production
+    // behavior: the resolver relies on a warm write surviving a Redis blip.
+    const { ScopedCache } = await import('@/lib/cache/ScopedCache')
 
-    const makeCache = (store: Map<string, unknown>): MockCache => ({
-        get: vi.fn(async (key: string) => store.get(key)),
-        set: vi.fn(async (key: string, value: unknown) => {
-            store.set(key, value)
-        }),
-        setMany: vi.fn(async (entries: Record<string, unknown>) => {
-            for (const [key, value] of Object.entries(entries)) {
-                if (value !== undefined) {
-                    store.set(key, value)
-                }
+    class MockCache extends ScopedCache<Record<string, unknown>> {
+        constructor(private readonly store: Map<string, unknown>) {
+            super('test-user')
+        }
+        async get(key: string): Promise<unknown> {
+            return this.store.get(key)
+        }
+        async set(key: string, value: unknown): Promise<void> {
+            if (mockTokenWriteError.current) {
+                throw mockTokenWriteError.current
             }
-        }),
-        delete: vi.fn(async (key: string) => {
-            store.delete(key)
-        }),
-        clear: vi.fn(async () => {
-            store.clear()
-        }),
-    })
+            this.store.set(key, value)
+        }
+        async delete(key: string): Promise<void> {
+            this.store.delete(key)
+        }
+        async clear(): Promise<void> {
+            this.store.clear()
+        }
+    }
 
     return {
         RequestContext: vi.fn().mockImplementation(function () {
             return {
-                tokenCache: makeCache(mockTokenStore),
+                tokenCache: new MockCache(mockTokenStore),
                 getContext: vi.fn(async () => ({
                     stateManager: {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
@@ -122,6 +121,18 @@ describe('RequestStateResolver MCP client contexts', () => {
     beforeEach(() => {
         mockSessionStore.clear()
         mockTokenStore.clear()
+        mockTokenWriteError.current = undefined
+    })
+
+    it('resolves state while the token cache is in a Redis reconnect window', async () => {
+        // Pinned context is re-sent on every request, so a dropped warm write costs
+        // nothing. Failing here instead would fail the whole MCP request.
+        mockTokenWriteError.current = new Error("Stream isn't writeable and enableOfflineQueue options is false")
+
+        const result = await makeResolver().resolve(makeProps({ organizationId: 'org-1' }))
+
+        expect(result.useSingleExec).toBe(true)
+        expect(mockTokenStore.size).toBe(0)
     })
 
     it('stores client props, but not resolved mode, for a new MCP session', async () => {

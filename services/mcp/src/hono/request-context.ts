@@ -153,7 +153,7 @@ export class RequestContext {
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
         }
         const distinctId = userResult.data.distinct_id as string
-        await this.tokenCache.set('distinctId', distinctId)
+        await this.tokenCache.warm('distinctId', distinctId)
         return distinctId
     }
 

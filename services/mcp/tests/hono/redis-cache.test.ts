@@ -79,6 +79,54 @@ describe('RedisCache', () => {
         })
     })
 
+    describe('a Redis reconnect window', () => {
+        // `enableOfflineQueue: false` makes every command reject the moment the socket
+        // is not writeable, which is what a deploy or failover looks like to a caller.
+        const blip = new Error("Stream isn't writeable and enableOfflineQueue options is false")
+
+        it('reads as a miss so the caller can fetch fresh data', async () => {
+            mockRedis.get = vi.fn(async () => {
+                throw blip
+            })
+
+            await expect(cache.get('region')).resolves.toBeUndefined()
+        })
+
+        it('drops a warm write instead of failing the request that made it', async () => {
+            mockRedis.set = vi.fn(async () => {
+                throw blip
+            })
+
+            await expect(cache.warm('region', 'us')).resolves.toBeUndefined()
+        })
+
+        it('still fails a plain write, which a caller may report to the user', async () => {
+            mockRedis.set = vi.fn(async () => {
+                throw blip
+            })
+
+            await expect(cache.set('region', 'us')).rejects.toThrow(blip)
+        })
+    })
+
+    describe('a Redis error that is not a reconnect', () => {
+        it('propagates from a read rather than looking like an empty cache', async () => {
+            mockRedis.get = vi.fn(async () => {
+                throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value')
+            })
+
+            await expect(cache.get('region')).rejects.toThrow('WRONGTYPE')
+        })
+
+        it('propagates from a warm write', async () => {
+            mockRedis.set = vi.fn(async () => {
+                throw new Error('OOM command not allowed when used memory > maxmemory')
+            })
+
+            await expect(cache.warm('region', 'us')).rejects.toThrow('OOM')
+        })
+    })
+
     describe('set', () => {
         it('should store JSON-serialized values with scoped key', async () => {
             await cache.set('region', 'eu')

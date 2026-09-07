@@ -79,12 +79,12 @@ export class StateManager {
         // the consumer header the caller cannot set it, which is what makes it usable as the
         // first-party gate in `resolveEventSource`. Django gates on the same id set.
         if (client_id) {
-            await this._cache.set('oauthClientId', client_id)
+            await this._cache.warm('oauthClientId', client_id)
         }
 
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {
-            await this._cache.set('clientName', sanitizedClientName)
+            await this._cache.warm('clientName', sanitizedClientName)
             // Introspection is the first point the OAuth app name is known, and the client was
             // already built for this request — stamp it on so the rest of the request forwards
             // `x-posthog-mcp-oauth-client-name` instead of waiting for the next cache hit.
@@ -103,7 +103,7 @@ export class StateManager {
 
         if (!_apiKey) {
             _apiKey = await this._fetchApiKey()
-            await this._cache.set('apiKey', _apiKey)
+            await this._cache.warm('apiKey', _apiKey)
         }
 
         return _apiKey
@@ -115,7 +115,7 @@ export class StateManager {
         if (!_distinctId) {
             const user = await this.getUser()
 
-            await this._cache.set('distinctId', user.distinct_id)
+            await this._cache.warm('distinctId', user.distinct_id)
             _distinctId = user.distinct_id
         }
 
@@ -230,11 +230,11 @@ export class StateManager {
         const { organizationId, projectId } = await this._getDefaultOrganizationAndProject()
 
         if (organizationId) {
-            await this._cache.set('orgId', organizationId)
+            await this._cache.warm('orgId', organizationId)
         }
 
         if (projectId !== undefined) {
-            await this._cache.set('projectId', projectId.toString())
+            await this._cache.warm('projectId', projectId.toString())
         }
 
         return { organizationId, projectId }
@@ -265,7 +265,7 @@ export class StateManager {
         const project = await this.getCachedOrFetchProject().catch(() => undefined)
         const derived = project?.organization
         if (derived) {
-            await this._cache.set('orgId', derived)
+            await this._cache.warm('orgId', derived)
         }
         return derived
     }
@@ -300,7 +300,8 @@ export class StateManager {
      * Stale-while-cached helper. Returns fresh cached data if available; otherwise
      * fetches, writes both the value and its timestamp, and returns the fresh value.
      * On fetcher failure, returns the last-known cached value (possibly `undefined`)
-     * and captures the exception.
+     * and captures the exception. A cache read that fails reads as a miss, and a
+     * cache write that fails never discards the value already fetched.
      */
     private async getOrFetchCached<D extends keyof State, F extends keyof State>(opts: {
         name: string
@@ -318,18 +319,20 @@ export class StateManager {
             return cached
         }
 
+        let data: NonNullable<State[D]>
         try {
-            const data = await opts.fetcher()
-            await Promise.all([
-                this._cache.set(opts.cacheKey, data as State[D]),
-                this._cache.set(opts.fetchedAtKey, Date.now() as State[F]),
-            ])
-            return data as State[D]
+            data = await opts.fetcher()
         } catch (error) {
             this._reportException(error, `get_or_fetch_${opts.name}`)
-            await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
+            await this._cache.warm(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
+
+        await Promise.all([
+            this._cache.warm(opts.cacheKey, data),
+            this._cache.warm(opts.fetchedAtKey, Date.now() as State[F]),
+        ]).catch((error) => this._reportException(error, `cache_write_${opts.name}`))
+        return data
     }
 
     async getCachedOrFetchUser(): Promise<CachedUser | undefined> {
