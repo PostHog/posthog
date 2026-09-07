@@ -7,10 +7,14 @@
 # (hook file lives in the main clone) or relative (worktree's own checkout),
 # and cwd is always the active worktree, which may not contain the helper.
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$HOOK_DIR/../bin/helpers/dev-env.sh" ] && [ -f "$HOOK_DIR/../bin/helpers/worktree-borrow.sh" ]; then
+DEV_ENV_KIND=flox
+if [ -f "$HOOK_DIR/../bin/helpers/dev-env.sh" ]; then
     . "$HOOK_DIR/../bin/helpers/dev-env.sh"
-    . "$HOOK_DIR/../bin/helpers/worktree-borrow.sh"
-    posthog_worktree_borrow
+    DEV_ENV_KIND="$(posthog_dev_env_kind)"
+    if [ -f "$HOOK_DIR/../bin/helpers/worktree-borrow.sh" ]; then
+        . "$HOOK_DIR/../bin/helpers/worktree-borrow.sh"
+        posthog_worktree_borrow
+    fi
 fi
 
 # Skip lint-staged during merges — staged files include the entire merge diff,
@@ -54,12 +58,12 @@ fi
 
 # Activate the dev environment if available and not already active. This
 # ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.).
-# The devenv branch comes first, but only when the developer opted in and the
-# repo has devenv state, so a flox user with a stale .devenv still gets flox.
+# The devenv branch comes first, but only when dev-env.sh selected devenv and
+# the repo has devenv state, so a flox user with a stale .devenv still gets flox.
 # CI=true so pnpm in the activation hook doesn't ask for a TTY when cleaning
 # stale node_modules. Pre-commit has no TTY, same as real CI.
 LINT_STAGED="POSTHOG_TELEMETRY_OPT_OUT=1 NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged"
-if [ "$POSTHOG_DEV_ENV" = "devenv" ] && command -v devenv > /dev/null 2>&1 && [ -d ".devenv/state" ] && [ -z "$DEVENV_ROOT" ]; then
+if [ "$DEV_ENV_KIND" = "devenv" ] && command -v devenv > /dev/null 2>&1 && [ -d ".devenv/state" ] && [ -z "$DEVENV_ROOT" ]; then
     exec env CI=true "$(command -v devenv)" shell -- bash -c "$LINT_STAGED"
 elif command -v flox > /dev/null 2>&1 && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then
     exec env CI=true "$(command -v flox)" activate -- bash -c "$LINT_STAGED"

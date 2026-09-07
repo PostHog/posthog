@@ -1,7 +1,8 @@
 # Opt-in devenv (devenv.sh) developer environment for PostHog.
 #
-# Flox stays the default. Set POSTHOG_DEV_ENV=devenv in your shell environment
-# and .envrc activates this instead. Nothing here reads or writes .flox/.
+# Installing devenv is the opt-in: .envrc activates this instead of flox once
+# the binary is on PATH. Set POSTHOG_DEV_ENV=flox to go back to flox without
+# uninstalling devenv. Nothing here reads or writes .flox/.
 #
 # This mirrors .flox/env/manifest.toml section by section: packages, the Rust
 # and Go toolchains, the Node runtime, [vars], the on-activate hook (as tasks),

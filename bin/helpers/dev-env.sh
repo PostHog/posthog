@@ -7,11 +7,18 @@
 # effects -- callers invoke the functions below. Never `exit`s or `set -e`s
 # since it runs inside the caller's shell.
 
-# Echo `devenv` or `flox`. devenv exports DEVENV_ROOT inside an active shell,
-# and POSTHOG_DEV_ENV is how a developer opts in before one exists (.envrc
-# reads the same variable).
+# Echo `devenv` or `flox`. POSTHOG_DEV_ENV wins in both directions, so a
+# developer can force either environment. Without it, an installed devenv
+# binary is the opt-in: an activated devenv shell exports DEVENV_ROOT, and a
+# shell outside one still has the binary on PATH. .envrc applies the same rule.
 posthog_dev_env_kind() {
-    if [ -n "${DEVENV_ROOT:-}" ] || [ "${POSTHOG_DEV_ENV:-}" = "devenv" ]; then
+    case "${POSTHOG_DEV_ENV:-}" in
+        devenv | flox)
+            echo "$POSTHOG_DEV_ENV"
+            return 0
+            ;;
+    esac
+    if [ -n "${DEVENV_ROOT:-}" ] || command -v devenv >/dev/null 2>&1; then
         echo "devenv"
     else
         echo "flox"

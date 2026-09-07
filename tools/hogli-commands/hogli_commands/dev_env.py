@@ -7,6 +7,7 @@ dev stack starts.
 """
 
 import os
+import shutil
 
 DEVENV = "devenv"
 FLOX = "flox"
@@ -20,11 +21,15 @@ VENV_PATHS = (".flox/cache/venv", ".devenv/state/venv")
 def dev_env_kind() -> str:
     """Return ``devenv`` or ``flox``.
 
-    devenv exports ``DEVENV_ROOT`` inside an active shell, and
-    ``POSTHOG_DEV_ENV`` is how a developer opts in before one exists (.envrc
-    reads the same variable).
+    ``POSTHOG_DEV_ENV`` wins in both directions, so a developer can force
+    either environment. Without it, an installed devenv binary is the opt-in:
+    an activated devenv shell exports ``DEVENV_ROOT``, and a shell outside one
+    still has the binary on PATH. ``.envrc`` applies the same rule.
     """
-    if is_devenv_active() or os.environ.get("POSTHOG_DEV_ENV") == DEVENV:
+    forced = os.environ.get("POSTHOG_DEV_ENV")
+    if forced in (DEVENV, FLOX):
+        return forced
+    if is_devenv_active() or shutil.which(DEVENV) is not None:
         return DEVENV
     return FLOX
 
