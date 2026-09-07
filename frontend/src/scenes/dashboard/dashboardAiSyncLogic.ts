@@ -124,6 +124,24 @@ function isEmptyRecord(value: unknown): boolean {
     return record !== null && Object.keys(record).length === 0
 }
 
+function isEmptyAlertDeleteOutput(value: unknown): boolean {
+    if (value === null || value === undefined || isEmptyRecord(value)) {
+        return true
+    }
+    if (typeof value !== 'string') {
+        return false
+    }
+    const trimmed = value.trim()
+    if (!trimmed) {
+        return true
+    }
+    try {
+        return isEmptyRecord(JSON.parse(trimmed))
+    } catch {
+        return false
+    }
+}
+
 function asPositiveSafeInteger(value: unknown): number | null {
     const parsed = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value
     return typeof parsed === 'number' && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
@@ -767,13 +785,12 @@ export function resolveDashboardAiMutation(
     if (resolved.innerToolName !== event.toolName) {
         return { candidate: null, ownership: knownOwnership }
     }
-    const parsedOutput = parseToolOutputRecord(event.invocation.output, event.invocation.input)
-    const hasEmptyAlertDeleteOutput =
-        event.toolName === 'alert-delete' &&
-        (event.invocation.output === null ||
-            event.invocation.output === undefined ||
-            isEmptyRecord(event.invocation.output) ||
-            (typeof event.invocation.output === 'string' && !event.invocation.output.trim()))
+    const rawOutput = event.invocation.output
+    const parsedOutput = parseToolOutputRecord(rawOutput, event.invocation.input)
+    const hasEmptyAlertDeleteOutput = event.toolName === 'alert-delete' && isEmptyAlertDeleteOutput(rawOutput)
+    if (event.toolName === 'alert-delete' && typeof rawOutput === 'string' && !hasEmptyAlertDeleteOutput) {
+        return { candidate: null, ownership: knownOwnership }
+    }
     if (!parsedOutput && !hasEmptyAlertDeleteOutput) {
         return { candidate: null, ownership: knownOwnership }
     }

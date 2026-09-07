@@ -636,6 +636,19 @@ describe('resolveDashboardAiMutation candidate classification', () => {
         expect(result.ownership.alertInsightById).toEqual({ 501: '101' })
     })
 
+    it.each(['{}', '  { }\n'])('accepts an empty JSON object string from call --json alert-delete: %p', (output) => {
+        const result = resolveFor('alert-delete', { id: 'alert-1' }, output)
+
+        expect(result.candidate).toEqual({
+            family: 'alert',
+            dashboardId,
+            tileIds: [41],
+            insightIds: [101, 'alpha'],
+            deletesDashboard: false,
+        })
+        expect(result.ownership.alertInsightById).toEqual({ 501: '101' })
+    })
+
     it.each([
         ['an array', []],
         ['a non-empty malformed object', { unexpected: true }],
@@ -650,6 +663,21 @@ describe('resolveDashboardAiMutation candidate classification', () => {
     it('rejects malformed alert deletion output instead of treating it as an empty 204 response', () => {
         const ownership = emptyOwnership()
         const result = resolveFor('alert-delete', { id: 'alert-1' }, 'not a structured response', ownership)
+
+        expect(result).toEqual({ candidate: null, ownership })
+        expect(result.ownership).toBe(ownership)
+    })
+
+    it.each([
+        ['a JSON array', '[]'],
+        ['a non-empty JSON object', '{"id":"alert-1"}'],
+        ['JSON null', 'null'],
+        ['a JSON scalar', '7'],
+        ['malformed JSON', '{'],
+        ['TOON-like non-empty content', 'id: alert-1'],
+    ])('rejects alert deletion string output shaped as %s', (_case, output) => {
+        const ownership = emptyOwnership()
+        const result = resolveFor('alert-delete', { id: 'alert-1' }, output, ownership)
 
         expect(result).toEqual({ candidate: null, ownership })
         expect(result.ownership).toBe(ownership)
