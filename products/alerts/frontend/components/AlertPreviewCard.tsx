@@ -11,6 +11,7 @@ import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPr
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
 import {
     deriveTrendsAlertPreviewSeries,
+    deriveTrendsBreakdownAlertPreview,
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
@@ -90,13 +91,10 @@ export function AlertPreviewCard({
     loading,
 }: AlertPreviewCardProps): JSX.Element {
     const config = alertForm.config
+    const conditionType = alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE
+    const thresholdType = alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
     const trendsPreview = trendsValues
-        ? deriveTrendsAlertPreviewSeries(
-              trendsValues,
-              trendsLabels ?? undefined,
-              alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
-              alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
-          )
+        ? deriveTrendsAlertPreviewSeries(trendsValues, trendsLabels ?? undefined, conditionType, thresholdType)
         : null
     const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
     const referenceLines = thresholdReferenceLines(alertForm)
@@ -104,20 +102,15 @@ export function AlertPreviewCard({
         !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
     )
     const checkPreviewValues = checkPreview?.values
-    // Trend results declare `data` as a required array, but breakdown rows can arrive without it.
-    const trendsBreakdownPreviews = trendsBreakdownSeries
-        ?.filter(({ data }) => Array.isArray(data))
-        .map(({ key, label, data }) => ({
-            key,
-            label,
-            data: deriveTrendsAlertPreviewSeries(
-                data,
-                trendsLabels ?? undefined,
-                alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
-                alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
-            ).values,
-        }))
-    const breakdownPreviewValues = trendsBreakdownPreviews?.flatMap((series) => series.data) ?? []
+    const breakdownPreview = deriveTrendsBreakdownAlertPreview(
+        trendsBreakdownSeries ?? undefined,
+        trendsLabels ?? undefined,
+        conditionType,
+        thresholdType
+    )
+    // A row carries `NaN` on the intervals it has no comparison for, so count only drawable points.
+    const breakdownPreviewValues =
+        breakdownPreview?.rows.flatMap((row) => row.data).filter((value) => Number.isFinite(value)) ?? []
     const breakdownUseLogScale = shouldUseLogScale(breakdownPreviewValues, referenceLines)
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
@@ -137,11 +130,11 @@ export function AlertPreviewCard({
                 Set less than or more than to preview this alert.
             </div>
         )
-    } else if (isBreakdownPreview && trendsBreakdownPreviews && breakdownPreviewValues.length > 0) {
+    } else if (isBreakdownPreview && breakdownPreview && breakdownPreviewValues.length > 0) {
         body = (
             <AlertPreviewChart
-                series={trendsBreakdownPreviews}
-                labels={trendsLabels ?? undefined}
+                series={breakdownPreview.rows}
+                labels={breakdownPreview.labels}
                 referenceLines={referenceLines}
                 relative={trendsPreview?.relative ?? false}
                 useLogScale={breakdownUseLogScale}
