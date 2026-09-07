@@ -340,6 +340,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 schema_id=str(schema.id),
                 trigger_reason=reason,
             )
+            # Releasing the rewrite has to release the imports it holds too. A rewrite that ran out of
+            # budget leaves a checkpoint, and that checkpoint pauses this schema's syncs until it ages
+            # out (see `_import_held_for_repartition`). Nothing resumes the rewrite while the flag is
+            # off, so leaving the checkpoint keeps the table stale for up to `REPARTITION_HOLD_MAX_AGE`
+            # after the one lever support has to free it. Nothing is lost by dropping it: the imports
+            # that resume move the live Delta version the checkpoint is fenced on, which invalidates it
+            # anyway, and its temp table is swept by prefix before the next fresh rebuild.
+            if schema.repartition_rewrite is not None:
+                schema.clear_repartition_rewrite()
             return
 
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
