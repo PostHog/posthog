@@ -6,9 +6,6 @@ import { IconPlus, IconX } from '@posthog/icons'
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
@@ -16,6 +13,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
 import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useDebouncedNameInputs } from './utils'
 
 type ConditionFilters = Extract<
@@ -138,8 +136,13 @@ export function StepConditionalBranchConfiguration({
             {conditions.map((condition, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <LemonLabel>Condition {index + 1}</LemonLabel>
+                        <div className="flex flex-1 items-center gap-2 min-w-0">
+                            <HogFlowBranchNameInput
+                                value={localConditionNames[index]}
+                                onChange={(value) => handleNameChange(index, value)}
+                                placeholder={`Condition ${index + 1}`}
+                                ariaLabel={`Condition ${index + 1} name`}
+                            />
                             {isCountableCondition(condition.filters) && (
                                 <ConditionAudienceEstimate
                                     actionId={action.id}
@@ -168,15 +171,6 @@ export function StepConditionalBranchConfiguration({
                         }
                         typeKey={`workflow-trigger-${index}`}
                     />
-
-                    <LemonField.Pure label="Condition name (optional)">
-                        <LemonInput
-                            value={localConditionNames[index] || ''}
-                            onChange={(value) => handleNameChange(index, value)}
-                            placeholder={`If condition #${index + 1} matches`}
-                            size="small"
-                        />
-                    </LemonField.Pure>
                 </div>
             ))}
 

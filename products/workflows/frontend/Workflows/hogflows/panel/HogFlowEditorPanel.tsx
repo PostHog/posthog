@@ -1,27 +1,24 @@
-import { useReactFlow } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { workflowLogic } from '../../workflowLogic'
 import { HOG_FLOW_EDITOR_MODES, HogFlowEditorMode, hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
 import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
+import { HogFlowEditorPanelSelectedStep } from './HogFlowEditorPanelSelectedStep'
 import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
-    const { selectedNode, mode, selectedNodeCanBeDeleted, workflow } = useValues(hogFlowEditorLogic)
+    const { selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
     const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic)
-    const { deleteElements } = useReactFlow()
 
     const variablesCount = workflow?.variables?.length || 0
 
@@ -38,10 +35,6 @@ export function HogFlowEditorPanel(): JSX.Element | null {
     }))
 
     const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '25rem'
-
-    const Step = useHogFlowStep(selectedNode?.data)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 
     return (
         <div
@@ -78,38 +71,11 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                             barClassName="-mb-px "
                         />
                     </div>
-
-                    {selectedNode && (
-                        <span className="flex gap-1 items-center font-medium rounded-md mr-3 min-w-0">
-                            <span className="text-lg">{Step?.icon}</span>
-                            <Tooltip title={selectedNode.data.name}>
-                                <span className="font-semibold truncate">{selectedNode.data.name}</span>
-                            </Tooltip>
-                            {validationResult?.valid === false && (
-                                <Tooltip title="Some fields need attention">
-                                    <div>
-                                        <LemonBadge status="warning" size="small" content="!" />
-                                    </div>
-                                </Tooltip>
-                            )}
-                            {selectedNode.deletable && (
-                                <LemonButton
-                                    size="small"
-                                    status="danger"
-                                    icon={<IconTrash />}
-                                    onClick={() => {
-                                        void deleteElements({ nodes: [selectedNode] })
-                                        setSelectedNodeId(null)
-                                    }}
-                                    disabledReason={
-                                        selectedNodeCanBeDeleted ? undefined : 'Clean up branching steps first'
-                                    }
-                                />
-                            )}
-                        </span>
-                    )}
                 </div>
 
+                {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
+                    <HogFlowEditorPanelSelectedStep />
+                )}
                 {mode === 'build' && (
                     <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
                 )}
