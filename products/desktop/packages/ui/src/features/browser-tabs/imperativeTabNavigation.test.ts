@@ -1,6 +1,7 @@
 import type { TabsSnapshot } from "@posthog/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  focusExistingTab,
   getCurrentBrowserTabId,
   navigateBrowserTab,
 } from "./imperativeTabNavigation";
@@ -134,5 +135,44 @@ describe("imperative browser-tab navigation", () => {
 
     expect(navigateBrowserTab(null, destination, fallback)).toBe("active");
     expect(fallback).toHaveBeenCalledOnce();
+  });
+});
+
+describe("focusExistingTab", () => {
+  const history = { location: { state: { tabId: "tab-b" } }, push: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    history.location.state.tabId = "tab-b";
+    mocks.getRouterOrNull.mockReturnValue({ history });
+    mocks.readMirror.mockReturnValue(snapshot());
+  });
+
+  it("pushes a tagged history entry for an existing tab on the destination", () => {
+    const push = vi.fn();
+    mocks.getRouterOrNull.mockReturnValue({ history: { ...history, push } });
+
+    expect(focusExistingTab({ href: "/new" })).toBe(true);
+    expect(push).toHaveBeenCalledWith("/new", { tabId: "tab-a" });
+  });
+
+  it("reports a match without navigating when the active tab already shows it", () => {
+    history.location.state.tabId = "tab-a";
+
+    expect(focusExistingTab({ href: "/new" })).toBe(true);
+  });
+
+  it("returns false when no tab shows the destination", () => {
+    expect(focusExistingTab({ href: "/tasks/other" })).toBe(false);
+  });
+
+  it("matches a href-null tab on its task id fallback", () => {
+    const legacy = snapshot();
+    legacy.tabs[0] = { ...legacy.tabs[0], href: null, taskId: "task-9" };
+    mocks.readMirror.mockReturnValue(legacy);
+
+    expect(focusExistingTab({ href: "/tasks/task-9", taskId: "task-9" })).toBe(
+      true,
+    );
   });
 });

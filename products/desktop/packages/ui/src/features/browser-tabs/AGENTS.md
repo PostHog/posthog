@@ -20,6 +20,12 @@ browser. Earlier versions deduped on a `TabIdentity`, which also made the strip
 navigate off any route outside that identity's vocabulary (`/loops` and
 `/archived` are both all-null through it, so they compared equal).
 
+One intent is not plain navigation: an open-target deep link (a clicked
+notification or toast). `focusExistingTab` resolves it to the tab that already
+shows the destination href (reference fields as fallback for href-null tabs),
+and only an unmatched target opens anew. This is target resolution, not the
+dedup above — plain navigation still never focuses another tab.
+
 The identity fields (`dashboardId | taskId | channelId + channelSection |
 appView`) survive **only as a label and icon cache**, written alongside the href.
 Never compare them to decide where a tab is.
