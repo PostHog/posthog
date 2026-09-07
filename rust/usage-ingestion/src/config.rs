@@ -23,6 +23,7 @@ const _: () = assert!(MESSAGE_MAX_BYTES > BATCH_SIZE);
 pub enum TransportMode {
     Grpc,
     Kafka,
+    Both,
 }
 
 impl FromStr for TransportMode {
@@ -32,8 +33,9 @@ impl FromStr for TransportMode {
         match value.trim().to_lowercase().as_str() {
             "grpc" => Ok(Self::Grpc),
             "kafka" => Ok(Self::Kafka),
+            "both" => Ok(Self::Both),
             other => Err(format!(
-                "unknown usage ingestion transport {other:?}; expected grpc or kafka"
+                "unknown usage ingestion transport {other:?}; expected grpc, kafka, or both"
             )),
         }
     }
@@ -208,6 +210,11 @@ mod tests {
             topic: "clickhouse_billing_usage_records".to_string(),
             grpc_max_connection_age_secs: 60,
         }
+    }
+
+    #[test]
+    fn both_transport_mode_parses() {
+        assert_eq!("both".parse(), Ok(TransportMode::Both));
     }
 
     #[test]
