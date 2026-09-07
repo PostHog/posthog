@@ -353,7 +353,7 @@ class ClickHousePrinter(BasePrinter):
             return ""
         response = super().visit(node)
 
-        if len(self.stack) == 0 and self.settings:
+        if len(self.stack) == 0 and self.settings and self.context.emit_top_level_settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
@@ -1177,7 +1177,9 @@ class ClickHousePrinter(BasePrinter):
 
         # When self.settings exists, table-level settings are merged in visit() instead
         merged = (
-            self._merge_table_top_level_settings(node.settings)
+            None
+            if is_top_level_query and not self.context.emit_top_level_settings
+            else self._merge_table_top_level_settings(node.settings)
             if is_top_level_query and not self.settings
             else node.settings
         )
