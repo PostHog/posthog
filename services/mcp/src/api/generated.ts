@@ -59465,7 +59465,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
-      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      /** Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to. */
       delivery_config?: DeliveryConfig;
     }
 
@@ -68742,7 +68742,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
-      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      /** Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to. */
       delivery_config?: DeliveryConfig;
     }
 

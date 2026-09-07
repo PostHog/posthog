@@ -254,7 +254,9 @@ export const SubscriptionsCreateBody = () => zod
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
+            .describe(
+                'Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -482,7 +484,9 @@ export const SubscriptionsPartialUpdateBody = () => zod
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
+            .describe(
+                'Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 

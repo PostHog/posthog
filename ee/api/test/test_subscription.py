@@ -3433,6 +3433,99 @@ class TestAISubscriptionAPI(APILicensedTest):
         subscription = Subscription.objects.get(id=response.json()["id"])
         assert subscription.delivery_config == expected_config
 
+    def test_patch_merges_ai_delivery_display_flags(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        mock_client = self._mock_temporal(mock_sync)
+        display_flags = {
+            "include_images": True,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config=display_flags),
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        mock_client.start_workflow.reset_mock()
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
+            {"delivery_config": {"include_images": False}},
+        )
+
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+        expected_config = {
+            "post_all_insights_in_main_message": False,
+            **display_flags,
+            "include_images": False,
+        }
+        assert patch_response.json()["delivery_config"] == expected_config
+        subscription = Subscription.objects.get(id=create_response.json()["id"])
+        assert subscription.delivery_config == expected_config
+        mock_client.start_workflow.assert_called_once()
+
+    def test_patch_of_unchanged_ai_delivery_flag_does_not_redeliver_or_drop_other_flags(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._enable_ai()
+        mock_client = self._mock_temporal(mock_sync)
+        display_flags = {
+            "include_images": True,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config=display_flags),
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        mock_client.start_workflow.reset_mock()
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
+            {"delivery_config": {"include_images": True}},
+        )
+
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+        assert patch_response.json()["delivery_config"] == {
+            "post_all_insights_in_main_message": False,
+            **display_flags,
+        }
+        mock_client.start_workflow.assert_not_called()
+
+    def test_patch_validates_the_merged_delivery_config(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        without_files_write = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                target_type="slack",
+                target_value="C1234|#general",
+                integration_id=integration.id,
+                delivery_config={"post_all_insights_in_main_message": True},
+            ),
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
+            {
+                "integration_id": without_files_write.id,
+                "delivery_config": {"include_images": False},
+            },
+        )
+
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
+        assert "files:write" in str(patch_response.json())
+
     def test_ai_delivery_display_flags_are_rejected_for_insight_subscriptions(
         self, mock_is_cloud, mock_flag, mock_sync
     ):
