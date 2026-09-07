@@ -90,6 +90,12 @@ import { insightsApi } from './utils/api'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
+// The insight API path needs the numeric id, which is absent until loadInsight resolves.
+// The short_id is set earlier, as soon as createEmptyInsight runs, so it can resolve the
+// numeric id while an update races the load.
+const resolveInsightNumericId = async (insight: Partial<QueryBasedInsightModel>): Promise<number | undefined> =>
+    insight.id || (insight.short_id ? await getInsightId(insight.short_id) : undefined)
+
 export const createEmptyInsight = (
     shortId: InsightShortId | `new-${string}` | 'new'
 ): Partial<QueryBasedInsightModel> => ({
@@ -687,12 +693,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-                    // Resolve the numeric ID. When updateInsight races with loadInsight
-                    // (e.g. adding to a dashboard right after save), values.insight.id
-                    // may still be undefined. Fall back to resolving via short_id.
-                    const insightId =
-                        values.insight.id ||
-                        (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
+                    const insightId = await resolveInsightNumericId(values.insight)
                     if (!insightId) {
                         throw new Error('Cannot update insight: unable to resolve insight id')
                     }
@@ -726,7 +727,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         beforeUpdates[key] = values.savedInsight[key as keyof QueryBasedInsightModel]
                     }
 
-                    const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
+                    const insightId = await resolveInsightNumericId(values.insight)
+                    if (!insightId) {
+                        throw new Error('Cannot update insight: unable to resolve insight id')
+                    }
+
+                    const response = await insightsApi.update(insightId, metadataUpdate)
                     await breakpoint(300)
 
                     actions.reloadSavedInsights()
@@ -739,7 +745,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             label: 'Undo',
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
-                                const response = await insightsApi.update(values.insight.id as number, beforeUpdates)
+                                const response = await insightsApi.update(insightId, beforeUpdates)
                                 actions.reloadSavedInsights()
                                 dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                                 actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
@@ -1053,8 +1059,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     }),
     listeners(({ actions, values, props }) => ({
         saveInsight: async ({ redirectToViewMode, folder }) => {
-            const insightNumericId =
-                values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
+            const insightNumericId = await resolveInsightNumericId(values.insight)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
 
             let savedInsight: QueryBasedInsightModel
