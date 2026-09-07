@@ -14,6 +14,7 @@ import {
     SEQUENCE_TTL_SECONDS,
     STREAM_COMPLETED_TTL_SECONDS,
     STREAM_MAX_LENGTH,
+    STREAM_THIN_MAX_LENGTH,
     STREAM_PREFIX,
     STREAM_TTL_SECONDS,
     STREAM_WATCHED_TTL_SECONDS,
@@ -137,6 +138,7 @@ export class TaskRunRedisStream {
     private readonly completedTimeout: number
     private readonly maxLength: number
     private readonly presenceGated: boolean
+    private readonly thinTail: boolean
 
     constructor(
         streamKey: string,
@@ -145,6 +147,7 @@ export class TaskRunRedisStream {
             timeout?: number
             maxLength?: number
             presenceGated?: boolean
+            thinTail?: boolean
         }
     ) {
         this.streamKey = streamKey
@@ -155,6 +158,14 @@ export class TaskRunRedisStream {
         this.completedTimeout = Math.min(this.timeout, STREAM_COMPLETED_TTL_SECONDS)
         this.maxLength = opts?.maxLength ?? STREAM_MAX_LENGTH
         this.presenceGated = opts?.presenceGated ?? false
+        this.thinTail = opts?.thinTail ?? false
+    }
+
+    private maxlenForEvent(event: Record<string, unknown>): number {
+        if (this.thinTail && event['event_id']) {
+            return STREAM_THIN_MAX_LENGTH
+        }
+        return this.maxLength
     }
 
     // SET EXPIRE on the stream key; does not create it.
@@ -359,7 +370,15 @@ export class TaskRunRedisStream {
     // Refreshes TTL on every write (sliding window).
     async writeEvent(event: Record<string, unknown>, ttl?: number): Promise<string> {
         const raw = JSON.stringify(event)
-        const streamId = await this.redis.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
+        const streamId = await this.redis.xadd(
+            this.streamKey,
+            'MAXLEN',
+            '~',
+            this.maxlenForEvent(event),
+            '*',
+            'data',
+            raw
+        )
         await this.redis.expire(this.streamKey, ttl ?? this.timeout)
         return normalizeStreamId(streamId)
     }
@@ -462,7 +481,15 @@ export class TaskRunRedisStream {
 
             const pipeline = this.redis.multi()
             if (mirror) {
-                pipeline.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', JSON.stringify(event))
+                pipeline.xadd(
+                    this.streamKey,
+                    'MAXLEN',
+                    '~',
+                    this.maxlenForEvent(event),
+                    '*',
+                    'data',
+                    JSON.stringify(event)
+                )
                 pipeline.expire(this.streamKey, this.timeout)
             }
             pipeline.set(sequenceKey, String(sequence), 'EX', this.sequenceTimeout)

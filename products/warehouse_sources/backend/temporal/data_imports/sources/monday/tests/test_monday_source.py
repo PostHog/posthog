@@ -1,6 +1,7 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
@@ -34,6 +35,17 @@ class TestMondaySource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "monday.com API error (retryable): status=500",
+            "monday.com internal server error (retryable): Internal Server Error; Internal server error",
+        ],
+    )
+    def test_retryable_errors_match_transient_monday_errors(self, observed_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
 
     def test_get_schemas_are_full_refresh_only(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

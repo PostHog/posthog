@@ -270,27 +270,24 @@ async fn scatter(
         handles.push(tokio::spawn(async move {
             match pending.wait().await {
                 Ok(accepted) => {
-                    // Advance ACK high-water marks before the resolve, which
+                    // Advance ACK high-water marks before the settle, which
                     // may evict the keys' sentinel state.
                     inner.dispatcher.on_sub_batch_acked(&key_offsets);
-                    inner.dispatcher.on_sub_batch_resolved(
+                    inner.dispatcher.settle(
                         &worker,
                         message_count,
                         &routing_keys,
                         from_flush,
-                        false,
+                        None,
                     );
                     inner.dispatcher.record_send_outcome(&worker, false);
                     send_group_completions(&inner.completions, groups, assignment_epoch, accepted);
                     accepted
                 }
                 Err(send_err) => {
-                    // Re-defer the failed messages first, so the ref-count drop
-                    // in `on_sub_batch_resolved` doesn't evict the pin while the
-                    // key still has work to replay. On the flush path this pairs
-                    // with the `clears_deferral` decrement in the resolve, so the
-                    // outstanding count nets to unchanged (never dipping to zero)
-                    // and the key keeps deferring across the retry.
+                    // One settlement call requeues the failed messages and
+                    // releases the keys together, so a newer send cannot
+                    // overtake them.
                     // Backpressure (a busy worker) is transient, not a fault:
                     // re-route the work but do not count it against the
                     // worker's health, so passive health tracks real faults.
@@ -300,16 +297,15 @@ async fn scatter(
                         fence_guard,
                     } = send_err;
                     let is_fault = !error.is_backpressure();
-                    inner.dispatcher.defer_failed(&bid, messages);
-                    // Stashed: let the worker stream stop fencing new arrivals.
-                    drop(fence_guard);
-                    inner.dispatcher.on_sub_batch_resolved(
+                    inner.dispatcher.settle(
                         &worker,
                         message_count,
                         &routing_keys,
                         from_flush,
-                        true,
+                        Some((bid, messages)),
                     );
+                    // Stashed: let the worker stream stop fencing new arrivals.
+                    drop(fence_guard);
                     inner.dispatcher.record_send_outcome(&worker, is_fault);
                     0
                 }

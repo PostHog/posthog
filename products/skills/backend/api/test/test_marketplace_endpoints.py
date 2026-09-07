@@ -166,7 +166,9 @@ class TestSkillZipExport(APIBaseTest):
         )
         response = self.client.get(self._url("too-long"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["problems"]
+        body = response.json()
+        assert body["problems"]
+        assert "Description is 1025 characters; the spec maximum is 1024" in body["detail"]
 
 
 SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
