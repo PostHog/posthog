@@ -511,7 +511,8 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                         type="secondary"
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
-                        hasRecording={true}
+                        subject="session"
+                        checkRecordingExists
                     />
                 ) : matchedRecordings.length > 1 ? (
                     <div className="shrink-0">
