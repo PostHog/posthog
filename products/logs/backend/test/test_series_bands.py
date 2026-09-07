@@ -72,25 +72,22 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         service = f"svc-banded-{interval_minutes}"
         window_start = WINDOW_END - dt.timedelta(days=window_days)
         step = dt.timedelta(minutes=interval_minutes)
-        # Starts the series' lifetime a full 5-week baseline back. The run closes as
-        # the baseline opens, so it folds onto later slots than the ones asserted here.
+        # This window's own display slot, far enough in that the run below folds clear of it.
+        slot = window_start + dt.timedelta(days=3, hours=4)
+        # Starts the series' lifetime at the full 5-week baseline.
         rows = self._slots(
-            service,
-            window_start - dt.timedelta(weeks=5, days=2),
-            ALIVE_HOURS,
-            1,
-            interval_minutes=interval_minutes,
+            service, window_start - dt.timedelta(weeks=5), ALIVE_HOURS, 1, interval_minutes=interval_minutes
         )
         for week, value in enumerate([10, 20, 30, 40, 50], start=1):
-            rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "error", value))
+            rows.append((self.team.pk, slot - dt.timedelta(weeks=week), service, "ns", "prod", "error", value))
         # Partial rows within one display bucket, including a repeated 5-minute key.
-        rows.append((self.team.pk, SLOT, service, "ns", "prod", "error", 5))
-        rows.append((self.team.pk, SLOT, service, "ns", "prod", "error", 5))
-        rows.append((self.team.pk, SLOT + dt.timedelta(minutes=5), service, "ns", "prod", "error", 15))
+        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
+        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
+        rows.append((self.team.pk, slot + dt.timedelta(minutes=5), service, "ns", "prod", "error", 15))
         # Excluded: future bucket, other service, other team.
         rows.append((self.team.pk, NOW + dt.timedelta(hours=2), service, "ns", "prod", "error", 999))
-        rows.append((self.team.pk, SLOT, "svc-other", "ns", "prod", "error", 999))
-        rows.append((self.team.pk + 1, SLOT, service, "ns", "prod", "error", 999))
+        rows.append((self.team.pk, slot, "svc-other", "ns", "prod", "error", 999))
+        rows.append((self.team.pk + 1, slot, service, "ns", "prod", "error", 999))
         self._insert(rows)
 
         result = run_series_bands(
@@ -113,12 +110,12 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         by_time = {bucket.time: bucket for bucket in series.buckets}
         # Band folds the five weekly samples 10..50 into a 10% widened envelope,
         # then lifts the upper edge by the per-hour floor scaled to the grain.
-        banded = by_time[SLOT]
+        banded = by_time[slot]
         assert banded.observed == 25
         assert banded.lower == pytest.approx(9.0)
         assert banded.upper == pytest.approx(banded_upper)
 
-        quiet = by_time[SLOT + step]
+        quiet = by_time[slot + step]
         assert quiet.observed == 0
         assert quiet.lower == 0
         assert quiet.upper == quiet_upper
