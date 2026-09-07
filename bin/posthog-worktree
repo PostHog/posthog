@@ -4,6 +4,7 @@ set -e
 
 # Source utility functions
 source "$(dirname "$0")/helpers/_utils.sh"
+source "$(dirname "$0")/helpers/dev-env.sh"
 
 # Parse arguments
 COMMAND=${1:-"help"}
@@ -236,17 +237,25 @@ setup_worktree_environment() {
     # Setup Flox environment for this worktree
     cd "${worktree_path}"
     
-    # Overwrite the checked-out Flox environment with the main clone's copy.
+    # Overwrite the checked-out dev environment with the main clone's copy.
     # These files are tracked, so `git worktree add` already wrote the target
-    # branch's versions -- and that is the point: `flox activate --trust` below
-    # runs on-activate.sh as a bash hook, after this function has copied the
+    # branch's versions -- and that is the point: the activation below runs the
+    # environment's hooks as bash, after this function has copied the
     # developer's .env files in. For `phw pr` the branch is someone else's, so
     # taking its hook would execute an untrusted contributor's shell with those
     # secrets present. Copy the trusted versions over it.
-    mkdir -p "${worktree_path}/.flox/env"
-    copy_config_file "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
-    [[ -f "${main_repo}/.flox/env/on-activate.sh" ]] && \
-        copy_config_file "${main_repo}/.flox/env/on-activate.sh" "${worktree_path}/.flox/env/"
+    if [[ "$(posthog_dev_env_kind)" == "devenv" ]]; then
+        copy_config_file "${main_repo}/devenv.nix" "${worktree_path}/"
+        copy_config_file "${main_repo}/devenv.yaml" "${worktree_path}/"
+        [[ -f "${main_repo}/devenv.lock" ]] && \
+            copy_config_file "${main_repo}/devenv.lock" "${worktree_path}/"
+        copy_config_file "${main_repo}/bin/devenv-tasks.sh" "${worktree_path}/bin/"
+    else
+        mkdir -p "${worktree_path}/.flox/env"
+        copy_config_file "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
+        [[ -f "${main_repo}/.flox/env/on-activate.sh" ]] && \
+            copy_config_file "${main_repo}/.flox/env/on-activate.sh" "${worktree_path}/.flox/env/"
+    fi
 
     # Copy .vscode/settings.json if it exists
     if [[ -f "${main_repo}/.vscode/settings.json" ]]; then
@@ -265,16 +274,16 @@ setup_worktree_environment() {
         copy_config_file "${env_file}" "${worktree_path}/"
     done < <(find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f -print0)
 
-    # Dependencies are not copied here. `flox activate` below installs them, and
+    # Dependencies are not copied here. The activation below installs them, and
     # measuring both showed a copy-on-write clone of node_modules is slower than
     # `pnpm install` and uses more disk, because pnpm materializes only what the
     # lockfile names while the clone carries whatever accumulated in the source.
     # Installing also keeps first-party workspace links and editable installs
     # pointing at this worktree instead of the main clone.
 
-    # Initialize Flox in the new worktree
+    # Initialize the dev environment in the new worktree
     cd "${worktree_path}"
-    print_color blue "Initializing Flox environment (this will share packages from cache)…"
+    print_color blue "Initializing dev environment (this will share packages from cache)…"
     
     # Arm direnv for later `cd`s, when it is installed.
     if command_exists direnv; then
@@ -285,13 +294,17 @@ setup_worktree_environment() {
 
     # Activate regardless. `direnv allow` only adds .envrc to the allow list, it
     # does not evaluate it, and the shell hook may not be configured at all. The
-    # environment's on-activate hook is what installs the Python and Node
+    # environment's activation hook is what installs the Python and Node
     # dependencies, so without this the worktree would have none and setup would
     # still report success.
-    print_color blue "Installing dependencies via flox activate (this may take a minute)…"
+    print_color blue "Installing dependencies via $(posthog_dev_env_activate_hint) (this may take a minute)…"
     # Clean up any stale environment variables that might conflict
     unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
-    flox activate --trust -- true
+    if [[ "$(posthog_dev_env_kind)" == "devenv" ]]; then
+        devenv shell -- true
+    else
+        flox activate --trust -- true
+    fi
     
     success "✅ Worktree setup complete!"
     echo ""
@@ -350,11 +363,11 @@ case "$COMMAND" in
     help|*)
         echo "PostHog Worktree Manager"
         echo ""
-        echo "Sets up a full (\"heavy\") worktree with its own flox env and deps for"
-        echo "running the app (bin/start). For quick edits and commits you don't need"
-        echo "this: a plain 'git worktree add <path> <branch>' gives a light worktree"
-        echo "where pre-commit hooks work automatically (the toolchain is borrowed"
-        echo "from the main clone while lockfiles match)."
+        echo "Sets up a full (\"heavy\") worktree with its own dev environment (flox or"
+        echo "devenv) and deps for running the app (bin/start). For quick edits and"
+        echo "commits you don't need this: a plain 'git worktree add <path> <branch>'"
+        echo "gives a light worktree where pre-commit hooks work automatically (the"
+        echo "toolchain is borrowed from the main clone while lockfiles match)."
         echo ""
         echo "Usage: $0 <command> [arguments]"
         echo ""

@@ -124,6 +124,18 @@ task_dotenv() {
   fi
 }
 
+# Every step, in the order devenv's `before`/`after` edges impose. Used by
+# `hogli nuke`, which deletes the installs that devenv's own change detection
+# would otherwise consider up to date.
+task_all() {
+  task_git_config
+  task_uv_sync
+  task_pnpm_install
+  task_phrocs_build
+  task_dotenv
+  task_hosts_check
+}
+
 case "${1:-}" in
 uv-sync) task_uv_sync ;;
 pnpm-install) task_pnpm_install ;;
@@ -131,8 +143,9 @@ phrocs-build) task_phrocs_build ;;
 git-config) task_git_config ;;
 hosts-check) task_hosts_check ;;
 dotenv) task_dotenv ;;
+all) task_all ;;
 *)
-  echo "usage: $(basename "$0") {uv-sync|pnpm-install|phrocs-build|git-config|hosts-check|dotenv}" >&2
+  echo "usage: $(basename "$0") {uv-sync|pnpm-install|phrocs-build|git-config|hosts-check|dotenv|all}" >&2
   exit 2
   ;;
 esac

@@ -1107,11 +1107,11 @@ utilities:
             - name: node_modules
               cmd: rm -rf **/node_modules
             - name: python venvs
-              cmd: rm -rf .venv .flox/cache/venv
+              cmd: rm -rf .venv .flox/cache/venv .devenv/state/venv
             - name: rust builds
               cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
-            - name: flox on activate
-              cmd: ./.flox/env/on-activate.sh
+            - name: dev environment activation
+              cmd: '. bin/helpers/dev-env.sh; if [ "$(posthog_dev_env_kind)" = devenv ]; then bin/devenv-tasks.sh all; else ./.flox/env/on-activate.sh; fi'
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true
@@ -1156,6 +1156,10 @@ environment:
     flox:activate:
         cmd: flox activate
         description: Enter Flox development environment shell.
+        hidden: true
+    devenv:shell:
+        cmd: devenv shell
+        description: Enter the opt-in devenv development environment shell.
         hidden: true
     setup:python:
         cmd: uv sync --active
@@ -1246,4 +1250,8 @@ environment:
     report:jest:timings:
         bin_script: report-jest-timings
         description: 'Render a Jest test-speed report from timing artifacts'
+        hidden: true
+    devenv:tasks:
+        bin_script: devenv-tasks.sh
+        description: 'Run one activation step of the opt-in devenv environment (uv-sync, pnpm-install, phrocs-build, ...)'
         hidden: true

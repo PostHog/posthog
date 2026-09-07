@@ -117,6 +117,17 @@
     ;; are generated and stay writable.
     (subpath (string-append (param "PROJECT") "/.flox/env"))
     (subpath (string-append (param "MAINREPO") "/.flox/env"))
+    ;; The devenv environment definition, for the same reason: devenv reads these
+    ;; on every `devenv shell` and runs the tasks they name unsandboxed. The task
+    ;; bodies in bin/devenv-tasks.sh are already covered by the PROJECT/bin deny
+    ;; above. .devenv/ itself is generated and stays writable, because the venv
+    ;; lives there.
+    (literal (string-append (param "PROJECT") "/devenv.nix"))
+    (literal (string-append (param "PROJECT") "/devenv.yaml"))
+    (literal (string-append (param "PROJECT") "/devenv.lock"))
+    (literal (string-append (param "MAINREPO") "/devenv.nix"))
+    (literal (string-append (param "MAINREPO") "/devenv.yaml"))
+    (literal (string-append (param "MAINREPO") "/devenv.lock"))
     ;; The husky hooks. core.hooksPath points git at .husky, so these are the hooks
     ;; that actually run — .git/hooks above is the directory git never reads once
     ;; that is set. Same unsandboxed execution, one step more direct.
