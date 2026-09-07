@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+import posthog.migration_helpers.not_valid_constraint
+
 
 class Migration(migrations.Migration):
     initial = True
@@ -10,8 +12,8 @@ class Migration(migrations.Migration):
     dependencies = [
         ("access_control", "0001_squash_2026_09_07_initial"),
         ("actions", "0001_squash_2026_09_07_initial"),
-        ("ai_observability", "0002_squash_2026_09_07_finalize_fks"),
-        ("alerts", "0002_squash_2026_09_07_finalize_fks"),
+        ("ai_observability", "0044_squash_2026_09_07_finalize_fks"),
+        ("alerts", "0004_squash_2026_09_07_finalize_fks"),
         ("analytics_platform", "0001_squash_2026_09_07_initial"),
         ("annotations", "0001_squash_2026_09_07_initial"),
         ("approvals", "0001_squash_2026_09_07_initial"),
@@ -19,27 +21,26 @@ class Migration(migrations.Migration):
         ("batch_exports", "0001_squash_2026_09_07_initial"),
         ("billing_alerts", "0001_squash_2026_09_07_initial"),
         ("business_knowledge", "0001_squash_2026_09_07_initial"),
-        ("canvas", "0002_squash_2026_09_07_finalize_fks"),
+        ("canvas", "0017_squash_2026_09_07_finalize_fks"),
         ("cdp", "0001_squash_2026_09_07_initial"),
-        ("cohorts", "0002_squash_2026_09_07_finalize_fks"),
+        ("cohorts", "0013_squash_2026_09_07_finalize_fks"),
         ("context_layer", "0001_squash_2026_09_07_initial"),
         ("conversations", "0001_squash_2026_09_07_initial"),
-        ("customer_analytics", "0002_squash_2026_09_07_finalize_fks"),
-        ("dashboards", "0002_squash_2026_09_07_finalize_fks"),
+        ("customer_analytics", "0050_squash_2026_09_07_finalize_fks"),
+        ("dashboards", "0017_squash_2026_09_07_finalize_fks"),
         ("data_catalog", "0001_squash_2026_09_07_initial"),
-        ("data_modeling", "0002_squash_2026_09_07_finalize_fks"),
+        ("data_modeling", "0034_squash_2026_09_07_finalize_fks"),
         ("data_quality", "0001_squash_2026_09_07_initial"),
         ("data_tools", "0001_squash_2026_09_07_initial"),
         ("data_warehouse", "0001_squash_2026_09_07_initial"),
         ("early_access_features", "0001_squash_2026_09_07_initial"),
-        ("ee", "0002_squash_2026_09_07_finalize_fks"),
+        ("ee", "0061_squash_2026_09_07_finalize_fks"),
         ("endpoints", "0001_squash_2026_09_07_initial"),
         ("error_tracking", "0001_squash_2026_09_07_initial"),
-        ("error_tracking", "0031_errortrackingalert_errortrackingalertdestination_and_more"),
         ("event_definitions", "0001_squash_2026_09_07_initial"),
-        ("experiments", "0002_squash_2026_09_07_finalize_fks"),
+        ("experiments", "0037_squash_2026_09_07_finalize_fks"),
         ("exports", "0001_squash_2026_09_07_initial"),
-        ("feature_flags", "0002_squash_2026_09_07_finalize_fks"),
+        ("feature_flags", "0018_squash_2026_09_07_finalize_fks"),
         ("field_notes", "0001_squash_2026_09_07_initial"),
         ("growth", "0001_squash_2026_09_07_initial"),
         ("legal_documents", "0001_squash_2026_09_07_initial"),
@@ -55,7 +56,7 @@ class Migration(migrations.Migration):
         ("messaging", "0001_squash_2026_09_07_initial"),
         ("notebooks", "0001_squash_2026_09_07_initial"),
         ("notifications", "0001_squash_2026_09_07_initial"),
-        ("posthog", "0002_squash_2026_09_07_finalize_fks"),
+        ("posthog", "1343_squash_2026_09_07_finalize_fks"),
         ("posthog_ai", "0001_squash_2026_09_07_initial"),
         ("product_analytics", "0001_squash_2026_09_07_initial"),
         ("product_tours", "0001_squash_2026_09_07_initial"),
@@ -65,12 +66,13 @@ class Migration(migrations.Migration):
         ("replay_vision", "0001_squash_2026_09_07_initial"),
         ("review_hog", "0001_squash_2026_09_07_initial"),
         ("signals", "0001_squash_2026_09_07_initial"),
+        ("signals", "0116_signalscoutconfig_write_scopes"),
         ("skills", "0001_squash_2026_09_07_initial"),
         ("slack_app", "0001_squash_2026_09_07_initial"),
         ("stamphog", "0001_squash_2026_09_07_initial"),
-        ("streamlit_apps", "0002_squash_2026_09_07_finalize_fks"),
+        ("streamlit_apps", "0004_squash_2026_09_07_finalize_fks"),
         ("surveys", "0001_squash_2026_09_07_initial"),
-        ("tasks", "0002_squash_2026_09_07_finalize_fks"),
+        ("tasks", "0118_squash_2026_09_07_finalize_fks"),
         ("tracing", "0001_squash_2026_09_07_initial"),
         ("user_interviews", "0001_squash_2026_09_07_initial"),
         ("visual_review", "0001_squash_2026_09_07_initial"),
@@ -81,8 +83,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql='\n                    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_team_id_raw_id_part" ON "posthog_errortrackingstackframe" ("team_id", "raw_id", "part");\n                    ',
-            reverse_sql="",
+        posthog.migration_helpers.not_valid_constraint.ValidateConstraint(
+            model_name="signalscoutconfig",
+            name="scout_config_enabled_matches_status",
+        ),
+        posthog.migration_helpers.not_valid_constraint.ValidateConstraint(
+            model_name="signalscoutconfig",
+            name="scout_config_pause_reason_matches_status",
         ),
     ]
