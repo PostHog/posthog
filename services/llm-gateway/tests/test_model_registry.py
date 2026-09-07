@@ -441,7 +441,7 @@ class TestIsModelAvailable:
             ("posthog_ai", True),
             ("onboarding", False),
             ("product_analytics", False),
-            ("review_hog", False),
+            ("review_hog", True),
             ("stamphog", False),
         ],
     )

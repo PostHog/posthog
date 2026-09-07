@@ -269,7 +269,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     "review_hog": ProductConfig(
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
-        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
+        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra / gpt-6-astra
+        # (Codex reviewers),
         # GLM 5.2/5.3 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
@@ -284,6 +285,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.6-sol",
                 "gpt-5.6-luna",
                 "gpt-5.6-terra",
+                "gpt-6-astra",
             }
         ),
         allow_api_keys=True,
