@@ -830,6 +830,36 @@ class TestRepartitionActivity:
         pending = schema.repartition_pending
         assert pending is not None and pending["attempts"] == 1
 
+    def test_a_retry_inside_the_run_that_spent_the_cap_still_rewrites(self, team):
+        # The attempt is charged before the rewrite, so on the run that charges the last one the
+        # persisted count already reads the cap when that run's own Temporal retry re-reads it. Giving
+        # up there abandoned the table terminally on a heartbeat blip, before the retry ran the
+        # rewrite at all, although the cap counts the sync runs that failed and not the retries
+        # within one.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": MAX_REPARTITION_ATTEMPTS - 1,
+            }
+        )
+        inputs = self._inputs(team, schema)
+
+        def killed_mid_rewrite(**kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        with contextlib.suppress(BaseException):
+            self._run(inputs, AsyncMock(side_effect=killed_mid_rewrite))
+
+        rewrite = AsyncMock(return_value={"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"})
+        capture = self._run(inputs, rewrite)
+
+        rewrite.assert_awaited_once()
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
+
     def test_an_overlapping_attempt_charge_survives_another_attempts_refund(self, team):
         # Overlapping attempts must not erase each other's charge, or the cap never counts up and the
         # retry loop this change exists to stop comes back.
