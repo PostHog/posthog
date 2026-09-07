@@ -161,8 +161,9 @@ def _store_absorbed(snapshot: RunSnapshot, result: CompareResult) -> None:
     shift = result.row_shift
     has_shift = shift is not None and shift.shifted_rows > 0
 
-    # The row turns UNCHANGED last. A failed upload or metrics write leaves it
-    # CHANGED with no kind, which is what the next process_diffs pass retries.
+    # Upload first, then metrics and the UNCHANGED state in one row write. A
+    # failed upload leaves the row CHANGED with no kind and no artifact, which
+    # is exactly what the next process_diffs pass retries.
     diff_artifact = _write_diff_artifact(snapshot, result) if has_shift and result.diff_image else None
     snapshot_diffs.update_snapshot_diff(
         snapshot_id=snapshot.id,
@@ -172,11 +173,9 @@ def _store_absorbed(snapshot: RunSnapshot, result: CompareResult) -> None:
         ssim_score=result.ssim_score,
         change_kind=None,
         diff_metadata=_diff_metadata(result) if has_shift else None,
+        absorbed=True,
         team_id=snapshot.team_id,
     )
-    snapshot.result = SnapshotResult.UNCHANGED
-    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
-    snapshot.save(update_fields=["result", "classification_reason"])
 
     logger.info(
         "visual_review.diff_below_threshold",
