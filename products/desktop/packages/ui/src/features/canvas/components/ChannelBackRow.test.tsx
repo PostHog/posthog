@@ -11,9 +11,13 @@ const mocks = vi.hoisted(() => ({
   }[],
   isLoading: false,
   toggleStar: vi.fn(),
+  navigate: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mocks.navigate,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
@@ -59,6 +63,17 @@ describe("ChannelBackRow", () => {
   it("names the channel you're in", () => {
     renderRow(ENG.id);
     expect(screen.getByText("engineering")).toBeTruthy();
+  });
+
+  it("opens settings for the current space", async () => {
+    const user = userEvent.setup();
+    renderRow(ENG.id);
+    await user.click(screen.getByRole("button", { name: "Space settings" }));
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: "/spaces/$channelId/settings",
+      params: { channelId: ENG.id },
+    });
+    expect(useChannelPaneStore.getState().pane).toBe("channel");
   });
 
   it("slides back to the channel list", async () => {

@@ -1,7 +1,6 @@
 import {
   HashIcon,
   type IconWeight,
-  LockKeyIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
 import { PERSONAL_CHANNEL_LABEL } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
@@ -23,7 +22,7 @@ export function isPersonalChannelName(
 
 /**
  * A channel's leading glyph: the viewer's own "#me" space wears a plain lock, a
- * private shared space a keyed lock, the legacy Channels layout a hash, and an
+ * private shared space the same lock, the legacy Channels layout a hash, and an
  * ordinary space nothing at all.
  *
  * Spaces dropped their cube because it said nothing the name didn't — a column
@@ -45,8 +44,7 @@ export function channelGlyph(
      */
     personal?: boolean;
     /**
-     * Whether this is a private shared space. Distinct from `personal`: a keyed
-     * lock says "only its members can see this", so it never reads as your #me.
+     * Whether this is a private shared space with access limited to members.
      */
     private?: boolean;
   },
@@ -54,7 +52,7 @@ export function channelGlyph(
   const personal = opts?.personal ?? isPersonalChannelName(channelName);
   const isPrivate = opts?.private ?? false;
   if (!personal && !isPrivate && opts?.space) return null;
-  const Icon = personal ? LockSimpleIcon : isPrivate ? LockKeyIcon : HashIcon;
+  const Icon = personal || isPrivate ? LockSimpleIcon : HashIcon;
   return (
     <Icon
       size={opts?.size ?? 16}

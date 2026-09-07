@@ -3261,6 +3261,26 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
+  async updateTaskChannelType(
+    id: string,
+    channelType: "public" | "private",
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ channel_type: channelType }) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update space visibility: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
   async updateTaskChannelAutoArchive(
     id: string,
     inactivityDays: number | null,

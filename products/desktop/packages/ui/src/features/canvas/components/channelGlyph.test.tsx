@@ -1,4 +1,4 @@
-import { HashIcon, LockKeyIcon, LockSimpleIcon } from "@phosphor-icons/react";
+import { HashIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 import { channelGlyph, isPersonalChannelName } from "./channelGlyph";
@@ -57,14 +57,12 @@ describe("channelGlyph", () => {
     ).toBeNull();
   });
 
-  // A private shared space is marked in the spaces list, with a keyed lock that
-  // reads apart from the plain #me lock.
-  it("gives a private space a keyed lock, not the #me lock", () => {
+  it("gives a private space the same lock as a personal space", () => {
     const glyph = channelGlyph("squad", {
       private: true,
       space: true,
     }) as ReactElement;
 
-    expect(glyph.type).toBe(LockKeyIcon);
+    expect(glyph.type).toBe(LockSimpleIcon);
   });
 });

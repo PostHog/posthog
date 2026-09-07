@@ -11,6 +11,7 @@ export const channelMembersQueryKey = (channelId: string | null) =>
 export function useChannelMembers(channelId: string | null): {
   members: UserBasic[];
   isLoading: boolean;
+  error: Error | null;
 } {
   const query = useAuthenticatedQuery<UserBasic[]>(
     channelMembersQueryKey(channelId),
@@ -20,6 +21,7 @@ export function useChannelMembers(channelId: string | null): {
   return {
     members: query.data ?? [],
     isLoading: query.isLoading,
+    error: query.error,
   };
 }
 

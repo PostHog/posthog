@@ -59,7 +59,6 @@ import {
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
-import { ManageMembersDialog } from "@posthog/ui/features/canvas/components/ManageMembersDialog";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
@@ -715,8 +714,6 @@ function useChannelActions(channel: Channel): {
   isUpdatingAutoArchive: boolean;
   renameOpen: boolean;
   setRenameOpen: (open: boolean) => void;
-  membersOpen: boolean;
-  setMembersOpen: (open: boolean) => void;
   confirmDeleteOpen: boolean;
   setConfirmDeleteOpen: (open: boolean) => void;
   confirmDelete: () => Promise<boolean>;
@@ -725,7 +722,6 @@ function useChannelActions(channel: Channel): {
   const spacesLayout = useChannelsLayout();
   const noun = spacesLayout ? "space" : "channel";
   const [renameOpen, setRenameOpen] = useState(false);
-  const [membersOpen, setMembersOpen] = useState(false);
   const [autoArchiveOpen, setAutoArchiveOpen] = useState(false);
   // "Delete channel" opens a confirmation dialog rather than deleting inline —
   // the action is destructive and irreversible.
@@ -861,9 +857,13 @@ function useChannelActions(channel: Channel): {
         ? [
             {
               key: "members",
-              label: "Members…",
+              label: "Members",
               icon: <UsersThreeIcon size={14} />,
-              onSelect: () => setMembersOpen(true),
+              onSelect: () =>
+                void navigate({
+                  to: "/spaces/$channelId/settings",
+                  params: { channelId: channel.id },
+                }),
             },
           ]
         : [];
@@ -911,6 +911,7 @@ function useChannelActions(channel: Channel): {
     channel.channelType,
     channel.id,
     isStarred,
+    navigate,
     noun,
     toggleStar,
   ]);
@@ -923,8 +924,6 @@ function useChannelActions(channel: Channel): {
     isUpdatingAutoArchive,
     renameOpen,
     setRenameOpen,
-    membersOpen,
-    setMembersOpen,
     confirmDeleteOpen,
     setConfirmDeleteOpen,
     confirmDelete,
@@ -1092,8 +1091,6 @@ const ChannelSection = memo(
       isUpdatingAutoArchive,
       renameOpen,
       setRenameOpen,
-      membersOpen,
-      setMembersOpen,
       confirmDeleteOpen,
       setConfirmDeleteOpen,
       confirmDelete,
@@ -1320,14 +1317,6 @@ const ChannelSection = memo(
               channel={channel}
               open={renameOpen}
               onOpenChange={setRenameOpen}
-            />
-          )}
-          {/* Private spaces only — the action that opens this is gated the same way. */}
-          {channel.channelType === "private" && (
-            <ManageMembersDialog
-              channel={channel}
-              open={membersOpen}
-              onOpenChange={setMembersOpen}
             />
           )}
           {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
