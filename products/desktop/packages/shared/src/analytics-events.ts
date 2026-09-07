@@ -415,8 +415,20 @@ export interface ModelSwitchWarningShownProperties {
 
 export interface ModelSwitchWarningActionProperties
   extends ModelSwitchWarningShownProperties {
-  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  action: "cancel" | "switch_now";
   result?: "failed" | "succeeded";
+}
+
+export interface SessionSummaryRequestedProperties {
+  task_id: string;
+  source: "retry" | "task_menu";
+}
+
+export interface SessionSummaryActionProperties {
+  task_id: string;
+  action: "copied" | "dismissed" | "stopped_waiting";
+  /** How long the summary had been running when the action happened. */
+  wait_ms: number;
 }
 
 // Tour events
@@ -1571,6 +1583,8 @@ export const ANALYTICS_EVENTS = {
   SESSION_CONFIG_CHANGED: "Session config changed",
   MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
   MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
+  SESSION_SUMMARY_REQUESTED: "Session summary requested",
+  SESSION_SUMMARY_ACTION: "Session summary action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
@@ -1779,6 +1793,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_REQUESTED]: SessionSummaryRequestedProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_ACTION]: SessionSummaryActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;

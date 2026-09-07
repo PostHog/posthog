@@ -4073,7 +4073,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 

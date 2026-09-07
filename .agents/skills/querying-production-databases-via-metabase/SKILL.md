@@ -1,23 +1,31 @@
 ---
-name: query-clickhouse-via-metabase
+name: querying-production-databases-via-metabase
 description: >
-  Run ClickHouse `system.query_log` analysis via the internal Metabase API.
-  Use when investigating slow queries, materialization candidates, per-team
-  query performance, ClickHouse cost or memory issues, or any system.query_log
-  question. Covers prod-us and prod-eu, SSO-gated cookie auth via `hogli`,
-  and ready-to-run query patterns.
+  Runs read-only production database analysis through PostHog's internal
+  Metabase instances. Use for ClickHouse query logs, slow query cost, Postgres
+  query plans, index selection, or tenant-size analysis. Covers US and EU
+  database discovery, SSO login through `hogli`, safe query rules, and query
+  patterns for both engines.
 ---
 
-# Querying ClickHouse via Metabase
+# Querying production databases via Metabase
 
-PostHog's production ClickHouse clusters are reachable for ad-hoc analysis through
-internal Metabase instances. Both Metabases sit behind an AWS ALB with Cognito
-OAuth, so authentication is **SSO-gated** — Metabase API keys alone won't work.
+PostHog's production databases are reachable for ad-hoc, read-only analysis
+through internal Metabase instances. Both Metabases sit behind an AWS ALB with
+Cognito OAuth, so authentication is **SSO-gated** — Metabase API keys alone
+won't work.
 
-This skill is for `system.query_log` analysis from inside the posthog repo.
-For pre-built canned queries (slow query summaries, materialization analysis),
-see the `query-performance-analysis` repo, which is the source of truth for
-those and uses the same Metabase API surface.
+Two engines are behind the same API surface, and the reason to reach for each
+is different:
+
+- **ClickHouse** — `system.query_log` analysis: which queries are slow, what
+  they read, who runs them.
+- **Postgres** (the app database) — the real query plan for an app query, and
+  how a per-project table's rows spread across the fleet.
+
+For pre-built canned ClickHouse queries (slow query summaries, materialization
+analysis), see the `query-performance-analysis` repo, which is the source of
+truth for those and uses the same Metabase API surface.
 
 ## Environment
 
@@ -69,7 +77,7 @@ results — the session value never appears in the agent's transcript.
 `metabase:cookie` exists for humans who want to hand-roll `curl` against
 Metabase.
 
-## Running an ad-hoc query
+## Running a ClickHouse query
 
 1. Discover the current ClickHouse DB ID: `hogli metabase:databases --region <region>`.
 2. Pass that ID into `hogli metabase:query`. Pipe SQL via stdin or `--file`.
@@ -106,7 +114,7 @@ If the DB ID is wrong, `metabase:query` exits non-zero with a pointer back
 to `metabase:databases`. Fail-fast is intentional — silently querying the
 wrong database is worse than failing.
 
-## What counts as a slow query
+## ClickHouse: what counts as a slow query
 
 ```sql
 query_duration_ms > 30000
@@ -119,7 +127,7 @@ OR exception_code IN (159, 160, 241)
 | 160  | TOO_SLOW              |
 | 241  | MEMORY_LIMIT_EXCEEDED |
 
-## Useful query patterns
+## ClickHouse query patterns
 
 ### Top slow queries in the last 24h
 
@@ -183,6 +191,47 @@ https://metabase.prod-eu.posthog.dev/question/795-look-up-query-by-query-id?quer
 The same can be reproduced programmatically with a `WHERE query_id = '...'`
 clause via `/api/dataset` against the right region's DB ID.
 
+## Postgres app database
+
+Use the Postgres connection when a Django request spends time in the app database.
+Production data and statistics can select a different plan from local data.
+
+Discover the current database IDs and select the Postgres app database:
+
+```bash
+hogli metabase:databases --region us
+```
+
+The list can also contain ingestion and migration databases.
+Use [`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md) for the investigation workflow.
+
+### Safety
+
+The Metabase connection uses a shared read replica.
+Run only `SELECT` and `EXPLAIN` statements.
+Do not run writes or schema changes.
+Start with `EXPLAIN`, which does not run the query.
+`EXPLAIN ANALYZE` runs the query, so use it only for a narrow, safe `SELECT`.
+Keep the endpoint's filters, order, and limit because they can change the plan.
+
+A count grouped by tenant can scan a full table even when its result has a limit.
+Prefer an existing aggregate or another source approved by the database owner.
+For one tenant, bound the work inside the count:
+
+```sql
+SELECT count(*)
+FROM (
+    SELECT 1
+    FROM <table>
+    WHERE <tenant_key> = <tenant_id>
+    LIMIT <threshold_plus_one>
+) AS bounded_rows
+```
+
+Results can contain customer identifiers, query text, and private scale data.
+Do not copy them into public code, tests, pull requests, issues, or comments.
+Use placeholders and broad data shapes in public output.
+
 ## Parsing Metabase responses
 
 ```json
@@ -211,14 +260,14 @@ for row in d['data']['rows']:
 
 ### Error responses
 
-| Symptom                        | Cause                                  | Fix                                                              |
-| ------------------------------ | -------------------------------------- | ---------------------------------------------------------------- |
-| HTTP 302 to `/auth/...`        | Cookie expired or missing              | Tell user to run `hogli metabase:login --region <region>`        |
-| HTTP 401                       | Cookie rejected by ALB                 | Same as 302                                                      |
-| `"status": "failed"` + `error` | ClickHouse error (syntax, table, etc.) | Read `error`; fix SQL                                            |
-| Hangs / timeout                | Wide `query_log` scan                  | Narrow `event_time` range, add `team_id` filter, use `cluster()` |
+| Symptom                        | Cause                                | Fix                                                              |
+| ------------------------------ | ------------------------------------ | ---------------------------------------------------------------- |
+| HTTP 302 to `/auth/...`        | Cookie expired or missing            | Tell user to run `hogli metabase:login --region <region>`        |
+| HTTP 401                       | Cookie rejected by ALB               | Same as 302                                                      |
+| `"status": "failed"` + `error` | Database error (syntax, table, etc.) | Read `error`; fix SQL                                            |
+| Hangs / timeout                | Wide `query_log` scan                | Narrow `event_time` range, add `team_id` filter, use `cluster()` |
 
-## Investigation workflow
+## ClickHouse investigation workflow
 
 1. **Frame the question.** Slow per-team? Specific query pattern? Cost/memory regression?
 2. **Pick the smallest time window** that still answers the question — `query_log` is large; default to 1h–24h, expand only when needed.
