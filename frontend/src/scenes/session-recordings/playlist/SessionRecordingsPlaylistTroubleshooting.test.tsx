@@ -80,7 +80,7 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         expect(screen.getByText('Clear filters')).toBeInTheDocument()
     })
 
-    it('withholds the filter controls that would drop the scoping the caller owns', () => {
+    it('does not offer to clear filters the caller owns, which resetFilters would drop', () => {
         const scopedProps: SessionRecordingPlaylistLogicProps = {
             logicKey: 'troubleshooting-scoped-test',
             updateSearchParams: false,
@@ -92,16 +92,7 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         renderTroubleshooting(scopedProps)
 
         expect(scopedLogic.values.totalFiltersCount).toBeGreaterThan(0)
-        // resetFilters drops the caller's scoping; the 30-day button overwrites its date_from.
         expect(screen.queryByTestId('replay-empty-state-troubleshooting-clear-filters')).not.toBeInTheDocument()
-        expect(
-            screen.queryByTestId('expand-replay-listing-from-default-seven-days-to-twenty-one')
-        ).not.toBeInTheDocument()
-
-        cleanup()
-        renderTroubleshooting()
-
-        expect(screen.getByTestId('expand-replay-listing-from-default-seven-days-to-twenty-one')).toBeInTheDocument()
 
         scopedLogic.unmount()
     })

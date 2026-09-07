@@ -54,21 +54,17 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             </LemonButton>
                         </li>
                     )}
-                    {/* Widening the window overwrites the caller's own `date_from`, same reasoning
-                        as "Clear filters": the list would stop matching the surface around it. */}
-                    {!isScopedByCaller && (
-                        <li>
-                            <LemonButton
-                                type="secondary"
-                                fullWidth={true}
-                                size="xsmall"
-                                data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => setFilters({ date_from: '-30d' })}
-                            >
-                                Search over the last 30 days
-                            </LemonButton>
-                        </li>
-                    )}
+                    <li>
+                        <LemonButton
+                            type="secondary"
+                            fullWidth={true}
+                            size="xsmall"
+                            data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
+                            onClick={() => setFilters({ date_from: '-30d' })}
+                        >
+                            Search over the last 30 days
+                        </LemonButton>
+                    </li>
                     <LemonDivider dashed={true} />
                     <li>
                         <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
