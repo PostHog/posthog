@@ -626,6 +626,18 @@ function MarkdownNotebookEditor({
     const [insertMenuPosition, setInsertMenuPosition] = useState<InsertMenuPosition | null>(null)
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
+    // Mouse-move fires several times per frame. Each event moved the insert-boundary highlight
+    // through React state, which re-rendered every row in the notebook. Coalesce a burst into one
+    // update per frame so a hover over a long notebook re-renders once, not once per event.
+    const activeBoundaryRafRef = useRef<number | null>(null)
+    const pendingActiveBoundaryRef = useRef<{ rowIndex: number; rowElement: HTMLElement; clientY: number } | null>(null)
+    useEffect(() => {
+        return () => {
+            if (activeBoundaryRafRef.current !== null) {
+                cancelAnimationFrame(activeBoundaryRafRef.current)
+            }
+        }
+    }, [])
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
@@ -4924,18 +4936,45 @@ function MarkdownNotebookEditor({
         }
     }
 
-    const updateActiveBoundaryFromRow = (event: ReactMouseEvent<HTMLElement>, rowIndex: number): void => {
-        setActiveRowIndex(rowIndex)
+    const cancelPendingActiveBoundaryUpdate = (): void => {
+        if (activeBoundaryRafRef.current !== null) {
+            cancelAnimationFrame(activeBoundaryRafRef.current)
+            activeBoundaryRafRef.current = null
+        }
+        pendingActiveBoundaryRef.current = null
+    }
+
+    const flushActiveBoundaryUpdate = (): void => {
+        activeBoundaryRafRef.current = null
+        const pending = pendingActiveBoundaryRef.current
+        if (!pending) {
+            return
+        }
+        setActiveRowIndex(pending.rowIndex)
 
         if (focusedRowIndex !== null || insertMenu) {
             setActiveBoundaryIndex(null)
             return
         }
 
-        setActiveBoundaryIndex(getClosestInsertBoundaryIndex(event.currentTarget, rowIndex, event.clientY))
+        setActiveBoundaryIndex(getClosestInsertBoundaryIndex(pending.rowElement, pending.rowIndex, pending.clientY))
+    }
+
+    const updateActiveBoundaryFromRow = (event: ReactMouseEvent<HTMLElement>, rowIndex: number): void => {
+        // Read the pointer position now: the synthetic event is pooled and the rAF runs after React
+        // releases it. The latest event before the frame wins, so a fast sweep still lands correctly.
+        pendingActiveBoundaryRef.current = { rowIndex, rowElement: event.currentTarget, clientY: event.clientY }
+
+        if (activeBoundaryRafRef.current !== null) {
+            return
+        }
+
+        activeBoundaryRafRef.current = requestAnimationFrame(flushActiveBoundaryUpdate)
     }
 
     const handleRowFocus = (rowIndex: number): void => {
+        // Drop any queued hover update so it can't re-show a boundary the focus just cleared.
+        cancelPendingActiveBoundaryUpdate()
         setActiveRowIndex(rowIndex)
         setActiveBoundaryIndex(null)
         setFocusedRowIndex(rowIndex)
@@ -4951,6 +4990,7 @@ function MarkdownNotebookEditor({
     }
 
     const handleCanvasMouseLeave = (): void => {
+        cancelPendingActiveBoundaryUpdate()
         setActiveRowIndex(null)
         setActiveBoundaryIndex(null)
     }

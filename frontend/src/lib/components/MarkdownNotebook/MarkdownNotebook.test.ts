@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react'
-import { createElement, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { createElement, Profiler, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import { getAskAISelectionQuery } from './documentModel'
@@ -3180,6 +3180,18 @@ Third paragraph`,
                 (button) => (button as HTMLElement).dataset.boundaryIndex ?? ''
             )
 
+        // Hovering a row now schedules the boundary highlight on the next frame, so the test runs
+        // the scheduled frame before asserting what a row hover revealed.
+        const frameCallbacks: FrameRequestCallback[] = []
+        const rafSpy = jest
+            .spyOn(window, 'requestAnimationFrame')
+            .mockImplementation((cb: FrameRequestCallback) => frameCallbacks.push(cb))
+        const flushFrame = (): void => {
+            act(() => {
+                frameCallbacks.splice(0).forEach((cb) => cb(0))
+            })
+        }
+
         expect(canvas).toBeInstanceOf(HTMLElement)
         expect(rows).toHaveLength(3)
         expect(textBlocks).toHaveLength(3)
@@ -3188,9 +3200,11 @@ Third paragraph`,
         setRowRect(rows[1], 100, 100)
 
         fireEvent.mouseEnter(rows[1], { clientY: 120 })
+        flushFrame()
         expect(getVisibleBoundaryIndexes()).toEqual(['1'])
 
         fireEvent.mouseMove(rows[1], { clientY: 180 })
+        flushFrame()
         expect(getVisibleBoundaryIndexes()).toEqual(['2'])
 
         const boundaryHoverZones = Array.from(
@@ -3209,13 +3223,16 @@ Third paragraph`,
 
         fireEvent.blur(textBlocks[1])
         fireEvent.mouseMove(rows[1], { clientY: 180 })
+        flushFrame()
         expect(getVisibleBoundaryIndexes()).toEqual(['2'])
 
         fireEvent.mouseEnter(rows[0], { clientY: 75 })
+        flushFrame()
         expect(getVisibleBoundaryIndexes()).toEqual(['1'])
 
         fireEvent.mouseLeave(canvas as HTMLElement)
         expect(getVisibleBoundaryIndexes()).toEqual([])
+        rafSpy.mockRestore()
     })
 
     it('uses a line menu button for empty body rows instead of boundary add buttons', () => {
@@ -9970,5 +9987,40 @@ After component`,
         expect(container.querySelector('.MarkdownNotebook__drop-indicator')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__row--dragging')).toBeNull()
         expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('coalesces a burst of mouse-move events into one re-render on the next frame', () => {
+        // Each mouse-move moved the insert-boundary highlight through React state, which
+        // re-rendered every row synchronously — one commit per event. A hover over a long
+        // notebook now schedules a single frame, so the burst commits once, not once per event.
+        const onRender = jest.fn()
+        const markdown = ['# Title', '', 'alpha', '', 'bravo', '', 'charlie', '', 'delta'].join('\n')
+        const { container } = render(
+            createElement(Profiler, { id: 'notebook', onRender }, createElement(MarkdownNotebook, { value: markdown }))
+        )
+        const rows = container.querySelectorAll('.MarkdownNotebook__row')
+        expect(rows.length).toBeGreaterThan(3)
+
+        const frameCallbacks: FrameRequestCallback[] = []
+        const rafSpy = jest
+            .spyOn(window, 'requestAnimationFrame')
+            .mockImplementation((callback: FrameRequestCallback) => frameCallbacks.push(callback))
+        onRender.mockClear()
+
+        act(() => {
+            for (let index = 1; index < rows.length; index++) {
+                fireEvent.mouseMove(rows[index], { clientY: 5 })
+            }
+        })
+        // The burst re-rendered nothing synchronously; it only scheduled one frame.
+        expect(onRender).not.toHaveBeenCalled()
+        expect(frameCallbacks).toHaveLength(1)
+
+        act(() => {
+            frameCallbacks.forEach((callback) => callback(0))
+        })
+        // The scheduled frame applies the highlight, so the update is coalesced, not dropped.
+        expect(onRender).toHaveBeenCalled()
+        rafSpy.mockRestore()
     })
 })
