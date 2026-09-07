@@ -711,7 +711,7 @@ SQL
     }
   }
   materialized_view "kafka_metrics_avro2_mv" {
-    to_table = "posthog.metrics2"
+    to_table = "posthog.metrics2_input"
     query    = file("sql/kafka_metrics_avro2_mv.sql")
     column "uuid" {
       type = "String"
@@ -795,6 +795,90 @@ SQL
       type = "UInt64"
     }
   }
+  table "metrics2_input" {
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type = "Bool"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "null" {}
+  }
   table "metrics2" {
     order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "timestamp"]
     partition_by = "toDate(original_expiry_timestamp)"
@@ -819,7 +903,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta"
+      codec = "Delta(8), Default"
     }
     column "resource_fingerprint" {
       type    = "UInt64"
@@ -885,14 +969,6 @@ SQL
     }
     column "instrumentation_scope" {
       type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-      ttl  = "toDateTime(timestamp) + toIntervalDay(1)"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-      ttl  = "toDateTime(timestamp) + toIntervalDay(1)"
     }
     column "_partition" {
       type = "UInt32"
@@ -990,7 +1066,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta"
+      codec = "Delta(8), Default"
     }
     column "metric_type" {
       type = "LowCardinality(String)"
@@ -1054,7 +1130,7 @@ SQL
     }
   }
   table "metric_attributes2" {
-    order_by     = ["team_id", "attribute_type", "metric_name", "time_bucket", "attribute_key", "attribute_value"]
+    order_by     = ["team_id", "attribute_type", "time_bucket", "attribute_key", "attribute_value"]
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_time_bucket"
     settings = {
@@ -1072,9 +1148,6 @@ SQL
       type = "DateTime64(0)"
     }
     column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_name" {
       type = "LowCardinality(String)"
     }
     column "attribute_key" {
@@ -1130,7 +1203,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta"
+      codec = "Delta(8), Default"
     }
     column "resource_fingerprint" {
       type    = "UInt64"
@@ -1197,12 +1270,6 @@ SQL
     column "instrumentation_scope" {
       type = "String"
     }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
     column "_partition" {
       type = "UInt32"
     }
@@ -1227,7 +1294,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta"
+      codec = "Delta(8), Default"
     }
     column "metric_type" {
       type = "LowCardinality(String)"
@@ -1283,9 +1350,6 @@ SQL
     column "service_name" {
       type = "LowCardinality(String)"
     }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
     column "attribute_key" {
       type = "LowCardinality(String)"
     }
@@ -1304,9 +1368,88 @@ SQL
       remote_table    = "metric_attributes2"
     }
   }
-  materialized_view "metrics2_to_metric_series" {
+  materialized_view "metrics2_input_to_metrics" {
+    to_table = "posthog.metrics2"
+    query    = file("sql/metrics2_input_to_metrics.sql")
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type = "Bool"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+  }
+  materialized_view "metrics2_input_to_metric_series" {
     to_table = "posthog.metric_series2"
-    query    = file("sql/metrics2_to_metric_series.sql")
+    query    = file("sql/metrics2_input_to_metric_series.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -1347,9 +1490,9 @@ SQL
       type = "DateTime64(6)"
     }
   }
-  materialized_view "metrics2_to_metric_attributes" {
+  materialized_view "metrics2_input_to_metric_attributes" {
     to_table = "posthog.metric_attributes2"
-    query    = file("sql/metrics2_to_metric_attributes.sql")
+    query    = file("sql/metrics2_input_to_metric_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -1360,9 +1503,6 @@ SQL
       type = "DateTime64(0)"
     }
     column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_name" {
       type = "LowCardinality(String)"
     }
     column "attribute_key" {
@@ -1378,9 +1518,9 @@ SQL
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
-  materialized_view "metrics2_to_resource_attributes" {
+  materialized_view "metrics2_input_to_resource_attributes" {
     to_table = "posthog.metric_attributes2"
-    query    = file("sql/metrics2_to_resource_attributes.sql")
+    query    = file("sql/metrics2_input_to_resource_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -1391,9 +1531,6 @@ SQL
       type = "DateTime64(0)"
     }
     column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_name" {
       type = "LowCardinality(String)"
     }
     column "attribute_key" {
@@ -1409,9 +1546,9 @@ SQL
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
-  materialized_view "metrics2_to_kafka_metrics" {
+  materialized_view "metrics2_input_to_kafka_metrics" {
     to_table = "posthog.metrics_kafka_metrics"
-    query    = file("sql/metrics2_to_kafka_metrics.sql")
+    query    = file("sql/metrics2_input_to_kafka_metrics.sql")
     column "_partition" {
       type = "UInt32"
     }

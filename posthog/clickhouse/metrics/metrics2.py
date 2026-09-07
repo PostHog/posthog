@@ -14,6 +14,7 @@ from .kafka_metrics import KAFKA_METRICS_TABLE_NAME, KAFKA_NAMED_COLLECTION, KAF
 KAFKA_TABLE_NAME = "kafka_metrics_avro2"
 KAFKA_GROUP = "clickhouse-metrics-avro2"
 
+METRICS2_INPUT_TABLE_NAME = "metrics2_input"
 METRICS2_TABLE_NAME = "metrics2"
 METRICS_DISTRIBUTED_TABLE_NAME = "metrics_distributed"
 METRIC_SERIES2_TABLE_NAME = "metric_series2"
@@ -66,6 +67,42 @@ SETTINGS
 """
 
 
+def METRICS2_INPUT_TABLE_SQL() -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_INPUT_TABLE_NAME}
+(
+    `uuid` String,
+    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `series_fingerprint` UInt64,
+    `resource_fingerprint` UInt64,
+    `timestamp` DateTime64(6),
+    `observed_timestamp` DateTime64(6),
+    `original_expiry_timestamp` DateTime64(6),
+    `service_name` LowCardinality(String),
+    `metric_type` LowCardinality(String),
+    `value` Float64,
+    `count` UInt64,
+    `histogram_bounds` Array(Float64),
+    `histogram_counts` Array(UInt64),
+    `trace_id` String,
+    `span_id` String,
+    `trace_flags` Int32,
+    `has_labels` Bool,
+    `unit` LowCardinality(String),
+    `aggregation_temporality` LowCardinality(String),
+    `is_monotonic` Bool,
+    `instrumentation_scope` String,
+    `resource_attributes` Map(LowCardinality(String), String),
+    `attributes` Map(LowCardinality(String), String),
+    `_partition` UInt32,
+    `_topic` String,
+    `_offset` UInt64
+)
+ENGINE = Null
+"""
+
+
 def METRICS2_TABLE_SQL() -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
@@ -74,7 +111,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     `team_id` Int32,
     `metric_name` LowCardinality(String),
     `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
-    `series_fingerprint` UInt64 CODEC(DoubleDelta),
+    `series_fingerprint` UInt64 CODEC(Delta, Default),
     `resource_fingerprint` UInt64 DEFAULT 0,
     `timestamp` DateTime64(6) CODEC(DoubleDelta),
     `observed_timestamp` DateTime64(6),
@@ -94,8 +131,6 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     `aggregation_temporality` LowCardinality(String),
     `is_monotonic` Bool DEFAULT false,
     `instrumentation_scope` String,
-    `resource_attributes` Map(LowCardinality(String), String) TTL toDateTime(timestamp) + toIntervalDay(1),
-    `attributes` Map(LowCardinality(String), String) TTL toDateTime(timestamp) + toIntervalDay(1),
     `_partition` UInt32,
     `_topic` String,
     `_offset` UInt64,
@@ -169,7 +204,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES2_TABLE_NAME}
 (
     `team_id` Int32,
     `metric_name` LowCardinality(String),
-    `series_fingerprint` UInt64 CODEC(DoubleDelta),
+    `series_fingerprint` UInt64 CODEC(Delta, Default),
     `metric_type` LowCardinality(String),
     `unit` LowCardinality(String),
     `aggregation_temporality` LowCardinality(String),
@@ -201,7 +236,6 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_ATTRIBUTES2_TABLE_NAME}
     `time_bucket` DateTime64(0),
     `original_expiry_time_bucket` DateTime64(0),
     `service_name` LowCardinality(String),
-    `metric_name` LowCardinality(String),
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
     `attribute_type` LowCardinality(String),
@@ -213,7 +247,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_ATTRIBUTES2_TABLE_NAME}
 )
 ENGINE = {AggregatingMergeTree(METRIC_ATTRIBUTES2_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(original_expiry_time_bucket)
-ORDER BY (team_id, attribute_type, metric_name, time_bucket, attribute_key, attribute_value)
+ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value)
 TTL original_expiry_time_bucket
 SETTINGS
     deduplicate_merge_projection_mode = 'drop',
@@ -249,7 +283,7 @@ def KAFKA_METRICS_AVRO2_MV() -> str:
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{METRICS2_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{METRICS2_INPUT_TABLE_NAME}
 AS SELECT
     uuid,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
@@ -286,10 +320,44 @@ SETTINGS
 """
 
 
-def METRICS2_TO_METRIC_SERIES_MV() -> str:
+def METRICS2_INPUT_TO_METRICS_MV() -> str:
     db = _db()
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_TABLE_NAME}_to_metric_series TO {db}.{METRIC_SERIES2_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_metrics TO {db}.{METRICS2_TABLE_NAME}
+AS SELECT
+    uuid,
+    team_id,
+    metric_name,
+    series_fingerprint,
+    resource_fingerprint,
+    timestamp,
+    observed_timestamp,
+    original_expiry_timestamp,
+    service_name,
+    metric_type,
+    value,
+    count,
+    histogram_bounds,
+    histogram_counts,
+    trace_id,
+    span_id,
+    trace_flags,
+    has_labels,
+    unit,
+    aggregation_temporality,
+    is_monotonic,
+    instrumentation_scope,
+    _partition,
+    _topic,
+    _offset
+FROM {db}.{METRICS2_INPUT_TABLE_NAME}
+"""
+
+
+def METRICS2_INPUT_TO_METRIC_SERIES_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_metric_series TO {db}.{METRIC_SERIES2_TABLE_NAME}
 AS SELECT
     team_id,
     metric_name,
@@ -304,7 +372,7 @@ AS SELECT
     attributes,
     timestamp AS last_seen,
     original_expiry_timestamp
-FROM {db}.{METRICS2_TABLE_NAME}
+FROM {db}.{METRICS2_INPUT_TABLE_NAME}
 WHERE has_labels
 """
 
@@ -317,13 +385,12 @@ def _attributes_mv(view_suffix: str, source_map: str, attribute_type: str, filte
         else source_map
     )
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_TABLE_NAME}_to_{view_suffix} TO {db}.{METRIC_ATTRIBUTES2_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_{view_suffix} TO {db}.{METRIC_ATTRIBUTES2_TABLE_NAME}
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),
     `original_expiry_time_bucket` DateTime64(0),
     `service_name` LowCardinality(String),
-    `metric_name` LowCardinality(String),
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
     `attribute_type` LowCardinality(String),
@@ -334,7 +401,6 @@ AS SELECT
     time_bucket,
     original_expiry_time_bucket,
     service_name,
-    metric_name,
     attribute_key,
     attribute_value,
     attribute_type,
@@ -346,38 +412,36 @@ FROM
         toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
         toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
         service_name AS service_name,
-        metric_name AS metric_name,
         {attributes_expr} AS filtered_attributes,
         arrayJoin(filtered_attributes) AS attribute,
         '{attribute_type}' AS attribute_type,
         attribute.1 AS attribute_key,
         attribute.2 AS attribute_value,
         sumSimpleState(1) AS attribute_count
-    FROM {db}.{METRICS2_TABLE_NAME}
+    FROM {db}.{METRICS2_INPUT_TABLE_NAME}
     WHERE has_labels
     GROUP BY
         team_id,
         time_bucket,
         original_expiry_time_bucket,
         service_name,
-        metric_name,
         filtered_attributes
 )
 """
 
 
-def METRICS2_TO_METRIC_ATTRIBUTES_MV() -> str:
+def METRICS2_INPUT_TO_METRIC_ATTRIBUTES_MV() -> str:
     return _attributes_mv("metric_attributes", "attributes", "metric", filter_long_pairs=True)
 
 
-def METRICS2_TO_RESOURCE_ATTRIBUTES_MV() -> str:
+def METRICS2_INPUT_TO_RESOURCE_ATTRIBUTES_MV() -> str:
     return _attributes_mv("resource_attributes", "resource_attributes", "resource", filter_long_pairs=False)
 
 
-def METRICS2_TO_KAFKA_METRICS_MV() -> str:
+def METRICS2_INPUT_TO_KAFKA_METRICS_MV() -> str:
     db = _db()
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_TABLE_NAME}_to_kafka_metrics TO {db}.{KAFKA_METRICS_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_kafka_metrics TO {db}.{KAFKA_METRICS_TABLE_NAME}
 AS SELECT
     _partition,
     _topic,
@@ -386,6 +450,6 @@ AS SELECT
     maxSimpleState(timestamp) AS max_timestamp,
     maxSimpleState(now()) AS max_created_at,
     maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM {db}.{METRICS2_TABLE_NAME}
+FROM {db}.{METRICS2_INPUT_TABLE_NAME}
 GROUP BY _partition, _topic
 """

@@ -362,7 +362,6 @@ CREATE TABLE posthog.metric_attributes2 (
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
   service_name LowCardinality(String),
-  metric_name LowCardinality(String),
   attribute_key LowCardinality(String),
   attribute_value String,
   attribute_type LowCardinality(String),
@@ -371,13 +370,12 @@ CREATE TABLE posthog.metric_attributes2 (
   INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
   INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metric_attributes2', '{replica}-{shard}') ORDER BY (team_id, attribute_type, metric_name, time_bucket, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metric_attributes2', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metric_attributes_distributed (
   team_id Int32,
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
   service_name LowCardinality(String),
-  metric_name LowCardinality(String),
   attribute_key LowCardinality(String),
   attribute_value String,
   attribute_type LowCardinality(String),
@@ -416,7 +414,7 @@ CREATE TABLE posthog.metric_series1 (
 CREATE TABLE posthog.metric_series2 (
   team_id Int32,
   metric_name LowCardinality(String),
-  series_fingerprint UInt64 CODEC(DoubleDelta),
+  series_fingerprint UInt64 CODEC(Delta(8), Default),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
   aggregation_temporality LowCardinality(String),
@@ -436,7 +434,7 @@ CREATE TABLE posthog.metric_series2 (
 CREATE TABLE posthog.metric_series_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
-  series_fingerprint UInt64 CODEC(DoubleDelta),
+  series_fingerprint UInt64 CODEC(Delta(8), Default),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
   aggregation_temporality LowCardinality(String),
@@ -501,7 +499,7 @@ CREATE TABLE posthog.metrics2 (
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
-  series_fingerprint UInt64 CODEC(DoubleDelta),
+  series_fingerprint UInt64 CODEC(Delta(8), Default),
   resource_fingerprint UInt64 DEFAULT 0,
   timestamp DateTime64(6) CODEC(DoubleDelta),
   observed_timestamp DateTime64(6),
@@ -521,8 +519,6 @@ CREATE TABLE posthog.metrics2 (
   aggregation_temporality LowCardinality(String),
   is_monotonic Bool DEFAULT false,
   instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String) TTL toDateTime(timestamp) + toIntervalDay(1),
-  attributes Map(LowCardinality(String), String) TTL toDateTime(timestamp) + toIntervalDay(1),
   _partition UInt32,
   _topic String,
   _offset UInt64,
@@ -561,12 +557,41 @@ GROUP BY
 GROUP BY
   team_id, service_name, metric_name, metric_type, resource_fingerprint, series_fingerprint, hour)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.metrics2', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192, index_granularity_bytes = 104857600, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.metrics2_input (
+  uuid String,
+  team_id Int32,
+  metric_name LowCardinality(String),
+  series_fingerprint UInt64,
+  resource_fingerprint UInt64,
+  timestamp DateTime64(6),
+  observed_timestamp DateTime64(6),
+  original_expiry_timestamp DateTime64(6),
+  service_name LowCardinality(String),
+  metric_type LowCardinality(String),
+  value Float64,
+  count UInt64,
+  histogram_bounds Array(Float64),
+  histogram_counts Array(UInt64),
+  trace_id String,
+  span_id String,
+  trace_flags Int32,
+  has_labels Bool,
+  unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool,
+  instrumentation_scope String,
+  resource_attributes Map(LowCardinality(String), String),
+  attributes Map(LowCardinality(String), String),
+  _partition UInt32,
+  _topic String,
+  _offset UInt64
+) ENGINE = Null();
 CREATE TABLE posthog.metrics_distributed (
   uuid String,
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
-  series_fingerprint UInt64 CODEC(DoubleDelta),
+  series_fingerprint UInt64 CODEC(Delta(8), Default),
   resource_fingerprint UInt64 DEFAULT 0,
   timestamp DateTime64(6) CODEC(DoubleDelta),
   observed_timestamp DateTime64(6),
@@ -586,8 +611,6 @@ CREATE TABLE posthog.metrics_distributed (
   aggregation_temporality LowCardinality(String),
   is_monotonic Bool DEFAULT false,
   instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String),
-  attributes Map(LowCardinality(String), String),
   _partition UInt32,
   _topic String,
   _offset UInt64
@@ -878,7 +901,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.log
 FROM posthog.logs34
 GROUP BY
   _partition, _topic;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2 (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
   uuid,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   ifNull(metric_name, '') AS metric_name,
@@ -1227,7 +1250,7 @@ FROM
     GROUP BY
       team_id, time_bucket, service_name, resource_fingerprint, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics2_to_kafka_metrics TO posthog.metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_kafka_metrics TO posthog.metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
   _partition,
   _topic,
   maxSimpleState(_offset) AS max_offset,
@@ -1235,15 +1258,14 @@ CREATE MATERIALIZED VIEW posthog.metrics2_to_kafka_metrics TO posthog.metrics_ka
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
   maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.metrics2
+FROM posthog.metrics2_input
 GROUP BY
   _partition, _topic;
-CREATE MATERIALIZED VIEW posthog.metrics2_to_metric_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), metric_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   original_expiry_time_bucket,
   service_name,
-  metric_name,
   attribute_key,
   attribute_value,
   attribute_type,
@@ -1255,19 +1277,18 @@ FROM
       toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
       toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
       service_name AS service_name,
-      metric_name AS metric_name,
       mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
       arrayJoin(filtered_attributes) AS attribute,
       'metric' AS attribute_type,
       attribute.1 AS attribute_key,
       attribute.2 AS attribute_value,
       sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2
+    FROM posthog.metrics2_input
     WHERE has_labels
     GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, metric_name, filtered_attributes
+      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics2_to_metric_series TO posthog.metric_series2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), last_seen DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_series TO posthog.metric_series2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), last_seen DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
   team_id,
   metric_name,
   series_fingerprint,
@@ -1281,14 +1302,40 @@ CREATE MATERIALIZED VIEW posthog.metrics2_to_metric_series TO posthog.metric_ser
   attributes,
   timestamp AS last_seen,
   original_expiry_timestamp
-FROM posthog.metrics2
+FROM posthog.metrics2_input
 WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics2_to_resource_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), metric_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics TO posthog.metrics2 (uuid String, team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name LowCardinality(String), metric_type LowCardinality(String), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, instrumentation_scope String, _partition UInt32, _topic String, _offset UInt64) AS SELECT
+  uuid,
+  team_id,
+  metric_name,
+  series_fingerprint,
+  resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  original_expiry_timestamp,
+  service_name,
+  metric_type,
+  value,
+  count,
+  histogram_bounds,
+  histogram_counts,
+  trace_id,
+  span_id,
+  trace_flags,
+  has_labels,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  instrumentation_scope,
+  _partition,
+  _topic,
+  _offset
+FROM posthog.metrics2_input;
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_resource_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   original_expiry_time_bucket,
   service_name,
-  metric_name,
   attribute_key,
   attribute_value,
   attribute_type,
@@ -1300,17 +1347,16 @@ FROM
       toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
       toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
       service_name AS service_name,
-      metric_name AS metric_name,
       resource_attributes AS filtered_attributes,
       arrayJoin(filtered_attributes) AS attribute,
       'resource' AS attribute_type,
       attribute.1 AS attribute_key,
       attribute.2 AS attribute_value,
       sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2
+    FROM posthog.metrics2_input
     WHERE has_labels
     GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, metric_name, filtered_attributes
+      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
 CREATE MATERIALIZED VIEW posthog.trace_span_to_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,

@@ -12,5 +12,5 @@ SELECT
   attributes,
   timestamp AS last_seen,
   original_expiry_timestamp
-FROM posthog.metrics2
+FROM posthog.metrics2_input
 WHERE has_labels

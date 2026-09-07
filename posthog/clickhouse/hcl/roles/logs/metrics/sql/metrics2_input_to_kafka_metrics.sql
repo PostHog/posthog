@@ -6,6 +6,6 @@ SELECT
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
   maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.metrics2
+FROM posthog.metrics2_input
 GROUP BY
   _partition, _topic
