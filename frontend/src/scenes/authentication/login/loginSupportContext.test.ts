@@ -44,6 +44,11 @@ describe('buildLoginSupportContext', () => {
             { ssoEnforcement: 'google-oauth2' as const },
             'Login method: SSO enforced (Google)',
         ],
+        [
+            'an enforced provider is left over from a precheck for another email',
+            { ssoEnforcement: 'google-oauth2' as const, precheckTrusted: false },
+            'Login methods: unknown, the account check did not complete',
+        ],
     ])('states what it knows about the login methods when %s', (_case, overrides, expected) => {
         expect(buildLoginSupportContext({ ...base, ...overrides })).toContain(expected)
     })

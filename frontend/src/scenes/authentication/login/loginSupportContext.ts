@@ -36,12 +36,13 @@ export function buildLoginSupportContext({
     if (region) {
         lines.push(`Data region: ${region}`)
     }
-    if (ssoEnforcement) {
-        lines.push(`Login method: SSO enforced (${SSO_PROVIDER_NAMES[ssoEnforcement]})`)
-    } else if (!precheckTrusted) {
+    if (!precheckTrusted) {
         // A failed precheck reports permissive defaults, and a stale one still describes the
-        // previous email's account.
+        // previous email's account. `sso_enforcement` is read from that same response, so the
+        // trust gate has to come first or a stale provider is reported as fact for a new address.
         lines.push('Login methods: unknown, the account check did not complete')
+    } else if (ssoEnforcement) {
+        lines.push(`Login method: SSO enforced (${SSO_PROVIDER_NAMES[ssoEnforcement]})`)
     } else {
         const labels = confirmedLoginMethods.map(loginMethodLabel).filter(Boolean)
         if (labels.length) {
