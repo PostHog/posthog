@@ -1,13 +1,16 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 import jwt
 from rest_framework import status
 
 from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
 
@@ -223,6 +226,47 @@ class TestOrganizationBillingAPI(APILicensedTest):
             user=self.user, label="x", secure_value=hash_key_value(raw), scopes=["insight:read"]
         )
         response = self.client.get(self._url("subscription/"), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
+
+    def _oauth_token(self, scope: str) -> str:
+        app = OAuthApplication.objects.create(
+            name="MCP client",
+            client_id="test_billing_oauth_client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_billing_access_token",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        self.client.logout()
+        return token.token
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_oauth_token_with_billing_read_reads_like_a_key(self, mock_get):
+        # The credential the MCP tools carry: an OAuth access token instead of a personal key.
+        mock_get.return_value = _response(SUBSCRIPTION)
+        bearer = self._oauth_token("billing:read")
+        response = self.client.get(self._url("subscription/"), headers={"authorization": f"Bearer {bearer}"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        claims = jwt.decode(
+            mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer "),
+            options={"verify_signature": False},
+        )
+        self.assertEqual((claims["scope"], claims["roles"]), ("billing:read", ["owner"]))
+        self.assertEqual(claims["entitlements"], entitlements_for(BillingEntitlement.FULL_ACCESS))
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_oauth_token_without_billing_scope_is_refused_before_billing_is_called(self, mock_get):
+        bearer = self._oauth_token("insight:read")
+        response = self.client.get(self._url("subscription/"), headers={"authorization": f"Bearer {bearer}"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
