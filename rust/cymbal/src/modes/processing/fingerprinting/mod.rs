@@ -143,7 +143,7 @@ impl FingerprintVersion {
                     strip_query_strings: true,
                     strip_hashed_chunks: true,
                     basename_only: true,
-                    page_urls_to_origin: true,
+                    mask_page_paths: true,
                 },
                 message_normalize: MessageNormalization {
                     mask_quoted: true,
@@ -190,11 +190,15 @@ pub struct Normalization {
     pub strip_hashed_chunks: bool,
     // "/var/mobile/.../<device-uuid>/bundle.js" -> "bundle.js"
     pub basename_only: bool,
-    // "https://app.example.com/project/1/insights" -> "app.example.com". A frame with no script
-    // name reports the document URL as its source, so the page a person happened to be on keys
-    // the hash, and one bug forks into an issue per page.
-    pub page_urls_to_origin: bool,
+    // "/project/1/insights" -> "<page>". A javascript frame with no script name reports the
+    // document URL as its source, and the frame builder keeps the path of that URL, so the page
+    // a person happened to be on keys the hash and one bug forks into an issue per page.
+    pub mask_page_paths: bool,
 }
+
+// The source of a javascript frame that ran in a page rather than in a script, as hashed in
+// place of the page path.
+const PAGE_SOURCE: &str = "<page>";
 
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
 static HEX_GROUP_TOKEN: OnceLock<Regex> = OnceLock::new();
@@ -213,27 +217,15 @@ fn looks_like_hash(token: &str) -> bool {
             .all(|c| c.is_ascii_uppercase())
 }
 
-// The host of an http(s) URL that points at a page instead of a script, else None. A last path
-// segment with no dot in it is a page, because a script source keeps its file extension.
-fn page_url_host(value: &str) -> Option<String> {
-    let rest = value
-        .strip_prefix("https://")
-        .or_else(|| value.strip_prefix("http://"))?;
-    let (host, path) = match rest.find('/') {
-        Some(idx) => (&rest[..idx], &rest[idx..]),
-        None => (rest, ""),
-    };
-    let last_segment = path
-        .split('#')
-        .next()
-        .unwrap_or(path)
-        .rsplit('/')
-        .next()
-        .unwrap_or("");
-    if last_segment.contains('.') {
-        return None;
+// Whether a javascript source names a page instead of a script. The frame builder reduces a
+// source URL to its path, so all that is left to go on is the last segment: a script keeps its
+// file extension, a route does not. Other languages always name a file, so they are left alone.
+fn is_page_path(value: &str, lang: &str) -> bool {
+    if lang != "javascript" {
+        return false;
     }
-    Some(host.to_string())
+    let path = value.split('#').next().unwrap_or(value);
+    !path.rsplit(['/', '\\']).next().unwrap_or("").contains('.')
 }
 
 impl Normalization {
@@ -241,10 +233,10 @@ impl Normalization {
         !(self.strip_query_strings
             || self.strip_hashed_chunks
             || self.basename_only
-            || self.page_urls_to_origin)
+            || self.mask_page_paths)
     }
 
-    fn apply_source<'a>(&self, value: &'a str) -> Cow<'a, str> {
+    fn apply_source<'a>(&self, value: &'a str, lang: &str) -> Cow<'a, str> {
         if self.is_noop() {
             return Cow::Borrowed(value);
         }
@@ -254,10 +246,8 @@ impl Normalization {
                 out.truncate(idx);
             }
         }
-        if self.page_urls_to_origin {
-            if let Some(host) = page_url_host(&out) {
-                out = host;
-            }
+        if self.mask_page_paths && is_page_path(&out, lang) {
+            return Cow::Borrowed(PAGE_SOURCE);
         }
         if self.basename_only {
             if let Some(idx) = out.rfind(['/', '\\']) {
@@ -465,7 +455,7 @@ impl FingerprintStrategy {
 
         // Include source and module in the fingerprint either way
         if let Some(source) = &frame.source {
-            fp.update(self.normalize.apply_source(source).as_bytes());
+            fp.update(self.normalize.apply_source(source, &frame.lang).as_bytes());
             included_pieces.push("Source file name");
         }
 
@@ -790,18 +780,16 @@ mod test {
                 "019fffac-b248-73ee-b88b-e5174651dd2e.js",
                 "01a02496-ec04-0000-eff4-768c50665d64.js",
             ),
-            // A frame with no script name reports the page it ran on as its source.
+            // A frame with no script name reports the page it ran on. The frame builder keeps
+            // the path of that URL, so this is the shape the fingerprint sees.
+            ("/project/1/insights", "/project/2/onboarding"),
             (
-                "https://app.example.com/project/1/insights",
-                "https://app.example.com/project/2/onboarding",
+                "/verify_email/019fffac-b248-73ee-b88b-e5174651dd2e",
+                "/login",
             ),
             (
-                "https://app.example.com/verify_email/019fffac-b248-73ee-b88b-e5174651dd2e",
-                "https://app.example.com/login",
-            ),
-            (
-                "https://app.example.com/activity/explore#q=%7B%22kind%22%3A%22one%22%7D",
-                "https://app.example.com/activity/explore#q=%7B%22kind%22%3A%22two%22%7D",
+                "/activity/explore#q=%7B%22kind%22%3A%22one%22%7D",
+                "/activity/explore#q=%7B%22kind%22%3A%22two%22%7D",
             ),
         ];
         for (source_a, source_b) in cases {
@@ -819,13 +807,9 @@ mod test {
     }
 
     #[test]
-    fn v2_keeps_distinct_scripts_and_hosts_apart() {
+    fn v2_keeps_distinct_scripts_apart() {
         let cases = [
             ("/static/app.js", "/static/vendor.js"),
-            (
-                "https://app.example.com/insights",
-                "https://www.example.com/insights",
-            ),
             // Word pairs made of hex letters must not read as a hyphen-grouped id.
             ("cafe-beef.js", "face-added.js"),
         ];
@@ -836,6 +820,27 @@ mod test {
                 "V2 should split {source_a} vs {source_b}"
             );
         }
+    }
+
+    #[test]
+    fn v2_only_masks_page_paths_for_javascript() {
+        // Other languages always name a file, and an extension is not guaranteed there.
+        let with_lang = |source: &str, lang: &str| {
+            let mut frame = frame("foo", Some(source), Some("foo"), true, true, Some(1));
+            frame.lang = lang.to_string();
+            vec![exception("Error", "boom", resolved_stack(vec![frame]))]
+        };
+
+        assert_ne!(
+            value(
+                FingerprintVersion::V2,
+                with_lang("/opt/app/worker", "python")
+            ),
+            value(
+                FingerprintVersion::V2,
+                with_lang("/opt/app/runner", "python")
+            ),
+        );
     }
 
     #[test]
@@ -947,7 +952,7 @@ mod test {
     fn normalizations_are_identity_when_disabled() {
         let path = "chunk-PGUQKT6S.js?v=1";
         assert!(
-            matches!(Normalization::default().apply_source(path), Cow::Borrowed(s) if s == path)
+            matches!(Normalization::default().apply_source(path, "javascript"), Cow::Borrowed(s) if s == path)
         );
         let msg = "timeout after 30s for 'user' at 0xdeadbeef";
         assert!(matches!(MessageNormalization::default().apply(msg), Cow::Borrowed(s) if s == msg));
