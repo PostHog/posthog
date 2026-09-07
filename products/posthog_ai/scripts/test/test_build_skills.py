@@ -540,6 +540,7 @@ def test_lint_all_checks_reference_links_against_the_bundle(tmp_path: Path, link
         ("references/payload.md", False),
         ("frontend/lib", False),
         ("Frontend/src/lib/moved.ts", False),
+        ("frontend/../../etc/passwd", False),
     ],
 )
 def test_check_repo_paths_flags_only_missing_repo_paths(tmp_path: Path, cited: str, flagged: bool) -> None:

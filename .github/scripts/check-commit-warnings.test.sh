@@ -55,6 +55,15 @@ output="$(run .github/scripts/check-quill-agents-md.sh)"
 [ -z "$output" ] || fail "quill warning fired even though a topic doc was staged too"
 
 from_head
+stage packages/quill/packages/primitives/src/Button.tsx
+stage packages/quill/packages/charts/src/docs/tooltips.md
+output="$(run .github/scripts/check-quill-agents-md.sh)"
+case "$output" in
+    *"update (primitives)"*) ;;
+    *) fail "a topic doc in another package silenced the quill warning" ;;
+esac
+
+from_head
 stage posthog/models/team/team.py
 output="$(run .github/scripts/check-claude-hooks.sh)"
 [ -z "$output" ] || fail "hooks warning fired on an unrelated path"

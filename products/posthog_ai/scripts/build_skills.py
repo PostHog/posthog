@@ -243,8 +243,8 @@ def _check_repo_paths(text: str, source_label: str, repo_root: Path) -> list[Ref
     that names it. A candidate counts as a repo path only when its first segment names a directory
     at the repo root (case-sensitive, so a `PostHog/repo` slug is not one), so relative links, URLs,
     and prose like `a/b` are ignored. Glob and elided paths (`products/*/skills/`, `frontend/src/...`)
-    and two-segment shorthand without an extension (`common/sql`) are skipped. Advisory, like the
-    tool-reference check.
+    and two-segment shorthand without an extension (`common/sql`) are skipped, as is any path with a
+    `..` segment, so the check never looks outside the repo. Advisory, like the tool-reference check.
     """
     root_dirs = {entry.name for entry in repo_root.iterdir() if entry.is_dir()}
     findings: list[ReferenceFinding] = []
@@ -255,7 +255,7 @@ def _check_repo_paths(text: str, source_label: str, repo_root: Path) -> list[Ref
             continue
         seen.add(path)
         segments = path.split("/")
-        if segments[0] not in root_dirs or (len(segments) == 2 and "." not in segments[1]):
+        if ".." in segments or segments[0] not in root_dirs or (len(segments) == 2 and "." not in segments[1]):
             continue
         if (repo_root / path).exists():
             continue
