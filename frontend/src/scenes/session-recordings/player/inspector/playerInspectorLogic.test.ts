@@ -243,6 +243,22 @@ describe('playerInspectorLogic', () => {
         })
     })
 
+    describe('plugin snapshots', () => {
+        it('counts a plugin snapshot with null data instead of crashing', () => {
+            dataLogic.actions.setProcessedSnapshots([
+                { type: 6, timestamp: 1691755416097, windowId: 1, data: null },
+                { type: 6, timestamp: 1691755417097, windowId: 1, data: { plugin: 'rrweb/console@1' } },
+            ] as unknown as RecordingSnapshot[])
+
+            const counts = logic.values.processedSnapshotData.doctorEvents.find(
+                (item) => item.tag === 'count of snapshot types by window'
+            )
+            expect(counts?.data).toMatchObject({
+                1: { Plugin: 1, 'Plugin: rrweb/console@1': 1 },
+            })
+        })
+    })
+
     describe('setTrackedWindow', () => {
         it('starts with no tracked window', async () => {
             await expectLogic(logic, () => {
