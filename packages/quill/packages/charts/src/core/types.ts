@@ -448,6 +448,11 @@ export interface BarsConfig {
     /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while gridlines
      *  still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
+    /** Cap (px) on one band's thickness. A chart with few bands — a breakdown that resolves to a
+     *  single row — otherwise gives that band the whole plot extent, and the bar paints as a block
+     *  that covers its own label and value. The cap shrinks the band-axis range instead, so the
+     *  bands keep normal thickness and cluster at the start of the plot. Defaults to no cap. */
+    maxBandSize?: number
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
      *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number

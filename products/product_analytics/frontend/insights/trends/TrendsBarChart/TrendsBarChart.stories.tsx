@@ -548,9 +548,10 @@ export const BarValue50Breakdowns: Story = {
     render: () => renderTrendInsight(BAR_VALUE_50_BREAKDOWNS_INSIGHT),
 }
 
-// A single breakdown row should still fill the standard chart height — the lone bar must not
-// shrink. Guards the min-height floor on TrendsInsight--ActionsBarValue: drop it back to `auto`
-// and this snapshot collapses to a thin one-row bar instead of filling the container.
+// A single breakdown row keeps the standard chart height, while the row itself stays at normal bar
+// thickness. Guards two things at once: the min-height floor on TrendsInsight--ActionsBarValue
+// (drop it back to `auto` and the container collapses), and `bars.maxBandSize` (drop it and the
+// lone bar grows over the full height, hiding its own category label and value).
 const BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT = {
     ...BAR_VALUE_50_BREAKDOWNS_INSIGHT,
     id: 204,

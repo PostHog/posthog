@@ -672,6 +672,17 @@ export function groupedBandSlot(scales: BarScaleSet, label: string, seriesKey: s
     return { x: start + offset, width: group.bandwidth() }
 }
 
+/** Band-axis range that makes `scaleBand` give every band a thickness of exactly `bandSize`.
+ *  `paddingOuter` is half of `paddingInner`, so d3's step is `range / bandCount` and the
+ *  thickness is `step * (1 - bandPadding)`. `Infinity` when no cap applies, so the caller can
+ *  fold it into a `Math.min`. */
+function bandRangeForBandSize(bandCount: number, bandSize: number | undefined, bandPadding: number): number {
+    if (bandSize == null || bandSize <= 0 || bandCount <= 0 || bandPadding >= 1) {
+        return Infinity
+    }
+    return (bandCount * bandSize) / (1 - bandPadding)
+}
+
 export function createBarScales(
     series: Series[],
     labels: string[],
@@ -685,6 +696,8 @@ export function createBarScales(
         stackedSeries?: Series[]
         /** Cap on the band-axis range in px — clusters bars at the start of the plot when set. */
         maxBandRange?: number
+        /** Cap on one band's thickness in px — see {@link BarsConfig.maxBandSize}. */
+        maxBandSize?: number
         /** Horizontal fit-to-height mode: drop the rows that can't fit at `minBandSize` so bands
          *  never crush below it and the plot fills the height it's given. Requires `minBandSize`. */
         fitToHeight?: boolean
@@ -708,6 +721,7 @@ export function createBarScales(
         groupPadding = 0.1,
         stackedSeries,
         maxBandRange,
+        maxBandSize,
         fitToHeight,
         minBandSize,
         minBarSize,
@@ -721,7 +735,11 @@ export function createBarScales(
 
     const bandAxisStart = isHorizontal ? dimensions.plotTop : dimensions.plotLeft
     const bandAxisExtent = isHorizontal ? dimensions.plotHeight : dimensions.plotWidth
-    const cappedExtent = maxBandRange != null ? Math.min(bandAxisExtent, maxBandRange) : bandAxisExtent
+    const cappedExtent = Math.min(
+        bandAxisExtent,
+        maxBandRange ?? Infinity,
+        bandRangeForBandSize(labels.length, maxBandSize, bandPadding)
+    )
     // Fit-to-height: only keep the rows that fit at `minBandSize`. Labels arrive value-sorted, so
     // slicing keeps the leading rows. Bars/labels/grid all resolve through `band(label)`, so a
     // dropped label resolves to `undefined` and is skipped everywhere — no extra plumbing needed.

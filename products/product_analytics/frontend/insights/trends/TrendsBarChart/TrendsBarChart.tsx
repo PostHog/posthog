@@ -61,6 +61,8 @@ interface TrendsBarChartProps {
 
 const EMPTY_LABELS: string[] = []
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false, placement: 'cursor' as const }
+// Thickest a single breakdown row may draw (px), so a one-row chart still reads as a bar.
+const AGGREGATED_MAX_BAND_SIZE = 48
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
@@ -285,8 +287,10 @@ export function TrendsBarChart({
             // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
             // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
-            // instead of clamping them to 0.
-            bars: { fitToHeight: embedded, divergingStack: true },
+            // instead of clamping them to 0. maxBandSize caps the row thickness: a breakdown that
+            // resolves to one row gives that row the whole height, and the bar then paints as a
+            // block over its own label and value.
+            bars: { fitToHeight: embedded, divergingStack: true, maxBandSize: AGGREGATED_MAX_BAND_SIZE },
         }
     }, [
         yAxisScaleType,
