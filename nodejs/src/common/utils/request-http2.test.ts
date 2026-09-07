@@ -34,6 +34,7 @@ describe('secure HTTP/2 requests', () => {
     let tlsConnectSpy: jest.SpyInstance
     let tlsIdentity: TestTlsIdentity | undefined
     const originalExternalRequestConnections = process.env.EXTERNAL_REQUEST_CONNECTIONS
+    const originalH2Connections = process.env.EXTERNAL_REQUEST_H2_CONNECTIONS
     const originalKeepAliveTimeout = process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
     const keepAliveTimeoutMs = 3000
     const originalProxyEnvironment = Object.fromEntries(
@@ -128,6 +129,7 @@ describe('secure HTTP/2 requests', () => {
                 )) as typeof tls.connect)
         process.env.HTTPS_PROXY = `http://127.0.0.1:${serverPort(connectProxy)}`
         process.env.EXTERNAL_REQUEST_CONNECTIONS = '2'
+        process.env.EXTERNAL_REQUEST_H2_CONNECTIONS = '1'
         process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = String(keepAliveTimeoutMs)
         delete process.env.HTTP_PROXY
         delete process.env.https_proxy
@@ -161,6 +163,11 @@ describe('secure HTTP/2 requests', () => {
             delete process.env.EXTERNAL_REQUEST_CONNECTIONS
         } else {
             process.env.EXTERNAL_REQUEST_CONNECTIONS = originalExternalRequestConnections
+        }
+        if (originalH2Connections === undefined) {
+            delete process.env.EXTERNAL_REQUEST_H2_CONNECTIONS
+        } else {
+            process.env.EXTERNAL_REQUEST_H2_CONNECTIONS = originalH2Connections
         }
         if (originalKeepAliveTimeout === undefined) {
             delete process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
@@ -219,6 +226,24 @@ describe('secure HTTP/2 requests', () => {
         // undici multiplexes the concurrent requests on one session, up to the server's max concurrent streams.
         expect(http2SessionCount).toBe(1)
         expect(proxyAuthorities).toEqual([http2Authority, http2Authority, http1Authority])
+    }, 10000)
+
+    it('carries a burst to a cold origin on one session', async () => {
+        const http2Url = `https://origin.test:${serverPort(http2Origin)}`
+        const paths = Array.from({ length: 6 }, (_, index) => `/burst-${index}`)
+
+        const bodies = await Promise.all(
+            paths.map(async (path) => {
+                const response = await requestModule.fetchStreamed(`${http2Url}${path}`, {
+                    allowH2: true,
+                    timeoutMs: 2000,
+                })
+                return (await response.read(100)).bytes.toString()
+            })
+        )
+
+        expect(bodies).toEqual(paths)
+        expect(http2SessionCount).toBe(1)
     }, 10000)
 
     it('opens a new session after the origin sends GOAWAY', async () => {

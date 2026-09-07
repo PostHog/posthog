@@ -13,6 +13,7 @@ import {
     RequestInit,
     Response,
     request,
+    errors as undiciErrors,
     fetch as undiciFetch,
 } from 'undici'
 import { URL } from 'url'
@@ -51,7 +52,8 @@ export type FetchOptions = {
     body?: string | Buffer
     timeoutMs?: number
     allowH2?: boolean
-    // How long an HTTP/2 session to the origin may sit idle before it closes. Defaults to the keep-alive timeout.
+    // How long an idle HTTP/2 session to the origin stays open. Defaults to the keep-alive timeout. The same
+    // dispatcher serves an origin that falls back to HTTP/1.1, so its idle sockets get this timeout too.
     http2IdleTimeoutMs?: number
 }
 
@@ -283,19 +285,23 @@ function makeSecureDispatcher({
 }): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+    const connections = allowH2
+        ? requestConfig.EXTERNAL_REQUEST_H2_CONNECTIONS
+        : requestConfig.EXTERNAL_REQUEST_CONNECTIONS
 
     if (proxyUrl) {
         return new ProxyAgent({
             uri: proxyUrl,
             keepAliveTimeout: keepAliveTimeoutMs,
-            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            connections,
+            connectTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             allowH2,
             requestTls: { allowH2 },
         })
     }
     return new Agent({
         keepAliveTimeout: keepAliveTimeoutMs,
-        connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+        connections,
         allowH2,
         connect: {
             lookup: httpStaticLookup,
@@ -309,10 +315,18 @@ const sharedInsecureAgent = new InsecureAgent()
 // One HTTP/2 dispatcher per idle timeout, because undici sets the timeout per dispatcher. Callers are code, so the
 // set of timeouts stays small.
 const sharedSecureH2Agents = new Map<number, Dispatcher>()
+let sharedAgentsClosed = false
 
 function getSecureH2Agent(idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS): Dispatcher {
+    // InvalidRequestError so the retry logic in cdp-fetch does not retry a value that can never work.
+    if (!Number.isInteger(idleTimeoutMs) || idleTimeoutMs <= 0) {
+        throw new InvalidRequestError(`http2IdleTimeoutMs must be a positive integer, got ${idleTimeoutMs}`)
+    }
     let agent = sharedSecureH2Agents.get(idleTimeoutMs)
     if (!agent) {
+        if (sharedAgentsClosed) {
+            throw new undiciErrors.ClientDestroyedError()
+        }
         agent = makeSecureDispatcher({ allowH2: true, keepAliveTimeoutMs: idleTimeoutMs })
         sharedSecureH2Agents.set(idleTimeoutMs, agent)
     }
@@ -334,9 +348,19 @@ function unrefDelay(ms: number): Promise<void> {
  * whatever remains after the grace period is destroyed.
  */
 export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
+    sharedAgentsClosed = true
     const agents = [sharedSecureAgent, sharedInsecureAgent, ...sharedSecureH2Agents.values()]
-    const closed = Promise.allSettled(agents.map((agent) => agent.close()))
-    await Promise.race([closed, unrefDelay(gracePeriodMs)])
+    const stillOpen = new Set(agents)
+    const closed = Promise.allSettled(agents.map((agent) => agent.close().finally(() => stillOpen.delete(agent)))).then(
+        () => true
+    )
+    const closedInTime = await Promise.race([closed, unrefDelay(gracePeriodMs).then(() => false)])
+    if (!closedInTime) {
+        logger.warn('[request] Destroying shared agents with requests still in flight at shutdown', {
+            gracePeriodMs,
+            openAgents: stillOpen.size,
+        })
+    }
     await Promise.allSettled(agents.map((agent) => agent.destroy()))
 }
 
