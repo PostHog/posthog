@@ -1,6 +1,6 @@
 ---
 name: cleaning-up-stale-feature-flags
-description: 'Identify stale feature flags in a PostHog project and clean them up safely. Use when the user wants to find, audit, remove, or archive unused, fully rolled out, or abandoned feature flags. When the agent can read and edit a repository it performs the code cleanup itself: tested local changes, and one draft PR per flag when publishing is authorized. Agents without repository access generate a tailored cleanup prompt instead. Covers staleness detection, dependency checking, retained-path rules, and the code-first ordering: clean up code, deploy, then archive the flag.'
+description: 'Identify stale feature flags in a PostHog project and clean up the code that checks them. Use when the user wants to find, audit, or remove unused, fully rolled out, or abandoned feature flags. When the agent can read and edit a repository it performs the code cleanup itself: tested local changes, and one draft PR per flag when the user authorizes publishing. Agents without repository access generate a tailored cleanup prompt instead. Covers staleness detection, dependency checking, retained-path rules, and the code-first ordering. This skill does not archive or otherwise change a flag in PostHog.'
 ---
 
 # Cleaning up stale feature flags
@@ -10,7 +10,7 @@ The ordering is fixed: clean up the code, wait for that cleanup to deploy, and o
 
 ## When to use this skill
 
-- The user asks to clean up, audit, review, remove, or archive their feature flags
+- The user asks to clean up, audit, review, or remove their feature flags
 - The user wants to find flags that are stale, unused, or fully rolled out
 - The user asks "which feature flags can I remove?" or similar
 - The user wants to reduce tech debt from old feature flags
@@ -56,8 +56,9 @@ Archiving the flag belongs to a later continuation, after the user confirms the 
 
 When the user's request clearly authorizes cleanup and you can edit the repository, execute:
 pick the safest deterministic candidate and clean it up directly.
-Do not stop to generate a copy-paste prompt, and do not add confirmation steps for the code changes themselves —
-the consequential action that needs explicit approval is mutating the flag, and that is deferred anyway.
+Do not stop to generate a copy-paste prompt, and do not add confirmation steps for local, uncommitted code changes.
+Two actions still need approval in the user's own words: pushing a branch or opening a PR, and mutating the flag.
+The availability of a git or GitHub tool is not that approval, and a push to a repository cannot be taken back.
 
 ## Workflow
 
@@ -228,12 +229,15 @@ Never change the flag in PostHog during this workflow — not archive, not disab
 Removing the flag's code and removing the flag are separate deployments, and the code must land first:
 archiving or disabling a flag while deployed code still checks it makes that code path silently stop working.
 
-Archival is a later continuation, after the user confirms the cleanup actually deployed.
+This skill does not archive a flag, and no skill does yet.
+If the user asks you to archive one, say the archival step is not automated, and give them the order:
+confirm the cleanup deployed everywhere, then archive the flag in PostHog themselves.
 A merged PR is not deployment.
-When that continuation happens, it re-reads the flag, verifies every deployed consumer was cleaned (not just this repository),
-asks for explicit approval, and then calls `posthog:feature-flag-archive` —
-which disables and archives in one call and preserves the flag's history.
-Prefer archive over `posthog:delete-feature-flag`; deletion is a separate explicit request.
+
+The steps archival will need, once it is automated: re-read the flag, verify every deployed consumer
+was cleaned and not just this repository, ask for explicit approval, then call
+`posthog:feature-flag-archive`, which disables and archives in one call and preserves the flag's history.
+Archive rather than delete; deletion is a separate explicit request.
 
 End the session by telling the user what to come back with:
 confirmation that the cleanup deployed, and which other repositories (if any) still need the same cleanup.
@@ -265,7 +269,8 @@ Agent steps:
 - Re-read the flag: still 100% boolean
 - Remove both checks, keep the enabled paths, delete the constant and a dead else branch
 - Run the checkout tests and the linter; both pass
-- The host allows publishing, so open one draft PR:
+- Ask whether to open a PR: "The cleanup is ready and the tests pass. Open a draft PR?"
+- The user agrees, so open one draft PR:
   "chore(feature-flags): remove old-checkout-flow"
 - Report:
 
