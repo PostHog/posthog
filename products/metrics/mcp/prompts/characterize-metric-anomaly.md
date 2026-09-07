@@ -1,9 +1,9 @@
 Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating "metric X is rising/dropping — why?": one call answers how big the change is, exactly when it started, and which label values moved.
 
-All parameters are nested inside a `query` object — nothing is accepted at the top level:
+All parameters go inside `query`:
 
 ```json
-{ "query": { "metricName": "http_server_requests_total", "anomalyFrom": "2026-01-15T09:00:00Z" } }
+{ "query": { "metricName": "m", "anomalyFrom": "2026-01-01T00:00:00Z" } }
 ```
 
 Required: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).

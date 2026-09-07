@@ -270,10 +270,10 @@ tools:
             by name in other HogQL queries. Set `description` to record what the view represents (a semantic description
             surfaced to agents); per-column descriptions are set via the saved-query column annotation tools.
 
-            The HogQL goes inside a nested `query` object, not at the top level:
+            Put the HogQL in `query`:
 
             ```json
-            { "name": "weekly_active_users", "query": { "kind": "HogQLQuery", "query": "SELECT count() FROM events" } }
+            { "name": "example", "query": { "kind": "HogQLQuery", "query": "SELECT 1" } }
             ```
         exclude_params:
             - deleted
@@ -407,13 +407,12 @@ tools:
             preserved. Rate limited.
 
 
-            Resend the view's own name and definition alongside its id, with the HogQL inside a nested `query` object:
+            Send the view ID, name, and query:
 
 
             ```json
 
-            { "id": "<view-id>", "name": "weekly_active_users", "query": { "kind": "HogQLQuery", "query": "SELECT
-            count() FROM events" } }
+            { "id": "<id>", "name": "example", "query": { "kind": "HogQLQuery", "query": "SELECT 1" } }
 
             ```
     view-update:

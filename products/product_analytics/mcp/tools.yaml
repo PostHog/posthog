@@ -86,16 +86,10 @@ tools:
             Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if
             you want to see the computed results.
 
-            The insight definition goes inside a nested `query` object, which wraps the query itself under `source`:
+            Put the insight definition in `query.source`:
 
             ```json
-            {
-                "name": "Weekly pageviews",
-                "query": {
-                    "kind": "InsightVizNode",
-                    "source": { "kind": "TrendsQuery", "series": [{ "kind": "EventsNode", "event": "$pageview" }] }
-                }
-            }
+            { "name": "Example", "query": { "kind": "InsightVizNode", "source": { "kind": "HogQLQuery", "query": "SELECT 1" } } }
             ```
         exclude_params:
             - query

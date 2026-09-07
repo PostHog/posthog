@@ -510,7 +510,7 @@ tools:
             — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking
             attribute-values + per-service counts.
 
-            All parameters are nested inside a `query` object — nothing is accepted at the top level:
+            Put all parameters in `query`:
 
             ```json
             { "query": { "dateRange": { "date_from": "-24h" } } }
