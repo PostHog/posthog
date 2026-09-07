@@ -174,6 +174,15 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
     )
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        max_length=PROMPT_LABEL_NAME_MAX_LENGTH,
+        help_text=(
+            "Return each prompt at the version this label points to, e.g. 'production'. "
+            "Prompts that do not carry the label are omitted. "
+            "If omitted, the latest version of every prompt is returned."
+        ),
+    )
     order_by = serializers.ChoiceField(
         choices=list(ALLOWED_LIST_ORDERINGS),
         required=False,
@@ -186,6 +195,9 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         default="full",
         help_text=CONTENT_MODE_HELP,
     )
+
+    def validate_label(self, value: str) -> str:
+        return validate_prompt_label_name_value(value)
 
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):

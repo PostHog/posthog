@@ -113,6 +113,13 @@ def get_latest_prompts_queryset(team: Team) -> QuerySet[LLMPrompt]:
     return get_active_prompt_queryset(team).filter(is_latest=True)
 
 
+def get_labeled_prompts_queryset(team: Team, label_name: str) -> QuerySet[LLMPrompt]:
+    # Starts from the label rows, not from a WHERE on the latest queryset: a label
+    # usually points at a version that is no longer latest.
+    labeled_version_ids = LLMPromptLabel.objects.filter(team=team, name=label_name).values("prompt_id")
+    return get_active_prompt_queryset(team).filter(id__in=labeled_version_ids)
+
+
 def get_prompt_by_name_from_db(
     team: Team,
     prompt_name: str,
