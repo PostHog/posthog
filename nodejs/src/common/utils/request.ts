@@ -51,12 +51,12 @@ export type FetchOptions = {
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
-    // Offers HTTP/2 next to HTTP/1.1 in the TLS handshake, and the origin chooses. undici lists HTTP/1.1 first, so an
-    // origin that defers to the client's order stays on HTTP/1.1. An origin that prefers HTTP/2, or only speaks it like
-    // APNs, picks HTTP/2. The undici connect option `preferH2` flips the order if a caller ever needs it.
+    // The TLS handshake offers HTTP/2 and HTTP/1.1. The origin selects the protocol. undici lists HTTP/1.1 first, so an
+    // origin that follows the client's order selects HTTP/1.1. APNs supports only HTTP/2, so it selects HTTP/2. The
+    // undici connect option `preferH2` lists HTTP/2 first.
     allowH2?: boolean
-    // How long an idle HTTP/2 session to the origin stays open. Defaults to the keep-alive timeout. The same
-    // dispatcher serves an origin that falls back to HTTP/1.1, so its idle sockets get this timeout too.
+    // The time an idle HTTP/2 session to the origin stays open. The default is the keep-alive timeout. An origin that
+    // negotiates HTTP/1.1 uses the same dispatcher, so its idle sockets also close after this time.
     http2IdleTimeoutMs?: number
 }
 
@@ -266,7 +266,7 @@ class InsecureAgent extends Agent {
         super({
             keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            // undici enables HTTP/2 by default. Internal services stay on HTTP/1.1 because nothing here needs multiplexing and HTTP/2 sessions fail differently (GOAWAY replays, refused streams).
+            // undici enables HTTP/2 by default. Internal services stay on HTTP/1.1 because nothing here needs multiplexing. HTTP/2 sessions also fail in different ways, with GOAWAY replays and refused streams.
             allowH2: false,
             connect: {
                 timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
@@ -314,16 +314,15 @@ function makeSecureDispatcher({
 
 const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
 const sharedInsecureAgent = new InsecureAgent()
-// One HTTP/2 dispatcher per idle timeout, because undici sets the timeout per dispatcher. Callers are code, so the
-// set of timeouts stays small.
+// undici sets the idle timeout per dispatcher, so each distinct idle timeout gets its own HTTP/2 dispatcher.
 const sharedSecureH2Agents = new Map<number, Dispatcher>()
 const MAX_SECURE_H2_AGENTS = 8
-// Node clamps a setTimeout delay above this to 1 ms, which would close every session as soon as it goes idle.
+// Node clamps a setTimeout delay above this value to 1 ms. A session would then close as soon as it goes idle.
 const MAX_H2_IDLE_TIMEOUT_MS = 2_147_483_647
 let sharedAgentsClosed = false
 
 function getSecureH2Agent(idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS): Dispatcher {
-    // InvalidRequestError so the retry logic in cdp-fetch does not retry a value that can never work.
+    // InvalidRequestError is not retriable in cdp-fetch, so a value that can never work fails once.
     if (!Number.isInteger(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
         throw new InvalidRequestError(`http2IdleTimeoutMs must be an integer between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
     }
@@ -350,10 +349,10 @@ function unrefDelay(ms: number): Promise<void> {
 }
 
 /**
- * Closes the shared dispatchers at shutdown, which ends idle keep-alive sockets and HTTP/2 sessions
- * that would otherwise stay open until their idle timeout. `close` waits for in-flight requests to
- * settle, and a streamed body that no caller reads or discards holds its socket forever, so
- * whatever remains after the grace period is destroyed.
+ * Closes the shared dispatchers at shutdown. Idle keep-alive sockets and HTTP/2 sessions close now
+ * instead of at their idle timeout. `close` waits for in-flight requests to settle. A streamed body
+ * that no caller reads or discards holds its socket forever, so the grace period bounds the wait and
+ * `destroy` ends whatever remains.
  */
 export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
     sharedAgentsClosed = true

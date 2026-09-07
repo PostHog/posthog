@@ -308,11 +308,11 @@ describe('secure HTTP/2 requests', () => {
             expect(openHttp2Sessions.size).toBe(0)
             expect(openSockets.size).toBe(0)
         }, 2000)
-        // Well inside the keep-alive timeout, so the shutdown closed the session rather than the idle reaper.
+        // The wait ended well inside the keep-alive timeout, so the shutdown closed the session and not the idle timer.
         expect(Date.now() - requestedAt).toBeLessThan(keepAliveTimeoutMs)
 
-        // Every path rejects the same way once the agents are gone: undici's guard on the destroyed HTTP/1.1 and
-        // HTTP/2 dispatchers, and the closed flag for a timeout that has no dispatcher yet.
+        // Every path rejects the same way after the agents close. undici guards the destroyed HTTP/1.1 and HTTP/2
+        // dispatchers. The closed flag covers a timeout that has no dispatcher yet.
         const destroyed = { name: 'ClientDestroyedError', code: 'UND_ERR_DESTROYED' }
         await expect(requestModule.fetch(`${http2Url}/after-close`, { timeoutMs: 2000 })).rejects.toMatchObject(
             destroyed
