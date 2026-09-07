@@ -28,7 +28,9 @@ from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
+    MAX_ENRICHMENT_BATCHES,
     MAX_PROMPT_CHARS,
+    BoundedPrompt,
     bound_prompt_over_columns,
     collapse_untrusted,
     generate_json_completion,
@@ -274,10 +276,11 @@ def build_bounded_view_enrichment_prompt(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> tuple[str, int]:
+) -> BoundedPrompt:
     """Build the view prompt, capping the unbounded free-text inputs and trimming columns to fit the window.
 
-    Returns `(prompt, output_ceiling)`; the ceiling is sized to the columns the prompt ends up asking about.
+    The result carries the columns it had to defer; this surface records enrichment per view rather
+    than per column, so the caller must not store the hash while any are outstanding.
     """
     business_context = business_context[:MAX_BUSINESS_CONTEXT_CHARS]
     if len(query_definition) > MAX_VIEW_DEFINITION_CHARS:
@@ -367,50 +370,81 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
     view_row = existing.get("")
     view_needs_description = not (view_row and view_row.is_user_edited)
 
+    # Columns past the per-pass cap are never asked about. Pre-existing and unchanged here: the cap is
+    # deterministic, so re-asking cannot reach them and withholding the hash would only re-run the same
+    # pass forever. Logged below so the shortfall is at least visible.
+    over_cap = [
+        column["name"]
+        for column in all_columns[MAX_COLUMNS_PER_TABLE:]
+        if not (existing.get(column["name"]) and existing[column["name"]].is_user_edited)
+    ]
+
     ai_count = 0
+    unfinished: list[str] = []
     if columns_needing_description or view_needs_description:
         business_context = get_team_business_context(team)
         lineage = _gather_lineage(team, saved_query, query_str)
         # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
         row_sample = _get_row_sample(saved_query) if (saved_query.table_id and saved_query.last_run_at) else []
-        prompt, max_output_tokens = build_bounded_view_enrichment_prompt(
-            view_name=saved_query.name,
-            query_definition=query_str,
-            columns=columns,
-            lineage=lineage,
-            row_sample=row_sample,
-            known_descriptions=known_descriptions,
-            columns_needing_description=columns_needing_description,
-            business_context=business_context,
-        )
-        log.info("view_enrichment.llm_call_started", columns_requested=len(columns_needing_description))
-        try:
-            generated, usage = generate_json_completion(
-                product=GATEWAY_PRODUCT,
-                team_id=team_id,
-                prompt=prompt,
-                model=DEFAULT_ENRICHMENT_MODEL,
-                max_output_tokens=max_output_tokens,
+
+        # Ask in batches rather than dropping the tail. This surface records enrichment per view, so a
+        # dropped column would be latched as done by the hash below and never described. Re-asking
+        # cannot recover it either: only user-edited columns leave the ask list, so the next pass would
+        # rebuild the same list and drop the same tail. Finishing the remainder here is what converges.
+        remaining = columns_needing_description
+        wants_view_description = view_needs_description
+        for _batch in range(MAX_ENRICHMENT_BATCHES):
+            # The view-level description still needs one call when every column is user-edited, so an
+            # empty ask list is not on its own a reason to skip the first batch.
+            if not remaining and not wants_view_description:
+                break
+            bounded = build_bounded_view_enrichment_prompt(
+                view_name=saved_query.name,
+                query_definition=query_str,
+                columns=columns,
+                lineage=lineage,
+                row_sample=row_sample,
+                known_descriptions=known_descriptions,
+                columns_needing_description=remaining,
+                business_context=business_context,
             )
-        except Exception as e:
-            capture_exception(e)
-            log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
-            # Don't store the hash — the next trigger retries.
-            return {"status": "partial", "ai_annotations": 0, "error": "llm_failed"}
+            log.info(
+                "view_enrichment.llm_call_started",
+                columns_requested=len(bounded.requested),
+                columns_remaining=len(bounded.deferred),
+            )
+            try:
+                generated, usage = generate_json_completion(
+                    product=GATEWAY_PRODUCT,
+                    team_id=team_id,
+                    prompt=bounded.prompt,
+                    model=DEFAULT_ENRICHMENT_MODEL,
+                    max_output_tokens=bounded.max_output_tokens,
+                )
+            except Exception as e:
+                capture_exception(e)
+                log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
+                # Don't store the hash, so the next trigger retries. Any earlier batch's annotations
+                # are already persisted and are simply re-drafted then.
+                return {"status": "partial", "ai_annotations": ai_count, "error": "llm_failed"}
 
-        log.info("view_enrichment.llm_call", columns_requested=len(columns_needing_description), **usage)
+            log.info("view_enrichment.llm_call", columns_requested=len(bounded.requested), **usage)
 
-        generated_columns = generated.get("columns") or {}
-        if isinstance(generated_columns, dict):
-            for column_name in columns_needing_description:
-                description = generated_columns.get(column_name)
-                if isinstance(description, str) and description.strip():
-                    _upsert(saved_query, team_id, column_name, description.strip())
-                    ai_count += 1
+            generated_columns = generated.get("columns") or {}
+            if isinstance(generated_columns, dict):
+                for column_name in bounded.requested:
+                    description = generated_columns.get(column_name)
+                    if isinstance(description, str) and description.strip():
+                        _upsert(saved_query, team_id, column_name, description.strip())
+                        ai_count += 1
 
-        view_description = generated.get("view_description")
-        if view_needs_description and isinstance(view_description, str) and view_description.strip():
-            _upsert(saved_query, team_id, "", view_description.strip())
+            view_description = generated.get("view_description")
+            if wants_view_description and isinstance(view_description, str) and view_description.strip():
+                _upsert(saved_query, team_id, "", view_description.strip())
+                wants_view_description = False
+
+            remaining = bounded.deferred
+        unfinished = remaining
 
     # Drop non-user-edited annotations for columns that no longer exist; keep user edits and the view row.
     stale = [
@@ -424,13 +458,21 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         ).delete()
 
     # Store the hash via queryset update() — bypasses post_save so it never re-triggers the signal.
-    DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(semantic_enrichment_hash=current_hash)
+    # Withheld only when the batch budget ran out with columns still unasked, because the hash
+    # short-circuits the next run and would latch those columns as described. `over_cap` is not a
+    # reason to withhold: the per-pass cap is deterministic, so a retry would repeat the same pass.
+    if not unfinished:
+        DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(semantic_enrichment_hash=current_hash)
     log.info(
         "view_enrichment.done",
         ai=ai_count,
         stale_deleted=len(stale),
         llm_called=bool(columns_needing_description or view_needs_description),
+        unfinished=len(unfinished),
+        over_cap=len(over_cap),
     )
+    if unfinished:
+        return {"status": "partial", "ai_annotations": ai_count, "unfinished_columns": len(unfinished)}
     return {"status": "done", "ai_annotations": ai_count}
 
 

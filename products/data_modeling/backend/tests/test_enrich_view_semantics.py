@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -88,6 +89,91 @@ class TestEnrichViewSemanticsSync:
         assert annotations["amount"].ai_model == enrich.DEFAULT_ENRICHMENT_MODEL
         sq.refresh_from_db()
         assert sq.semantic_enrichment_hash == compute_enrichment_hash(sq)
+
+    def test_a_wide_view_is_finished_in_batches_rather_than_losing_columns(self):
+        """The fix. The output ceiling cannot hold every column of a wide view in one reply, and this
+        surface records enrichment per view, so a dropped column would be latched as described and
+        never come back. Finishing the remainder in a second call is what keeps the hash honest."""
+        team = _team()
+        names = [f"c{i:04d}" for i in range(enrich.MAX_COLUMNS_PER_TABLE)]
+        sq = _saved_query(team, columns=_columns(*names))
+        generated = {"view_description": "v", "columns": {name: f"desc {name}" for name in names}}
+
+        result, mock_llm = _run(team, sq, generated=generated)
+
+        assert mock_llm.call_count > 1, "a full-width view does not fit one reply, so it must batch"
+        assert result["status"] == "done"
+        annotations = _annotations(team, sq)
+        assert set(annotations) == {*names, ""}, "every column described, plus the view row"
+        sq.refresh_from_db()
+        assert sq.semantic_enrichment_hash == compute_enrichment_hash(sq)
+
+    def test_the_hash_is_withheld_when_the_batch_budget_runs_out(self):
+        """Pins the withhold itself. Batching normally finishes the job, so unless the budget is
+        forced to run out this guard never decides anything and could be deleted unnoticed while
+        every other test stays green."""
+        team = _team()
+        names = [f"c{i:04d}" for i in range(enrich.MAX_COLUMNS_PER_TABLE)]
+        sq = _saved_query(team, columns=_columns(*names))
+        generated = {"view_description": "v", "columns": {name: f"desc {name}" for name in names}}
+
+        with patch.object(enrich, "MAX_ENRICHMENT_BATCHES", 1):
+            result, mock_llm = _run(team, sq, generated=generated)
+
+        assert mock_llm.call_count == 1
+        assert result["status"] == "partial"
+        assert result["unfinished_columns"] > 0
+        sq.refresh_from_db()
+        assert not sq.semantic_enrichment_hash, "an unfinished view must not be latched as enriched"
+
+    def test_the_view_description_is_asked_for_once_across_batches(self):
+        team = _team()
+        names = [f"c{i:04d}" for i in range(enrich.MAX_COLUMNS_PER_TABLE)]
+        sq = _saved_query(team, columns=_columns(*names))
+        generated = {"view_description": "v", "columns": {name: f"desc {name}" for name in names}}
+
+        _result, mock_llm = _run(team, sq, generated=generated)
+
+        assert mock_llm.call_count > 1
+        assert _annotations(team, sq)[""].description == "v"
+
+    def test_a_failure_mid_batch_keeps_the_earlier_work_and_withholds_the_hash(self):
+        """Annotations are per-column upserts, so a later batch failing must not discard an earlier
+        batch's descriptions, and the hash must stay unstored so the next trigger finishes the job."""
+        team = _team()
+        names = [f"c{i:04d}" for i in range(enrich.MAX_COLUMNS_PER_TABLE)]
+        sq = _saved_query(team, columns=_columns(*names))
+        generated = {"view_description": "v", "columns": {name: f"desc {name}" for name in names}}
+
+        with (
+            patch.object(enrich, "get_team_business_context", return_value=""),
+            patch.object(enrich, "_gather_lineage", return_value=[]),
+            patch.object(enrich, "_get_row_sample", return_value=[]),
+            patch.object(
+                enrich,
+                "generate_json_completion",
+                side_effect=[(generated, _USAGE), RuntimeError("provider down")],
+            ),
+        ):
+            result = enrich_view_semantics_sync(team.pk, str(sq.id))
+
+        assert result["status"] == "partial"
+        assert result["error"] == "llm_failed"
+        assert result["ai_annotations"] > 0, "the first batch's columns are already persisted"
+        sq.refresh_from_db()
+        assert not sq.semantic_enrichment_hash
+
+    def test_the_bounded_ceiling_reaches_the_request(self):
+        """Pins the hand-off on this surface: without it the `max_output_tokens=` argument can be
+        deleted here with the suite green, restoring the flat cap."""
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount", "status"))
+        generated = {"view_description": "v", "columns": {"amount": "a", "status": "s"}}
+
+        _result, mock_llm = _run(team, sq, generated=generated)
+
+        sent = mock_llm.call_args.kwargs["max_output_tokens"]
+        assert sent < MAX_OUTPUT_TOKENS, "a two-column view must not reserve the whole cap"
 
     def test_unchanged_view_skips_without_calling_llm(self):
         team = _team()
@@ -243,7 +329,7 @@ class TestBuildViewEnrichmentPrompt:
     def test_bounded_prompt_drops_columns_when_oversized(self):
         long_name = "n" * 5_000
         columns = [{"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)]
-        prompt, _ = build_bounded_view_enrichment_prompt(
+        prompt = build_bounded_view_enrichment_prompt(
             view_name="v",
             query_definition="SELECT 1",
             columns=columns,
@@ -252,7 +338,7 @@ class TestBuildViewEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[str(c["name"]) for c in columns],
             business_context="",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         assert str(columns[0]["name"]) in prompt
         assert str(columns[-1]["name"]) not in prompt

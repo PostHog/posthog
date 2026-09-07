@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.llm.semantic_enrichment import TruncatedCompletionError
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -219,7 +219,7 @@ class TestBuildBoundedEnrichmentPrompt:
 
     def test_passes_through_when_within_budget(self):
         columns = self._columns(3)
-        prompt, _ = build_bounded_enrichment_prompt(
+        prompt = build_bounded_enrichment_prompt(
             source_name="Stripe",
             table_name="t",
             endpoint_name="Charge",
@@ -229,7 +229,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[c["name"] for c in columns],
             business_context="short context",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         for column in columns:
             assert column["name"] in prompt
@@ -238,7 +238,7 @@ class TestBuildBoundedEnrichmentPrompt:
     def test_caps_oversized_business_context(self):
         # An unbounded core-memory dump is the usual cause of a 200k-token prompt — it must be truncated.
         huge_context = "x" * (MAX_BUSINESS_CONTEXT_CHARS * 5)
-        prompt, _ = build_bounded_enrichment_prompt(
+        prompt = build_bounded_enrichment_prompt(
             source_name="Stripe",
             table_name="t",
             endpoint_name="Charge",
@@ -248,7 +248,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=["col_0", "col_1"],
             business_context=huge_context,
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The 100k-char context is truncated to the cap (a few stray "x" elsewhere in the template are fine).
         assert MAX_BUSINESS_CONTEXT_CHARS <= prompt.count("x") < MAX_BUSINESS_CONTEXT_CHARS + 100
@@ -259,7 +259,7 @@ class TestBuildBoundedEnrichmentPrompt:
         columns: list[dict[str, Any]] = [
             {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)
         ]
-        prompt, _ = build_bounded_enrichment_prompt(
+        prompt = build_bounded_enrichment_prompt(
             source_name="Postgres",
             table_name="t",
             endpoint_name="",
@@ -269,7 +269,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[c["name"] for c in columns],
             business_context="",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The first column survives; some tail columns are dropped to stay under budget.
         assert columns[0]["name"] in prompt
@@ -286,7 +286,7 @@ class TestBuildBoundedEnrichmentPrompt:
             {"column": columns[0]["name"], "target_table": "kept_target", "target_column": "id"},
             {"column": columns[-1]["name"], "target_table": "dropped_target", "target_column": "id"},
         ]
-        prompt, _ = build_bounded_enrichment_prompt(
+        prompt = build_bounded_enrichment_prompt(
             source_name="Postgres",
             table_name="t",
             endpoint_name="",
@@ -296,7 +296,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[str(c["name"]) for c in columns],
             business_context="",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The surviving column's FK stays; the dropped column's FK is gone.
         assert "kept_target" in prompt
@@ -394,6 +394,50 @@ class TestGenerateDescriptions:
         with patch.object(enrich, "build_enrichment_client", return_value=client):
             parsed, _usage = self._call()
         assert parsed == {"columns": {"a": "desc"}}
+
+    def test_the_bounded_ceiling_reaches_the_request(self):
+        """Pins the hand-off, not the sizing. The ceiling is computed in the shared helper and pinned
+        there; without this the `max_output_tokens=` argument below can be deleted on this surface
+        with the whole suite green, silently restoring the flat cap the sizing exists to replace."""
+        client = self._client('{"columns": {"a": "desc"}}')
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
+            self._call()
+
+        sent = client.complete.call_args.kwargs["max_output_tokens"]
+        expected = enrich.build_bounded_enrichment_prompt(
+            source_name="Stripe",
+            table_name="t",
+            endpoint_name="Charge",
+            docs_url=None,
+            columns=[{"name": "a", "data_type": "String", "is_nullable": False}],
+            foreign_keys=[],
+            known_descriptions={},
+            columns_needing_description=["a"],
+            business_context="",
+        ).max_output_tokens
+        assert sent == expected
+        assert sent < MAX_OUTPUT_TOKENS, "a one-column table must not reserve the whole cap"
+
+    def test_a_deferred_column_is_reported_for_a_later_pass(self):
+        """Warehouse idempotency is per annotation row, so a deferred column is simply still
+        unannotated and the next sync asks for it. Pinned so the deferral stays observable."""
+        columns = [{"name": f"c{i:03d}" + "x" * 396, "data_type": "String", "is_nullable": False} for i in range(200)]
+        bounded = enrich.build_bounded_enrichment_prompt(
+            source_name="Stripe",
+            table_name="t",
+            endpoint_name="Charge",
+            docs_url=None,
+            columns=columns,
+            foreign_keys=[],
+            known_descriptions={},
+            columns_needing_description=[column["name"] for column in columns],
+            business_context="",
+        )
+
+        assert bounded.deferred, "a 200-column table of 400-char names cannot fit one reply"
+        assert set(bounded.requested).isdisjoint(bounded.deferred)
+        assert len(bounded.requested) + len(bounded.deferred) == len(columns)
+        assert bounded.max_output_tokens <= MAX_OUTPUT_TOKENS
 
 
 class TestCanonicalDescriptionsResolver:

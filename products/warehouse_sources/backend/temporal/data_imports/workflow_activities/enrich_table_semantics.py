@@ -32,6 +32,7 @@ from posthog.llm.semantic_enrichment import (
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
     MAX_PROMPT_CHARS,
+    BoundedPrompt,
     bound_prompt_over_columns,
     build_enrichment_client,
     capture_enrichment_event,
@@ -182,7 +183,7 @@ def build_bounded_enrichment_prompt(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> tuple[str, int]:
+) -> BoundedPrompt:
     """Build the prompt, trimming inputs so it can't exceed the model's context window.
 
     The business context (the team's core memory) is unbounded free text and is the usual culprit
@@ -230,7 +231,7 @@ def _generate_descriptions(
     business_context: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM. Returns `(parsed_payload, usage)` — usage carries the model and token counts."""
-    prompt, max_output_tokens = build_bounded_enrichment_prompt(
+    bounded = build_bounded_enrichment_prompt(
         source_name=source_name,
         table_name=table_name,
         endpoint_name=endpoint_name,
@@ -243,13 +244,21 @@ def _generate_descriptions(
     )
     # Resolved here so this module exposes a seam the activity tests can patch.
     client = build_enrichment_client("warehouse_semantic_enrichment", team_id)
+    if bounded.deferred:
+        # Per-column annotation rows are the idempotency record here, so an undescribed column is
+        # simply still unannotated and the next sync asks for it. Logged because the count is
+        # otherwise invisible: the event below reports what we asked for, not what we skipped.
+        logger.info(
+            "Deferred %s column(s) to a later enrichment pass to fit the request bounds",
+            len(bounded.deferred),
+        )
     return generate_json_completion(
         product="warehouse_semantic_enrichment",
         team_id=team_id,
-        prompt=prompt,
+        prompt=bounded.prompt,
         model=ENRICHMENT_MODEL,
         client=client,
-        max_output_tokens=max_output_tokens,
+        max_output_tokens=bounded.max_output_tokens,
     )
 
 

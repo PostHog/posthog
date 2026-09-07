@@ -9,6 +9,7 @@ from posthog.llm.gateway_client import team_distinct_id, team_trace_id
 from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_OUTPUT_TOKENS,
+    MIN_OUTPUT_TOKENS,
     TruncatedCompletionError,
     _ChatClient,
     _Completion,
@@ -282,10 +283,12 @@ class TestUsageNormalisation:
         assert completion.usage["total_tokens"] is None
 
 
-def test_the_output_ceiling_covers_the_widest_table_the_prompt_allows():
-    """Binds the ceiling to the column cap it was derived from, so raising one without the other
-    goes red here rather than as truncation errors in production."""
-    assert MAX_OUTPUT_TOKENS >= MAX_COLUMNS_PER_TABLE * 30 * 2
+def test_the_cap_is_reachable_above_the_floor():
+    """The ceiling is sized per table now, so the old assertion that the cap covers the widest table
+    at a flat per-column rate no longer describes anything. What still has to hold is that the clamp
+    cannot invert: a floor above the cap would make `min(needed, cap)` return less than the floor the
+    estimator promises."""
+    assert MIN_OUTPUT_TOKENS < MAX_OUTPUT_TOKENS
 
 
 def test_the_output_ceiling_stays_under_the_sdk_non_streaming_limit():
@@ -364,7 +367,8 @@ class TestOutputCeilingSizing:
             asked.append(needing)
             return "prompt"
 
-        prompt, ceiling = bound_prompt_over_columns(builder, columns, names)
+        bounded = bound_prompt_over_columns(builder, columns, names)
+        prompt, ceiling = bounded.prompt, bounded.max_output_tokens
 
         assert prompt == "prompt"
         assert ceiling <= MAX_OUTPUT_TOKENS
@@ -375,7 +379,8 @@ class TestOutputCeilingSizing:
         names = ["id", "email", "created_at"]
         columns = self._columns(names)
 
-        prompt, ceiling = bound_prompt_over_columns(lambda shown, needing: "prompt", columns, names)
+        bounded = bound_prompt_over_columns(lambda shown, needing: "prompt", columns, names)
+        prompt, ceiling = bounded.prompt, bounded.max_output_tokens
 
         assert prompt == "prompt"
         assert ceiling < MAX_OUTPUT_TOKENS, "a three-column table should not reserve the whole cap"
@@ -393,3 +398,46 @@ class TestOutputCeilingSizing:
         )
 
         assert client.messages.create.call_args.kwargs["max_tokens"] == 2048
+
+
+class TestDeferralContract:
+    """`deferred` is what makes the drop safe: a caller whose idempotency covers the whole object
+    reads it to decide whether it may record completion."""
+
+    def test_nothing_deferred_when_everything_fits(self):
+        names = ["id", "email", "created_at"]
+        bounded = bound_prompt_over_columns(lambda shown, needing: "prompt", [{"name": n} for n in names], names)
+
+        assert bounded.deferred == []
+        assert bounded.requested == names
+
+    def test_dropped_columns_are_reported_as_deferred(self):
+        names = _wide_names(MAX_COLUMNS_PER_TABLE)
+        bounded = bound_prompt_over_columns(lambda shown, needing: "prompt", [{"name": n} for n in names], names)
+
+        assert bounded.deferred, "a full-width table of 400-char names cannot fit one reply"
+        assert set(bounded.requested) | set(bounded.deferred) == set(names)
+        assert set(bounded.requested).isdisjoint(bounded.deferred)
+        # The ask list is what the ceiling was sized for, so the two must agree.
+        assert bounded.max_output_tokens == min(projected_output_tokens(bounded.requested), MAX_OUTPUT_TOKENS)
+
+    def test_deferred_preserves_the_callers_order(self):
+        """Callers persist or re-ask these names, so a reordering would make the retry ask for a
+        different set than the one that was dropped."""
+        names = _wide_names(MAX_COLUMNS_PER_TABLE)
+        bounded = bound_prompt_over_columns(lambda shown, needing: "prompt", [{"name": n} for n in names], names)
+
+        assert bounded.deferred == [name for name in names if name in set(bounded.deferred)]
+
+    def test_the_prompt_char_bound_also_reports_deferral(self):
+        """Both bounds drop columns, so both owe the caller the same signal."""
+        names = [f"col_{i}" for i in range(100)]
+        bounded = bound_prompt_over_columns(
+            lambda shown, needing: "x" * (len(shown) * 100),
+            [{"name": n} for n in names],
+            names,
+            max_prompt_chars=1000,
+        )
+
+        assert bounded.deferred
+        assert len(bounded.prompt) <= 1000

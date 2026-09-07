@@ -50,6 +50,11 @@ _DESCRIPTION_BUDGET_CHARS = 240
 _CHARS_PER_OUTPUT_TOKEN = 3.0
 # Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
 MAX_COLUMNS_PER_TABLE = 200
+# How many LLM calls one enrichment run may spend finishing a table the output ceiling cannot hold in
+# a single reply. A caller that records completion for the whole object has to finish here, because a
+# column it never asked about would otherwise be latched as described. Four covers the widest table
+# the column cap allows; the surplus bounds a pathological name set rather than a real one.
+MAX_ENRICHMENT_BATCHES = 4
 # The team's core memory is free-form and unbounded; a large dump alone can push the prompt past the
 # model's 200k-token context window. Cap it — a concise company summary is all the enrichment needs.
 MAX_BUSINESS_CONTEXT_CHARS = 20_000
@@ -304,17 +309,28 @@ def projected_output_tokens(column_names: Iterable[str]) -> int:
     return max(MIN_OUTPUT_TOKENS, ceil((chars + 2) / _CHARS_PER_OUTPUT_TOKEN))
 
 
+@frozen
+class BoundedPrompt:
+    """A prompt sized to fit, plus the columns the bounding gave up to make it fit.
+
+    `deferred` is what the caller still owes: it is empty on the ordinary path, and a caller whose
+    idempotency marker covers the whole object must withhold that marker while it is not.
+    """
+
+    prompt: str
+    max_output_tokens: int
+    requested: list[str]
+    deferred: list[str]
+
+
 def bound_prompt_over_columns(
     builder: Callable[[list[dict[str, Any]], list[str]], str],
     columns: list[dict[str, Any]],
     columns_needing_description: list[str],
     max_prompt_chars: int = MAX_PROMPT_CHARS,
     max_output_tokens: int = MAX_OUTPUT_TOKENS,
-) -> tuple[str, int]:
+) -> BoundedPrompt:
     """Build a prompt via `builder`, dropping tail columns until both the prompt and its reply fit.
-
-    Returns `(prompt, output_ceiling)`; the ceiling is sized to the columns the prompt ends up asking
-    about, for the caller to send as the request's output limit.
 
     `builder(shown_columns, columns_needing_description)` assembles the surface-specific prompt from a
     subset of columns; anything else it depends on (foreign keys, business context, …) is closed over
@@ -322,7 +338,11 @@ def bound_prompt_over_columns(
     column it no longer lists. Two bounds drop tail columns: an assembled prompt too long for the
     context window, and an ask list whose reply could not fit under `max_output_tokens`. The second
     bound otherwise truncates the reply on every attempt, so the table never gets past a partial result.
-    Skipped columns keep their place in the idempotency snapshot, so a later pass enriches them.
+
+    Dropping is deferral, not completion: the returned `deferred` names were never asked about, so a
+    caller that records "enriched" for the whole object has to withhold that record until it is empty,
+    or those columns are never described again. A caller whose idempotency is per column (an annotation
+    row each) needs no such guard, because an undescribed column is simply still unannotated.
     """
     shown_columns = columns
     needing = columns_needing_description
@@ -330,7 +350,13 @@ def bound_prompt_over_columns(
         prompt = builder(shown_columns, needing)
         needed_tokens = projected_output_tokens(needing)
         if (len(prompt) <= max_prompt_chars and needed_tokens <= max_output_tokens) or len(shown_columns) <= 1:
-            return prompt, min(needed_tokens, max_output_tokens)
+            asked = set(needing)
+            return BoundedPrompt(
+                prompt=prompt,
+                max_output_tokens=min(needed_tokens, max_output_tokens),
+                requested=list(needing),
+                deferred=[name for name in columns_needing_description if name not in asked],
+            )
         # Drop ~10% of the tail columns and re-measure. Prune the ask list to the surviving columns too.
         cut = max(1, len(shown_columns) // 10)
         shown_columns = shown_columns[:-cut]
