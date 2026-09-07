@@ -11,7 +11,11 @@ import { MarkdownRenderer } from "@posthog/ui/features/editor/components/Markdow
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { errorTrackingIssueUrl } from "@posthog/ui/utils/posthogLinks";
+import {
+  colonOffsetToSeconds,
+  errorTrackingIssueUrl,
+  sessionRecordingUrl,
+} from "@posthog/ui/utils/posthogLinks";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -573,6 +577,11 @@ function SessionProblemSignalCard({
         <SessionRecordingVideo
           exportedAssetId={extra.exported_asset_id}
           sessionId={extra.session_id}
+          seekSeconds={
+            extra.start_time
+              ? (colonOffsetToSeconds(extra.start_time) ?? undefined)
+              : undefined
+          }
         />
       )}
 
@@ -635,9 +644,12 @@ function SessionProblemSignalCard({
 function SessionRecordingVideo({
   exportedAssetId,
   sessionId,
+  seekSeconds,
 }: {
   exportedAssetId?: number;
   sessionId: string;
+  /** Recording-relative offset (seconds) the player should open at. */
+  seekSeconds?: number;
 }) {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -661,7 +673,28 @@ function SessionRecordingVideo({
     { enabled: !!projectId, staleTime: Infinity },
   );
 
-  if (videoQuery.isError || videoQuery.data === null) return null;
+  const playerUrl = sessionRecordingUrl(sessionId, {
+    secondsOffsetFromStart: seekSeconds ?? null,
+  });
+
+  // No playable mp4 export: fall back to a link that opens the recording in the
+  // PostHog web player, so the evidence stays one click away from the real thing.
+  if (videoQuery.isError || videoQuery.data === null) {
+    if (!playerUrl) return null;
+    return (
+      <Flex mt="2" justify="end">
+        <a
+          href={playerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
+        >
+          Watch the recording
+          <ArrowSquareOutIcon size={12} />
+        </a>
+      </Flex>
+    );
+  }
   if (videoQuery.isLoading || videoQuery.data === undefined) {
     return (
       <Box
@@ -688,6 +721,19 @@ function SessionRecordingVideo({
           interaction?.onInteraction({ type: "play_session_recording" });
         }}
       />
+      {playerUrl && (
+        <Flex mt="1" justify="end">
+          <a
+            href={playerUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
+          >
+            Open full recording
+            <ArrowSquareOutIcon size={12} />
+          </a>
+        </Flex>
+      )}
     </Box>
   );
 }
