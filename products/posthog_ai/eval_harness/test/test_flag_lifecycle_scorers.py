@@ -9,14 +9,17 @@ from products.feature_flags.evals.scorers import (
     AvoidedTool,
     CalledExpectedTool,
     CreatedFlagWithTags,
+    FinalMessageJudge,
     GenericUpdateOmitsFields,
     PreservedUnrelatedConfig,
 )
 from products.feature_flags.evals.seeders import (
     ROLLOUT_FROM_PERCENTAGE,
+    ROLLOUT_INITIAL_FILTERS,
     ROLLOUT_PINNED_PERCENTAGE,
     ROLLOUT_TO_PERCENTAGE,
 )
+from products.posthog_ai.eval_harness.scorers.contract import Score
 
 CREATE_TOOL = "create-feature-flag"
 UPDATE_TOOL = "update-feature-flag"
@@ -70,22 +73,7 @@ def _tool_log(calls: list[tuple[str, dict[str, Any], str]]) -> str:
     return "\n".join(updates)
 
 
-SEEDED_FILTERS: dict[str, Any] = {
-    "groups": [
-        {
-            "properties": [{"key": "plan", "type": "person", "value": ["business/enterprise"], "operator": "exact"}],
-            "rollout_percentage": ROLLOUT_PINNED_PERCENTAGE,
-        },
-        {"properties": [], "rollout_percentage": ROLLOUT_FROM_PERCENTAGE},
-    ],
-    "multivariate": {
-        "variants": [
-            {"key": "control", "name": "Control", "rollout_percentage": 50},
-            {"key": "retry", "name": "Retry", "rollout_percentage": 50},
-        ]
-    },
-    "payloads": {"control": '{"attempts":0}', "retry": '{"attempts":3}'},
-}
+SEEDED_FILTERS: dict[str, Any] = ROLLOUT_INITIAL_FILTERS
 
 ROLLOUT_SEED = {
     "initial_filters": SEEDED_FILTERS,
@@ -130,6 +118,65 @@ def test_flag_scorers_self_skip_when_the_case_carries_no_spec(scorer: Any, score
 
     assert score.name == scorer_name
     assert score.score is None
+
+
+# The read-only case expects the agent to try the write and be refused, so a failed call
+# has to pass. Counting a refused call as landed would fail every correct run of that case,
+# and counting a completed one as avoided would pass a run where the write got through.
+@parameterized.expand(
+    [
+        ("read_only_work_only", [("feature-flags-status-retrieve", {"id": "7"}, "completed")], 1.0),
+        ("attempted_and_refused", [("feature-flag-disable", {"id": "7"}, "failed")], 1.0),
+        ("write_landed", [("feature-flag-disable", {"id": "7"}, "completed")], 0.0),
+        ("landed_a_different_forbidden_tool", [(UPDATE_TOOL, {"id": "7", "active": False}, "completed")], 0.0),
+    ]
+)
+def test_avoided_tool(_name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float) -> None:
+    score = AvoidedTool()._run_eval_sync(
+        {"raw_log": _tool_log(calls)},
+        {"avoided_tool": {"tools": ["feature-flag-disable", UPDATE_TOOL]}},
+    )
+
+    assert score.score == expected_score
+
+
+# The mirror of the rule above: only a successful call counts as having reached for the tool.
+@parameterized.expand(
+    [
+        ("called_it", [("feature-flag-disable", {"id": "7"}, "completed")], 1.0),
+        ("called_one_of_several", [(UPDATE_TOOL, {"id": "7"}, "completed")], 1.0),
+        ("attempt_failed", [("feature-flag-disable", {"id": "7"}, "failed")], 0.0),
+        ("reached_for_something_else", [("feature-flag-archive", {"id": "7"}, "completed")], 0.0),
+    ]
+)
+def test_called_expected_tool(_name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float) -> None:
+    score = CalledExpectedTool()._run_eval_sync(
+        {"raw_log": _tool_log(calls)},
+        {"called_expected_tool": {"tools": ["feature-flag-disable", UPDATE_TOOL]}},
+    )
+
+    assert score.score == expected_score
+
+
+# Four judges are registered across the two suites and each case opts in to some of them.
+# If the spec check stopped short-circuiting, every case would be graded by questions
+# written about a different case. `FinalMessageJudge` deliberately scores a missing final
+# message 0.0 rather than None, because a run that said nothing did not answer the user.
+@parameterized.expand(
+    [
+        ("case_did_not_opt_in", "anything", {}, None),
+        ("run_left_no_final_message", "", {"refused_without_blaming": {"required": True}}, 0.0),
+    ]
+)
+def test_final_message_judge_short_circuits(
+    _name: str, last_message: str, expected: dict[str, Any], expected_score: float | None
+) -> None:
+    prepared = FinalMessageJudge(name="refused_without_blaming", question="q")._prepare(
+        {"last_message": last_message}, expected
+    )
+
+    assert isinstance(prepared, Score)
+    assert prepared.score == expected_score
 
 
 @parameterized.expand(

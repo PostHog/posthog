@@ -91,7 +91,7 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
             setup=seed_active_flag,
             expected={
                 "called_expected_tool": {"tools": ["feature-flag-disable"]},
-                "generic_update_omits_fields": {"fields": ["active", "archived"]},
+                "generic_update_omits_fields": {"fields": ["active", "archived", "filters"]},
             },
         ),
         SandboxedEvalCase(
@@ -100,7 +100,7 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
             setup=seed_inactive_flag,
             expected={
                 "called_expected_tool": {"tools": ["feature-flag-enable"]},
-                "generic_update_omits_fields": {"fields": ["active", "archived"]},
+                "generic_update_omits_fields": {"fields": ["active", "archived", "filters"]},
             },
         ),
         SandboxedEvalCase(

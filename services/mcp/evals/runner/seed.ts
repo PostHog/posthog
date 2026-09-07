@@ -16,7 +16,8 @@
  *     pnpm exec tsx evals/runner/seed.ts [--project 12345]
  *
  * `LIVE_MCP_TOKEN` is the same personal API key the probe uses; it needs
- * `feature_flag:write`. Without `--project` the project comes from the token's current
+ * `feature_flag:write`, plus `user:read` when `--project` is omitted, because the project
+ * is then resolved through `/api/users/@me/`. Without `--project` the project comes from the token's current
  * project — pass it explicitly when the MCP session points somewhere else, because
  * seeding one project and scoring another looks exactly like a tool-selection
  * regression.
@@ -157,7 +158,9 @@ function parseProjectFlag(argv: string[]): number | null {
 async function main(): Promise<void> {
     const token = process.env.LIVE_MCP_TOKEN
     if (!token) {
-        console.error('LIVE_MCP_TOKEN is required (a personal API key with feature_flag:write)')
+        console.error(
+            'LIVE_MCP_TOKEN is required (a personal API key with feature_flag:write, and user:read unless you pass --project)'
+        )
         process.exit(2)
     }
 

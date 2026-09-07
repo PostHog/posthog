@@ -18,6 +18,7 @@ score averages.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import timedelta
 from typing import Any
 
@@ -43,6 +44,7 @@ __all__ = [
     "REQUIRED_TAGS_FLAG_KEY",
     "ROLLOUT_FLAG_KEY",
     "ROLLOUT_FROM_PERCENTAGE",
+    "ROLLOUT_INITIAL_FILTERS",
     "ROLLOUT_PINNED_PERCENTAGE",
     "ROLLOUT_TO_PERCENTAGE",
     "STALE_FLAG_KEY",
@@ -77,6 +79,26 @@ ROLLOUT_PINNED_PERCENTAGE = 100
 STALE_FLAG_LAST_CALLED_DAYS_AGO = 90
 
 _BOOLEAN_FULL_ROLLOUT: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+
+# The composite configuration a rollout edit can drop. Exported because
+# `PreservedUnrelatedConfig`'s tests grade against this exact shape: a second copy would
+# let them keep passing after the seeder changed.
+ROLLOUT_INITIAL_FILTERS: dict[str, Any] = {
+    "groups": [
+        {
+            "properties": [{"key": "plan", "type": "person", "value": ["business/enterprise"], "operator": "exact"}],
+            "rollout_percentage": ROLLOUT_PINNED_PERCENTAGE,
+        },
+        {"properties": [], "rollout_percentage": ROLLOUT_FROM_PERCENTAGE},
+    ],
+    "multivariate": {
+        "variants": [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "retry", "name": "Retry", "rollout_percentage": 50},
+        ]
+    },
+    "payloads": {"control": '{"attempts":0}', "retry": '{"attempts":3}'},
+}
 
 
 def _create_flag(
@@ -177,24 +199,8 @@ def seed_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
         context,
         key=ROLLOUT_FLAG_KEY,
         name="Retry a failed upload automatically",
-        filters={
-            "groups": [
-                {
-                    "properties": [
-                        {"key": "plan", "type": "person", "value": ["business/enterprise"], "operator": "exact"}
-                    ],
-                    "rollout_percentage": ROLLOUT_PINNED_PERCENTAGE,
-                },
-                {"properties": [], "rollout_percentage": ROLLOUT_FROM_PERCENTAGE},
-            ],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 50},
-                    {"key": "retry", "name": "Retry", "rollout_percentage": 50},
-                ]
-            },
-            "payloads": {"control": '{"attempts":0}', "retry": '{"attempts":3}'},
-        },
+        # Copied so the ORM does not hold a reference to the shared constant.
+        filters=deepcopy(ROLLOUT_INITIAL_FILTERS),
     )
     payload = _flag_payload(flag)
     payload["rollout_from_percentage"] = ROLLOUT_FROM_PERCENTAGE

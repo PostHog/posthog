@@ -60,15 +60,15 @@ export const FIXTURE_KEY_PREFIX = 'mcp-eval-'
 /** Tag the seeder puts on every fixture flag, so a project's own flags stay distinguishable. */
 export const FIXTURE_TAG = 'mcp-eval'
 
+/** Both fixture lists name keys the same seeder owns, so they validate through one schema. */
+const FixtureFlagKeySchema = z
+    .string()
+    .regex(new RegExp(`^${FIXTURE_KEY_PREFIX}[a-z0-9-]+$`), `flag fixture keys start with ${FIXTURE_KEY_PREFIX}`)
+    .max(200)
+
 export const BenchmarkFlagFixtureSchema = z
     .object({
-        key: z
-            .string()
-            .regex(
-                new RegExp(`^${FIXTURE_KEY_PREFIX}[a-z0-9-]+$`),
-                `flag fixture keys start with ${FIXTURE_KEY_PREFIX}`
-            )
-            .max(200),
+        key: FixtureFlagKeySchema,
         name: z.string().min(1),
         active: z.boolean(),
         archived: z.boolean(),
@@ -84,17 +84,7 @@ export const BenchmarkFixturesSchema = z.object({
     feature_flags: z.array(BenchmarkFlagFixtureSchema).default([]),
     // Keys a task is asked to create. The seeder soft-deletes each one, so the create
     // path is exercised rather than a second run hitting an already-taken key.
-    absent_feature_flags: z
-        .array(
-            z
-                .string()
-                .regex(
-                    new RegExp(`^${FIXTURE_KEY_PREFIX}[a-z0-9-]+$`),
-                    `flag fixture keys start with ${FIXTURE_KEY_PREFIX}`
-                )
-                .max(200)
-        )
-        .default([]),
+    absent_feature_flags: z.array(FixtureFlagKeySchema).default([]),
 })
 
 export const BenchmarkFileSchema = z.object({
