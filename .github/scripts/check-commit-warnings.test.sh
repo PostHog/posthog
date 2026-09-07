@@ -17,7 +17,7 @@ from_head() {
 }
 
 run() {
-    GIT_INDEX_FILE="$index" "$1"
+    GIT_INDEX_FILE="$index" bash "$1"
 }
 
 fail() {
