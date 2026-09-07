@@ -7,8 +7,7 @@ use chrono::Utc;
 use redis::cluster::ClusterClient;
 use redis::AsyncCommands;
 use usage_ingestion::counters::{
-    counter_key, flush, Bucket, CounterAccumulator, CounterConfig, CounterScope, CounterStore,
-    RedisCounterStore,
+    counter_key, flush, Bucket, CounterAccumulator, CounterScope, CounterStore, RedisCounterStore,
 };
 use uuid::Uuid;
 
@@ -19,16 +18,16 @@ fn redis_url() -> String {
         .unwrap_or_else(|_| "redis://127.0.0.1:6390".to_string())
 }
 
-async fn store_with(config: CounterConfig) -> Arc<dyn CounterStore> {
+async fn store() -> Arc<dyn CounterStore> {
     Arc::new(
-        RedisCounterStore::connect(&redis_url(), config)
+        RedisCounterStore::connect(&redis_url(), Default::default())
             .await
             .expect("failed to connect to Valkey Cluster"),
     )
 }
 
 /// How many times the node ran one command. `INFO commandstats` reports
-/// `cmdstat_eval:calls=12,usec=...`, and an unused command has no line at all.
+/// `cmdstat_multi:calls=12,usec=...`, and an unused command has no line at all.
 async fn command_calls(command: &str) -> u64 {
     let client = redis::Client::open(redis_url()).expect("invalid Valkey URL");
     let mut connection = client
@@ -53,90 +52,36 @@ async fn command_calls(command: &str) -> u64 {
         })
 }
 
-/// ElastiCache Serverless refuses EVAL inside MULTI, and a local Valkey accepts it, so the only
-/// signal a local cluster gives is which commands the flush sent.
+/// ElastiCache Serverless supports transactions but refuses scripts inside them.
 #[tokio::test]
 #[ignore = "requires the cluster-enabled Valkey from docker-compose.dev.yml"]
-async fn a_flush_opens_no_transaction() {
+async fn a_flush_uses_a_transaction_without_scripts() {
     let accumulator = CounterAccumulator::default();
     accumulator
         .add(
             2_000_000 + (Uuid::new_v4().as_u128() % 1_000_000) as i64,
             Uuid::new_v4(),
-            "transaction_free_flush",
+            "script_free_flush",
             "event",
             1,
             Utc::now(),
         )
         .expect("test record should enter the counter accumulator");
-    let transactions = command_calls("multi").await;
     let scripts = command_calls("eval").await;
+    let transactions = command_calls("multi").await;
 
-    let outcome = flush(
-        store_with(CounterConfig::default()).await,
-        accumulator.drain(),
-    )
-    .await;
+    let outcome = flush(store().await, accumulator.drain()).await;
 
     assert_eq!(outcome.dropped, 0);
-    assert!(
-        command_calls("eval").await > scripts,
-        "the flush ran no script"
-    );
     assert_eq!(
-        command_calls("multi").await,
-        transactions,
-        "the flush opened a transaction, which ElastiCache Serverless refuses around EVAL"
+        command_calls("eval").await,
+        scripts,
+        "the flush ran a script, which ElastiCache Serverless refuses inside MULTI"
     );
-}
-
-/// The cap a second pod hits: its accumulator is empty, so only the script sees the series an
-/// earlier flush already wrote.
-#[tokio::test]
-#[ignore = "requires the cluster-enabled Valkey from docker-compose.dev.yml"]
-async fn the_series_cap_holds_against_series_valkey_already_holds() {
-    let config = CounterConfig {
-        max_series_per_bucket: 2,
-        ..CounterConfig::default()
-    };
-    let timestamp = Utc::now();
-    let organization_id = Uuid::new_v4();
-    let team_id = 3_000_000 + (Uuid::new_v4().as_u128() % 1_000_000) as i64;
-    let store = store_with(config).await;
-    let filled = CounterAccumulator::new(config.max_series_per_bucket);
-    for series in ["first", "second"] {
-        filled
-            .add(team_id, organization_id, series, "event", 1, timestamp)
-            .expect("test record should enter the counter accumulator");
-    }
-    let outcome = flush(Arc::clone(&store), filled.drain()).await;
-    assert_eq!(outcome.capped, 0);
-
-    // A fresh accumulator, the way a pod that just started sees the same scope.
-    let overflowing = CounterAccumulator::new(config.max_series_per_bucket);
-    overflowing
-        .add(team_id, organization_id, "third", "event", 1, timestamp)
-        .expect("test record should enter the counter accumulator");
-    let outcome = flush(Arc::clone(&store), overflowing.drain()).await;
-
-    // The team scope and the organization scope each refuse it in both buckets.
-    assert_eq!(outcome.capped, 4);
-    assert_eq!(outcome.commands, 0);
-    assert_eq!(outcome.dropped, 0);
-    let client = ClusterClient::new([redis_url()]).expect("invalid Valkey Cluster URL");
-    let mut connection = client
-        .get_async_connection()
-        .await
-        .expect("failed to connect to Valkey Cluster");
-    let hour_key = counter_key(
-        &CounterScope::Team(team_id),
-        Bucket::Hour(timestamp.timestamp().div_euclid(3600)),
+    assert!(
+        command_calls("multi").await > transactions,
+        "the flush did not use a transaction"
     );
-    let series: usize = connection
-        .hlen(&hour_key)
-        .await
-        .expect("the hourly counter was not written");
-    assert_eq!(series, config.max_series_per_bucket);
 }
 
 #[tokio::test]
@@ -162,14 +107,9 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
             .expect("test record should enter the counter accumulator");
     }
 
-    let store: Arc<dyn CounterStore> = Arc::new(
-        RedisCounterStore::connect(&redis_url(), Default::default())
-            .await
-            .expect("failed to connect to Valkey Cluster"),
-    );
+    let store = store().await;
     let outcome = flush(Arc::clone(&store), accumulator.drain()).await;
     assert_eq!(outcome.dropped, 0);
-    assert_eq!(outcome.capped, 0);
     // 1,024 teams plus one shared organization; hour + day, HINCRBY + EXPIRE NX each.
     assert_eq!(outcome.commands, (SCOPES as usize + 1) * 4);
 
@@ -243,7 +183,6 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
         .expect("test retry should enter the counter accumulator");
     let retry_outcome = flush(Arc::clone(&store), retry.drain()).await;
     assert_eq!(retry_outcome.dropped, 0);
-    assert_eq!(retry_outcome.capped, 0);
     let retried_hourly_ttl: i64 = redis::cmd("TTL")
         .arg(&hour_key)
         .query_async(&mut connection)
