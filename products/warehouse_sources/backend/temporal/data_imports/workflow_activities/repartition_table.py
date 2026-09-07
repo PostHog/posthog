@@ -508,7 +508,8 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
         capture_repartition_event("warehouse_repartition_skipped", props)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="skipped").inc()
-        capture_exception(e)
+        # No `capture_exception` here: the skip event already records this handled outcome, so
+        # reporting it again only opens an error tracking issue for a table that behaved as designed.
         return
     except asyncio.CancelledError:
         # Worker shutdown / deploy interrupted the (possibly long) rewrite. Not a repartition failure —

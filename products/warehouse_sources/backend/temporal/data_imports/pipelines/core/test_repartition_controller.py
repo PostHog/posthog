@@ -1004,8 +1004,12 @@ class TestRepartitionActivity:
         )
         schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t", "rows_written": 10, "budget_exhausted": True})
         mocked = AsyncMock(side_effect=error)
-        capture = self._run(self._inputs(team, schema), mocked)
+        with patch.object(repartition_table, "capture_exception") as capture_exception:
+            capture = self._run(self._inputs(team, schema), mocked)
         schema.refresh_from_db()
+        # A handled outcome the skip event already records. Reporting it as an exception too opens an
+        # error tracking issue next to that event for a table that behaved as designed.
+        capture_exception.assert_not_called()
         assert schema.repartition_pending is None
         # A checkpoint left behind would resume the rewrite the give-up just abandoned.
         assert schema.repartition_rewrite is None

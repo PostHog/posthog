@@ -1136,30 +1136,29 @@ def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str
 
 @parameterized.expand(
     [
-        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, True),
-        ("no_swap_staged", None, False),
+        # A staged swap: the table's data may already be re-bucketed under the new scheme while the
+        # schema row still holds the old one. The merge derives each row's partition key from that
+        # row and scopes its predicate to it, so merging across the gap matches nothing and inserts
+        # every fetched row instead of upserting it.
+        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, False, True),
+        # A live rewrite checkpoint: the resume is fenced on the live Delta version, and this merge
+        # is what moves it, so importing here restarts the rewrite from row 0 forever.
+        ("rewrite_checkpoint", None, True, True),
+        ("nothing_in_flight", None, False, False),
     ]
 )
-def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_says(
-    _name: str, swap: dict | None, expected: bool
+def test_an_in_flight_repartition_holds_the_import(
+    _name: str, swap: dict | None, holds_import: bool, expected: bool
 ) -> None:
-    # While a swap is staged the table's data may already be re-bucketed under the new scheme while
-    # the schema row still holds the old one. The merge derives each row's partition key from that
-    # row and scopes its predicate to it, so merging across the gap matches nothing and inserts every
-    # fetched row instead of upserting it. Unlike the converging-rewrite hold, this one is not behind
-    # the rollout flag: releasing it corrupts the table rather than merely restarting a rewrite.
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
     schema.team_id = 1
     schema.name = "public.usages"
     schema.repartition_swap = swap
-    schema.repartition_holds_import = False
+    schema.repartition_holds_import = holds_import
+    schema.repartition_rewrite = {"rows_written": 10}
 
-    with (
-        mock.patch.object(module, "capture_repartition_event"),
-        mock.patch.object(module, "is_repartition_hold_enabled", return_value=False) as flag,
-    ):
+    with mock.patch.object(module, "capture_repartition_event"):
         held = module._import_held_for_repartition(schema, mock.MagicMock())
 
     assert held is expected
-    flag.assert_not_called()

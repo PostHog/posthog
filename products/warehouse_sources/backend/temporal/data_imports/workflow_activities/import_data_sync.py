@@ -50,7 +50,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     capture_repartition_event,
-    is_repartition_hold_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
@@ -216,12 +215,13 @@ async def _warehouse_parent_reuse_available(
 def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
     """Whether an in-flight repartition should pause this schema's import for one run.
 
-    Two situations hold the import. A staged swap holds it unconditionally, because the table's
-    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
-    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
-    be worth waiting for; the flag is checked second so a schema without it never pays for the
-    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
-    ingestion is the more expensive way to be wrong.
+    Two situations hold the import. A staged swap holds it because the table's on-disk partition
+    layout is mid-change, and merging across that is data corruption, not staleness. A rewrite
+    checkpoint holds it because the resume is fenced on the live Delta version and this schema's own
+    merge is what moves it, so an import here discards the checkpoint and the rewrite restarts from
+    row 0 on the next run. Both follow from a repartition this schema already opted into, so neither
+    is gated further: releasing a rewrite hold does not buy a faster table, it buys a rewrite that
+    cannot converge.
     """
     if schema is None:
         return False
@@ -234,8 +234,7 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
         # nothing matches and every fetched row inserts instead of upserting — the whole incremental
         # lookback window duplicated, with the job still reporting Completed. The repartition activity
         # runs ahead of this one on every sync and resolves the marker, so waiting costs one run's
-        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
-        # can finish, and this trades it for not corrupting the table.
+        # freshness.
         logger.warning(
             "Holding import: a repartition swap is staged, so the table's partition layout is mid-change",
             schema_id=str(schema.id),
@@ -252,13 +251,9 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
         )
         return True
 
+    # `repartition_holds_import` ages the checkpoint out, so a rewrite that stops advancing releases
+    # the hold on its own — the worst case is a stale table, never a stopped one.
     if not schema.repartition_holds_import:
-        return False
-    try:
-        if not is_repartition_hold_enabled(schema):
-            return False
-    except Exception:
-        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
         return False
 
     rewrite = schema.repartition_rewrite or {}
