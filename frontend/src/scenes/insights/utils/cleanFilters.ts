@@ -9,6 +9,7 @@ import {
     RETENTION_MEAN_NONE,
     ShownAsValue,
 } from 'lib/constants'
+import { filterTestAccountsDefaultStorage } from 'lib/utils/filterTestAccountsDefault'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { clamp } from 'lib/utils/numbers'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
@@ -232,9 +233,10 @@ export const setTestAccountFilterForNewInsight = (
     filter: Partial<AnyFilterType>,
     test_account_filters_default_checked?: boolean
 ): void => {
-    if (localStorage.getItem('default_filter_test_accounts') !== null) {
+    const storedDefault = filterTestAccountsDefaultStorage.get()
+    if (storedDefault !== null) {
         // use current user default
-        filter.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
+        filter.filter_test_accounts = storedDefault
     } else if (!filter.filter_test_accounts && test_account_filters_default_checked !== undefined) {
         // overwrite with team default, only if not set
         filter.filter_test_accounts = test_account_filters_default_checked
