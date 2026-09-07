@@ -155,7 +155,7 @@ Do not broaden the work into unrelated refactoring.
 
 ### 6. Validate the change
 
-- Review the complete diff.
+- Review the complete diff against the base branch, not against your own branch tip.
 - Run focused tests for the retained behavior.
 - Run the repository's relevant type checks and linting.
 - Confirm no runtime references to the key remain anywhere in the repository.
@@ -164,6 +164,8 @@ Do not broaden the work into unrelated refactoring.
 ### 7. Publish only when authorized
 
 Default to one draft PR per flag, so each review and rollback stays bounded.
+Start each flag's branch from the base branch, not from the tip the previous flag left behind:
+a branch cut from the previous flag's branch makes the next PR carry both flags.
 
 When the host and user authorize publication:
 
