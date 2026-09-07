@@ -25,30 +25,6 @@ async fn poll_for_pak_last_used_at(
     panic!("{message}");
 }
 
-async fn poll_for_psak_last_used_at(
-    context: &feature_flags::utils::test_utils::TestContext,
-    team_id: i32,
-    message: &str,
-) {
-    use tokio::time::{sleep, Duration};
-
-    let mut conn = context.get_non_persons_connection().await.unwrap();
-    for _ in 0..80 {
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM posthog_projectsecretapikey WHERE team_id = $1 AND last_used_at IS NOT NULL",
-        )
-        .bind(team_id)
-        .fetch_one(&mut *conn)
-        .await
-        .unwrap();
-        if count.0 > 0 {
-            return;
-        }
-        sleep(Duration::from_millis(50)).await;
-    }
-    panic!("{message}");
-}
-
 #[tokio::test]
 async fn test_hypercache_config_generation() {
     use common_hypercache::{HyperCacheConfig, KeyType};
@@ -481,7 +457,7 @@ async fn test_missing_token_param_success(#[case] auth_type: &str) {
         }
         "project_secret" => {
             let team = context.insert_new_team(None).await.unwrap();
-            let key = context
+            let (_, key) = context
                 .create_project_secret_api_key(team.id, "Test Key", Some(vec!["feature_flag:read"]))
                 .await
                 .unwrap();
@@ -1986,7 +1962,7 @@ async fn test_flag_definitions_project_secret_api_key(
         other_team.id
     };
 
-    let raw_key = context
+    let (_, raw_key) = context
         .create_project_secret_api_key(key_team_id, "Test Key", scopes)
         .await
         .unwrap();
@@ -2126,7 +2102,7 @@ async fn test_project_secret_api_key_updates_last_used_at(#[case] with_token_par
     let context = TestContext::new(Some(&config)).await;
 
     let team = context.insert_new_team(None).await.unwrap();
-    let key = context
+    let (key_id, key) = context
         .create_project_secret_api_key(team.id, "PSAK LastUsed", Some(vec!["feature_flag:read"]))
         .await
         .unwrap();
@@ -2150,9 +2126,9 @@ async fn test_project_secret_api_key_updates_last_used_at(#[case] with_token_par
         .unwrap();
     assert_eq!(response.status(), 200);
 
-    poll_for_psak_last_used_at(
+    common::poll_for_psak_last_used_at(
         &context,
-        team.id,
+        &key_id,
         "Timed out waiting for last_used_at to be set for the project secret API key",
     )
     .await;

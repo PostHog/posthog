@@ -66,12 +66,8 @@ pub struct SecretTokenAuth {
 }
 
 impl SecretTokenAuth {
-    pub fn is_project_secret(&self) -> bool {
-        self.project_secret_key_id.is_some()
-    }
-
     pub fn method_label(&self) -> &'static str {
-        if self.is_project_secret() {
+        if self.project_secret_key_id.is_some() {
             "project_secret_api_key"
         } else {
             "secret_api_key"
@@ -101,13 +97,6 @@ pub fn extract_personal_api_key(headers: &HeaderMap) -> Result<Option<String>, F
     Ok(extract_bearer_token(headers).filter(|token| !token.starts_with(SECRET_TOKEN_PREFIX)))
 }
 
-/// Validates a phs_-prefixed token against both Team secret tokens and ProjectSecretAPIKeys.
-///
-/// The unified loader tries Team.secret_api_token first, then posthog_projectsecretapikey.
-/// Both share the same cache key space (posthog:auth_token:{hash}), so a single loader
-/// prevents negative-cache poisoning when one source misses but the other would hit.
-///
-/// Returns the matched TokenAuthData variant on success for metric labeling.
 /// Validates a phs_-prefixed token and checks it belongs to the expected team.
 /// Same as `validate_secret_api_token` but with the team_id cross-check.
 pub async fn validate_secret_api_token_for_team(

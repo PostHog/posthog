@@ -382,11 +382,9 @@ async fn authenticate(
             &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
-        if let Some(key_id) = secret.project_secret_key_id {
-            state
-                .record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
-                .await;
-        }
+        state
+            .record_project_secret_key_usage(secret.project_secret_key_id)
+            .await;
         // Secret-key requests are not throttled by Django's RemoteConfigThrottle.
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,

@@ -1625,7 +1625,7 @@ impl TestContext {
         team_id: i32,
         label: &str,
         scopes: Option<Vec<&str>>,
-    ) -> Result<String, Error> {
+    ) -> Result<(String, String), Error> {
         let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
@@ -1651,7 +1651,7 @@ impl TestContext {
         .execute(&mut *conn)
         .await?;
 
-        Ok(raw_key)
+        Ok((key_id, raw_key))
     }
 
     /// Creates a team with both public token and secret API token

@@ -112,17 +112,11 @@ mod tests {
                 pak_id
             }
             ApiKeyKind::ProjectSecret => {
-                ctx.create_project_secret_api_key(team.id, "test", Some(vec!["feature_flag:read"]))
+                let (key_id, _) = ctx
+                    .create_project_secret_api_key(team.id, "test", Some(vec!["feature_flag:read"]))
                     .await
                     .unwrap();
-                let mut conn = ctx.get_non_persons_connection().await.unwrap();
-                let (id,): (String,) =
-                    sqlx::query_as("SELECT id FROM posthog_projectsecretapikey WHERE team_id = $1")
-                        .bind(team.id)
-                        .fetch_one(&mut *conn)
-                        .await
-                        .unwrap();
-                id
+                key_id
             }
         }
     }

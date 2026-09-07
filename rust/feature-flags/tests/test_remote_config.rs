@@ -98,25 +98,6 @@ async fn poll_for_pak_last_used_at(context: &TestContext, pak_id: &str, message:
     panic!("{message}");
 }
 
-async fn poll_for_psak_last_used_at(context: &TestContext, team_id: i32, message: &str) {
-    use tokio::time::{sleep, Duration};
-    let mut conn = context.get_non_persons_connection().await.unwrap();
-    for _ in 0..80 {
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM posthog_projectsecretapikey WHERE team_id = $1 AND last_used_at IS NOT NULL",
-        )
-        .bind(team_id)
-        .fetch_one(&mut *conn)
-        .await
-        .unwrap();
-        if count.0 > 0 {
-            return;
-        }
-        sleep(Duration::from_millis(50)).await;
-    }
-    panic!("{message}");
-}
-
 fn url(addr: &std::net::SocketAddr, project_id: i32, key: &str) -> String {
     format!("http://{addr}/api/projects/{project_id}/feature_flags/{key}/remote_config")
 }
@@ -1319,7 +1300,7 @@ async fn test_remote_config_project_secret_key_updates_last_used_at() {
     let context = TestContext::new(Some(&config)).await;
 
     let team = context.insert_new_team(None).await.unwrap();
-    let psak = context
+    let (psak_id, psak) = context
         .create_project_secret_api_key(team.id, "RC PSAK LastUsed", Some(vec!["feature_flag:read"]))
         .await
         .unwrap();
@@ -1334,9 +1315,9 @@ async fn test_remote_config_project_secret_key_updates_last_used_at() {
         .unwrap();
     assert_eq!(response.status(), 200);
 
-    poll_for_psak_last_used_at(
+    common::poll_for_psak_last_used_at(
         &context,
-        team.id,
+        &psak_id,
         "Timed out waiting for last_used_at to be set for the remote_config project secret key",
     )
     .await;
@@ -1537,7 +1518,7 @@ async fn test_remote_config_project_secret_api_key_encrypted_returns_redacted() 
     config.flags_secret_keys = K1.to_string();
     let context = TestContext::new(Some(&config)).await;
     let team = context.insert_new_team(None).await.unwrap();
-    let psak = context
+    let (_, psak) = context
         .create_project_secret_api_key(team.id, "RC PSAK", Some(vec!["feature_flag:read"]))
         .await
         .unwrap();

@@ -378,19 +378,19 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
             1,
         );
 
+        // The team comes from the token itself, so the key is fully authenticated here. Stamp
+        // before the lookup so an infrastructure failure there does not leave it "never used".
+        state
+            .record_project_secret_key_usage(secret.project_secret_key_id)
+            .await;
+
         // Prefer HyperCache via api_token (new cache entries include it).
         // Fall back to PG for old cache entries that predate the field.
         let svc = state.flag_service();
-        let team = match secret.api_token {
-            Some(t) => svc.verify_token_and_get_team(&t).await?,
-            None => svc.get_team_by_id(secret.team_id).await?,
+        return match secret.api_token {
+            Some(t) => svc.verify_token_and_get_team(&t).await,
+            None => svc.get_team_by_id(secret.team_id).await,
         };
-        if let Some(key_id) = secret.project_secret_key_id {
-            state
-                .record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
-                .await;
-        }
-        return Ok(team);
     }
 
     // Non-phs_ auth (e.g. personal API key) can't derive team without a token param
@@ -527,11 +527,9 @@ async fn authenticate_flag_definitions(
             &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
-        if let Some(key_id) = secret.project_secret_key_id {
-            state
-                .record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
-                .await;
-        }
+        state
+            .record_project_secret_key_usage(secret.project_secret_key_id)
+            .await;
         return Ok(());
     }
 
