@@ -11,6 +11,7 @@ import redis.exceptions
 from botocore.exceptions import BotoCoreError, ClientError
 from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
@@ -732,6 +733,12 @@ class TestHyperCacheSecondaryCache(BaseTest):
         hc.secondary_cache_client = broken
 
         # Must not raise.
+        failures_before = (
+            REGISTRY.get_sample_value(
+                "posthog_hypercache_mirror_failure_total", {"namespace": "test", "value": "value"}
+            )
+            or 0
+        )
         hc.set_cache_value(team_id, self.sample_data)
 
         # Primary cache still got the write.
@@ -741,6 +748,54 @@ class TestHyperCacheSecondaryCache(BaseTest):
 
         # The broken secondary received the write attempt.
         broken.set.assert_called()
+
+        # A swallowed mirror failure must still be countable, or the secondary drifts silently.
+        failures_after = REGISTRY.get_sample_value(
+            "posthog_hypercache_mirror_failure_total", {"namespace": "test", "value": "value"}
+        )
+        assert failures_after is not None and failures_after > failures_before
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-primary-failure-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-primary-failure-test-cache",
+            },
+        }
+    )
+    def test_primary_failure_does_not_block_mirror(self):
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda team: self.sample_data,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+        )
+
+        team_id = self.team.id
+
+        # The mirror can be the tier the live reader serves from during a migration,
+        # so a primary outage must not stop the mirror write.
+        broken_primary = Mock()
+        broken_primary.set.side_effect = RuntimeError("primary down")
+        broken_primary.set_many.side_effect = RuntimeError("primary down")
+        broken_primary.delete.side_effect = RuntimeError("primary down")
+        hc.cache_client = broken_primary
+
+        with pytest.raises(RuntimeError):
+            hc.set_cache_value(team_id, self.sample_data)
+
+        cache_key = hc.get_cache_key(team_id)
+        assert caches["default"].get(cache_key) == json.dumps(self.sample_data, sort_keys=True)
 
     @override_settings(
         CACHES={
@@ -1511,6 +1566,54 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
         assert size == len(json.dumps(self.sample_data, sort_keys=True))
         # The stored ETag is untouched, so readers comparing ETags won't refetch.
         assert hc.get_etag(self.team.id) == etag_before
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "skip-secondary-default-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "skip-secondary-dedicated-test-cache",
+            },
+        }
+    )
+    def test_stale_secondary_defeats_the_skip_and_gets_repaired(self):
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        hc = HyperCache(
+            namespace="skip_ns",
+            value="skip_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=True,
+            expiry_sorted_set_key="skip_ns_expiry",
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+        )
+        cache_key = hc.get_cache_key(self.team.id)
+        etag_key = hc.get_etag_key(self.team.id)
+
+        with patch.object(hc, "_set_cache_value_s3"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+
+            # Simulate a mirror write that failed: the secondary keeps the old payload
+            # while the primary ETag matches the rebuild. The primary comparison alone
+            # would skip here, and the secondary would stay stale until its TTL.
+            caches["default"].delete(cache_key)
+            caches["default"].delete(etag_key)
+
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            assert caches["default"].get(cache_key) == json.dumps(self.sample_data, sort_keys=True)
+            assert caches["default"].get(etag_key) is not None
+
+            # With both tiers current again, the identical rebuild skips.
+            with patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write:
+                hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            redis_write.assert_not_called()
 
     def test_changed_write_reuses_serialization_correctly(self):
         """When the content changed, the skip path's serialization is threaded into the Redis

@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import patch
 
+from django.conf import settings
+
 import fakeredis
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import REGISTRY
@@ -196,3 +198,12 @@ def test_request_zset_key_matches_rust_contract():
     # Tripwire for the hand-synced cross-language key: a Python-side rename trips here
     # and prompts updating FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET in the Rust service.
     assert REBUILD_REQUESTS_ZSET == "flag_definitions:rebuild_requests"
+
+
+def test_redis_client_pinned_to_the_shared_cluster():
+    # The Rust producer enqueues on the shared Redis. Deriving the consumer's client
+    # from the hypercache (whose cache_alias binds the dedicated cluster) splits the
+    # queue: the drain reads an empty set while misses pile up unseen on the shared one.
+    with patch.object(rebuild_queue, "get_client") as get_client_mock:
+        rebuild_queue._redis()
+    get_client_mock.assert_called_once_with(settings.REDIS_URL)

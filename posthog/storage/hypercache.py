@@ -87,6 +87,13 @@ HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER = Counter(
     labelnames=["namespace", "value"],
 )
 
+HYPERCACHE_MIRROR_FAILURE_COUNTER = Counter(
+    "posthog_hypercache_mirror_failure",
+    "Mirror operations to the secondary cache that failed. Mirror failures do not fail the "
+    "write, so this counter is the only Prometheus signal that the secondary tier is drifting.",
+    labelnames=["namespace", "value"],
+)
+
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
     "posthog_hypercache_sync_duration_seconds",
     "Time taken to sync hypercache in seconds",
@@ -396,6 +403,19 @@ class HyperCache:
             capture_exception(e)
             return None
 
+    def _secondary_etag_matches(self, key: KeyType, etag: str) -> bool:
+        """True when there is no secondary cache, or the secondary already holds this ETag.
+
+        An unreadable secondary returns False so the caller writes instead of skipping;
+        skipping on a failed read would leave a drifted mirror unrepaired.
+        """
+        if self.secondary_cache_client is None:
+            return True
+        try:
+            return self.secondary_cache_client.get(self.get_etag_key(key)) == etag
+        except Exception:
+            return False
+
     def get_if_none_match(self, key: KeyType, client_etag: str | None) -> tuple[dict | None, str | None, bool]:
         """
         Check if client's ETag matches current cache, enabling HTTP 304 responses.
@@ -529,7 +549,11 @@ class HyperCache:
         json_data: str | None = None
         if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
             json_data = json.dumps(data, sort_keys=True)
-            if self._compute_etag(json_data) == self.get_etag(key):
+            etag = self._compute_etag(json_data)
+            # Skip only when every tier is current. A failed mirror write leaves the
+            # secondary on the old payload, and a primary-only ETag comparison would then
+            # skip every identical rebuild until the secondary's TTL expires.
+            if etag == self.get_etag(key) and self._secondary_etag_matches(key, etag):
                 HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
                 return len(json_data)
         size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
@@ -588,9 +612,10 @@ class HyperCache:
                 # already gone. The ETag key goes even when enable_etag is off, to clear a
                 # stale ETag from when it was on.
                 redis_keys = [cache_key, self.get_etag_key(key)]
-                self.cache_client.delete_many(redis_keys)
-                # Mirror the delete so the secondary never serves an entry the primary dropped.
+                # Mirror the delete so the secondary never serves an entry the primary dropped,
+                # and mirror first so a primary failure cannot block it.
                 self._mirror_to_secondary(lambda c: c.delete_many(redis_keys))
+                self.cache_client.delete_many(redis_keys)
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
         finally:
@@ -603,6 +628,7 @@ class HyperCache:
         try:
             op(self.secondary_cache_client)
         except Exception as e:
+            HYPERCACHE_MIRROR_FAILURE_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
             # The traceback names the calling frame, which says whether a set or a
             # delete failed more precisely than a label could.
             logger.warning(
@@ -630,12 +656,14 @@ class HyperCache:
         """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
+        # Mirror before the primary write. During a dual-write migration the secondary can
+        # be the tier the live reader serves from, so a primary failure must not block it.
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
             self._mirror_to_secondary(lambda c: c.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl))
+            self._mirror_to_secondary(lambda c: c.delete(etag_key))
+            self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
             # Always delete ETag key to clean up stale ETags from when enable_etag was True
             self.cache_client.delete(etag_key)
-            self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
@@ -644,16 +672,16 @@ class HyperCache:
                 json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
+                self._mirror_to_secondary(lambda c: c.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout))
                 # Write data and ETag via pipeline (single Redis round trip)
                 # Note this is not strictly atomic, but good enough for our use case
                 self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
-                self._mirror_to_secondary(lambda c: c.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout))
             else:
-                self.cache_client.set(cache_key, json_data, timeout=timeout)
                 self._mirror_to_secondary(lambda c: c.set(cache_key, json_data, timeout=timeout))
+                self._mirror_to_secondary(lambda c: c.delete(etag_key))
+                self.cache_client.set(cache_key, json_data, timeout=timeout)
                 # Clean up stale ETag if ETags were previously enabled
                 self.cache_client.delete(etag_key)
-                self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return len(json_data)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):

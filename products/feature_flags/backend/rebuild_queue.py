@@ -19,6 +19,8 @@ DB round (like the verifier) rather than per team.
 
 import time
 
+from django.conf import settings
+
 import redis as redis_lib
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
@@ -87,9 +89,12 @@ def _parse_team_id(raw: bytes | str) -> int | None:
 
 
 def _redis() -> redis_lib.Redis:
-    # Derive from the HyperCache itself, not a standalone constant, so the queue can
-    # never read a different Redis than the cache it heals.
-    return get_client(flag_definitions_hypercache.redis_url)
+    # The Rust producer enqueues on the shared Redis (state.redis_client in
+    # rust/feature-flags/src/api/flag_definitions.rs), so the consumer must read the
+    # shared Redis too. The hypercache's redis_url follows cache_alias, which binds
+    # the dedicated cluster, so deriving from the hypercache would split the queue's
+    # producer and consumer across clusters. Move both sides together or not at all.
+    return get_client(settings.REDIS_URL)
 
 
 def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]:
