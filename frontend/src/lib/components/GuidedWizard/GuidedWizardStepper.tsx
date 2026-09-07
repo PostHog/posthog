@@ -3,75 +3,73 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { WizardStep } from './surveyWizardLogic'
-
-interface Step {
-    key: WizardStep
+export interface GuidedWizardStep<Step extends string = string> {
+    step: Step
     label: string
     optional?: boolean
 }
 
-const STEPS: Step[] = [
-    { key: 'questions', label: 'Questions' },
-    { key: 'where', label: 'Targeting' },
-    { key: 'when', label: 'Triggers' },
-    { key: 'appearance', label: 'Customize', optional: true },
-]
-
-const STEP_ORDER: Record<WizardStep, number> = {
-    template: -1,
-    questions: 0,
-    where: 1,
-    when: 2,
-    appearance: 3,
-    success: 4,
+export interface GuidedWizardStepperProps<Step extends string> {
+    steps: GuidedWizardStep<Step>[]
+    currentStep: Step
+    /**
+     * Where a currentStep that isn't in steps sorts: 'start' leaves every step upcoming (e.g. a
+     * template picker shown before the wizard), 'end' marks every step completed (e.g. a success
+     * screen shown after it). Defaults to 'start'.
+     */
+    unlistedStepPosition?: 'start' | 'end'
+    onStepClick?: (step: Step) => void
+    stepErrors?: Partial<Record<Step, string[]>>
+    'aria-label'?: string
 }
 
-interface WizardStepperProps {
-    currentStep: WizardStep
-    onStepClick: (step: WizardStep) => void
-    stepErrors?: Partial<Record<WizardStep, string[]>>
-}
-
-export function WizardStepper({ currentStep, onStepClick, stepErrors = {} }: WizardStepperProps): JSX.Element {
-    const currentOrder = STEP_ORDER[currentStep]
+export function GuidedWizardStepper<Step extends string>({
+    steps,
+    currentStep,
+    unlistedStepPosition = 'start',
+    onStepClick,
+    stepErrors = {},
+    'aria-label': ariaLabel = 'Wizard progress',
+}: GuidedWizardStepperProps<Step>): JSX.Element {
+    const currentStepIndex = steps.findIndex(({ step }) => step === currentStep)
+    const currentOrder = currentStepIndex >= 0 ? currentStepIndex : unlistedStepPosition === 'end' ? steps.length : -1
     const currentStepHasErrors = (stepErrors[currentStep]?.length ?? 0) > 0
+    const isInteractive = !!onStepClick
 
-    const handleStepClick = (step: WizardStep): void => {
+    const handleStepClick = (step: Step, targetOrder: number): void => {
         // Block navigation if current step has errors (except going back)
-        const targetOrder = STEP_ORDER[step]
         if (currentStepHasErrors && targetOrder > currentOrder) {
             return // Don't navigate forward when current step has errors
         }
-        onStepClick(step)
+        onStepClick?.(step)
     }
 
     return (
-        <nav className="flex items-center" aria-label="Survey wizard progress">
-            {STEPS.map((step, index) => {
-                const stepOrder = STEP_ORDER[step.key]
-                const isCompleted = currentOrder > stepOrder
-                const isCurrent = currentStep === step.key
-                const hasErrors = (stepErrors[step.key]?.length ?? 0) > 0
-                const isBlocked = currentStepHasErrors && stepOrder > currentOrder
+        <nav className="flex items-center" aria-label={ariaLabel}>
+            {steps.map((step, index) => {
+                const isCompleted = currentOrder > index
+                const isCurrent = currentStep === step.step
+                const hasErrors = (stepErrors[step.step]?.length ?? 0) > 0
+                const isBlocked = isInteractive && currentStepHasErrors && index > currentOrder
 
                 const button = (
                     <button
                         type="button"
-                        onClick={() => handleStepClick(step.key)}
-                        disabled={isBlocked}
+                        onClick={() => handleStepClick(step.step, index)}
+                        // aria-disabled instead of disabled so the button keeps pointer events (the blocked tooltip needs hover) and its tab-order slot
+                        aria-disabled={isBlocked || !isInteractive}
                         className={cn(
                             'group flex items-center gap-1.5 px-2 py-1 rounded',
                             'transition-all duration-150',
                             'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
-                            isBlocked
-                                ? 'opacity-50 cursor-not-allowed'
-                                : 'hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
+                            isBlocked && 'opacity-50 cursor-not-allowed',
+                            !isBlocked && isInteractive && 'hover:bg-fill-button-tertiary-hover active:scale-[0.98]',
+                            !isInteractive && 'cursor-default'
                         )}
                         aria-current={isCurrent ? 'step' : undefined}
                     >
-                        {/* Indicator */}
-                        {hasErrors && isCurrent ? (
+                        {/* Indicator: errors outrank the completed checkmark, current or not */}
+                        {hasErrors ? (
                             <IconWarning className="size-5 text-warning" />
                         ) : isCompleted ? (
                             <IconCheckCircle className="size-5 text-success" />
@@ -105,13 +103,13 @@ export function WizardStepper({ currentStep, onStepClick, stepErrors = {} }: Wiz
                 )
 
                 return (
-                    <div key={step.key} className="flex items-center">
+                    <div key={step.step} className="flex items-center">
                         {/* Connector */}
                         {index > 0 && (
                             <div
                                 className={cn(
                                     'w-6 h-px transition-colors duration-150',
-                                    hasErrors && isCurrent
+                                    hasErrors
                                         ? 'bg-warning'
                                         : isCompleted || isCurrent
                                           ? 'bg-success'

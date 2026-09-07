@@ -113,7 +113,12 @@ from products.replay_vision.backend.scanner_config import (
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
-from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.scanning import (
+    MAX_SESSIONS_PER_SCAN,
+    run_inline_scan,
+    scan_existing_scanner,
+    scan_outcome_counts,
+)
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
@@ -1878,6 +1883,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": scanner.scanner_type,
                 "requested": len(session_ids),
                 "started": started,
+                **scan_outcome_counts(results),
             },
             team=self.team,
             request=request,
@@ -1940,6 +1946,22 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         if scan.scanner is None:
             # Nothing started and nothing already existed, so there is no id to read results through.
+            # The request still happened, and reporting it only when something started would drop the
+            # fully-refused batches from the request count and bias every rate built on it.
+            report_user_action(
+                user,
+                "replay_vision_inline_scan_requested",
+                {
+                    "scan_id": None,
+                    "scanner_type": scanner_type,
+                    "model": model,
+                    "requested": len(session_ids),
+                    "started": 0,
+                    **scan_outcome_counts(scan.results),
+                },
+                team=self.team,
+                request=request,
+            )
             # Key off the outcomes: the in-flight cap can bind here too, and that is not exhaustion.
             if any(result["scan_outcome"] == "skipped_quota" for result in scan.results):
                 self._report_quota_exhausted(None, "inline")
@@ -1958,6 +1980,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "model": scanner.model,
                 "requested": len(session_ids),
                 "started": started,
+                **scan_outcome_counts(results),
             },
             team=self.team,
             request=request,

@@ -15,6 +15,7 @@ import type {
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
+    ChannelMembersWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
     ConnectionTokenResponseApi,
@@ -132,6 +133,7 @@ import type {
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
     TaskUsageResponseApi,
+    TaskUserBasicInfoApi,
     TaskWriteApi,
     TasksAIRunPreferencesApi,
     TasksCommentsListParams,
@@ -784,7 +786,7 @@ export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsL
 }
 
 /**
- * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels. Send `limit` (with `offset`) for one page and a `count`/`next` envelope; without `limit` the response is the full array of channels.
+ * List channels the requester can access, sorted by name and ID. Includes public channels, their personal #me channel, and private channels they belong to. Call provision_defaults to create missing default channels. Send limit and offset to get a page with count, next, previous, and results. Without limit, the response is an array of all accessible channels.
  * @summary List channels
  */
 export const taskChannelsList = async (
@@ -803,8 +805,8 @@ export const getTaskChannelsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false. The general name returns the team's general space; names that read as a private space ("me", "personal") are rejected.
- * @summary Resolve or create a public channel
+ * Create a channel. Public channels use lowercase names with hyphens. If a public channel has that name, return it. The name general returns the project's general space. Private channels always get a new ID, even if another channel has the same name. The requester and users in member_ids with project access become members. New channels are starred for the requester unless star is false. The names "me" and "personal" are reserved.
+ * @summary Create a channel
  */
 export const taskChannelsCreate = async (
     projectId: string,
@@ -884,10 +886,6 @@ export const getTaskChannelsRetrieveUrl = (projectId: string, id: string) => {
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
  * @summary Get a channel
  */
 export const taskChannelsRetrieve = async (
@@ -906,11 +904,7 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
- * @summary Rename a public channel
+ * @summary Update a channel
  */
 export const taskChannelsPartialUpdate = async (
     projectId: string,
@@ -931,11 +925,7 @@ export const getTaskChannelsDestroyUrl = (projectId: string, id: string) => {
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
- * @summary Delete a public channel
+ * @summary Delete a channel
  */
 export const taskChannelsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getTaskChannelsDestroyUrl(projectId, id), {
@@ -949,10 +939,6 @@ export const getTaskChannelsContextGenerationRetrieveUrl = (projectId: string, i
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
  * @summary Get the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationRetrieve = async (
@@ -971,10 +957,6 @@ export const getTaskChannelsContextGenerationUpdateUrl = (projectId: string, id:
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
  * @summary Set or clear the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationUpdate = async (
@@ -1059,10 +1041,6 @@ export const getTaskChannelsInstructionsDestroyUrl = (projectId: string, id: str
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
  * @summary Delete channel instructions
  */
 export const taskChannelsInstructionsDestroy = async (
@@ -1081,10 +1059,6 @@ export const getTaskChannelsInstructionsVersionsRetrieveUrl = (projectId: string
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
  * @summary List channel instruction versions
  */
 export const taskChannelsInstructionsVersionsRetrieve = async (
@@ -1101,15 +1075,52 @@ export const taskChannelsInstructionsVersionsRetrieve = async (
     )
 }
 
+export const getTaskChannelsMembersRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/members/`
+}
+
+/**
+ * List the members of a private channel. Return an empty list for public and personal channels. Return 404 if the requester cannot access the channel.
+ * @summary List a channel's members
+ */
+export const taskChannelsMembersRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskUserBasicInfoApi[]> => {
+    return apiMutator<TaskUserBasicInfoApi[]>(getTaskChannelsMembersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsMembersUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/members/`
+}
+
+/**
+ * Replace the members of a private channel. Any member can update this list. The creator remains a member. Return 400 for public and personal channels.
+ * @summary Replace a private channel's members
+ */
+export const taskChannelsMembersUpdate = async (
+    projectId: string,
+    id: string,
+    channelMembersWriteApi: ChannelMembersWriteApi,
+    options?: RequestInit
+): Promise<TaskUserBasicInfoApi[]> => {
+    return apiMutator<TaskUserBasicInfoApi[]>(getTaskChannelsMembersUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelMembersWriteApi),
+    })
+}
+
 export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/task_channels/${id}/star/`
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
  * @summary Star or unstar a channel for the requesting user
  */
 export const taskChannelsStarCreate = async (
