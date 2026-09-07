@@ -5,19 +5,18 @@ Phase 1 is read-only — all actions require the user to make changes manually.
 
 ## Experiment actions
 
-| Finding                            | Action                                                                                                                     |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| No metrics configured              | Add at least one primary metric before launching. Link to the experiment's metrics tab.                                    |
-| Secondary metrics only             | Promote one metric to primary or add a new primary metric.                                                                 |
-| Missing feature flag               | Create and link a feature flag to this experiment.                                                                         |
-| Paused mid-run                     | Re-enable the linked feature flag to resume, or end the experiment if it's no longer needed.                               |
-| Deleted flag                       | The experiment's flag was deleted. Create a new flag and re-link, or archive the experiment.                               |
-| Concluded but still splitting      | The experiment has a conclusion but the flag is still splitting traffic. Roll out the winning variant or disable the flag. |
-| Stale draft                        | This experiment has been in draft for over 7 days. Either launch it or delete it.                                          |
-| No hypothesis                      | Add a hypothesis to document what you expect to learn.                                                                     |
-| Stopped with active flag           | The experiment has ended but its flag is still active. Roll out the winning variant or disable the flag.                   |
-| Running less than 7 days           | Wait for at least 7 days of data before drawing conclusions.                                                               |
-| Long-running experiment (>30 days) | Review whether this experiment still needs to run. Consider concluding it or adjusting the timeline.                       |
+| Finding                            | Action                                                                                                   |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| No metrics configured              | Add at least one primary metric before launching. Link to the experiment's metrics tab.                  |
+| Secondary metrics only             | Promote one metric to primary or add a new primary metric.                                               |
+| Missing feature flag               | Create and link a feature flag to this experiment.                                                       |
+| Paused mid-run                     | Re-enable the linked feature flag to resume, or end the experiment if it's no longer needed.             |
+| Deleted flag                       | The experiment's flag was deleted. Create a new flag and re-link, or archive the experiment.             |
+| Stale draft                        | This experiment has been in draft for over 7 days. Either launch it or delete it.                        |
+| No hypothesis                      | Add a hypothesis to document what you expect to learn.                                                   |
+| Stopped with active flag           | The experiment has ended but its flag is still active. Roll out the winning variant or disable the flag. |
+| Running less than 7 days           | Wait for at least 7 days of data before drawing conclusions.                                             |
+| Long-running experiment (>30 days) | Review whether this experiment still needs to run. Consider concluding it or adjusting the timeline.     |
 
 ## Flag actions
 

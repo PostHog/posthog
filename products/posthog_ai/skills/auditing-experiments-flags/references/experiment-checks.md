@@ -59,33 +59,19 @@ Fetch the flag via `feature-flag-get-definition` if only an ID is available.
 
 Note: An inactive flag on its own is not a finding, so do not report one without the running check above.
 The product creates the linked flag inactive for every draft and activates it at launch, and archiving an experiment can disable its flag on purpose.
-Both states are correct, and a stale draft is already reported by check 4.
+Both states are correct, and a stale draft is already reported by check 3.
 
 Note: Do not compare the experiment's `parameters.feature_flag_variants` with the flag's `filters.multivariate.variants`.
 The API builds the first from the second on every read, so the two always agree and the comparison reports nothing.
-Variant and rollout changes are detected from the activity log in check 8.
-
----
-
-## 3. State consistency
-
-Checks for contradictions between an experiment's conclusion and its current flag state.
-
-**Look at**: `end_date` (non-null means concluded), `archived`, and the linked flag's active state and variant configuration.
-
-**Findings**:
-
-- **Concluded but still splitting**: The experiment has an `end_date` (it's concluded) but the linked flag still has multiple variants with non-zero rollout (traffic is still being split).
-  - Severity: WARNING · Category: Waste
-  - Report: "This experiment has concluded but its flag is still splitting traffic between variants."
-  - Action: Roll out the winning variant or disable the flag.
+Variant and rollout changes are detected from the activity log in check 7.
 
 Note: The experiment records `conclusion` as a status only (won, lost, inconclusive, stopped_early, or invalid) and never records which variant it recommends.
-There is no intended variant to compare the flag's rollout against.
+An `end_date` also does not imply a conclusion, because ending an experiment can leave `conclusion` null.
+So there is no intended variant to compare the flag's rollout against.
 
 ---
 
-## 4. Lifecycle
+## 3. Lifecycle
 
 Checks for experiments stuck in unproductive states.
 
@@ -105,7 +91,7 @@ Checks for experiments stuck in unproductive states.
 
 ---
 
-## 5. Stopped with active flag
+## 4. Stopped with active flag
 
 Checks for experiments that have ended but whose flags are still active and splitting.
 
@@ -118,12 +104,9 @@ Checks for experiments that have ended but whose flags are still active and spli
   - Report: "This experiment ended on [date] but its flag is still actively splitting traffic."
   - Action: Roll out the winning variant at 100% or disable the flag.
 
-Note: This is related to but distinct from "concluded but still splitting" in check 3.
-Check 3 focuses on the contradiction with the conclusion; this check focuses on the resource waste of an ended experiment still consuming flag evaluations.
-
 ---
 
-## 6. Minimum duration
+## 5. Minimum duration
 
 Checks whether a running experiment has collected enough data.
 
@@ -143,7 +126,7 @@ Checks whether a running experiment has collected enough data.
 
 ---
 
-## 7. Stats config
+## 6. Stats config
 
 Checks for unusual statistical configuration.
 
@@ -158,12 +141,17 @@ Checks for unusual statistical configuration.
 
 ---
 
-## 8. Activity history
+## 7. Activity history
 
 Checks for flag modifications that may have affected experiment integrity.
 **These checks require activity logs. If activity logs are not available, skip this entire check and note it was skipped.**
 
 **Look at**: Activity log entries for the linked feature flag, filtered by the experiment's run period (`start_date` to `end_date` or today).
+
+The activity endpoint returns the 10 newest entries per page, ordered newest first.
+Page it with `limit` and `page` until `next` is null, or until the oldest entry you read predates the experiment's run period.
+One unpaginated call reads only the 10 newest entries, so it can miss every in-window change on a flag that was modified after the experiment ended.
+Report the activity checks as partial if a page fails.
 
 **Findings**:
 
