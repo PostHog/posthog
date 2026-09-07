@@ -10,7 +10,8 @@ import { initKeaTests } from '~/test/init'
 
 import { projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
 
-const KEY_PATH = '/api/projects/:team_id/project_secret_api_keys/:id/'
+const KEYS_PATH = '/api/projects/:team_id/project_secret_api_keys/'
+const KEY_PATH = `${KEYS_PATH}:id/`
 const STALE_KEY = { id: 'stale', label: 'Stale' } as ProjectSecretAPIKeyApi
 const LIVE_KEY = { id: 'live', label: 'Live' } as ProjectSecretAPIKeyApi
 
@@ -21,7 +22,7 @@ describe('projectSecretAPIKeysLogic', () => {
         useMocks({
             get: {
                 // api.projectSecretApiKeys.list() reads `.results` off a paginated response
-                '/api/projects/:team_id/project_secret_api_keys/': { results: [] },
+                [KEYS_PATH]: { results: [] },
             },
         })
 
@@ -98,5 +99,24 @@ describe('projectSecretAPIKeysLogic', () => {
             expect(logic.values.keys).toEqual([LIVE_KEY])
             expect(errorToast).not.toHaveBeenCalledWith(expect.stringContaining('Failed to'))
         })
+    })
+
+    // Creating a key cannot hit a missing key, so its 404 is a real failure and stays reportable.
+    it('reports a failure when creating a key gets a 404', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({ post: { [KEYS_PATH]: () => [404, { detail: 'Not found.' }] } })
+        logic.actions.loadKeysSuccess([LIVE_KEY])
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        await expectLogic(logic, () => {
+            logic.actions.setEditingKeyId('new')
+            logic.actions.setEditingKeyValues({ label: 'Fresh', scopes: ['endpoint:read'] })
+            logic.actions.submitEditingKey()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['submitEditingKeyFailure'])
+
+        expect(logic.values.keys).toEqual([LIVE_KEY])
+        expect(errorToast).toHaveBeenCalledWith('Failed to save project API key')
     })
 })
