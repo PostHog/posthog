@@ -131,22 +131,9 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: `\\b(?:${WEEKDAY} )?${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}`,
         replacement: '<TIMESTAMP>',
     },
-    // Vendor ids: a short lowercase prefix, an underscore, then a base62 body, as in Stripe
-    // `cus_`/`sub_`, Clerk `user_`, Vercel `dpl_`, and ULID-shaped `org_`. No rule below reaches
-    // them, because the body carries no interior word boundary and `num` and `hex` both need one.
-    //
-    // The body must carry an uppercase letter *and* a digit. That pair is the whole guard: ordinary
-    // snake_case English (`push_subscriptions`, `active_entitlements`) has the same prefix-and-
-    // underscore shape, and masking it would merge distinct endpoints onto one pattern. RE2 has no
-    // lookahead, so "contains both" is spelled as the two orders they can appear in. A length floor
-    // cannot ride on that spelling, so the body has none; the pair alone rejects prose.
-    //
-    // `\b` holds the prefix to a word start, so a lowercase run longer than the prefix cap matches
-    // nothing rather than matching mid-word and emitting a truncated stem.
-    //
-    // Listed ahead of `uuid`: this rule's match starts at the prefix, so the single pass already
-    // prefers it on an overlap, and the sequential chain must run it first for the two to agree.
-    // The agreement corpus asserts this with an uppercase UUID behind a prefix.
+    // Prefixed vendor ids (Stripe `cus_`/`sub_`, Clerk `user_`, ULID-shaped `org_`). The body needs
+    // an uppercase letter and a digit to stay off snake_case words; RE2 lacks lookahead, so both
+    // orders are spelled out. Keep listed ahead of `uuid` (asserted by the agreement corpus).
     {
         name: 'id',
         pattern: '\\b[a-z]{2,10}_(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[0-9]|[A-Za-z0-9]*[0-9][A-Za-z0-9]*[A-Z])[A-Za-z0-9]*',
