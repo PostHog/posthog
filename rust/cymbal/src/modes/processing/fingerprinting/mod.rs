@@ -143,6 +143,7 @@ impl FingerprintVersion {
                     strip_query_strings: true,
                     strip_hashed_chunks: true,
                     basename_only: true,
+                    page_urls_to_origin: true,
                 },
                 message_normalize: MessageNormalization {
                     mask_quoted: true,
@@ -184,17 +185,63 @@ pub enum ChainSelection {
 pub struct Normalization {
     // "app.js?v=abc123" -> "app.js"
     pub strip_query_strings: bool,
-    // "chunk-PGUQKT6S.js" -> "chunk-*.js" — masks content-hashed build artifact names
+    // "chunk-PGUQKT6S.js" -> "chunk-*.js" — masks content-hashed build artifact names, and
+    // UUID or hyphen-grouped hex ids ("019fffac-b248-73ee-b88b-e5174651dd2e.js" -> "*.js")
     pub strip_hashed_chunks: bool,
     // "/var/mobile/.../<device-uuid>/bundle.js" -> "bundle.js"
     pub basename_only: bool,
+    // "https://app.example.com/project/1/insights" -> "app.example.com". A frame with no script
+    // name reports the document URL as its source, so the page a person happened to be on keys
+    // the hash, and one bug forks into an issue per page.
+    pub page_urls_to_origin: bool,
 }
 
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
+static HEX_GROUP_TOKEN: OnceLock<Regex> = OnceLock::new();
+
+// Build hashes are long alphanumeric runs. Most bundler hash alphabets include digits, but
+// esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a digit-only test misses
+// those and mints a fresh fingerprint every time the hash happens to roll all-letter.
+// All-uppercase is the second signal: real identifiers that end up in a path (words, camelCase
+// names) are essentially never all-uppercase. (The regex crate has no lookahead, so the checks
+// live here instead of in the pattern.)
+fn looks_like_hash(token: &str) -> bool {
+    token.chars().any(|c| c.is_ascii_digit())
+        || token
+            .chars()
+            .filter(|c| c.is_ascii_alphabetic())
+            .all(|c| c.is_ascii_uppercase())
+}
+
+// The host of an http(s) URL that points at a page instead of a script, else None. A last path
+// segment with no dot in it is a page, because a script source keeps its file extension.
+fn page_url_host(value: &str) -> Option<String> {
+    let rest = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))?;
+    let (host, path) = match rest.find('/') {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, ""),
+    };
+    let last_segment = path
+        .split('#')
+        .next()
+        .unwrap_or(path)
+        .rsplit('/')
+        .next()
+        .unwrap_or("");
+    if last_segment.contains('.') {
+        return None;
+    }
+    Some(host.to_string())
+}
 
 impl Normalization {
     fn is_noop(&self) -> bool {
-        !(self.strip_query_strings || self.strip_hashed_chunks || self.basename_only)
+        !(self.strip_query_strings
+            || self.strip_hashed_chunks
+            || self.basename_only
+            || self.page_urls_to_origin)
     }
 
     fn apply_source<'a>(&self, value: &'a str) -> Cow<'a, str> {
@@ -207,33 +254,36 @@ impl Normalization {
                 out.truncate(idx);
             }
         }
+        if self.page_urls_to_origin {
+            if let Some(host) = page_url_host(&out) {
+                out = host;
+            }
+        }
         if self.basename_only {
             if let Some(idx) = out.rfind(['/', '\\']) {
                 out.drain(..=idx);
             }
         }
         if self.strip_hashed_chunks {
-            // Build hashes are long alphanumeric runs. Most bundler hash alphabets include
-            // digits, but esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a
-            // digit-only test misses those and mints a fresh fingerprint every time the hash
-            // happens to roll all-letter. All-uppercase is the second signal: real identifiers
-            // that end up in a path (words, camelCase names) are essentially never all-uppercase,
-            // so treat "has a digit" OR "every letter is uppercase" as a build hash. (The regex
-            // crate has no lookahead, so both checks live in the replacer.)
-            let re = HASHED_CHUNK_TOKEN
+            // Hyphen-grouped hex ids first: the plain token pass only sees runs of 8 or more,
+            // so on its own it keeps a UUID's short groups and every id still hashes apart.
+            let hex_groups = HEX_GROUP_TOKEN.get_or_init(|| {
+                Regex::new(r"[0-9a-fA-F]{4,}(?:-[0-9a-fA-F]{4,})+").expect("valid regex")
+            });
+            let tokens = HASHED_CHUNK_TOKEN
                 .get_or_init(|| Regex::new(r"[A-Za-z0-9]{8,}").expect("valid regex"));
-            out = re
-                .replace_all(&out, |caps: &regex::Captures| {
-                    let token = &caps[0];
-                    let looks_like_hash = token.chars().any(|c| c.is_ascii_digit())
-                        || token.chars().all(|c| c.is_ascii_uppercase());
-                    if looks_like_hash {
-                        "*".to_string()
-                    } else {
-                        token.to_string()
-                    }
-                })
-                .into_owned();
+            for re in [hex_groups, tokens] {
+                out = re
+                    .replace_all(&out, |caps: &regex::Captures| {
+                        let token = &caps[0];
+                        if looks_like_hash(token) {
+                            "*".to_string()
+                        } else {
+                            token.to_string()
+                        }
+                    })
+                    .into_owned();
+            }
         }
         Cow::Owned(out)
     }
@@ -706,6 +756,21 @@ mod test {
         );
     }
 
+    fn with_source(source: &str) -> Vec<Exception> {
+        vec![exception(
+            "Error",
+            "boom",
+            resolved_stack(vec![frame(
+                "foo",
+                Some(source),
+                Some("foo"),
+                true,
+                true,
+                Some(1),
+            )]),
+        )]
+    }
+
     #[test]
     fn v2_normalizes_volatile_source_paths() {
         let cases = [
@@ -720,22 +785,26 @@ mod test {
                 "/data/app/8CC63366-D88D/bundle.js",
                 "/data/app/A4CD3A3C-8BE6/bundle.js",
             ),
+            // A hyphen-grouped id survives the token pass, which only masks runs of 8 or more.
+            (
+                "019fffac-b248-73ee-b88b-e5174651dd2e.js",
+                "01a02496-ec04-0000-eff4-768c50665d64.js",
+            ),
+            // A frame with no script name reports the page it ran on as its source.
+            (
+                "https://app.example.com/project/1/insights",
+                "https://app.example.com/project/2/onboarding",
+            ),
+            (
+                "https://app.example.com/verify_email/019fffac-b248-73ee-b88b-e5174651dd2e",
+                "https://app.example.com/login",
+            ),
+            (
+                "https://app.example.com/activity/explore#q=%7B%22kind%22%3A%22one%22%7D",
+                "https://app.example.com/activity/explore#q=%7B%22kind%22%3A%22two%22%7D",
+            ),
         ];
         for (source_a, source_b) in cases {
-            let with_source = |source: &str| {
-                vec![exception(
-                    "Error",
-                    "boom",
-                    resolved_stack(vec![frame(
-                        "foo",
-                        Some(source),
-                        Some("foo"),
-                        true,
-                        true,
-                        Some(1),
-                    )]),
-                )]
-            };
             assert_ne!(
                 value(FingerprintVersion::V1, with_source(source_a)),
                 value(FingerprintVersion::V1, with_source(source_b)),
@@ -745,6 +814,26 @@ mod test {
                 value(FingerprintVersion::V2, with_source(source_a)),
                 value(FingerprintVersion::V2, with_source(source_b)),
                 "V2 should merge {source_a} vs {source_b}"
+            );
+        }
+    }
+
+    #[test]
+    fn v2_keeps_distinct_scripts_and_hosts_apart() {
+        let cases = [
+            ("/static/app.js", "/static/vendor.js"),
+            (
+                "https://app.example.com/insights",
+                "https://www.example.com/insights",
+            ),
+            // Word pairs made of hex letters must not read as a hyphen-grouped id.
+            ("cafe-beef.js", "face-added.js"),
+        ];
+        for (source_a, source_b) in cases {
+            assert_ne!(
+                value(FingerprintVersion::V2, with_source(source_a)),
+                value(FingerprintVersion::V2, with_source(source_b)),
+                "V2 should split {source_a} vs {source_b}"
             );
         }
     }
