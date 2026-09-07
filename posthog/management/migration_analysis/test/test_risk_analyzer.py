@@ -1256,6 +1256,47 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
 
+    def test_drop_column_with_prior_state_removal_foreign_key(self):
+        # A ForeignKey's column is the field name plus "_id", but RemoveField records the field
+        # name alone, so a staged FK column drop must still resolve to its state removal.
+        mock_migration = MagicMock()
+        mock_migration.app_label = "conversations"
+        mock_migration.name = "0065_drop_ticket_assigned_to_column"
+        mock_migration.dependencies = [("conversations", "0014_remove_ticket_assigned_to")]
+
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "posthog_conversations_ticket" DROP COLUMN IF EXISTS "assigned_to_id"',
+        )
+        mock_migration.operations = [drop_op]
+
+        parent_migration = MagicMock()
+        parent_migration.app_label = "conversations"
+        parent_migration.name = "0014_remove_ticket_assigned_to"
+
+        remove_field_op = create_mock_operation(migrations.RemoveField, model_name="ticket", name="assigned_to")
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[remove_field_op],
+            database_operations=[],
+        )
+        parent_migration.operations = [separate_op]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("conversations", "0014_remove_ticket_assigned_to"): parent_migration,
+            ("conversations", "0065_drop_ticket_assigned_to_column"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration,
+            "products/conversations/backend/migrations/0065_drop_ticket_assigned_to_column.py",
+            mock_loader,
+        )
+
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
     def test_drop_column_with_prior_state_removal_custom_db_table(self):
         # ai_observability's EvaluationConfig model has a legacy custom db_table
         # ("llm_analytics_evaluationconfig") that the app-label-derived string heuristic can't
