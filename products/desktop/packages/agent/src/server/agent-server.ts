@@ -1300,12 +1300,11 @@ export class AgentServer {
             commandSession.payload.run_id,
           );
 
-          const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
             this.runRetryWrappedTurn(() =>
               this.promptWithUpstreamRetry(
                 {
-                  sessionId: acpSessionId,
+                  sessionId: commandSession.acpSessionId,
                   prompt: [
                     hiddenTextBlock(
                       "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
@@ -4727,6 +4726,7 @@ ${commonInstructions}
         message: terminalErrorMessage,
         error: terminalErrorMessage,
         errorCategory: options?.errorCategory,
+        error_category: options?.errorCategory,
       });
     }
 

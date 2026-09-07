@@ -918,6 +918,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(notification.params).toMatchObject({
         message: "unexpected status 503",
         errorCategory: "upstream_provider_failure",
+        error_category: "upstream_provider_failure",
       });
     });
 
@@ -1573,6 +1574,7 @@ describe("AgentServer HTTP Mode", () => {
                 params: expect.objectContaining({
                   message: errorMessage,
                   errorCategory: expectedErrorType,
+                  error_category: expectedErrorType,
                 }),
               }),
             }),
@@ -4900,7 +4902,7 @@ describe("AgentServer HTTP Mode", () => {
       );
     }, 30000);
 
-    it("retries an oversized deferred native resume on a fresh session", async () => {
+    it("uses the fresh session for a compact continuation after an oversized deferred resume", async () => {
       // `sendResumeContinuation` gets this through `runResumeTurn`'s retryOnOversizedPrompt, but a
       // prewarmed run defers its resume onto the first forwarded message and never takes that path.
       // Without a fallback the run just fails when the replayed transcript overflows the window.
@@ -4972,19 +4974,24 @@ describe("AgentServer HTTP Mode", () => {
           jsonrpc: "2.0",
           id: "deferred-oversized",
           method: "user_message",
-          params: { content: "continue with this change" },
+          params: { content: "/compact continue with this change" },
         }),
       });
 
       expect(response.status).toBe(200);
       expect(newSession).toHaveBeenCalledOnce();
-      expect(prompt).toHaveBeenCalledTimes(2);
-      const [, secondCall] = prompt.mock.calls as unknown as [
+      expect(prompt).toHaveBeenCalledTimes(3);
+      const [, secondCall, thirdCall] = prompt.mock.calls as unknown as [
         unknown,
-        [{ prompt: ContentBlock[] }],
+        [{ prompt: ContentBlock[]; sessionId: string }],
+        [{ prompt: ContentBlock[]; sessionId: string }],
       ];
       expect((secondCall[0].prompt[0] as { text: string }).text).toContain(
         "work completed so far",
+      );
+      expect(thirdCall[0].sessionId).toBe("fresh-session");
+      expect((thirdCall[0].prompt[0] as { text: string }).text).toContain(
+        "Compaction is complete",
       );
     }, 30000);
 
