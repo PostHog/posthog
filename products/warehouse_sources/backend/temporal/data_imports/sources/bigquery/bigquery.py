@@ -24,7 +24,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pyarrow as pa
-import requests
 import structlog
 from google.api_core.exceptions import (
     BadRequest,
@@ -64,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.grp
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
+    make_tracked_session,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
@@ -439,8 +439,7 @@ def bigquery_client(
     # credential refresh, instead of the default one whose adapter never retries a 502/503/504.
     # `capture=False` keeps the OAuth response (it carries the minted bearer token) out of HTTP
     # sample capture.
-    auth_request_session = requests.Session()
-    auth_request_session.mount("https://", TrackedHTTPAdapter(max_retries=BIGQUERY_TOKEN_REFRESH_RETRY, capture=False))
+    auth_request_session = make_tracked_session(retry=BIGQUERY_TOKEN_REFRESH_RETRY, capture=False)
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
