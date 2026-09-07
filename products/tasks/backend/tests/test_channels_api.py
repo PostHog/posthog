@@ -91,6 +91,28 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.json(), [])
         self.assertFalse(Channel.objects.for_team(self.team.id).exists())
 
+    def test_list_pages_when_limit_is_given(self):
+        for name in ("alpha", "bravo", "charlie"):
+            self.client.post(self._channels_url(), {"name": name})
+
+        first = self.client.get(self._channels_url(), {"limit": 2})
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        body = first.json()
+        self.assertEqual(body["count"], 3)
+        self.assertEqual([channel["name"] for channel in body["results"]], ["alpha", "bravo"])
+        self.assertIsNotNone(body["next"])
+
+        second = self.client.get(self._channels_url(), {"limit": 2, "offset": 2})
+        self.assertEqual([channel["name"] for channel in second.json()["results"]], ["charlie"])
+        self.assertIsNone(second.json()["next"])
+
+    def test_list_returns_every_channel_without_a_limit(self):
+        for name in ("alpha", "bravo", "charlie"):
+            self.client.post(self._channels_url(), {"name": name})
+
+        response = self.client.get(self._channels_url())
+        self.assertEqual([channel["name"] for channel in response.json()], ["alpha", "bravo", "charlie"])
+
     def test_personal_channels_are_per_user(self):
         mine = self._provision()["channels"]
         other_client = APIClient()

@@ -21,6 +21,7 @@ from posthog.event_usage import groups
 
 from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
 from products.signals.backend.report_embeddings import (
     emit_report_embedding,
     emit_report_tombstone,
@@ -28,6 +29,7 @@ from products.signals.backend.report_embeddings import (
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
 from products.signals.backend.tasks import close_dismissed_report_pr
+from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 logger = structlog.get_logger(__name__)
 
@@ -36,6 +38,37 @@ _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Sta
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
+
+
+def connect_task_run_assignment_sync() -> None:
+    connect_task_run_post_save(
+        sync_task_run_pr_to_assignments,
+        dispatch_uid="signals_sync_task_run_pr_to_assignments",
+    )
+
+
+def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    """Copy a PR reported by a PR-bearing task run onto its signal report assignments."""
+    try:
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "output" not in update_fields:
+            return
+        output = instance.output if isinstance(instance.output, dict) else {}
+        pr_url = output.get("pr_url")
+        if not isinstance(pr_url, str) or not pr_url:
+            return
+        ai_stage = (instance.state or {}).get("ai_stage")
+        if ai_stage in {"research", "repo_selection"} or (isinstance(ai_stage, str) and ai_stage.startswith("scout:")):
+            return
+        sync_task_pull_request_to_assignments(
+            team_id=instance.team_id,
+            task_id=str(instance.task_id),
+            pr_url=pr_url,
+            pr_state=output.get("pr_state") if isinstance(output.get("pr_state"), str) else None,
+            pr_merged=output.get("pr_merged") is True,
+        )
+    except Exception:
+        logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
 
 
 def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: str) -> None:
@@ -158,6 +191,9 @@ def _pr_close_reason(
     if update_fields is not None and "status" not in update_fields:
         return None
     if prior_status is None or prior_status == instance.status:
+        return None
+    # The pull request's own observed state drove this transition, so there is nothing left to close.
+    if getattr(instance, "_status_from_pr_state", False):
         return None
 
     if instance.status == SignalReport.Status.SUPPRESSED:
