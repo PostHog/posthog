@@ -85,8 +85,11 @@ differ. Desktop ships first.
 - Lives in the Channels title bar, after a `#title-bar-left` section sized to the
   Channels sidebar width so the strip starts flush with the content pane.
 - Each tab is a quill `Button` (variant `default`). The active tab is elevated;
-  inactive tabs are muted. Tabs **shrink to fit** — the strip never scrolls
-  (`overflow-hidden`, pills `flex-1 basis-[200px]` capped at `max-w-[200px]`).
+  inactive tabs are muted. Tabs **shrink to fit, then the strip scrolls**: pills
+  are `flex-1 basis-[200px]`, capped at `max-w-[200px]` and floored at
+  `min-w-[88px]`; past that floor the tablist is `overflow-x-auto`
+  (`scrollbar-hide` — a scrollbar has no room in a 24px title bar). Selecting a
+  tab scrolls its pill into view, so a keyboard selection is never off screen.
 - Labels **fade** at the right edge (a CSS mask, not an ellipsis). The close
   affordance reveals on hover; on hover the button gains right padding so the
   label shrinks and its fade follows, clearing room for the close button.
@@ -122,7 +125,31 @@ differ. Desktop ships first.
   and task switching (`GlobalEventHandlers`) — so both yield wherever the strip
   claims them, gated on the same `useSpacesTabs()`. Two owners firing on one
   press is worse than either.
-- ⌘T opens a tab, ⌘W closes the active one.
+- **Ctrl+Tab / Ctrl+Shift+Tab cycle** one step through the displayed order and
+  wrap at both ends (`cycledTabId`). Task switching held these keys and no
+  longer does; it keeps ⌘⇧[ and ⌘⇧].
+- ⌘T opens a tab, ⌘W closes the active one, **⌘⇧T reopens the last closed one**.
+- **⌘W has exactly one owner: the strip.** It always closes the active
+  top-level tab. The session editor panel used to claim the same key and close
+  an inner editor tab instead, so what ⌘W did depended on where you were; it
+  does not claim the key any more (`usePanelKeyboardShortcuts` keeps ⌃/⌥1-9 for
+  inner tabs, which still close by clicking their X). The handler
+  `preventDefault`s unconditionally, because otherwise the key reaches
+  Electron's Window ▸ Close role and takes the window with it — and the strip is
+  mounted on every route, so nothing else has to hold the key.
+
+### Reopening a closed tab
+- Every close records what it removed in `closedTabsStore` (newest last, capped
+  at `MAX_CLOSED_TABS`); ⌘⇧T pops the newest and reopens it with its `href`,
+  `viewState`, and label cache, so it comes back on the page it was on.
+- A reopen **appends** rather than restoring the tab's old slot: `openTab` has
+  no insert-at primitive, and a tab landing where the strip has since changed
+  shape is worse than one landing where the action put it.
+- The stack is **renderer-only and session-scoped**. Persisting it would fight
+  tab restore, which already brings back everything that was open at quit — a
+  reopen after a relaunch could mint a second copy of a tab already on screen.
+- Bulk closes push every tab they removed, so repeated ⌘⇧T walks back through
+  them one at a time.
 
 ### Context menu & pinning
 - Right-click on a pill opens a quill `ContextMenu`: **Pin/Unpin tab**, then
@@ -300,6 +327,9 @@ retarget its originating background tab as described below. `railHistoryStore`
   the one that runs.
 - **Presentational** rendering is tested in `TabStrip.test.tsx` (active styling,
   select, close-without-select, new-tab).
+- **Shortcut arithmetic** is tested in `browserTabShortcuts.test.ts`
+  (`cycledTabId` wrap-around) and the closed-tab stack in
+  `closedTabsStore.test.ts`.
 - Full back/forward integration across the real router belongs in an E2E
   (Playwright) spec, not a unit test.
 
@@ -350,9 +380,6 @@ content area, splitting the scene into a resizable two-pane
   tab's id rather than the route.
 - Drag-to-reorder is wired (see **Drag to reorder** above). Tear-off to a new
   OS window is still unwired.
-- Many pinned tabs overflow the strip: pinned pills are incompressible and the
-  tablist only `overflow-hidden`s (so they clip within the strip rather than
-  overlap the title bar). A scrollable / overflow-menu strip is a follow-up.
 - Scroll restoration (the reserved `scrollState`) is unwired.
 
 ## Dev note

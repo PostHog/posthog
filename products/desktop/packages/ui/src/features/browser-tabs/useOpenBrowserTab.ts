@@ -1,6 +1,11 @@
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { useService } from "@posthog/di/react";
-import { openTab, primaryWindow } from "@posthog/shared";
+import {
+  openTab,
+  primaryWindow,
+  type TabIdentity,
+  type TabLocation,
+} from "@posthog/shared";
 import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
@@ -15,7 +20,14 @@ import {
   reseedMirror,
 } from "./tabsSync";
 
-export type OpenBrowserTab = (href: string) => void;
+/** Nav state and label cache to restore alongside the href — what a reopened
+ * tab carries so it comes back on the page it was on, not that route's root. */
+export type OpenBrowserTabState = Partial<TabLocation & TabIdentity>;
+
+export type OpenBrowserTab = (
+  href: string,
+  state?: OpenBrowserTabState,
+) => void;
 
 /** Open and focus an independent tab without waiting for host persistence. */
 export function useOpenBrowserTab(): OpenBrowserTab {
@@ -24,7 +36,7 @@ export function useOpenBrowserTab(): OpenBrowserTab {
   const router = useRouter();
 
   const openInWindow = useCallback(
-    (windowId: string, href: string): void => {
+    (windowId: string, href: string, state?: OpenBrowserTabState): void => {
       const tabId = crypto.randomUUID();
       const input = {
         windowId,
@@ -36,6 +48,7 @@ export function useOpenBrowserTab(): OpenBrowserTab {
         channelId: null,
         channelSection: null,
         appView: null,
+        ...state,
       };
       applyLocalTransform(
         (snapshot) =>
@@ -52,10 +65,10 @@ export function useOpenBrowserTab(): OpenBrowserTab {
   );
 
   return useCallback(
-    (href: string): void => {
+    (href: string, state?: OpenBrowserTabState): void => {
       const window = primaryWindow(readMirror());
       if (window) {
-        openInWindow(window.id, href);
+        openInWindow(window.id, href, state);
         return;
       }
 
@@ -63,7 +76,7 @@ export function useOpenBrowserTab(): OpenBrowserTab {
         .then((server) => {
           const seededWindow = primaryWindow(server ?? readMirror());
           if (seededWindow) {
-            openInWindow(seededWindow.id, href);
+            openInWindow(seededWindow.id, href, state);
             return;
           }
           logger.error("browser-tabs: open found no window after reseed");

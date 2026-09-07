@@ -23,10 +23,15 @@ export const SHORTCUTS = {
   TOGGLE_LEFT_SIDEBAR: "mod+b",
   TOGGLE_ACTIVITY_PANEL: "mod+alt+b",
   TOGGLE_REVIEW_PANEL: "mod+shift+b",
-  PREV_TASK: "mod+shift+[,ctrl+shift+tab",
-  NEXT_TASK: "mod+shift+],ctrl+tab",
+  // Ctrl+Tab and Ctrl+Shift+Tab used to sit here too. They cycle browser tabs
+  // now, which is what muscle memory expects of them.
+  PREV_TASK: "mod+shift+[",
+  NEXT_TASK: "mod+shift+]",
   ARCHIVE_TASK: "mod+shift+a",
   CLOSE_TAB: "mod+w",
+  REOPEN_TAB: "mod+shift+t",
+  PREV_BROWSER_TAB: "ctrl+shift+tab",
+  NEXT_BROWSER_TAB: "ctrl+tab",
   SWITCH_TAB: panelTabShortcut(isMac),
   SWITCH_TASK: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
   // No mod+0: the Electron View menu owns CmdOrCtrl+0 for "Actual Size", and a
@@ -168,17 +173,29 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   },
   {
     id: "prev-task",
-    keys: "mod+shift+[",
+    keys: SHORTCUTS.PREV_TASK,
     description: "Previous task",
     category: "navigation",
-    alternateKeys: "ctrl+shift+tab",
   },
   {
     id: "next-task",
-    keys: "mod+shift+]",
+    keys: SHORTCUTS.NEXT_TASK,
     description: "Next task",
     category: "navigation",
-    alternateKeys: "ctrl+tab",
+  },
+  {
+    id: "prev-browser-tab",
+    keys: SHORTCUTS.PREV_BROWSER_TAB,
+    description: "Previous tab",
+    category: "navigation",
+    context: "Tabs",
+  },
+  {
+    id: "next-browser-tab",
+    keys: SHORTCUTS.NEXT_BROWSER_TAB,
+    description: "Next tab",
+    category: "navigation",
+    context: "Tabs",
   },
   {
     id: "archive-task",
@@ -243,9 +260,16 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   {
     id: "close-tab",
     keys: SHORTCUTS.CLOSE_TAB,
-    description: "Close active tab",
-    category: "panels",
-    context: "Task detail",
+    description: "Close tab",
+    category: "navigation",
+    context: "Tabs",
+  },
+  {
+    id: "reopen-tab",
+    keys: SHORTCUTS.REOPEN_TAB,
+    description: "Reopen closed tab",
+    category: "navigation",
+    context: "Tabs",
   },
   {
     id: "find-in-conversation",

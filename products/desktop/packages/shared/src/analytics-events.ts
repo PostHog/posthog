@@ -292,6 +292,26 @@ export type SidebarNavItem =
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
 
+/** Which affordance closed a browser tab, so a keyboard user and a mouse user
+ * can be told apart. */
+export type BrowserTabCloseSource = "strip" | "shortcut" | "context-menu";
+
+export interface BrowserTabOpenedProperties {
+  /** Tabs in the window after the action. */
+  tab_count: number;
+}
+
+export interface BrowserTabClosedProperties {
+  from: BrowserTabCloseSource;
+  /** Tabs in the window before the close. */
+  tab_count: number;
+}
+
+export interface BrowserTabSelectedProperties {
+  from: "click" | "shortcut";
+  tab_count: number;
+}
+
 export interface SidebarNavItemClickedProperties {
   item: SidebarNavItem;
   /** True when the row was clicked inside the expanded More section. */
@@ -1572,6 +1592,12 @@ export const ANALYTICS_EVENTS = {
   BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
+
+  // Browser tab strip
+  BROWSER_TAB_OPENED: "Browser tab opened",
+  BROWSER_TAB_CLOSED: "Browser tab closed",
+  BROWSER_TAB_REOPENED: "Browser tab reopened",
+  BROWSER_TAB_SELECTED: "Browser tab selected",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
@@ -1782,6 +1808,12 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
+
+  // Browser tab strip
+  [ANALYTICS_EVENTS.BROWSER_TAB_OPENED]: BrowserTabOpenedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_CLOSED]: BrowserTabClosedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_REOPENED]: BrowserTabOpenedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_SELECTED]: BrowserTabSelectedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
