@@ -22,6 +22,12 @@ use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIng
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Without this, the first TLS handshake to Valkey panics the task that made it, which
+    // takes the counter flush loop down before it reports anything.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls CryptoProvider");
+
     let log_layer = {
         let base = tracing_subscriber::fmt::layer()
             .with_target(true)

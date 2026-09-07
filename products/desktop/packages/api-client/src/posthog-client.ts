@@ -88,6 +88,7 @@ import {
   formatDay,
   gridRows,
   hogqlEscape,
+  referencedCohortIds,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
@@ -111,6 +112,7 @@ import {
   type FetchImplementation,
   requestErrorStatus,
 } from "./fetcher";
+import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
 import { createApiClient, type Schemas } from "./generated";
 import type {
   McpAgentGrantScope,
@@ -568,8 +570,58 @@ export interface ScoutConfig {
   created_at: string;
 }
 
+export interface ScoutSuggestionProposedConfig {
+  /** Five-field cron in the project timezone, or null for a rolling interval. */
+  run_cron_schedule: string | null;
+  /** Minutes between runs when no cron is given; null means the daily default. */
+  run_interval_minutes: number | null;
+  /** False means the suggested scout would run dry and file nothing. */
+  emit: boolean;
+}
+
+export interface ScoutSuggestionItem {
+  id: string;
+  /** `canonical` turns on a PostHog scout that is off; `custom` creates a drafted one. */
+  kind: "canonical" | "custom";
+  skill_name: string;
+  title: string;
+  /** Project-specific evidence for this suggestion, in prose. */
+  why_here: string;
+  /** Custom only: the one-line description the scout would be created with. */
+  description: string;
+  /** Custom only: the complete skill body the scout would be created with. */
+  draft_body: string;
+  proposed_config: ScoutSuggestionProposedConfig;
+  /** Nothing in the current fleet covers this. */
+  gap: boolean;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface ScoutSuggestionSet {
+  /** `fresh`, `stale` (the fleet moved on), `failed` (prior batch, if any), `empty`. */
+  status: "fresh" | "stale" | "failed" | "empty";
+  generated_at: string | null;
+  model: string;
+  /** Skill names that were enabled when the batch was generated. */
+  fleet_snapshot: string[];
+  /** Suggestions not yet dismissed or acted on, best first. Up to 5. */
+  items: ScoutSuggestionItem[];
+}
+
+export interface ScoutOutputSummary {
+  count: number;
+  scout_count: number;
+  authored_report_count: number;
+  edited_report_count: number;
+  run_count: number;
+  latest_at: string | null;
+}
+
 export interface ScoutRun {
   run_id: string;
+  created_at?: string;
+  emitted_report_ids?: string[];
+  edited_report_ids?: string[];
   skill_name: string;
   skill_version: number;
   /** TaskRun-derived status, e.g. "completed" | "failed" | "in_progress" | "queued". */
@@ -626,6 +678,7 @@ export interface ScoutScratchpadEntry {
 }
 
 export interface ScoutRunsQueryParams {
+  skill_name?: string;
   date_from?: string;
   date_to?: string;
   text?: string;
@@ -1148,6 +1201,17 @@ function optionalString(value: unknown): string | null {
 // alike — never a business-specific message, so it's less actionable than the
 // endpoint's own fallback plus status code.
 const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
+/** One request per targeted distinct id; flags listing more stay raw past this. */
+const MAX_RESOLVED_FLAG_PEOPLE = 10;
+const MAX_RESOLVED_COHORTS = 10;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPropertyRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Unwrap the shared fetcher's `Failed request: [<status>] <json>` into the endpoint's clean message. */
 function extractRequestErrorMessage(error: unknown, fallback: string): string {
@@ -2348,14 +2412,21 @@ export class PostHogAPIClient {
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(body),
-      },
-    });
+    const response = await this.api.fetcher
+      .fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(body),
+        },
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiRequestError) {
+          throw new ScoutRequestError(error.status, subPath, readDetail(error));
+        }
+        throw error;
+      });
     if (!response.ok) {
       throw new ScoutRequestError(
         response.status,
@@ -2384,6 +2455,26 @@ export class PostHogAPIClient {
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * The pre-computed "Suggested for this project" batch: PostHog scouts worth
+   * turning on, and drafts worth creating, each with the evidence behind it.
+   * A coordinator refreshes it on a schedule, so this read never waits on one.
+   */
+  async listScoutSuggestions(projectId: number): Promise<ScoutSuggestionSet> {
+    return this.scoutGet<ScoutSuggestionSet>(projectId, "suggestions/");
+  }
+
+  async dismissScoutSuggestion(
+    projectId: number,
+    suggestionId: string,
+  ): Promise<void> {
+    await this.scoutPost<unknown>(
+      projectId,
+      `suggestions/${suggestionId}/dismiss/`,
+      {},
+    );
   }
 
   async updateScoutConfig(
@@ -2425,6 +2516,17 @@ export class PostHogAPIClient {
     return (await response.json()) as ScoutConfig;
   }
 
+  /**
+   * Queue one run of a scout outside its schedule. 409 when a run is already in
+   * flight, 429 when the project's daily run budget is spent.
+   */
+  async runScoutNow(
+    projectId: number,
+    configId: string,
+  ): Promise<{ skill_name: string; workflow_id: string; started: boolean }> {
+    return await this.scoutPost(projectId, `configs/${configId}/run/`, {});
+  }
+
   async listScoutRuns(
     projectId: number,
     params?: ScoutRunsQueryParams,
@@ -2433,6 +2535,7 @@ export class PostHogAPIClient {
       projectId,
       "runs/",
       {
+        skill_name: params?.skill_name,
         date_from: params?.date_from,
         date_to: params?.date_to,
         text: params?.text,
@@ -2441,6 +2544,22 @@ export class PostHogAPIClient {
       },
     );
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  async listRecentScoutRuns(projectId: number): Promise<ScoutRun[]> {
+    return await this.scoutGet<ScoutRun[]>(
+      projectId,
+      "runs/recent-per-scout/",
+      { per_scout_limit: 18 },
+    );
+  }
+
+  async getScoutOutputSummary(projectId: number): Promise<ScoutOutputSummary> {
+    return await this.scoutGet<ScoutOutputSummary>(
+      projectId,
+      "runs/findings/summary/",
+      { window_hours: 72 },
+    );
   }
 
   async getScoutRun(projectId: number, runId: string): Promise<ScoutRun> {
@@ -6923,6 +7042,78 @@ export class PostHogAPIClient {
    * back to a static reference. Query-backed kinds (hogql, insight) resolve
    * in the UI instead, where chart shaping lives.
    */
+  /** Names of the cohorts a cohort's criteria reference, so the criteria read as prose. */
+  private async resolveCohortNames(
+    projectId: string,
+    filters: unknown,
+  ): Promise<Map<string, string>> {
+    const ids = referencedCohortIds(filters).slice(0, MAX_RESOLVED_COHORTS);
+    const entries = await Promise.all(
+      ids.map((id) =>
+        this.api
+          .get("/api/projects/{project_id}/cohorts/{id}/", {
+            path: { project_id: projectId, id: Number(id) },
+          })
+          .then((cohort) => [id, cohort.name ?? id] as const)
+          .catch(() => null),
+      ),
+    );
+    return new Map(entries.filter((entry) => entry !== null));
+  }
+
+  /**
+   * People behind the distinct ids a flag targets, keyed by distinct id. A
+   * lookup that fails leaves its id unresolved so the raw id still renders.
+   */
+
+  private async resolveFlagPeople(
+    projectId: string,
+    flag: Schemas.FeatureFlag,
+  ): Promise<Map<string, ResolvedPerson>> {
+    const ids = targetedDistinctIds(flag).slice(0, MAX_RESOLVED_FLAG_PEOPLE);
+    if (ids.length === 0) return new Map();
+    try {
+      // One batched call instead of one request per id: the persons list
+      // endpoint hydrates an actors query per call and shares a per-user
+      // throttle with every other person preview.
+      const response = await this.api.post(
+        "/api/projects/{project_id}/persons/batch_by_distinct_ids/",
+        {
+          path: { project_id: projectId },
+          query: {},
+          // The spec mislabels the body as a full person record; the endpoint
+          // reads a distinct_ids array.
+          body: { distinct_ids: ids } as unknown as Schemas.PersonRecord,
+        },
+      );
+      const results =
+        response && typeof response === "object" && "results" in response
+          ? (response as { results: Record<string, unknown> }).results
+          : {};
+      const people = new Map<string, ResolvedPerson>();
+      for (const distinctId of ids) {
+        const person = results[distinctId];
+        if (!isRecord(person)) continue;
+        const uuid = typeof person.uuid === "string" ? person.uuid : null;
+        if (!uuid) continue;
+        const properties = isPropertyRecord(person.properties)
+          ? person.properties
+          : {};
+        const email =
+          typeof properties.email === "string" ? properties.email : null;
+        const name = typeof person.name === "string" ? person.name : null;
+        people.set(distinctId, {
+          uuid,
+          name: name || email || distinctId,
+          email,
+        });
+      }
+      return people;
+    } catch {
+      return new Map();
+    }
+  }
+
   async getEvidencePreview(
     kind: string,
     id: string,
@@ -6948,9 +7139,10 @@ export class PostHogAPIClient {
           flag = page.results.find((entry) => entry.key === id);
         }
         if (!flag) return null;
-        // Depth: PostHog's own staleness verdict, and whether anything still
-        // evaluates the flag (7-day call volume).
-        const [status, volume] = await Promise.all([
+        // Depth: PostHog's own staleness verdict, whether anything still
+        // evaluates the flag (7-day call volume), and the people behind any
+        // distinct ids the flag targets directly, so the page can name them.
+        const [status, volume, people] = await Promise.all([
           this.api
             .get("/api/projects/{project_id}/feature_flags/{id}/status/", {
               path: { project_id: projectId, id: flag.id },
@@ -6960,9 +7152,10 @@ export class PostHogAPIClient {
             kind: "HogQLQuery",
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(flag.key)}' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
+          this.resolveFlagPeople(projectId, flag),
         ]);
         return decorateFlagPreview(
-          shapeFlagPreview(flag),
+          shapeFlagPreview(flag, people),
           status,
           gridRows(volume),
         );
@@ -7221,7 +7414,10 @@ export class PostHogAPIClient {
           "/api/projects/{project_id}/cohorts/{id}/",
           { path: { project_id: projectId, id: numericId } },
         );
-        return shapeCohortPreview(cohort);
+        return shapeCohortPreview(
+          cohort,
+          await this.resolveCohortNames(projectId, cohort.filters),
+        );
       }
       case "action": {
         if (numericId === null) return null;
