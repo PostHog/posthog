@@ -1,5 +1,5 @@
 import { makeReport } from './__mocks__/inboxMocks'
-import { buildDiscussReportPrompt } from './inboxTaskKickoffLogic'
+import { buildCreatePrReportPrompt, buildDiscussReportPrompt } from './inboxTaskKickoffLogic'
 import { SignalReportStatus } from './types'
 
 describe('buildDiscussReportPrompt', () => {
@@ -15,6 +15,7 @@ describe('buildDiscussReportPrompt', () => {
             )
             expect(prompt).toContain('carry the action out')
             expect(prompt).toContain(url)
+            expect(prompt).toContain('inbox-reports-set-state')
         }
     )
 
@@ -33,6 +34,8 @@ describe('buildDiscussReportPrompt', () => {
         const prompt = buildDiscussReportPrompt(makeReport({ status }), url, 'Carry out the recommendation')
         expect(prompt).toContain('Answer this question')
         expect(prompt).not.toContain('carry the action out')
+        // An answer-only run changes nothing about the report, so it is never told to touch the state.
+        expect(prompt).not.toContain('inbox-reports-set-state')
     })
 
     it.each([
@@ -58,5 +61,23 @@ describe('buildDiscussReportPrompt', () => {
         const prompt = buildDiscussReportPrompt(report, url, 'Carry out the recommendation')
         expect(prompt).toContain('Answer this question')
         expect(prompt).not.toContain('carry the action out')
+    })
+})
+
+describe('buildCreatePrReportPrompt', () => {
+    it('tells the agent how to leave the report state', () => {
+        const prompt = buildCreatePrReportPrompt(makeReport({ status: SignalReportStatus.READY }))
+        expect(prompt).toContain('open a PR')
+        expect(prompt).toContain('inbox-reports-set-state')
+        expect(prompt).toContain('fixed_outside_posthog')
+        expect(prompt).toContain('suppressed')
+        // Resolving through the state API closes the report's open PR, so the run must not report
+        // the PR it just opened as a resolution.
+        expect(prompt).toContain('Do NOT set the state to resolved because you opened a PR')
+    })
+
+    it('keeps the user feedback after the state instructions', () => {
+        const prompt = buildCreatePrReportPrompt(makeReport({ status: SignalReportStatus.READY }), 'check the retries')
+        expect(prompt.indexOf('inbox-reports-set-state')).toBeLessThan(prompt.indexOf('check the retries'))
     })
 })
