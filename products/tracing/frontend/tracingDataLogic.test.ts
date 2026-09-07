@@ -4,12 +4,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE, tracingDataLogic } from './tracingDataLogic'
+import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
@@ -313,6 +314,19 @@ describe('tracingDataLogic', () => {
             await logic.asyncActions.fetchSparkline()
             await expectLogic(logic, () => {
                 tracingFiltersLogic().actions.setServiceNames(['api'])
+            }).toDispatchActions(['fetchSparklineSuccess'])
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
+            sparklineSpy.mockRestore()
+        })
+
+        it('re-fetches the sparkline on an explicit refresh with an unchanged scope', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            // The refresh button asks for newer data without touching the filters, so the
+            // memoized scope must not stop it from hitting the endpoint again.
+            await expectLogic(logic, () => {
+                logic.actions.refreshQuery()
             }).toDispatchActions(['fetchSparklineSuccess'])
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()

@@ -21,7 +21,8 @@ export function FeatureDiscoveryModal(): JSX.Element {
         integrationsLoading,
         discoveryStartLoading,
     } = useValues(featureDiscoveryLogic)
-    const { features } = useValues(featureListLogic)
+    const { features, featuresLoading, hasMoreStaged } = useValues(featureListLogic)
+    const { loadMoreFeatures } = useActions(featureListLogic)
     const { closeDiscoveryModal, setRepository, setFocus, startDiscovery } = useActions(featureDiscoveryLogic)
     const discoveredFeatures = features.filter((feature) => feature.feature_stage === 'staged')
 
@@ -137,6 +138,11 @@ export function FeatureDiscoveryModal(): JSX.Element {
                         ))
                     )}
                 </section>
+                {hasMoreStaged && (
+                    <LemonButton onClick={() => loadMoreFeatures({ stage: 'staged' })} loading={featuresLoading}>
+                        Load more discovered features
+                    </LemonButton>
+                )}
             </div>
         </LemonModal>
     )

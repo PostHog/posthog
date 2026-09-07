@@ -105,7 +105,12 @@ Clone the [PostHog repo](https://github.com/posthog/posthog). All future command
 git clone --filter=blob:none https://github.com/PostHog/posthog && cd posthog/
 ```
 
-**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed. This reduces the clone from ~3 GB to a few hundred MB and makes the initial clone **15-17x faster**. You still get full git history for commands like `git log` and `git diff` – blobs are fetched on demand as you use them.
+**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed.
+File contents are about 95% of this repository, so the clone is a few hundred MB instead of several GB, and it finishes much faster.
+You still get full git history for commands like `git log` and `git diff`. Blobs are fetched on demand as you use them.
+
+`hogli start` keeps a blobless clone healthy, because git does not consolidate the pack files these on-demand fetches create.
+It repacks in the background when they build up. Run `hogli doctor:git` to do it yourself.
 
 > The `feature-flags` container relies on the presence of the GeoLite cities
 > database in the `/share` directory. If you haven't run `hogli start` this database may not exist.

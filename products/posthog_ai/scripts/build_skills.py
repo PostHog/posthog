@@ -49,6 +49,20 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
 _MAX_SKILL_DESCRIPTION_LENGTH = 1024
 _ALLOWED_SUBDIRS = {"references", "scripts"}
+# Skills authored in PostHog/context-mill. Every shipping consumer unzips this
+# repo's skills first and then unzips the context-mill release on top, so a
+# same-named skill here is overwritten instead of shipped — a failure that is
+# silent without this check, because the copy still builds and still publishes.
+OMNIBUS_SKILL_NAMES = frozenset(
+    {
+        "instrument-integration",
+        "instrument-product-analytics",
+        "instrument-feature-flags",
+        "instrument-error-tracking",
+        "instrument-llm-analytics",
+        "instrument-logs",
+    }
+)
 
 # Tool/skill reference linting: skills must only reference MCP tools and skills that exist.
 # The valid tool names come from the checked-in MCP schema registries (kept in sync with the
@@ -391,6 +405,24 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return metadata, body
 
 
+def _unrendered_skill_name(skill: DiscoveredSkill) -> str:
+    """Return the entry point's raw frontmatter ``name``, or the path name.
+
+    Not the shipped name. ``SkillBuilder.build_skill`` writes each skill to
+    ``dist/skills/<name>`` using the *rendered* frontmatter ``name``, and the lint
+    runs without rendering, so a Jinja name such as ``instrument-{{ 'logs' }}``
+    comes back here verbatim. ``build_skill`` checks the rendered name against
+    ``OMNIBUS_SKILL_NAMES`` (see ``display_name`` there), which is what catches a
+    templated reserved name; this function only gives the lint an earlier, cheaper
+    shot at the plain case.
+    """
+    try:
+        metadata, _ = parse_frontmatter(skill.source_file.read_text())
+    except (OSError, yaml.YAMLError):
+        return skill.name
+    return metadata.get("name") or skill.name
+
+
 class SkillDiscoverer:
     """Discovers skill source files from products/*/skills/."""
 
@@ -454,12 +486,14 @@ class SkillRenderer:
         from products.posthog_ai.scripts.hogql_example import render_hogql_example
         from products.posthog_ai.scripts.hogql_functions import hogql_functions
         from products.posthog_ai.scripts.pydantic_schema import pydantic_schema
+        from products.posthog_ai.scripts.schema_columns import schema_columns
 
         self.env = _create_jinja_env(
             pydantic_schema=pydantic_schema,
             render_hogql_example=render_hogql_example,
             hogql_functions=hogql_functions,
             audit_constants=audit_constants,
+            schema_columns=schema_columns,
         )
 
     def render(self, source_file: Path) -> str:
@@ -548,6 +582,16 @@ class SkillBuilder:
         else:
             display_name = skill.name
             description = f"Skill: {skill.name}"
+
+        # lint_all reads the raw frontmatter, so a name that only becomes an
+        # omnibus name after rendering slips past it. Here the name is rendered,
+        # so catch that case before it builds into a context-mill-owned directory.
+        if display_name in OMNIBUS_SKILL_NAMES:
+            raise ValueError(
+                f"'{display_name}' is owned by PostHog/context-mill, which every consumer "
+                f"overlays on top of this repo's skills, so a copy here is overwritten "
+                f"rather than shipped. Remove {source} and change the context-mill source instead."
+            )
 
         return SkillResource(
             name=display_name,
@@ -641,6 +685,15 @@ class SkillBuilder:
                 )
             else:
                 seen[skill.name] = skill
+
+            unrendered_name = _unrendered_skill_name(skill)
+            if unrendered_name in OMNIBUS_SKILL_NAMES:
+                errors.append(
+                    f"'{unrendered_name}' is owned by PostHog/context-mill, which every consumer "
+                    f"overlays on top of this repo's skills, so a copy here is overwritten "
+                    f"rather than shipped. Remove {skill.source_file.relative_to(self.repo_root)} "
+                    f"and change the context-mill source instead."
+                )
 
         tool_names = _load_mcp_tool_names(self.repo_root)
         if tool_names is None:

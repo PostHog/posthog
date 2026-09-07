@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTag, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -10,7 +10,7 @@ import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
-import { cpuCoreOptions, idleTimeoutOptions, memoryGbOptions, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
+import { idleTimeoutOptions, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookLogic } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
@@ -26,15 +26,15 @@ const formatMemory = (value: number): string => {
     return `${value} GB`
 }
 
-const CPU_PRICE_PER_CORE_HOUR = 0.1419
-const MEMORY_PRICE_PER_GIB_HOUR = 0.0242
-
 const formatHourlyPrice = (value: number): string => `$${value.toFixed(2)} / h`
 
+const PRICE_TOOLTIP =
+    'Billed for as long as the sandbox runs, whether or not a cell is running. Stop it to stop the charge.'
+
 export const NotebookKernelInfo = (): JSX.Element => {
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, isShared } = useValues(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const logic = notebookKernelInfoLogic({ shortId })
+    const logic = notebookKernelInfoLogic({ shortId, isShared })
     useAttachedLogic(logic, notebookLogic)
     const {
         kernelInfo,
@@ -53,18 +53,27 @@ export const NotebookKernelInfo = (): JSX.Element => {
         code,
         cpuIndex,
         memoryIndex,
+        cpuOptions,
+        memoryOptions,
+        computePresets,
+        selectedPresetKey,
+        selectedHourlyPrice,
+        computeBlockedReason,
+        computeOptionsFailed,
     } = useValues(logic)
     const {
         clearExecution,
         executeKernel,
+        loadComputeOptions,
         loadKernelInfo,
         restartKernel,
         saveKernelConfig,
         startKernel,
         stopKernel,
         setCode,
-        setCpuIndex,
-        setMemoryIndex,
+        setCpuCores,
+        setMemoryGb,
+        applyComputePreset,
         setIdleTimeoutSeconds,
         resetConfigToKernel,
     } = useActions(logic)
@@ -83,7 +92,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
             </div>
         ) : null
     const startOrRestartKernel = (): void => {
-        if (isModalKernel && hasConfigChanges) {
+        if (isModalKernel && hasConfigChanges && selectedCpu != null && selectedMemory != null) {
             saveKernelConfig(
                 {
                     cpu_cores: selectedCpu,
@@ -129,7 +138,10 @@ export const NotebookKernelInfo = (): JSX.Element => {
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    onClick={() => loadKernelInfo()}
+                    onClick={() => {
+                        loadKernelInfo()
+                        loadComputeOptions()
+                    }}
                     loading={actionInFlight.refresh}
                     disabled={hasActionInFlight && !actionInFlight.refresh}
                 >
@@ -144,7 +156,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                 </div>
             ) : kernelInfo ? (
                 <div className="space-y-3 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                             {statusInfo ? <LemonTag type={statusInfo.tone}>{statusInfo.label}</LemonTag> : null}
                             <LemonTag type="default">
@@ -160,47 +172,89 @@ export const NotebookKernelInfo = (): JSX.Element => {
                                 <LemonTag type="default">{kernelInfo.disk_size_gb} GB disk</LemonTag>
                             ) : null}
                         </div>
-                        <div className="flex items-center gap-2 text-xs">
-                            {isModalKernel ? (
-                                <span className="font-semibold">
-                                    {formatHourlyPrice(
-                                        selectedCpu * CPU_PRICE_PER_CORE_HOUR +
-                                            selectedMemory * MEMORY_PRICE_PER_GIB_HOUR
-                                    )}
-                                </span>
-                            ) : null}
-                        </div>
                     </div>
+                    {isModalKernel && selectedHourlyPrice != null ? (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-muted">Sandbox price</span>
+                            <Tooltip title={PRICE_TOOLTIP}>
+                                <span className="font-semibold">{formatHourlyPrice(selectedHourlyPrice)}</span>
+                            </Tooltip>
+                        </div>
+                    ) : null}
+                    {computeOptionsFailed ? (
+                        <div className="text-xs text-danger">
+                            Couldn't load compute rates, so this sandbox can't be sized or started. Refresh to try
+                            again.
+                        </div>
+                    ) : null}
                     {kernelInfo.last_error ? (
                         <div className="text-xs text-danger">Error: {kernelInfo.last_error}</div>
                     ) : null}
                     {isModalKernel ? (
                         <div className="space-y-3">
+                            {computePresets.length ? (
+                                <div className="space-y-1">
+                                    <div className="text-xs font-semibold text-muted uppercase tracking-wide">
+                                        Presets
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        {computePresets.map((preset) => (
+                                            <LemonButton
+                                                key={preset.key}
+                                                size="small"
+                                                fullWidth
+                                                active={selectedPresetKey === preset.key}
+                                                onClick={() => applyComputePreset(preset)}
+                                                tooltip={preset.description}
+                                                data-attr="notebook-kernel-compute-preset"
+                                            >
+                                                <div className="flex w-full items-center justify-between gap-2 text-xs">
+                                                    <span className="truncate">
+                                                        <span className="font-semibold">{preset.name}</span>
+                                                        <span className="text-muted">
+                                                            {' '}
+                                                            {formatCores(preset.cpu_cores)} /{' '}
+                                                            {formatMemory(preset.memory_gb)}
+                                                        </span>
+                                                    </span>
+                                                    <span className="font-semibold whitespace-nowrap">
+                                                        {formatHourlyPrice(preset.hourly_price)}
+                                                    </span>
+                                                </div>
+                                            </LemonButton>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
                             <div className="space-y-3">
                                 <div className="space-y-1">
                                     <div className="flex items-center justify-between text-xs">
                                         <span className="font-semibold text-muted">CPU </span>
-                                        <span className="font-semibold">{formatCores(selectedCpu)} </span>
+                                        <span className="font-semibold">
+                                            {selectedCpu != null ? formatCores(selectedCpu) : null}{' '}
+                                        </span>
                                     </div>
                                     <LemonSlider
                                         value={cpuIndex}
                                         min={0}
-                                        max={cpuCoreOptions.length - 1}
+                                        max={cpuOptions.length - 1}
                                         step={1}
-                                        onChange={(value) => setCpuIndex(value)}
+                                        onChange={(value) => setCpuCores(cpuOptions[value])}
                                     />
                                 </div>
                                 <div className="space-y-1">
                                     <div className="flex items-center justify-between text-xs">
                                         <span className="font-semibold text-muted">RAM</span>
-                                        <span className="font-semibold">{formatMemory(selectedMemory)}</span>
+                                        <span className="font-semibold">
+                                            {selectedMemory != null ? formatMemory(selectedMemory) : null}
+                                        </span>
                                     </div>
                                     <LemonSlider
                                         value={memoryIndex}
                                         min={0}
-                                        max={memoryGbOptions.length - 1}
+                                        max={memoryOptions.length - 1}
                                         step={1}
-                                        onChange={(value) => setMemoryIndex(value)}
+                                        onChange={(value) => setMemoryGb(memoryOptions[value])}
                                     />
                                 </div>
                             </div>
@@ -233,6 +287,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             onClick={startOrRestartKernel}
                             loading={startActionInFlight}
                             disabled={hasActionInFlight && !startActionInFlight}
+                            disabledReason={computeBlockedReason ?? undefined}
                         >
                             {startActionLabel}
                         </LemonButton>

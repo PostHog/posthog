@@ -8,6 +8,7 @@ use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::Team;
 use feature_flags::utils::test_utils::team_token_hypercache_key;
+use governor::clock;
 use lifecycle::Manager;
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
@@ -17,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use feature_flags::cohorts::membership::NoOpCohortMembershipProvider;
 use feature_flags::config::Config;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
-use feature_flags::server::{register_components, serve};
+use feature_flags::server::{register_components, serve_with_rate_limiter_clock};
 
 pub struct ServerHandle {
     pub addr: SocketAddr,
@@ -55,6 +56,33 @@ impl ServerHandle {
         config: Config,
         flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
     ) -> ServerHandle {
+        Self::for_config_with_s3_and_rate_limiter_clock(
+            config,
+            flags_with_cohorts_s3,
+            clock::DefaultClock::default(),
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn for_config_with_rate_limiter_clock<C>(
+        config: Config,
+        rate_limiter_clock: C,
+    ) -> ServerHandle
+    where
+        C: clock::Clock + Clone + Send + Sync + 'static,
+    {
+        Self::for_config_with_s3_and_rate_limiter_clock(config, None, rate_limiter_clock).await
+    }
+
+    async fn for_config_with_s3_and_rate_limiter_clock<C>(
+        config: Config,
+        flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
+        rate_limiter_clock: C,
+    ) -> ServerHandle
+    where
+        C: clock::Clock + Clone + Send + Sync + 'static,
+    {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
@@ -64,12 +92,13 @@ impl ServerHandle {
 
         let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(
+            serve_with_rate_limiter_clock(
                 config,
                 listener,
                 rayon_dispatcher,
                 handles,
                 flags_with_cohorts_s3,
+                rate_limiter_clock,
             )
             .await;
             // Drain the lifecycle monitor after serve returns so the supervisor

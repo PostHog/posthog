@@ -27,6 +27,7 @@ from hogli_commands.workflow_lint.checks.cache_writes import (
 from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFullDepthCheck
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
+from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
@@ -1194,7 +1195,9 @@ class TestCli:
 # The shape these fixtures guard against: a `changes` detector cleared with a bare
 # `== "failure"`, then its outputs read to decide "nothing to test". Those outputs
 # are empty on a cancelled job, so the gate exits 0 green with no tests run.
-def _gate(body: str, condition: str = "always()") -> str:
+def _gate(body: str, condition: str | None = "${{ !cancelled() }}", step_condition: str | None = None) -> str:
+    step_if = f"if: {step_condition}\n            " if step_condition is not None else ""
+    job_if = f"        if: {condition}\n" if condition is not None else ""
     return f"""
     name: ci-thing
     on: pull_request
@@ -1211,9 +1214,8 @@ def _gate(body: str, condition: str = "always()") -> str:
         name: Thing Tests Pass
         needs: [changes, build]
         timeout-minutes: 5
-        if: {condition}
-        steps:
-          - run: |
+{job_if}        steps:
+          - {step_if}run: |
 {textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
 """
 
@@ -1349,7 +1351,7 @@ ENV_LOOP_GATE = """
         name: Thing Tests Pass
         needs: [build]
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
           - name: Check outcomes
             env:
@@ -1375,7 +1377,7 @@ CROSS_STEP_ENV_GATE = """
         name: Thing Tests Pass
         needs: [build]
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
           - name: Log outcome
             env:
@@ -1392,7 +1394,7 @@ CROSS_STEP_ENV_GATE = """
 
 
 # A gate whose display name doesn't end in "Pass", so only structural detection finds it.
-def _off_convention_gate(marker: str = "", condition: str = "always()") -> str:
+def _off_convention_gate(marker: str = "", condition: str = "${{ !cancelled() }}") -> str:
     yaml_ = _gate(MIXED_BODY, condition=condition).replace("Thing Tests Pass", "Thing decision")
     if marker:
         yaml_ = yaml_.replace("      thing_tests:", f"      # {marker}\n      thing_tests:")
@@ -1422,21 +1424,33 @@ class TestRequiredGateCheck:
         "content",
         [
             _gate(SAFE_BODY),
-            _gate(SAFE_BODY, condition="${{ always() }}"),
+            _gate(SAFE_BODY, condition='"!cancelled()"'),
+            _gate(SAFE_BODY, step_condition="always()"),
             _gate(HELPER_BODY),
             _gate(LOCAL_ALIAS_HELPER_BODY),
             _gate(COMMENTED_CALL_BODY),
             _gate(PAREN_LABEL_CALL_BODY),
             ENV_LOOP_GATE,
+            _gate(SAFE_BODY, step_condition="${{ !cancelled() }}"),
+            _gate(SAFE_BODY, condition="${{ !cancelled() || needs.build.outputs.deterministic_failure == 'true' }}"),
+            _gate(
+                SAFE_BODY,
+                condition="${{ !cancelled() || needs.build.outputs.deterministic_failure == 'true' }}",
+                step_condition="always()",
+            ),
         ],
         ids=[
             "inline-allowlist",
-            "wrapped-always",
+            "quoted-bare-not-cancelled",
+            "guards-in-step-level-always",
             "shared-helper",
             "helper-via-local",
             "helper-call-with-trailing-comment",
             "helper-call-with-parens-in-label",
             "env-block-loop",
+            "step-level-not-cancelled",
+            "not-cancelled-or-deterministic-failure",
+            "always-step-in-or-widened-gate",
         ],
     )
     def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
@@ -1455,28 +1469,36 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == expected_deps
 
+    # A gate with no condition defaults to success(), so it disappears the moment a
+    # dependency fails — the fail-open this rule exists to stop.
     @pytest.mark.parametrize(
         "condition",
-        ["${{ !cancelled() }}", "${{ always() && false }}", "${{ !always() }}"],
-        ids=["cancelled-condition", "conditional-always", "negated-always"],
+        ["always()", "${{ !cancelled() && false }}", "${{ cancelled() }}", None],
+        ids=["bare-always", "conditional-not-cancelled", "unnegated-cancelled", "no-condition"],
     )
-    def test_flags_gate_that_can_skip_itself(self, tmp_path: Path, condition: str) -> None:
+    def test_flags_gate_condition_other_than_not_cancelled(self, tmp_path: Path, condition: str | None) -> None:
         _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition=condition))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert len(issues) == 1
-        assert "always()" in issues[0].message
+        assert "!cancelled()" in issues[0].message
 
     # Every fixture can exit zero for a cancelled dependency despite mentioning
     # the expected statuses or guard shape.
     @pytest.mark.parametrize(
-        "body",
+        "content",
         [
-            UNSAFE_HELPER_BODY,
-            DECOY_COMMENT_BODY,
-            DECOY_ECHO_BODY,
-            NON_FAILING_ALLOWLIST_BODY,
-            INVERTED_ALLOWLIST_BODY,
-            LOGGED_ONLY_BODY,
+            _gate(UNSAFE_HELPER_BODY),
+            _gate(DECOY_COMMENT_BODY),
+            _gate(DECOY_ECHO_BODY),
+            _gate(NON_FAILING_ALLOWLIST_BODY),
+            _gate(INVERTED_ALLOWLIST_BODY),
+            _gate(LOGGED_ONLY_BODY),
+            _gate(SAFE_BODY, step_condition="${{ always() && false }}"),
+            _gate(
+                SAFE_BODY,
+                condition="${{ !cancelled() || needs.build.outputs.deterministic_failure == 'true' }}",
+                step_condition="${{ !cancelled() }}",
+            ),
         ],
         ids=[
             "failure-only-helper",
@@ -1485,10 +1507,12 @@ class TestRequiredGateCheck:
             "non-failing-allowlist",
             "inverted-allowlist",
             "results-only-logged",
+            "guards-in-conditional-step",
+            "not-cancelled-step-in-or-widened-gate",
         ],
     )
-    def test_flags_gate_whose_results_reach_no_fail_closed_guard(self, tmp_path: Path, body: str) -> None:
-        _write(tmp_path, "ci-thing.yml", _gate(body))
+    def test_flags_gate_whose_results_reach_no_fail_closed_guard(self, tmp_path: Path, content: str) -> None:
+        _write(tmp_path, "ci-thing.yml", content)
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == ["build", "changes"]
         assert all("fail-closed guard" in i.message for i in issues)
@@ -1500,8 +1524,8 @@ class TestRequiredGateCheck:
         assert "never reaches" in issues[0].message
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
-        # Worker jobs *should* use !cancelled() so they stop when superseded;
-        # only the collate gate is held to always().
+        # Worker jobs share the !cancelled() condition, but they gate nothing,
+        # so WF007 has no dependency-guard demands on them.
         _write(
             tmp_path,
             "ci-thing.yml",
@@ -1525,10 +1549,10 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == ["changes"]
 
-    def test_finds_off_convention_gate_without_always(self, tmp_path: Path) -> None:
-        _write(tmp_path, "ci-thing.yml", _off_convention_gate(condition="${{ !cancelled() }}"))
+    def test_finds_off_convention_gate_without_not_cancelled(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate(condition="always()"))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
-        assert any("unconditional `if: always()`" in issue.message for issue in issues)
+        assert any("must use `if: ${{ !cancelled() }}`" in issue.message for issue in issues)
         assert [issue.message.split("'")[1] for issue in issues if "dependency" in issue.message] == ["changes"]
 
     def test_finds_env_routed_gate_not_named_pass(self, tmp_path: Path) -> None:
@@ -1557,6 +1581,209 @@ class TestRequiredGateCheck:
         _write(tmp_path, "ci-thing.yml", _nested_allow_marker_gate())
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [issue.message.split("'")[1] for issue in issues] == ["changes"]
+
+
+# ---------------------------------------------------------------------------
+# McpFilterCoverageCheck
+# ---------------------------------------------------------------------------
+
+_MCP_TSCONFIG = """
+{
+    "compilerOptions": {
+        "paths": {
+            "products/*": ["../../products/*"],
+            "@posthog/quill-charts": ["../../packages/quill/packages/charts/dist/index.d.ts"]
+        }
+    }
+}
+"""
+
+_UI_APP_SOURCE = (
+    "import { Chart } from '@posthog/quill-charts'\n"
+    "import { transform } from 'products/product_analytics/frontend/insights/trends/transforms'\n"
+)
+
+_INSIGHTS = "products/product_analytics/frontend/insights"
+_INSIGHTS_TRENDS = f"{_INSIGHTS}/trends"
+_INSIGHTS_SHARED = f"{_INSIGHTS}/shared"
+_COVERING_PATTERNS = ["services/mcp/**", "packages/quill/**", f"{_INSIGHTS}/**"]
+
+
+def _write_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+
+def _filter_workflow(patterns: list[str]) -> str:
+    return "\n".join(
+        [
+            "name: x",
+            "on: [pull_request]",
+            "jobs:",
+            "  changes:",
+            "    runs-on: ubuntu-latest",
+            "    timeout-minutes: 5",
+            "    steps:",
+            "      - uses: ./.github/actions/paths-filter",
+            "        with:",
+            "          filters: |",
+            "            mcp:",
+            *(f"              - '{pattern}'" for pattern in patterns),
+            "",
+        ]
+    )
+
+
+def _mcp_repo(
+    repo_root: Path,
+    *,
+    mcp_patterns: list[str],
+    ui_apps_patterns: list[str],
+    tool_source: str = "",
+) -> Path:
+    """Fixture repo: an MCP tsconfig, MCP sources, the trees they import, both workflows.
+
+    The UI app imports a product transform through an alias, and that transform
+    relatively imports a sibling tree, so the fixture exercises both hops.
+    """
+    _write_file(repo_root / "services" / "mcp" / "tsconfig.json", _MCP_TSCONFIG)
+    _write_file(repo_root / "services" / "mcp" / "src" / "ui-apps" / "Chart.tsx", _UI_APP_SOURCE)
+    _write_file(repo_root / "services" / "mcp" / "src" / "tools" / "tool.ts", tool_source)
+    insights = repo_root / "products" / "product_analytics" / "frontend" / "insights"
+    _write_file(insights / "trends" / "transforms.ts", "import { helper } from '../shared/helper'\n")
+    _write_file(insights / "shared" / "helper.ts", "export const helper = 1\n")
+    _write_file(repo_root / "products" / "notebooks" / "catalog.json", "{}\n")
+    workflows_dir = repo_root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    _write(workflows_dir, "ci-mcp.yml", _filter_workflow(mcp_patterns))
+    _write(workflows_dir, "ci-mcp-ui-apps.yml", _filter_workflow(ui_apps_patterns))
+    return workflows_dir
+
+
+def _coverage_issues(repo_root: Path, workflows_dir: Path, workflow: str) -> list[str]:
+    result = McpFilterCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir))
+    return [issue.message for issue in result.issues if issue.workflow == workflow]
+
+
+class TestMcpAliasResolution:
+    @pytest.mark.parametrize(
+        "alias, specifier, target",
+        [
+            ("products/*", "products/pa/frontend/x", "products/pa/frontend/x"),
+            ("@app/*/index", "@app/charts/index", "products/charts"),
+            ("@app/*/index", "@app//index", "products/"),
+            # The tail is empty and the end index is 0, which must not read as
+            # "slice to the end" and substitute the suffix for the wildcard.
+            ("*/index", "/index", "products/"),
+        ],
+    )
+    def test_substitutes_the_wildcard_tail(self, alias: str, specifier: str, target: str) -> None:
+        assert _resolve(specifier, {alias: ["products/*"]}) == [target]
+
+    def test_an_alias_without_a_wildcard_matches_whole(self) -> None:
+        aliases = {"@posthog/quill": ["packages/quill/dist/index.d.ts"]}
+        assert _resolve("@posthog/quill", aliases) == ["packages/quill/dist/index.d.ts"]
+        assert _resolve("@posthog/quill/extra", aliases) == []
+
+
+class TestMcpFilterCoverageCheck:
+    def test_passes_when_directory_patterns_cover_every_import(self, tmp_path: Path) -> None:
+        # quill's alias target is a built `dist` file absent from a fresh checkout;
+        # the check must still demand coverage of it, and 'packages/quill/**' gives it.
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        assert McpFilterCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues == []
+
+    @pytest.mark.parametrize(
+        "patterns, uncovered",
+        [
+            pytest.param([], [_INSIGHTS_SHARED, _INSIGHTS_TRENDS], id="no-pattern"),
+            # A module reaches its own relative imports, so covering the directly
+            # imported directory alone still leaves the sibling tree uncovered.
+            pytest.param([f"{_INSIGHTS_TRENDS}/**"], [_INSIGHTS_SHARED], id="only-the-imported-directory"),
+            pytest.param(
+                [f"{_INSIGHTS_TRENDS}/transforms.ts", f"{_INSIGHTS_SHARED}/helper.ts"],
+                [_INSIGHTS_SHARED, _INSIGHTS_TRENDS],
+                id="patterns-naming-the-files",
+            ),
+        ],
+    )
+    def test_flags_a_tree_no_directory_pattern_covers(
+        self, tmp_path: Path, patterns: list[str], uncovered: list[str]
+    ) -> None:
+        product_patterns = ["services/mcp/**", "packages/quill/**", *patterns]
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=product_patterns, ui_apps_patterns=product_patterns)
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert sorted(message.split("'")[1] for message in messages) == uncovered
+
+    @pytest.mark.parametrize(
+        "tsconfig, reported",
+        [
+            pytest.param("{ not json", True, id="unparseable"),
+            pytest.param('{"compilerOptions": {}}', True, id="no-paths-key"),
+            pytest.param(None, False, id="no-mcp-service-in-this-checkout"),
+        ],
+    )
+    def test_an_unusable_tsconfig_is_reported_rather_than_passed(
+        self, tmp_path: Path, tsconfig: str | None, reported: bool
+    ) -> None:
+        # Deriving no aliases means reading no imports, which clears every filter
+        # by not looking. Only an absent MCP service is a legitimate pass.
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        path = tmp_path / "services" / "mcp" / "tsconfig.json"
+        path.unlink()
+        if tsconfig is not None:
+            path.write_text(tsconfig)
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert bool(messages) is reported
+        assert not reported or "compilerOptions.paths" in messages[0]
+
+    def test_a_relative_import_out_of_the_mcp_tree_needs_coverage(self, tmp_path: Path) -> None:
+        # The MCP tests reach the frontend insight fixtures this way, so a relative
+        # specifier that leaves services/mcp/ counts like an aliased one.
+        _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        _write_file(tmp_path / "frontend" / "fixtures" / "trends.json", "{}\n")
+        _write_file(
+            tmp_path / "services" / "mcp" / "tests" / "fixtures.ts",
+            "import trends from '../../../frontend/fixtures/trends.json'\n",
+        )
+        workflows_dir = tmp_path / ".github" / "workflows"
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert [message.split("'")[1] for message in messages] == ["frontend/fixtures/trends.json"]
+
+    def test_a_relative_specifier_that_resolves_to_nothing_is_ignored(self, tmp_path: Path) -> None:
+        # generate-ui-apps.ts holds import statements inside the code it emits, and
+        # from services/mcp/scripts/ those climb clear of the MCP tree. The regex
+        # cannot tell them from real imports, so the missing file is the signal.
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=_COVERING_PATTERNS, ui_apps_patterns=_COVERING_PATTERNS)
+        _write_file(
+            tmp_path / "services" / "mcp" / "scripts" / "generate.ts",
+            "const template = `import { App } from '../../components/App'`\n",
+        )
+        assert McpFilterCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues == []
+
+    def test_a_data_import_is_covered_by_a_pattern_naming_it(self, tmp_path: Path) -> None:
+        # A JSON import has no relative imports of its own, so naming the file is enough.
+        workflows_dir = _mcp_repo(
+            tmp_path,
+            mcp_patterns=[*_COVERING_PATTERNS, "products/notebooks/catalog.json"],
+            ui_apps_patterns=_COVERING_PATTERNS,
+            tool_source="import catalog from 'products/notebooks/catalog.json'\n",
+        )
+        assert McpFilterCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues == []
+
+    def test_ui_apps_workflow_ignores_imports_it_does_not_compile(self, tmp_path: Path) -> None:
+        # ci-mcp-ui-apps.yml builds only the UI apps, so an import reachable only
+        # from services/mcp/src/tools is not its filter's problem.
+        workflows_dir = _mcp_repo(
+            tmp_path,
+            mcp_patterns=_COVERING_PATTERNS,
+            ui_apps_patterns=_COVERING_PATTERNS,
+            tool_source="import catalog from 'products/notebooks/catalog.json'\n",
+        )
+        assert _coverage_issues(tmp_path, workflows_dir, "ci-mcp-ui-apps.yml") == []
+        assert [message.split("'")[1] for message in _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")] == [
+            "products/notebooks/catalog.json"
+        ]
 
 
 class TestLiveTreeSmoke:

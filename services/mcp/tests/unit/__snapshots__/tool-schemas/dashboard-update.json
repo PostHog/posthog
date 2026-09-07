@@ -109,7 +109,8 @@
                     "const": 37,
                     "type": "number"
                 }
-            ]
+            ],
+            "description": "Who can edit this dashboard.\n\n* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit"
         },
         "tags": {
             "items": {

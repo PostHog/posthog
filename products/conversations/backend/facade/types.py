@@ -73,6 +73,7 @@ class EmailThreadAccountLinkInput:
 class EmailThreadForAccountMatching:
     id: str
     participant_emails: list[str]
+    gmail_owner_id: int | None
 
 
 @dataclass(frozen=True)

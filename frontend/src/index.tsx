@@ -12,16 +12,25 @@ import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
 // graph (kea, posthog-js, scene logic, UI components) is only fetched when it renders.
-// bootApp() runs the one-time boot side effects (posthog-js, kea) after the chunks
-// load and before <App /> first renders. It lives in its own module so scenes/App
-// keeps component-only exports and stays a React Fast Refresh boundary.
+// configureZod() is imported and called on its own before the App chunk, because zod
+// binds its jitless setting when it constructs each object schema and the App graph
+// constructs some at module scope. bootApp() runs the remaining one-time boot side
+// effects (posthog-js, kea) after the chunks load and before <App /> first renders.
+// It lives in its own module so scenes/App keeps component-only exports and stays a
+// React Fast Refresh boundary.
 const App = lazy(() =>
-    Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
-        ([appModule, bootModule]) => {
+    retryBootImport(() => import('lib/configureZod'))
+        .then(({ configureZod }) => {
+            configureZod()
+            return Promise.all([
+                retryBootImport(() => import('scenes/App')),
+                retryBootImport(() => import('scenes/bootApp')),
+            ])
+        })
+        .then(([appModule, bootModule]) => {
             bootModule.bootApp()
             return { default: appModule.App }
-        }
-    )
+        })
 )
 
 declare global {
@@ -59,9 +68,26 @@ function renderApp(): void {
     )
 }
 
+// The boot stylesheet is attached by the loader script in the HTML, and this entry can finish
+// before the sheet arrives. Rendering then paints the app unstyled until the sheet lands, so wait
+// for it, but only briefly: a stylesheet the CDN refuses must not block the app (the loader has
+// its own fallback link for that case).
+const CSS_READY_TIMEOUT_MS = 5000
+function whenBootStylesheetReady(): Promise<unknown> {
+    const cssReady = window.ESBUILD_CSS_READY
+    if (!cssReady) {
+        return Promise.resolve()
+    }
+    return Promise.race([cssReady, new Promise((resolve) => setTimeout(resolve, CSS_READY_TIMEOUT_MS))])
+}
+
+function boot(): void {
+    void whenBootStylesheetReady().then(renderApp)
+}
+
 // Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.
 if (document.readyState !== 'loading') {
-    renderApp()
+    boot()
 } else {
-    document.addEventListener('DOMContentLoaded', renderApp)
+    document.addEventListener('DOMContentLoaded', boot)
 }

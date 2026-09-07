@@ -32,7 +32,8 @@ export function FeatureDiscoveryBanner({ run }: { run: InboxFeatureDiscoveryRunA
 }
 
 export function FeaturesTab(): JSX.Element {
-    const { features, featuresLoading } = useValues(featureListLogic)
+    const { features, featuresLoading, hasMoreLive } = useValues(featureListLogic)
+    const { loadMoreFeatures } = useActions(featureListLogic)
     const { openNewFeatureModal } = useActions(featureCreateLogic)
     const { discoveryRetryLoading, discoveryRuns } = useValues(featureDiscoveryLogic)
     const { openDiscoveryModal, retryDiscovery } = useActions(featureDiscoveryLogic)
@@ -159,6 +160,11 @@ export function FeaturesTab(): JSX.Element {
                             </LemonCard>
                         </Link>
                     ))
+                )}
+                {hasMoreLive && (
+                    <LemonButton onClick={() => loadMoreFeatures({ stage: 'live' })} loading={featuresLoading}>
+                        Load more features
+                    </LemonButton>
                 )}
             </section>
             <NewFeatureModal />

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonSegmentedButton, LemonSlider, LemonSwitch, LemonTag, type LemonTagType } from '@posthog/lemon-ui'
 
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { cn } from 'lib/utils/css-classes'
 
 export type VisualDiffResult = 'changed' | 'new' | 'removed' | 'unchanged'
@@ -102,6 +103,7 @@ interface ImagePanelProps {
     highlightedOverlayIndex?: number | null
     /** Fires on hover so a parent panel can sync. */
     onOverlayHover?: (index: number | null) => void
+    onClick?: () => void
 }
 
 function ImagePanel({
@@ -115,37 +117,54 @@ function ImagePanel({
     overlayHeight,
     highlightedOverlayIndex,
     onOverlayHover,
+    onClick,
 }: ImagePanelProps): JSX.Element {
     const hasOverlay = !!url && !!overlayBoxes && overlayBoxes.length > 0 && !!overlayWidth && !!overlayHeight
+    const image = url ? (
+        // `block` on the inline-block wrapper kills the implicit
+        // baseline-descender gap that nudges the SVG overlay a few
+        // pixels below the image's actual bottom edge.
+        <div className="relative inline-block max-w-full leading-none">
+            <img
+                src={url}
+                alt={label}
+                loading="lazy"
+                decoding="async"
+                className={cn('block h-auto bg-black/5', imgClassName || 'max-w-full')}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={imgStyle}
+            />
+            {hasOverlay && (
+                <BboxOverlay
+                    boxes={overlayBoxes!}
+                    width={overlayWidth!}
+                    height={overlayHeight!}
+                    highlightedIndex={highlightedOverlayIndex ?? null}
+                    onHover={onOverlayHover}
+                />
+            )}
+        </div>
+    ) : null
+
     return (
         <div className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full">
             <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide border-b bg-bg-3000">
                 {label}
             </div>
-            {url ? (
-                // `block` on the inline-block wrapper kills the implicit
-                // baseline-descender gap that nudges the SVG overlay a few
-                // pixels below the image's actual bottom edge.
-                <div className="relative inline-block max-w-full leading-none">
-                    <img
-                        src={url}
-                        alt={label}
-                        loading="lazy"
-                        decoding="async"
-                        className={cn('block h-auto bg-black/5', imgClassName || 'max-w-full')}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={imgStyle}
-                    />
-                    {hasOverlay && (
-                        <BboxOverlay
-                            boxes={overlayBoxes!}
-                            width={overlayWidth!}
-                            height={overlayHeight!}
-                            highlightedIndex={highlightedOverlayIndex ?? null}
-                            onHover={onOverlayHover}
-                        />
-                    )}
-                </div>
+            {image ? (
+                onClick ? (
+                    <button
+                        type="button"
+                        onClick={onClick}
+                        aria-label={`View ${label.toLowerCase()} snapshot full screen`}
+                        data-attr="visual-review-zoom-image"
+                        className="block max-w-full cursor-zoom-in border-0 bg-transparent p-0 text-left"
+                    >
+                        {image}
+                    </button>
+                ) : (
+                    image
+                )
             ) : (
                 <EmptyImageState title={emptyTitle} />
             )}
@@ -364,6 +383,7 @@ export function VisualImageDiffViewer({
     const [blendPercentage, setBlendPercentage] = useState(50)
     const [showDiffOverlay, setShowDiffOverlay] = useState(false)
     const [diffOverlayOpacity, setDiffOverlayOpacity] = useState(55)
+    const [zoomedImage, setZoomedImage] = useState<{ url: string; label: string } | null>(null)
     const [flicker, setFlicker] = useState(false)
     const [flickerCurrentVisible, setFlickerCurrentVisible] = useState(false)
     const [draggingSplit, setDraggingSplit] = useState(false)
@@ -477,6 +497,11 @@ export function VisualImageDiffViewer({
                         emptyTitle="Before snapshot missing"
                         imgClassName={pixelatedClass}
                         imgStyle={pixelatedStyle}
+                        onClick={
+                            baselineUrl
+                                ? () => setZoomedImage({ url: baselineUrl, label: 'Before snapshot' })
+                                : undefined
+                        }
                     />
                     <ImagePanel
                         url={currentUrl}
@@ -484,6 +509,9 @@ export function VisualImageDiffViewer({
                         emptyTitle="After snapshot missing"
                         imgClassName={pixelatedClass}
                         imgStyle={pixelatedStyle}
+                        onClick={
+                            currentUrl ? () => setZoomedImage({ url: currentUrl, label: 'After snapshot' }) : undefined
+                        }
                         overlayBoxes={overlaySafeOnAfter ? overlayBoxesIfShown : undefined}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
@@ -724,95 +752,112 @@ export function VisualImageDiffViewer({
     }
 
     return (
-        <section className={cn('overflow-hidden rounded-xl border bg-surface-primary shadow-sm', className)}>
-            <div className="border-b bg-gradient-to-r from-bg-light via-bg-light to-bg-light/70 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonTag type={RESULT_TAG_TYPES[result]}>{RESULT_LABELS[result]}</LemonTag>
-                        {diffLabel && <LemonTag type="muted">{diffLabel}</LemonTag>}
-                        {hasOverlayBoxes && (
-                            <LemonSwitch
-                                checked={showClusters}
-                                onChange={setShowClusters}
-                                size="xsmall"
-                                label="Clusters"
-                                bordered
+        <>
+            <section className={cn('overflow-hidden rounded-xl border bg-surface-primary shadow-sm', className)}>
+                <div className="border-b bg-gradient-to-r from-bg-light via-bg-light to-bg-light/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <LemonTag type={RESULT_TAG_TYPES[result]}>{RESULT_LABELS[result]}</LemonTag>
+                            {diffLabel && <LemonTag type="muted">{diffLabel}</LemonTag>}
+                            {hasOverlayBoxes && (
+                                <LemonSwitch
+                                    checked={showClusters}
+                                    onChange={setShowClusters}
+                                    size="xsmall"
+                                    label="Clusters"
+                                    bordered
+                                />
+                            )}
+                            {isSmallImage && (
+                                <LemonTag type="highlight" className="font-bold">
+                                    Enlarged 2x for review
+                                </LemonTag>
+                            )}
+                        </div>
+                        {supportsComparison && (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={mode}
+                                onChange={(newMode) => setMode(newMode)}
+                                options={comparisonModes}
                             />
                         )}
-                        {isSmallImage && (
-                            <LemonTag type="highlight" className="font-bold">
-                                Enlarged 2x for review
-                            </LemonTag>
-                        )}
                     </div>
-                    {supportsComparison && (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={mode}
-                            onChange={(newMode) => setMode(newMode)}
-                            options={comparisonModes}
-                        />
-                    )}
-                </div>
 
-                {supportsComparison && mode !== 'sideBySide' && mode !== 'diff' && (
-                    <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border bg-surface-primary px-3 py-2">
-                        {mode === 'split' && hasBothImages && (
-                            <LemonSwitch checked={flicker} onChange={setFlicker} size="small" label="Flicker" />
-                        )}
-                        {mode === 'blend' && (
-                            <div className="flex min-w-60 flex-1 items-center gap-3">
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">Before → After</span>
-                                <LemonSlider
-                                    min={0}
-                                    max={100}
-                                    step={1}
-                                    value={blendPercentage}
-                                    onChange={setBlendPercentage}
-                                    className="m-0 w-full"
-                                />
-                                <span className="text-xs tabular-nums text-muted-foreground w-10 text-right">
-                                    {blendPercentage}%
-                                </span>
-                            </div>
-                        )}
-                        {hasDiffImage && (
-                            <>
-                                <LemonSwitch
-                                    checked={showDiffOverlay}
-                                    onChange={setShowDiffOverlay}
-                                    size="small"
-                                    label="Diff overlay"
-                                />
-                                <div
-                                    className={cn(
-                                        'flex min-w-60 flex-1 items-center gap-3 transition-opacity',
-                                        showDiffOverlay ? 'opacity-100' : 'opacity-40 pointer-events-none'
-                                    )}
-                                    aria-hidden={!showDiffOverlay}
-                                >
+                    {supportsComparison && mode !== 'sideBySide' && mode !== 'diff' && (
+                        <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border bg-surface-primary px-3 py-2">
+                            {mode === 'split' && hasBothImages && (
+                                <LemonSwitch checked={flicker} onChange={setFlicker} size="small" label="Flicker" />
+                            )}
+                            {mode === 'blend' && (
+                                <div className="flex min-w-60 flex-1 items-center gap-3">
                                     <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                        Overlay opacity
+                                        Before → After
                                     </span>
                                     <LemonSlider
                                         min={0}
                                         max={100}
                                         step={1}
-                                        value={diffOverlayOpacity}
-                                        onChange={setDiffOverlayOpacity}
+                                        value={blendPercentage}
+                                        onChange={setBlendPercentage}
                                         className="m-0 w-full"
                                     />
                                     <span className="text-xs tabular-nums text-muted-foreground w-10 text-right">
-                                        {diffOverlayOpacity}%
+                                        {blendPercentage}%
                                     </span>
                                 </div>
-                            </>
-                        )}
-                    </div>
-                )}
-            </div>
+                            )}
+                            {hasDiffImage && (
+                                <>
+                                    <LemonSwitch
+                                        checked={showDiffOverlay}
+                                        onChange={setShowDiffOverlay}
+                                        size="small"
+                                        label="Diff overlay"
+                                    />
+                                    <div
+                                        className={cn(
+                                            'flex min-w-60 flex-1 items-center gap-3 transition-opacity',
+                                            showDiffOverlay ? 'opacity-100' : 'opacity-40 pointer-events-none'
+                                        )}
+                                        aria-hidden={!showDiffOverlay}
+                                    >
+                                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                            Overlay opacity
+                                        </span>
+                                        <LemonSlider
+                                            min={0}
+                                            max={100}
+                                            step={1}
+                                            value={diffOverlayOpacity}
+                                            onChange={setDiffOverlayOpacity}
+                                            className="m-0 w-full"
+                                        />
+                                        <span className="text-xs tabular-nums text-muted-foreground w-10 text-right">
+                                            {diffOverlayOpacity}%
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
 
-            {supportsComparison ? renderComparisonBody() : renderSingleImageBody()}
-        </section>
+                {supportsComparison ? renderComparisonBody() : renderSingleImageBody()}
+            </section>
+            <LemonModal
+                isOpen={!!zoomedImage}
+                onClose={() => setZoomedImage(null)}
+                fullScreen
+                simple
+                data-attr="visual-review-zoomed-image"
+            >
+                <div className="flex h-full min-h-0 items-center justify-center bg-bg-3000 p-4">
+                    {zoomedImage && (
+                        <img src={zoomedImage.url} alt={zoomedImage.label} className="h-full w-full object-contain" />
+                    )}
+                </div>
+            </LemonModal>
+        </>
     )
 }

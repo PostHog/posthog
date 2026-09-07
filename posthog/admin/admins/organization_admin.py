@@ -26,6 +26,7 @@ from posthog.admin.inlines.organization_domain_inline import OrganizationDomainI
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.project_inline import ProjectInline
+from posthog.admin.inlines.proxy_record_inline import ProxyRecordInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
@@ -252,6 +253,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_platform",
         "members_can_invite",
         "members_can_create_projects",
+        "uses_most_specific_access_resolution",
         "is_ai_data_processing_approved",
         "is_ai_training_opted_in",
         "is_ai_training_locked",
@@ -265,6 +267,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationMemberInline,
         OrganizationInviteInline,
         OrganizationDomainInline,
+        ProxyRecordInline,
     ]
     readonly_fields = [
         "id",

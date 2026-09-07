@@ -495,9 +495,6 @@ tools:
     warehouse-column-annotations-update:
         operation: warehouse_column_annotations_update
         enabled: false
-    warehouse-dag-list:
-        operation: warehouse_dag_list
-        enabled: false
     warehouse-expressions-create:
         operation: warehouse_expressions_create
         enabled: false
@@ -515,12 +512,6 @@ tools:
         enabled: false
     warehouse-expressions-update:
         operation: warehouse_expressions_update
-        enabled: false
-    warehouse-model-paths-list:
-        operation: warehouse_model_paths_list
-        enabled: false
-    warehouse-model-paths-retrieve:
-        operation: warehouse_model_paths_retrieve
         enabled: false
     warehouse-saved-queries-activity-retrieve:
         operation: warehouse_saved_queries_activity_retrieve

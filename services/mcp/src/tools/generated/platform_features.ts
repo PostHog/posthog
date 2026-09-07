@@ -2,34 +2,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    AdvancedActivityLogsListQueryParams,
-    ApprovalPoliciesListQueryParams,
-    ApprovalPoliciesRetrieveParams,
-    ChangeRequestsApproveCreateBody,
-    ChangeRequestsApproveCreateParams,
-    ChangeRequestsListQueryParams,
-    ChangeRequestsRejectCreateBody,
-    ChangeRequestsRejectCreateParams,
-    ChangeRequestsRetrieveParams,
-    CommentsCreateBody,
-    CommentsListQueryParams,
-    CommentsRetrieveParams,
-    CommentsThreadRetrieveParams,
-    ListQueryParams,
-    MembersGithubLoginRetrieveParams,
-    MembersListQueryParams,
-    PartialUpdateBody,
-    PartialUpdateParams,
-    RetrieveParams,
-    RolesListQueryParams,
-    RolesRetrieveParams,
-    RolesRoleMembershipsListParams,
-    RolesRoleMembershipsListQueryParams,
-    UserHomeSettingsPartialUpdateBody,
-    UserHomeSettingsPartialUpdateParams,
-    UserHomeSettingsRetrieveParams,
-} from '@/generated/platform_features/api'
+import * as orvalSchemas from '@/generated/platform_features/api'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -45,16 +18,15 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AdvancedActivityLogsFiltersSchema = z.object({})
+const AdvancedActivityLogsFiltersSchema = () => z.object({})
 
 const advancedActivityLogsFilters = (): ToolBase<
-    typeof AdvancedActivityLogsFiltersSchema,
+    ReturnType<typeof AdvancedActivityLogsFiltersSchema>,
     Schemas.AvailableFiltersResponse
 > => ({
     name: 'advanced-activity-logs-filters',
-    schema: AdvancedActivityLogsFiltersSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof AdvancedActivityLogsFiltersSchema>) => {
+    schema: AdvancedActivityLogsFiltersSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof AdvancedActivityLogsFiltersSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AvailableFiltersResponse>({
             method: 'GET',
@@ -64,41 +36,44 @@ const advancedActivityLogsFilters = (): ToolBase<
     },
 })
 
-const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.omit({ include_values: true, schema: true })
-    .extend({ page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional() })
-    .extend({
-        fields: z
-            .array(
-                z.enum([
-                    'id',
-                    'user.id',
-                    'user.first_name',
-                    'user.last_name',
-                    'user.email',
-                    'activity',
-                    'scope',
-                    'item_id',
-                    'detail.name',
-                    'detail.short_id',
-                    'detail.type',
-                    'detail.changes',
-                    'created_at',
-                ])
-            )
-            .min(1)
-            .optional()
-            .describe(
-                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
-            ),
-    })
+const AdvancedActivityLogsListSchema = () => {
+    const AdvancedActivityLogsListQueryParams = orvalSchemas.AdvancedActivityLogsListQueryParams()
+    return AdvancedActivityLogsListQueryParams.omit({ include_values: true, schema: true })
+        .extend({ page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional() })
+        .extend({
+            fields: z
+                .array(
+                    z.enum([
+                        'id',
+                        'user.id',
+                        'user.first_name',
+                        'user.last_name',
+                        'user.email',
+                        'activity',
+                        'scope',
+                        'item_id',
+                        'detail.name',
+                        'detail.short_id',
+                        'detail.type',
+                        'detail.changes',
+                        'created_at',
+                    ])
+                )
+                .min(1)
+                .optional()
+                .describe(
+                    'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+                ),
+        })
+}
 
 const advancedActivityLogsList = (): ToolBase<
-    typeof AdvancedActivityLogsListSchema,
+    ReturnType<typeof AdvancedActivityLogsListSchema>,
     WithPostHogUrl<Schemas.PaginatedActivityLogList>
 > => ({
     name: 'advanced-activity-logs-list',
-    schema: AdvancedActivityLogsListSchema,
-    handler: async (context: Context, params: z.infer<typeof AdvancedActivityLogsListSchema>) => {
+    schema: AdvancedActivityLogsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AdvancedActivityLogsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedActivityLogList>({
             method: 'GET',
@@ -153,12 +128,18 @@ const advancedActivityLogsList = (): ToolBase<
     },
 })
 
-const ApprovalPoliciesListSchema = ApprovalPoliciesListQueryParams
+const ApprovalPoliciesListSchema = () => {
+    const ApprovalPoliciesListQueryParams = orvalSchemas.ApprovalPoliciesListQueryParams()
+    return ApprovalPoliciesListQueryParams
+}
 
-const approvalPoliciesList = (): ToolBase<typeof ApprovalPoliciesListSchema, Schemas.PaginatedApprovalPolicyList> => ({
+const approvalPoliciesList = (): ToolBase<
+    ReturnType<typeof ApprovalPoliciesListSchema>,
+    Schemas.PaginatedApprovalPolicyList
+> => ({
     name: 'approval-policies-list',
-    schema: ApprovalPoliciesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ApprovalPoliciesListSchema>) => {
+    schema: ApprovalPoliciesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApprovalPoliciesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedApprovalPolicyList>({
             method: 'GET',
@@ -172,12 +153,15 @@ const approvalPoliciesList = (): ToolBase<typeof ApprovalPoliciesListSchema, Sch
     },
 })
 
-const ApprovalPolicyGetSchema = ApprovalPoliciesRetrieveParams.omit({ project_id: true })
+const ApprovalPolicyGetSchema = () => {
+    const ApprovalPoliciesRetrieveParams = orvalSchemas.ApprovalPoliciesRetrieveParams()
+    return ApprovalPoliciesRetrieveParams.omit({ project_id: true })
+}
 
-const approvalPolicyGet = (): ToolBase<typeof ApprovalPolicyGetSchema, Schemas.ApprovalPolicy> => ({
+const approvalPolicyGet = (): ToolBase<ReturnType<typeof ApprovalPolicyGetSchema>, Schemas.ApprovalPolicy> => ({
     name: 'approval-policy-get',
-    schema: ApprovalPolicyGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ApprovalPolicyGetSchema>) => {
+    schema: ApprovalPolicyGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApprovalPolicyGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ApprovalPolicy>({
             method: 'GET',
@@ -187,15 +171,18 @@ const approvalPolicyGet = (): ToolBase<typeof ApprovalPolicyGetSchema, Schemas.A
     },
 })
 
-const ChangeRequestGetSchema = ChangeRequestsRetrieveParams.omit({ project_id: true })
+const ChangeRequestGetSchema = () => {
+    const ChangeRequestsRetrieveParams = orvalSchemas.ChangeRequestsRetrieveParams()
+    return ChangeRequestsRetrieveParams.omit({ project_id: true })
+}
 
 const changeRequestGet = (): ToolBase<
-    typeof ChangeRequestGetSchema,
+    ReturnType<typeof ChangeRequestGetSchema>,
     WithInformationalResponse<Schemas.ChangeRequest>
 > => ({
     name: 'change-request-get',
-    schema: ChangeRequestGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ChangeRequestGetSchema>) => {
+    schema: ChangeRequestGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChangeRequestGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ChangeRequest>({
             method: 'GET',
@@ -209,13 +196,17 @@ const changeRequestGet = (): ToolBase<
     },
 })
 
-const ChangeRequestsApproveSchema = ChangeRequestsApproveCreateParams.omit({ project_id: true })
-    .extend(ChangeRequestsApproveCreateBody.shape)
-    .extend({
-        reason: ChangeRequestsApproveCreateBody.shape['reason'].describe(
-            'Optional note recorded alongside your approval vote.'
-        ),
-    })
+const ChangeRequestsApproveSchema = () => {
+    const ChangeRequestsApproveCreateBody = orvalSchemas.ChangeRequestsApproveCreateBody()
+    const ChangeRequestsApproveCreateParams = orvalSchemas.ChangeRequestsApproveCreateParams()
+    return ChangeRequestsApproveCreateParams.omit({ project_id: true })
+        .extend(ChangeRequestsApproveCreateBody.shape)
+        .extend({
+            reason: ChangeRequestsApproveCreateBody.shape['reason'].describe(
+                'Optional note recorded alongside your approval vote.'
+            ),
+        })
+}
 
 const ChangeRequestsApproveSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -225,12 +216,12 @@ const ChangeRequestsApproveSchemaExecute = z.strictObject({
 })
 
 const changeRequestsApprovePrepare = (): ToolBase<
-    typeof ChangeRequestsApproveSchema,
+    ReturnType<typeof ChangeRequestsApproveSchema>,
     PrepareConfirmedActionResult
 > => ({
     name: 'change-requests-approve-prepare',
-    schema: ChangeRequestsApproveSchema,
-    handler: async (context: Context, params: z.infer<typeof ChangeRequestsApproveSchema>) => {
+    schema: ChangeRequestsApproveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChangeRequestsApproveSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -255,7 +246,7 @@ const changeRequestsApproveExecute = (): ToolBase<
     handler: async (context: Context, confirmationParams: z.infer<typeof ChangeRequestsApproveSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof ChangeRequestsApproveSchema>>(context, {
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ChangeRequestsApproveSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'change-requests-approve',
             codec: __runtime.codec,
@@ -293,19 +284,22 @@ const changeRequestsApproveExecute = (): ToolBase<
     },
 })
 
-const ChangeRequestsListSchema = ChangeRequestsListQueryParams.extend({
-    state: ChangeRequestsListQueryParams.shape['state'].describe(
-        'Optional comma-separated filter by state. Use `pending` to see only requests still open for a decision. Values: pending, approved, applied, rejected, expired.'
-    ),
-})
+const ChangeRequestsListSchema = () => {
+    const ChangeRequestsListQueryParams = orvalSchemas.ChangeRequestsListQueryParams()
+    return ChangeRequestsListQueryParams.extend({
+        state: ChangeRequestsListQueryParams.shape['state'].describe(
+            'Optional comma-separated filter by state. Use `pending` to see only requests still open for a decision. Values: pending, approved, applied, rejected, expired.'
+        ),
+    })
+}
 
 const changeRequestsList = (): ToolBase<
-    typeof ChangeRequestsListSchema,
+    ReturnType<typeof ChangeRequestsListSchema>,
     WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedChangeRequestList>>
 > => ({
     name: 'change-requests-list',
-    schema: ChangeRequestsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ChangeRequestsListSchema>) => {
+    schema: ChangeRequestsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChangeRequestsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedChangeRequestList>({
             method: 'GET',
@@ -347,13 +341,17 @@ const changeRequestsList = (): ToolBase<
     },
 })
 
-const ChangeRequestsRejectSchema = ChangeRequestsRejectCreateParams.omit({ project_id: true })
-    .extend(ChangeRequestsRejectCreateBody.shape)
-    .extend({
-        reason: ChangeRequestsRejectCreateBody.shape['reason'].describe(
-            'Reason for the rejection (required). Recorded with the vote and shown to the requester.'
-        ),
-    })
+const ChangeRequestsRejectSchema = () => {
+    const ChangeRequestsRejectCreateBody = orvalSchemas.ChangeRequestsRejectCreateBody()
+    const ChangeRequestsRejectCreateParams = orvalSchemas.ChangeRequestsRejectCreateParams()
+    return ChangeRequestsRejectCreateParams.omit({ project_id: true })
+        .extend(ChangeRequestsRejectCreateBody.shape)
+        .extend({
+            reason: ChangeRequestsRejectCreateBody.shape['reason'].describe(
+                'Reason for the rejection (required). Recorded with the vote and shown to the requester.'
+            ),
+        })
+}
 
 const ChangeRequestsRejectSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -362,10 +360,13 @@ const ChangeRequestsRejectSchemaExecute = z.strictObject({
     confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
 })
 
-const changeRequestsRejectPrepare = (): ToolBase<typeof ChangeRequestsRejectSchema, PrepareConfirmedActionResult> => ({
+const changeRequestsRejectPrepare = (): ToolBase<
+    ReturnType<typeof ChangeRequestsRejectSchema>,
+    PrepareConfirmedActionResult
+> => ({
     name: 'change-requests-reject-prepare',
-    schema: ChangeRequestsRejectSchema,
-    handler: async (context: Context, params: z.infer<typeof ChangeRequestsRejectSchema>) => {
+    schema: ChangeRequestsRejectSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChangeRequestsRejectSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -390,7 +391,7 @@ const changeRequestsRejectExecute = (): ToolBase<
     handler: async (context: Context, confirmationParams: z.infer<typeof ChangeRequestsRejectSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof ChangeRequestsRejectSchema>>(context, {
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ChangeRequestsRejectSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'change-requests-reject',
             codec: __runtime.codec,
@@ -427,13 +428,12 @@ const changeRequestsRejectExecute = (): ToolBase<
     },
 })
 
-const CommentCountSchema = z.object({})
+const CommentCountSchema = () => z.object({})
 
-const commentCount = (): ToolBase<typeof CommentCountSchema, unknown> => ({
+const commentCount = (): ToolBase<ReturnType<typeof CommentCountSchema>, unknown> => ({
     name: 'comment-count',
-    schema: CommentCountSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof CommentCountSchema>) => {
+    schema: CommentCountSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof CommentCountSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -443,12 +443,15 @@ const commentCount = (): ToolBase<typeof CommentCountSchema, unknown> => ({
     },
 })
 
-const CommentGetSchema = CommentsRetrieveParams.omit({ project_id: true })
+const CommentGetSchema = () => {
+    const CommentsRetrieveParams = orvalSchemas.CommentsRetrieveParams()
+    return CommentsRetrieveParams.omit({ project_id: true })
+}
 
-const commentGet = (): ToolBase<typeof CommentGetSchema, Schemas.Comment> => ({
+const commentGet = (): ToolBase<ReturnType<typeof CommentGetSchema>, Schemas.Comment> => ({
     name: 'comment-get',
-    schema: CommentGetSchema,
-    handler: async (context: Context, params: z.infer<typeof CommentGetSchema>) => {
+    schema: CommentGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Comment>({
             method: 'GET',
@@ -458,12 +461,15 @@ const commentGet = (): ToolBase<typeof CommentGetSchema, Schemas.Comment> => ({
     },
 })
 
-const CommentThreadSchema = CommentsThreadRetrieveParams.omit({ project_id: true })
+const CommentThreadSchema = () => {
+    const CommentsThreadRetrieveParams = orvalSchemas.CommentsThreadRetrieveParams()
+    return CommentsThreadRetrieveParams.omit({ project_id: true })
+}
 
-const commentThread = (): ToolBase<typeof CommentThreadSchema, unknown> => ({
+const commentThread = (): ToolBase<ReturnType<typeof CommentThreadSchema>, unknown> => ({
     name: 'comment-thread',
-    schema: CommentThreadSchema,
-    handler: async (context: Context, params: z.infer<typeof CommentThreadSchema>) => {
+    schema: CommentThreadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentThreadSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -473,12 +479,15 @@ const commentThread = (): ToolBase<typeof CommentThreadSchema, unknown> => ({
     },
 })
 
-const CommentsCreateSchema = CommentsCreateBody
+const CommentsCreateSchema = () => {
+    const CommentsCreateBody = orvalSchemas.CommentsCreateBody()
+    return CommentsCreateBody
+}
 
-const commentsCreate = (): ToolBase<typeof CommentsCreateSchema, Schemas.Comment> => ({
+const commentsCreate = (): ToolBase<ReturnType<typeof CommentsCreateSchema>, Schemas.Comment> => ({
     name: 'comments-create',
-    schema: CommentsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof CommentsCreateSchema>) => {
+    schema: CommentsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.scope !== undefined) {
@@ -520,12 +529,15 @@ const commentsCreate = (): ToolBase<typeof CommentsCreateSchema, Schemas.Comment
     },
 })
 
-const CommentsListSchema = CommentsListQueryParams
+const CommentsListSchema = () => {
+    const CommentsListQueryParams = orvalSchemas.CommentsListQueryParams()
+    return CommentsListQueryParams
+}
 
-const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCommentList> => ({
+const commentsList = (): ToolBase<ReturnType<typeof CommentsListSchema>, Schemas.PaginatedCommentList> => ({
     name: 'comments-list',
-    schema: CommentsListSchema,
-    handler: async (context: Context, params: z.infer<typeof CommentsListSchema>) => {
+    schema: CommentsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedCommentList>({
             method: 'GET',
@@ -545,19 +557,22 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
     },
 })
 
-const OrgMemberGetGithubLoginSchema = MembersGithubLoginRetrieveParams.omit({ organization_id: true }).extend({
-    user__uuid: MembersGithubLoginRetrieveParams.shape['user__uuid'].describe(
-        'The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me" for the current user.'
-    ),
-})
+const OrgMemberGetGithubLoginSchema = () => {
+    const MembersGithubLoginRetrieveParams = orvalSchemas.MembersGithubLoginRetrieveParams()
+    return MembersGithubLoginRetrieveParams.omit({ organization_id: true }).extend({
+        user__uuid: MembersGithubLoginRetrieveParams.shape['user__uuid'].describe(
+            'The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me" for the current user.'
+        ),
+    })
+}
 
 const orgMemberGetGithubLogin = (): ToolBase<
-    typeof OrgMemberGetGithubLoginSchema,
+    ReturnType<typeof OrgMemberGetGithubLoginSchema>,
     Schemas.OrganizationMemberGithubLogin
 > => ({
     name: 'org-member-get-github-login',
-    schema: OrgMemberGetGithubLoginSchema,
-    handler: async (context: Context, params: z.infer<typeof OrgMemberGetGithubLoginSchema>) => {
+    schema: OrgMemberGetGithubLoginSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrgMemberGetGithubLoginSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.OrganizationMemberGithubLogin>({
             method: 'GET',
@@ -567,12 +582,18 @@ const orgMemberGetGithubLogin = (): ToolBase<
     },
 })
 
-const OrgMembersListSchema = MembersListQueryParams
+const OrgMembersListSchema = () => {
+    const MembersListQueryParams = orvalSchemas.MembersListQueryParams()
+    return MembersListQueryParams
+}
 
-const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.PaginatedOrganizationMemberList> => ({
+const orgMembersList = (): ToolBase<
+    ReturnType<typeof OrgMembersListSchema>,
+    Schemas.PaginatedOrganizationMemberList
+> => ({
     name: 'org-members-list',
-    schema: OrgMembersListSchema,
-    handler: async (context: Context, params: z.infer<typeof OrgMembersListSchema>) => {
+    schema: OrgMembersListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrgMembersListSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.PaginatedOrganizationMemberList>({
             method: 'GET',
@@ -591,33 +612,37 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
     },
 })
 
-const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
-    PartialUpdateBody.omit({
-        name: true,
-        logo_media_id: true,
-        enforce_verified_domains: true,
-        members_can_invite: true,
-        members_can_create_projects: true,
-        members_can_use_personal_api_keys: true,
-        members_can_see_org_members: true,
-        allow_publicly_shared_resources: true,
-        read_only_mcp_access: true,
-        is_ai_data_processing_approved: true,
-        is_ai_training_opted_in: true,
-        default_experiment_stats_method: true,
-        default_anonymize_ips: true,
-        default_role_id: true,
-    }).shape
-).extend({
-    id: PartialUpdateParams.shape['id']
-        .describe('Organization ID. If omitted, targets the active organization.')
-        .optional(),
-    enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
-        .unwrap()
-        .describe(
-            'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
-        ),
-})
+const OrganizationEnforce2faSchema = () => {
+    const PartialUpdateBody = orvalSchemas.PartialUpdateBody()
+    const PartialUpdateParams = orvalSchemas.PartialUpdateParams()
+    return PartialUpdateParams.extend(
+        PartialUpdateBody.omit({
+            name: true,
+            logo_media_id: true,
+            enforce_verified_domains: true,
+            members_can_invite: true,
+            members_can_create_projects: true,
+            members_can_use_personal_api_keys: true,
+            members_can_see_org_members: true,
+            allow_publicly_shared_resources: true,
+            read_only_mcp_access: true,
+            is_ai_data_processing_approved: true,
+            is_ai_training_opted_in: true,
+            default_experiment_stats_method: true,
+            default_anonymize_ips: true,
+            default_role_id: true,
+        }).shape
+    ).extend({
+        id: PartialUpdateParams.shape['id']
+            .describe('Organization ID. If omitted, targets the active organization.')
+            .optional(),
+        enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
+            .unwrap()
+            .describe(
+                'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
+            ),
+    })
+}
 
 const OrganizationEnforce2faSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -627,12 +652,12 @@ const OrganizationEnforce2faSchemaExecute = z.strictObject({
 })
 
 const organizationEnforce2faPrepare = (): ToolBase<
-    typeof OrganizationEnforce2faSchema,
+    ReturnType<typeof OrganizationEnforce2faSchema>,
     PrepareConfirmedActionResult
 > => ({
     name: 'organization-enforce-2fa-prepare',
-    schema: OrganizationEnforce2faSchema,
-    handler: async (context: Context, params: z.infer<typeof OrganizationEnforce2faSchema>) => {
+    schema: OrganizationEnforce2faSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrganizationEnforce2faSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const id = params.id ?? (await context.stateManager.getOrgID())
         if (!id) {
@@ -658,13 +683,16 @@ const organizationEnforce2faExecute = (): ToolBase<
     schema: OrganizationEnforce2faSchemaExecute,
     handler: async (context: Context, confirmationParams: z.infer<typeof OrganizationEnforce2faSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction<z.infer<typeof OrganizationEnforce2faSchema>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'organization-enforce-2fa',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-        })
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof OrganizationEnforce2faSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'organization-enforce-2fa',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+            }
+        )
         if (!__guard.ok) {
             return __guard.result as never
         }
@@ -687,14 +715,19 @@ const organizationEnforce2faExecute = (): ToolBase<
     },
 })
 
-const OrganizationGetSchema = RetrieveParams.extend({
-    id: RetrieveParams.shape['id'].describe('Organization ID. If omitted, uses the active organization.').optional(),
-})
+const OrganizationGetSchema = () => {
+    const RetrieveParams = orvalSchemas.RetrieveParams()
+    return RetrieveParams.extend({
+        id: RetrieveParams.shape['id']
+            .describe('Organization ID. If omitted, uses the active organization.')
+            .optional(),
+    })
+}
 
-const organizationGet = (): ToolBase<typeof OrganizationGetSchema, Schemas.Organization> => ({
+const organizationGet = (): ToolBase<ReturnType<typeof OrganizationGetSchema>, Schemas.Organization> => ({
     name: 'organization-get',
-    schema: OrganizationGetSchema,
-    handler: async (context: Context, params: z.infer<typeof OrganizationGetSchema>) => {
+    schema: OrganizationGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrganizationGetSchema>>) => {
         const id = params.id ?? (await context.stateManager.getOrgID())
         if (!id) {
             throw new Error('id is required. Provide it explicitly or set an active organization first.')
@@ -721,15 +754,18 @@ const organizationGet = (): ToolBase<typeof OrganizationGetSchema, Schemas.Organ
     },
 })
 
-const OrganizationsListSchema = ListQueryParams
+const OrganizationsListSchema = () => {
+    const ListQueryParams = orvalSchemas.ListQueryParams()
+    return ListQueryParams
+}
 
 const organizationsList = (): ToolBase<
-    typeof OrganizationsListSchema,
+    ReturnType<typeof OrganizationsListSchema>,
     WithPostHogUrl<Schemas.PaginatedOrganizationList>
 > => ({
     name: 'organizations-list',
-    schema: OrganizationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof OrganizationsListSchema>) => {
+    schema: OrganizationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrganizationsListSchema>>) => {
         const result = await context.api.request<Schemas.PaginatedOrganizationList>({
             method: 'GET',
             path: `/api/organizations/`,
@@ -748,12 +784,15 @@ const organizationsList = (): ToolBase<
     },
 })
 
-const RoleGetSchema = RolesRetrieveParams.omit({ organization_id: true })
+const RoleGetSchema = () => {
+    const RolesRetrieveParams = orvalSchemas.RolesRetrieveParams()
+    return RolesRetrieveParams.omit({ organization_id: true })
+}
 
-const roleGet = (): ToolBase<typeof RoleGetSchema, Schemas.Role> => ({
+const roleGet = (): ToolBase<ReturnType<typeof RoleGetSchema>, Schemas.Role> => ({
     name: 'role-get',
-    schema: RoleGetSchema,
-    handler: async (context: Context, params: z.infer<typeof RoleGetSchema>) => {
+    schema: RoleGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof RoleGetSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.Role>({
             method: 'GET',
@@ -763,14 +802,21 @@ const roleGet = (): ToolBase<typeof RoleGetSchema, Schemas.Role> => ({
     },
 })
 
-const RoleMembersListSchema = RolesRoleMembershipsListParams.omit({ organization_id: true }).extend(
-    RolesRoleMembershipsListQueryParams.shape
-)
+const RoleMembersListSchema = () => {
+    const RolesRoleMembershipsListParams = orvalSchemas.RolesRoleMembershipsListParams()
+    const RolesRoleMembershipsListQueryParams = orvalSchemas.RolesRoleMembershipsListQueryParams()
+    return RolesRoleMembershipsListParams.omit({ organization_id: true }).extend(
+        RolesRoleMembershipsListQueryParams.shape
+    )
+}
 
-const roleMembersList = (): ToolBase<typeof RoleMembersListSchema, Schemas.PaginatedRoleMembershipList> => ({
+const roleMembersList = (): ToolBase<
+    ReturnType<typeof RoleMembersListSchema>,
+    Schemas.PaginatedRoleMembershipList
+> => ({
     name: 'role-members-list',
-    schema: RoleMembersListSchema,
-    handler: async (context: Context, params: z.infer<typeof RoleMembersListSchema>) => {
+    schema: RoleMembersListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof RoleMembersListSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.PaginatedRoleMembershipList>({
             method: 'GET',
@@ -784,12 +830,15 @@ const roleMembersList = (): ToolBase<typeof RoleMembersListSchema, Schemas.Pagin
     },
 })
 
-const RolesListSchema = RolesListQueryParams
+const RolesListSchema = () => {
+    const RolesListQueryParams = orvalSchemas.RolesListQueryParams()
+    return RolesListQueryParams
+}
 
-const rolesList = (): ToolBase<typeof RolesListSchema, Schemas.PaginatedRoleList> => ({
+const rolesList = (): ToolBase<ReturnType<typeof RolesListSchema>, Schemas.PaginatedRoleList> => ({
     name: 'roles-list',
-    schema: RolesListSchema,
-    handler: async (context: Context, params: z.infer<typeof RolesListSchema>) => {
+    schema: RolesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof RolesListSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<Schemas.PaginatedRoleList>({
             method: 'GET',
@@ -803,16 +852,19 @@ const rolesList = (): ToolBase<typeof RolesListSchema, Schemas.PaginatedRoleList
     },
 })
 
-const UserHomeSettingsGetSchema = UserHomeSettingsRetrieveParams.extend({
-    uuid: UserHomeSettingsRetrieveParams.shape['uuid'].describe(
-        'User UUID, or `@me` to target the authenticated user.'
-    ),
-})
+const UserHomeSettingsGetSchema = () => {
+    const UserHomeSettingsRetrieveParams = orvalSchemas.UserHomeSettingsRetrieveParams()
+    return UserHomeSettingsRetrieveParams.extend({
+        uuid: UserHomeSettingsRetrieveParams.shape['uuid'].describe(
+            'User UUID, or `@me` to target the authenticated user.'
+        ),
+    })
+}
 
-const userHomeSettingsGet = (): ToolBase<typeof UserHomeSettingsGetSchema, Schemas.PinnedSceneTabs> => ({
+const userHomeSettingsGet = (): ToolBase<ReturnType<typeof UserHomeSettingsGetSchema>, Schemas.PinnedSceneTabs> => ({
     name: 'user-home-settings-get',
-    schema: UserHomeSettingsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof UserHomeSettingsGetSchema>) => {
+    schema: UserHomeSettingsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserHomeSettingsGetSchema>>) => {
         const result = await context.api.request<Schemas.PinnedSceneTabs>({
             method: 'GET',
             path: `/api/user_home_settings/${encodeURIComponent(String(params.uuid))}/`,
@@ -821,18 +873,23 @@ const userHomeSettingsGet = (): ToolBase<typeof UserHomeSettingsGetSchema, Schem
     },
 })
 
-const UserHomeSettingsUpdateSchema = UserHomeSettingsPartialUpdateParams.extend(
-    UserHomeSettingsPartialUpdateBody.shape
-).extend({
-    uuid: UserHomeSettingsPartialUpdateParams.shape['uuid'].describe(
-        'User UUID, or `@me` to target the authenticated user.'
-    ),
-})
+const UserHomeSettingsUpdateSchema = () => {
+    const UserHomeSettingsPartialUpdateBody = orvalSchemas.UserHomeSettingsPartialUpdateBody()
+    const UserHomeSettingsPartialUpdateParams = orvalSchemas.UserHomeSettingsPartialUpdateParams()
+    return UserHomeSettingsPartialUpdateParams.extend(UserHomeSettingsPartialUpdateBody.shape).extend({
+        uuid: UserHomeSettingsPartialUpdateParams.shape['uuid'].describe(
+            'User UUID, or `@me` to target the authenticated user.'
+        ),
+    })
+}
 
-const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema, Schemas.PinnedSceneTabs> => ({
+const userHomeSettingsUpdate = (): ToolBase<
+    ReturnType<typeof UserHomeSettingsUpdateSchema>,
+    Schemas.PinnedSceneTabs
+> => ({
     name: 'user-home-settings-update',
-    schema: UserHomeSettingsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserHomeSettingsUpdateSchema>) => {
+    schema: UserHomeSettingsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserHomeSettingsUpdateSchema>>) => {
         const body: Record<string, unknown> = {}
         if (params.tabs !== undefined) {
             body['tabs'] = params.tabs

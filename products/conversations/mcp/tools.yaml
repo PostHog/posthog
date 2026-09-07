@@ -60,6 +60,9 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
+    conversations-tickets-messages-full-email-retrieve:
+        operation: conversations_tickets_messages_full_email_retrieve
+        enabled: false
     conversations-tickets-messages-retrieve:
         operation: conversations_tickets_messages_list
         enabled: true

@@ -87,14 +87,14 @@ CREATE TABLE posthog.kafka_hog_invocation_results (
   invocation_globals String,
   version UInt64,
   is_deleted UInt8
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_cyclotron', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_hog_invocation_results\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_hog_invocation_results\'';
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_hog_invocation_results';
 CREATE TABLE posthog.kafka_ingestion_warnings_v2 (
   team_id Int64,
   source LowCardinality(String),
   type String,
   details String,
   timestamp DateTime64(6, 'UTC')
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_ingestion_warnings_v2\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ingestion_warnings\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_ingestion_warnings_v2', kafka_topic_list = 'clickhouse_ingestion_warnings';
 CREATE TABLE posthog.kafka_message_assets (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -112,14 +112,14 @@ CREATE TABLE posthog.kafka_message_assets (
   version UInt64,
   is_deleted UInt8,
   html String
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_cyclotron', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_message_assets\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_message_assets\'';
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_message_assets', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_message_assets';
 CREATE TABLE posthog.kafka_property_values (
   team_id Int64,
   property_type LowCardinality(String),
   property_key String,
   property_value String,
   property_count UInt64
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_property_values\'', kafka_num_consumers = 8, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_property_values\'';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 8, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
 CREATE TABLE posthog.message_assets_data (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -885,10 +885,10 @@ CREATE MATERIALIZED VIEW posthog.property_values_mv TO posthog.property_values (
 FROM posthog.kafka_property_values;
 CREATE VIEW posthog.custom_metrics_backups AS WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -943,10 +943,10 @@ FROM
   );
 CREATE VIEW posthog.custom_metrics_replication_queue AS WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,

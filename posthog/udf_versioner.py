@@ -14,6 +14,12 @@ UDF_VERSION = 12  # Last modified by: @aspicer, 2026-04-20 (RowBinary default, J
 # Clean up all versions less than this
 EARLIEST_UDF_VERSION = 11
 
+UNVERSIONED_FUNCTIONS = {
+    "JSONCleanPostHogEventProperties",
+    "JSONCleanPostHogPersonProperties",
+    "JSONStripEmptyStringsAndNulls",
+}
+
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
 
@@ -54,15 +60,16 @@ def prepare_version(force=False):
     for function in list(last_version_root):
         name = function.find("name")
         match = re.search(r"_v(\d+)$", name.text)
-        if match is None or int(match.group(1)) < EARLIEST_UDF_VERSION:
+        if name.text in UNVERSIONED_FUNCTIONS or match is None or int(match.group(1)) < EARLIEST_UDF_VERSION:
             last_version_root.remove(function)
 
     # We want to update the name and the command to include the version, and add it to last version
     for function in list(base_xml.getroot()):
         name = function.find("name")
-        name.text = augment_function_name(name.text)
-        command = function.find("command")
-        command.text = f"{VERSION_STR}/{command.text}"
+        if name.text not in UNVERSIONED_FUNCTIONS:
+            name.text = augment_function_name(name.text)
+            command = function.find("command")
+            command.text = f"{VERSION_STR}/{command.text}"
         last_version_root.append(function)
 
     comment = Comment(

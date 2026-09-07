@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_modeling.backend.facade.models import DataModelingJob
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -733,3 +733,69 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
         value = self.create_personal_api_key_with_scopes(scopes)
         response = self._get(value)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+
+class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):
+    """What the failing-materializations panel reports.
+
+    The panel used to read `status` and `latest_error` on the saved query. Both are written only by
+    the retired v1 workflow, so on a converted team they hold whatever v1 last left there, or nothing
+    at all. The newest materialization run is the live signal.
+    """
+
+    def _view(self, name: str, **frozen) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
+            created_by=self.user,
+            is_materialized=True,
+            **frozen,
+        )
+
+    def _run(self, view, statuss, *, error=None, engine=DataModelingJobEngine.CLICKHOUSE, minutes_ago=0):
+        return DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=view,
+            status=statuss,
+            error=error,
+            engine=engine,
+            rows_materialized=0,
+            last_run_at=timezone.now() - timedelta(minutes=minutes_ago),
+        )
+
+    def _reported(self) -> dict[str, dict]:
+        response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/data_health_issues/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return {r["name"]: r for r in response.json()["results"] if r["type"] == "materialized_view"}
+
+    def test_a_view_whose_newest_run_failed_is_reported_with_that_error(self):
+        view = self._view("orders", status=None, latest_error=None)
+        self._run(view, DataModelingJob.Status.FAILED, error="Memory limit exceeded")
+
+        reported = self._reported()
+
+        assert "orders" in reported
+        assert reported["orders"]["error"] == "Memory limit exceeded"
+
+    def test_a_view_that_recovered_is_not_reported_from_its_frozen_columns(self):
+        view = self._view("orders", status="Failed", latest_error="Ancient v1 error")
+        self._run(view, DataModelingJob.Status.FAILED, error="Ancient v1 error", minutes_ago=60)
+        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=1)
+
+        assert "orders" not in self._reported()
+
+    def test_a_duckgres_shadow_success_does_not_stand_in_for_the_serving_run(self):
+        view = self._view("orders")
+        self._run(view, DataModelingJob.Status.FAILED, error="Serving run failed", minutes_ago=10)
+        self._run(view, DataModelingJob.Status.COMPLETED, engine=DataModelingJobEngine.DUCKGRES, minutes_ago=1)
+
+        reported = self._reported()
+
+        assert "orders" in reported
+        assert reported["orders"]["error"] == "Serving run failed"
+
+    def test_a_view_that_has_never_run_is_not_reported(self):
+        self._view("orders", status="Failed", latest_error="Ancient v1 error")
+
+        assert "orders" not in self._reported()

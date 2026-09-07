@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.openapi import AutoSchema
@@ -7,6 +7,7 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -14,6 +15,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
@@ -53,6 +55,17 @@ from products.tasks.backend.presentation.serializers import (
     TaskThreadMessageWriteSerializer,
     TeachingCanvasSerializer,
 )
+
+
+class ChannelListPagination(LimitOffsetPagination):
+    """Opt-in paging for the channel list. ``default_limit = None`` keeps the plain
+    array that clients read today when no ``limit`` is sent; a caller that asks for a
+    page gets the standard ``count``/``next``/``previous`` envelope instead. ``list``
+    instantiates it directly, so the other paged actions on the viewset keep the
+    project-wide paginator."""
+
+    default_limit = None
+
 
 # Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
 # PATCH is an alias for clients that can't send PUT.
@@ -118,12 +131,17 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "All live public channels plus the requester's personal #me channel when it exists, "
             "sorted by name. Listing does not provision; call provision_defaults to create the "
-            "default channels."
+            "default channels. Send `limit` (with `offset`) for one page and a `count`/`next` "
+            "envelope; without `limit` the response is the full array of channels."
         ),
     )
     def list(self, request, *args, **kwargs):
         channels = tasks_facade.list_channels(self.team_id, self._user_id())
-        return Response(ChannelSerializer(channels, many=True).data)
+        paginator = ChannelListPagination()
+        page = paginator.paginate_queryset(cast(Any, channels), request, view=self)
+        if page is None:
+            return Response(ChannelSerializer(channels, many=True).data)
+        return paginator.get_paginated_response(ChannelSerializer(page, many=True).data)
 
     @extend_schema(
         request=None,
@@ -244,13 +262,24 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.update_channel(pk, self.team_id, self._user_id(), **serializer.validated_data)
+        membership_level = self.user_permissions.current_team.effective_membership_level
+        result = tasks_facade.update_channel(
+            pk,
+            self.team_id,
+            self._user_id(),
+            can_manage_shared_auto_archive=(
+                membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+            ),
+            **serializer.validated_data,
+        )
         if result == "not_found":
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be renamed")
         if result == "general":
             raise PermissionDenied("The general space can't be renamed")
+        if result == "auto_archive_forbidden":
+            raise PermissionDenied("Only project admins can change automatic archiving for shared spaces")
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":

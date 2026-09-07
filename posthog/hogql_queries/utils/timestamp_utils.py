@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager
 from datetime import date, datetime, timedelta, tzinfo
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -251,7 +251,6 @@ def get_earliest_timestamp_from_series(
         else:
             nodes.append(node)
 
-    timestamps = []
     if len(nodes) == 1 or settings.IN_UNIT_TESTING:
         timestamps = [_get_earliest_timestamp_from_node(team, node, user) for node in nodes]
 
@@ -263,7 +262,7 @@ def get_earliest_timestamp_from_series(
                 executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node, user)
                 for node in nodes
             ]
-            timestamps = [future.result() for future in futures]
+            timestamps = [cast(datetime, future.result()) for future in futures]
 
     return min(timestamps)
 

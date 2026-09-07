@@ -100,7 +100,7 @@ export interface WorkflowHealthBucket {
     runCount: number
     completed: number
     successes: number
-    /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
+    /** Decisive failures only; excludes skipped, cancelled, neutral, and action_required. */
     failures: number
 }
 
@@ -109,7 +109,7 @@ export interface WorkflowHealthRow {
     repoName: string
     workflowName: string
     runCount: number
-    /** Over completed runs only; null when nothing has settled yet. */
+    /** Over conclusive runs only; null when no run reached a pass-or-fail verdict. */
     successRate: number | null
     p50Seconds: number | null
     p95Seconds: number | null
@@ -365,6 +365,8 @@ export interface TrunkQuarantineTeamRow {
 export interface TrunkQuarantineData {
     /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
     available: boolean
+    /** False when the repository's ownership files could not be read, so every test reads as unowned. */
+    ownersResolved: boolean
     ttlDays: number
     /** 'owner/name' the debt was read for; test file paths are relative to it. */
     repository: string
@@ -813,6 +815,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         })
                         return {
                             available: data.available,
+                            ownersResolved: data.owners_resolved,
                             ttlDays: data.ttl_days,
                             repository: data.repository,
                             trunkUrl: data.trunk_url ?? null,

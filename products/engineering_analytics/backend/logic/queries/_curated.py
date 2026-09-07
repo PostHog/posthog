@@ -28,6 +28,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     TrunkQuarantineSource,
@@ -194,7 +195,7 @@ class CuratedGitHubSource:
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` window blocks an outer ``created_at_raw`` predicate from pruning the scan."""
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
@@ -316,8 +317,8 @@ class CuratedGitHubSource:
         ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
         register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
-        source's window predicates read the RUN's columns and so can never prune the jobs scan, which
-        the ``is_rerun_copy`` window would otherwise sort in full on every call.
+        source's window predicates read the RUN's columns and so can never prune the jobs scan, and
+        the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
         """
         if not self._tables.workflow_jobs:
             return None
@@ -364,13 +365,13 @@ class CuratedGitHubSource:
                     head_sha,
                     count() AS runs,
                     countIf(s = 'completed' AND c = 'success') AS passing,
-                    countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
+                    countIf(s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
-                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,

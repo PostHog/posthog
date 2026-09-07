@@ -34,6 +34,8 @@ from products.slack_app.backend.services.slack_settings import AIPreferences, re
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
 
+    from products.tasks.backend.logic.services.ai_run_defaults import ResolvedAIRunConfig
+
 # What a Slack run uses when neither the user nor the workspace has pinned a model.
 # Chosen here rather than left to the agent server so the App Home card and the run
 # itself agree on what "unset" means.
@@ -46,6 +48,17 @@ class ModelOverride(Protocol):
 
     model: str | None
     reasoning_effort: str | None
+
+
+def _central_run_default(team_id: int, user_id: int | None) -> ResolvedAIRunConfig | None:
+    """The project/user default the run would resolve to downstream, or `None` when no
+    level configures one — in which case Slack's own floor still applies."""
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
+
+    resolved = ai_run_defaults.resolve_ai_run_defaults(team_id, user_id)
+    return resolved if resolved.model else None
 
 
 def _coherent_preferences(
@@ -72,6 +85,8 @@ def resolve_run_preferences(
     slack_user_id: str | None,
     *,
     override: ModelOverride | None = None,
+    team_id: int | None = None,
+    user_id: int | None = None,
 ) -> AIPreferences:
     """Resolve the full chain for one Slack-triggered run.
 
@@ -81,8 +96,15 @@ def resolve_run_preferences(
     absent, and a request we can't honour — a model that isn't on offer, an effort the
     model doesn't support — leaves the run on its saved preferences.
 
+    Below the saved rows sits the project/user default, which this looks up itself so
+    every Slack path — first run and follow-up alike — sits at the same rung. Slack's own
+    floor applies only when there is no central default to defer to. `team_id` and
+    `user_id` say whose defaults those are; omitting `team_id` skips the level, which is
+    what a caller with no project context (or a test exercising the Slack rungs alone)
+    wants.
+
     Note that `resolve_ai_preferences` yields nothing at all for a workspace that
-    hasn't enabled `slack-app-home`, so there the chain is the Slack default plus
+    hasn't enabled `slack-app-home`, so there the chain is the fallback plus
     whatever the mention asked for.
     """
     override_model = override.model if override else None
@@ -96,18 +118,36 @@ def resolve_run_preferences(
             return _coherent_preferences(choice.model, override_effort, fallback_runtime_adapter=choice.runtime_adapter)
 
     saved = resolve_ai_preferences(integration, slack_user_id)
+    # Slack's floor would make the project and user defaults unreachable from Slack: the
+    # run would always carry an explicit model. Stepping aside when a central default
+    # exists leaves the triple empty, so `create_run` resolves it (and a warm run
+    # provisioned under that default still matches). Anything pinned in Slack wins.
+    central_default = _central_run_default(team_id, user_id) if team_id is not None else None
     base = _coherent_preferences(
-        saved.model or SLACK_DEFAULT_MODEL,
+        saved.model or (None if central_default else SLACK_DEFAULT_MODEL),
         saved.reasoning_effort,
         fallback_runtime_adapter=saved.runtime_adapter,
     )
     if not override_effort:
         return base
 
+    # An effort has to be validated against a model, and deferring leaves none here. So an
+    # effort-only mention resolves against what the downstream resolver would have chosen
+    # anyway — a run at a different effort is not the run it would have produced, so there
+    # is nothing left to defer.
+    target = base
+    if base.model is None and central_default is not None:
+        target = _coherent_preferences(
+            central_default.model,
+            central_default.reasoning_effort,
+            fallback_runtime_adapter=central_default.runtime_adapter,
+        )
+
     # An effort this model can't do is dropped by `_coherent_preferences`; falling back
     # to `base` rather than to the stripped result means an impossible ask leaves the
-    # run alone instead of quietly clearing the saved effort as well.
-    requested = _coherent_preferences(base.model, override_effort, fallback_runtime_adapter=base.runtime_adapter)
+    # run alone — still deferring where it was deferring — instead of quietly clearing
+    # the saved effort as well.
+    requested = _coherent_preferences(target.model, override_effort, fallback_runtime_adapter=target.runtime_adapter)
     return requested if requested.reasoning_effort else base
 
 

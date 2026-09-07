@@ -93,6 +93,7 @@ import { USAGE_HOST } from "@posthog/core/usage/identifiers";
 import { usageMonitorModule } from "@posthog/core/usage/usage-monitor.module";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { listFilesContainingText } from "@posthog/git/queries";
+import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import {
   GIT_PR_STATUS_PROVIDER,
   type IGitPrStatus,
@@ -138,7 +139,10 @@ import {
   WORKTREE_REPOSITORY,
 } from "@posthog/workspace-server/db/identifiers";
 import { repositoriesModule } from "@posthog/workspace-server/db/repositories.module";
-import { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
+import {
+  CONNECTIVITY_SERVICE as WS_CONNECTIVITY_SERVICE,
+  GIT_SERVICE as WS_GIT_SERVICE,
+} from "@posthog/workspace-server/di/tokens";
 import { additionalDirectoriesModule } from "@posthog/workspace-server/services/additional-directories/additional-directories.module";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { agentModule } from "@posthog/workspace-server/services/agent/agent.module";
@@ -160,6 +164,7 @@ import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/a
 import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
+import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import { enrichmentModule } from "@posthog/workspace-server/services/enrichment/enrichment.module";
 import {
   ENRICHMENT_AUTH,
@@ -257,7 +262,6 @@ import { AppLifecycleService } from "../services/app-lifecycle/service";
 import {
   AuthPreferencePortAdapter,
   AuthSessionPortAdapter,
-  ConnectivityPortAdapter,
   OAuthFlowPortAdapter,
   TokenCipherPortAdapter,
 } from "../services/auth/port-adapters";
@@ -398,7 +402,12 @@ container.bind(AUTH_SESSION_STORE).to(AuthSessionPortAdapter);
 container.bind(AUTH_PREFERENCE_STORE).to(AuthPreferencePortAdapter);
 container.bind(AUTH_OAUTH_FLOW_SERVICE).to(OAuthFlowPortAdapter);
 container.bind(AUTH_TOKEN_CIPHER).to(TokenCipherPortAdapter);
-container.bind(AUTH_CONNECTIVITY).to(ConnectivityPortAdapter);
+container
+  .bind(WS_CONNECTIVITY_SERVICE)
+  .to(ConnectivityService)
+  .inSingletonScope();
+container.bind(AUTH_CONNECTIVITY).toService(WS_CONNECTIVITY_SERVICE);
+container.bind(CONNECTIVITY_CLIENT).toService(WS_CONNECTIVITY_SERVICE);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
@@ -707,10 +716,9 @@ container
     };
   });
 container.bind(WORKSPACE_FOCUS).toDynamicValue((ctx): WorkspaceFocus => {
-  const focus = ctx.get(FocusHostService);
   return {
     onBranchRenamed: (handler) =>
-      focus.on(FocusServiceEvent.BranchRenamed, handler),
+      ctx.get(FocusHostService).on(FocusServiceEvent.BranchRenamed, handler),
   };
 });
 container

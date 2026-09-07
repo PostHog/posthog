@@ -13,6 +13,12 @@ from hogli_commands.quarantine.cli import quarantine
 from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
 
 TODAY = date(2026, 6, 10)
+WALL_CLOCK_TODAY_UTC = core.today_utc
+
+
+@pytest.fixture(autouse=True)
+def pin_today_utc(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core, "today_utc", lambda: TODAY)
 
 
 def make_entry(**overrides: Any) -> core.Entry:
@@ -37,8 +43,8 @@ def raw_entry(**overrides: Any) -> dict[str, Any]:
         "runner": "pytest",
         "reason": "flaky",
         "owner": "@team-devex",
-        "added": core.today_utc().isoformat(),
-        "expires": (core.today_utc() + timedelta(days=14)).isoformat(),
+        "added": TODAY.isoformat(),
+        "expires": (TODAY + timedelta(days=14)).isoformat(),
         "mode": "run",
     }
     return {**defaults, **overrides}
@@ -372,15 +378,15 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
         # duplicate ids
         ([raw_entry(), raw_entry(reason="again")], 1, "duplicate id"),
         # cap exceeded
-        ([raw_entry(expires=(core.today_utc() + timedelta(days=40)).isoformat())], 1, "exceeds 30 days"),
+        ([raw_entry(expires=(TODAY + timedelta(days=40)).isoformat())], 1, "exceeds 30 days"),
         # expires before added
-        ([raw_entry(expires=(core.today_utc() - timedelta(days=1)).isoformat())], 1, "before added"),
+        ([raw_entry(expires=(TODAY - timedelta(days=1)).isoformat())], 1, "before added"),
         # expired beyond the grace period
         (
             [
                 raw_entry(
-                    added=(core.today_utc() - timedelta(days=30)).isoformat(),
-                    expires=(core.today_utc() - timedelta(days=10)).isoformat(),
+                    added=(TODAY - timedelta(days=30)).isoformat(),
+                    expires=(TODAY - timedelta(days=10)).isoformat(),
                 )
             ],
             1,
@@ -390,8 +396,8 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
         (
             [
                 raw_entry(
-                    added=(core.today_utc() - timedelta(days=20)).isoformat(),
-                    expires=(core.today_utc() - timedelta(days=3)).isoformat(),
+                    added=(TODAY - timedelta(days=20)).isoformat(),
+                    expires=(TODAY - timedelta(days=3)).isoformat(),
                 )
             ],
             0,
@@ -401,8 +407,8 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
         (
             [
                 raw_entry(
-                    added=(core.today_utc() - timedelta(days=27)).isoformat(),
-                    expires=(core.today_utc() - timedelta(days=7)).isoformat(),
+                    added=(TODAY - timedelta(days=27)).isoformat(),
+                    expires=(TODAY - timedelta(days=7)).isoformat(),
                 )
             ],
             0,
@@ -416,8 +422,8 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
                 raw_entry(
                     runner="playwright",
                     id="playwright/e2e/x.spec.ts",
-                    added=(core.today_utc() + timedelta(days=365)).isoformat(),
-                    expires=(core.today_utc() + timedelta(days=395)).isoformat(),
+                    added=(TODAY + timedelta(days=365)).isoformat(),
+                    expires=(TODAY + timedelta(days=395)).isoformat(),
                 )
             ],
             1,
@@ -453,7 +459,8 @@ def test_check_passes_on_missing_file(runner: CliRunner, tmp_path: Path) -> None
     assert result.exit_code == 0
 
 
-def test_repo_quarantine_file_is_valid(runner: CliRunner) -> None:
+def test_repo_quarantine_file_is_valid(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core, "today_utc", WALL_CLOCK_TODAY_UTC)
     assert core.QUARANTINE_PATH.name == ".test_quarantine.json"
     result = runner.invoke(quarantine, ["check"])
     assert result.exit_code == 0, result.output

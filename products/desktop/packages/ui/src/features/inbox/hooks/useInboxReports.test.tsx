@@ -8,9 +8,9 @@ import { renderHook } from "@testing-library/react";
 import { act, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockUpdateArtefact = vi.hoisted(() => vi.fn());
+const mockSetReviewers = vi.hoisted(() => vi.fn());
 const mockClient = vi.hoisted(() => ({
-  updateSignalReportArtefact: mockUpdateArtefact,
+  setSignalReportReviewers: mockSetReviewers,
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -71,7 +71,7 @@ describe("useUpdateSuggestedReviewers", () => {
   });
 
   it("optimistically appends a new latest reviewers row, keeping the prior one", async () => {
-    mockUpdateArtefact.mockResolvedValue(artefact([reviewer("octocat")]));
+    mockSetReviewers.mockResolvedValue(artefact([reviewer("octocat")]));
     const { result, queryClient } = renderUpdateHook();
 
     const key = reportKeys.artefacts(REPORT_ID);
@@ -83,13 +83,12 @@ describe("useUpdateSuggestedReviewers", () => {
     const next = [reviewer("octocat")];
     await act(async () => {
       await result.current.mutateAsync({
-        artefactId: ARTEFACT_ID,
         content: [{ github_login: "octocat" }],
         optimisticReviewers: next,
       });
     });
 
-    expect(mockUpdateArtefact).toHaveBeenCalledWith(REPORT_ID, ARTEFACT_ID, [
+    expect(mockSetReviewers).toHaveBeenCalledWith(REPORT_ID, [
       { github_login: "octocat" },
     ]);
 
@@ -112,7 +111,7 @@ describe("useUpdateSuggestedReviewers", () => {
   });
 
   it("invalidates report lists after updating reviewers", async () => {
-    mockUpdateArtefact.mockResolvedValue(artefact([reviewer("octocat")]));
+    mockSetReviewers.mockResolvedValue(artefact([reviewer("octocat")]));
     const { result, queryClient } = renderUpdateHook();
 
     const listKey = reportKeys.list({ suggested_reviewers: "user-me" });
@@ -120,7 +119,6 @@ describe("useUpdateSuggestedReviewers", () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        artefactId: ARTEFACT_ID,
         content: [{ github_login: "octocat" }],
         optimisticReviewers: [reviewer("octocat")],
       });
@@ -131,7 +129,7 @@ describe("useUpdateSuggestedReviewers", () => {
 
   it("rolls back the cache when the request fails", async () => {
     const failure = new Error("boom");
-    mockUpdateArtefact.mockRejectedValue(failure);
+    mockSetReviewers.mockRejectedValue(failure);
     const { result, queryClient } = renderUpdateHook();
 
     const key = reportKeys.artefacts(REPORT_ID);
@@ -145,7 +143,6 @@ describe("useUpdateSuggestedReviewers", () => {
     await act(async () => {
       try {
         await result.current.mutateAsync({
-          artefactId: ARTEFACT_ID,
           content: [{ github_login: "octocat" }],
           optimisticReviewers: [reviewer("octocat")],
         });

@@ -8,6 +8,7 @@ from django.db.models import Max, Min
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.features.access import self_driving_features_enabled
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
@@ -294,6 +295,8 @@ def load_skill_for_run(
     from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
     from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 
+    if skill_name.startswith("signals-scout-feature-") and not self_driving_features_enabled(team):
+        raise SkillNotFoundError("Self-driving features are not enabled for this project")
     skill = get_skill_by_name_from_db(team, skill_name, version=version)
     if skill is None:
         raise SkillNotFoundError(

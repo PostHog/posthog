@@ -87,6 +87,7 @@ export const sendCommandOutput = z.object({
   success: z.boolean(),
   result: z.unknown().optional(),
   error: z.string().optional(),
+  code: z.string().optional(),
   status: z.number().optional(),
   retryable: z.boolean().optional(),
 });

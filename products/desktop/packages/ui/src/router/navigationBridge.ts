@@ -31,13 +31,6 @@ export function navigateToPullRequestView(prUrl: string): void {
   });
 }
 
-export function navigateToTaskPending(key: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/tasks/pending/$key",
-    params: { key },
-  });
-}
-
 export function navigateToActivity(): void {
   void getRouterOrNull()?.navigate({ to: "/activity" });
 }
@@ -58,6 +51,10 @@ export function navigateToFeed(feedId: string): void {
     to: "/feeds/$feedId",
     params: { feedId },
   });
+}
+
+export function navigateToFeeds(): void {
+  void getRouterOrNull()?.navigate({ to: "/feeds" });
 }
 
 export function navigateToChannel(channelId: string): void {
@@ -142,10 +139,28 @@ export function navigateToInboxPullRequestDetail(reportId: string): void {
   });
 }
 
-export function navigateToInboxReportDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
+export function navigateToInboxReportDetail(
+  reportId: string,
+  options?: { returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+
+  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
+  if (inboxTriageOrigin) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin,
+    });
+  }
+
+  void router.navigate({
     to: "/inbox/reports/$reportId",
     params: { reportId },
+    state: inboxTriageOrigin
+      ? (previous) => ({ ...previous, inboxTriageOrigin })
+      : undefined,
   });
 }
 
@@ -164,21 +179,6 @@ export function navigateToChannelReportDetail(
     to: "/spaces/$channelId/reports/$reportId",
     params: { channelId, reportId },
   });
-}
-
-export function navigateToScoutDetail(
-  skillSlug: string,
-  findingId?: string,
-): void {
-  void getRouterOrNull()?.navigate({
-    to: "/agents/scouts/$skillName",
-    params: { skillName: skillSlug },
-    search: findingId ? { finding: findingId } : {},
-  });
-}
-
-export function navigateToScoutFindings(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents/scouts/findings" });
 }
 
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
@@ -202,10 +202,6 @@ export function navigateToLoopDetail(
     search: options?.edit ? { edit: true } : {},
     ignoreBlocker: options?.ignoreBlocker,
   });
-}
-
-export function navigateToAgents(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents" });
 }
 
 export function navigateToArchived(): void {

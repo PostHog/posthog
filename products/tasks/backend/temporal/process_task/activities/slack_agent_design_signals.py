@@ -350,12 +350,14 @@ async def _relay_from_redis(
     local/no-proxy path, so the retry replay the resume guards against is not worth the plumbing here.
     """
     redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id))
+    await redis_stream.refresh_watched()
     try:
         async for item in redis_stream.read_stream_entries(
             start_id="0",
             keepalive_interval_seconds=HEARTBEAT_INTERVAL_SECONDS,
         ):
             activity.heartbeat()
+            await redis_stream.refresh_watched()
             if item is None:
                 continue
             _, event_data = item

@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -10,7 +11,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.warehouse_sources.backend.facade.models import (
@@ -123,6 +124,51 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
         self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
+
+    def test_resume_schedules_skips_a_query_the_caller_cannot_edit(self):
+        # Both queries are created by someone else, so the creator bypass cannot mask the deny.
+        allowed = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="resume_allowed",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        denied = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="resume_denied",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        nodes = {}
+        for label, saved_query in (("allowed", allowed), ("denied", denied)):
+            node = Node.objects.create(
+                team=self.team,
+                dag=DAG.objects.create(team=self.team, name=f"resume_dag_{label}"),
+                saved_query=saved_query,
+                type=NodeType.MAT_VIEW,
+            )
+            mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid.uuid4()))
+            node.save()
+            nodes[label] = node
+
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(denied.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
+            {"view_ids": [str(allowed.id), str(denied.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # The response must not reveal that the denied id names a real view.
+        self.assertNotIn(str(denied.id), response.content.decode())
+        nodes["allowed"].refresh_from_db()
+        nodes["denied"].refresh_from_db()
+        self.assertEqual(suspension_state(nodes["allowed"]), {})
+        self.assertNotEqual(suspension_state(nodes["denied"]), {})
 
     def test_object_level_access_blocks_specific_query(self):
         # Grant viewer at resource level (warehouse_table), then deny object-level on this specific view.
@@ -412,20 +458,13 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         set_declared_target(self.consumer_node, timedelta(hours=6))
 
     def _tiered(self):
-        return (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
-            ),
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=True,
-            ),
+        return patch(
+            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+            return_value=True,
         )
 
     def _read_upstream(self) -> tuple[dict, str]:
-        v2, tiered = self._tiered()
-        with v2, tiered:
+        with self._tiered():
             response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()["sync_frequency_bounds"], response.content.decode()
@@ -467,8 +506,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._deny_the_consumer(self.editor_user)
         self.client.force_login(self.editor_user)
 
-        v2, tiered = self._tiered()
-        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with self._tiered(), patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -483,8 +521,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
-        v2, tiered = self._tiered()
-        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with self._tiered(), patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -562,10 +599,6 @@ class TestSyncFrequencyTableBlockerAccessControl(WarehouseAccessControlTestMixin
 
     def _read_view(self) -> tuple[dict, str]:
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
-            ),
             patch(
                 "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                 return_value=True,
@@ -658,10 +691,6 @@ class TestSyncFrequencyDuplicateResourceAcrossDags(WarehouseAccessControlTestMix
 
     def _read_view(self) -> dict:
         with (
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
-            ),
             patch(
                 "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
                 return_value=True,

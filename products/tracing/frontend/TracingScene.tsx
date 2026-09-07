@@ -19,12 +19,14 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
-import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
+import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
+import { tracingEmptyState } from './emptyState/tracingEmptyState'
 import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
+import { TracingAgentIntegration } from './TracingAgentIntegration'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
@@ -42,6 +44,7 @@ export const scene: SceneExport = {
     component: TracingScene,
     logic: tracingSceneLogic,
     productKey: ProductKey.TRACING,
+    emptyState: tracingEmptyState,
 }
 
 export default function TracingScene(): JSX.Element {
@@ -58,6 +61,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                    <TracingAgentIntegration />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
@@ -195,14 +199,14 @@ function TracingSceneContents(): JSX.Element {
             >
                 Tracing is now in beta. Please share feedback on how to improve the product.
             </LemonBanner>
-            <TracingSetupPrompt>
+            <>
                 <TracingFilterBar />
                 <SceneDivider />
                 <TracingSparkline
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
-                    displayTimezone="UTC"
+                    displayTimezone={TRACING_DISPLAY_TIMEZONE}
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
@@ -278,7 +282,7 @@ function TracingSceneContents(): JSX.Element {
                         )}
                     </div>
                 </div>
-            </TracingSetupPrompt>
+            </>
             <TraceDrawer
                 isOpen={isTraceOpen}
                 traceId={selectedTraceId}

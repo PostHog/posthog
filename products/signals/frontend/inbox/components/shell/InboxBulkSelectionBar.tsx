@@ -1,24 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { openDismissReportDialog } from './DismissReportDialog'
+import { openResolveReportDialog } from './ResolveReportDialog'
 
 /**
  * Bulk action toolbar shown when one or more reports are multi-selected.
- * Mirrors desktop `InboxBulkSelectionBar` (the dismiss + clear slice). Selection
- * and the bulk-dismiss call live in `inboxBulkActionsLogic`; delete / reingest
+ * Mirrors desktop `InboxBulkSelectionBar` (the dismiss + clear slice) plus Resolve. Selection
+ * and the bulk state calls live in `inboxBulkActionsLogic`; delete / reingest
  * remain on `inboxSceneLogic` per-report.
  */
 export function InboxBulkSelectionBar(): JSX.Element | null {
-    const { selectedCount, isDismissing } = useValues(inboxBulkActionsLogic)
-    const { clearSelection, bulkDismiss } = useActions(inboxBulkActionsLogic)
+    const { selectedCount, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
+    const { clearSelection, bulkDismiss, bulkResolve } = useActions(inboxBulkActionsLogic)
 
     if (selectedCount === 0) {
         return null
     }
+    const busy = isDismissing || isResolving
 
     return (
         <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
@@ -31,17 +33,34 @@ export function InboxBulkSelectionBar(): JSX.Element | null {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    icon={<IconArchive />}
+                    icon={<IconCheckCircle />}
+                    loading={isResolving}
+                    disabledReason={busy ? 'Working…' : undefined}
+                    onClick={() =>
+                        openResolveReportDialog({
+                            selectedCount,
+                            onConfirm: ({ reason, note }) => bulkResolve(reason, note),
+                        })
+                    }
+                    data-attr="inbox-bulk-resolve"
+                >
+                    Resolve
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconHide />}
                     loading={isDismissing}
-                    disabledReason={isDismissing ? 'Archiving…' : undefined}
+                    disabledReason={busy ? 'Working…' : undefined}
                     onClick={() =>
                         openDismissReportDialog({
                             selectedCount,
-                            onConfirm: ({ reason, note }) => bulkDismiss(reason, note),
+                            onConfirm: (dismissal) => bulkDismiss(dismissal),
                         })
                     }
+                    data-attr="inbox-bulk-dismiss"
                 >
-                    Archive
+                    Dismiss
                 </LemonButton>
                 <LemonButton
                     type="tertiary"

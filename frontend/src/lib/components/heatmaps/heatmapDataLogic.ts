@@ -13,6 +13,7 @@ import {
     HeatmapFixedPositionMode,
     HeatmapJsData,
     HeatmapJsDataPoint,
+    HeatmapKind,
 } from 'lib/components/heatmaps/types'
 import {
     DEFAULT_HEATMAP_FILTERS,
@@ -37,6 +38,20 @@ const UNBOUNDED_HEATMAP_LIMIT = 0
 // Limit canvas height to prevent browser freezing with heatmap.js
 // Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
 export const MAX_HEATMAP_HEIGHT = 8000
+
+export const HEATMAP_LOADING_DEBOUNCE_MS = 200
+
+export const HEATMAP_TYPES: Record<HeatmapKind, { label: string; noun: string }> = {
+    click: { label: 'Clicks', noun: 'click' },
+    rageclick: { label: 'Rageclicks', noun: 'rageclick' },
+    deadclick: { label: 'Dead clicks', noun: 'dead click' },
+    mousemove: { label: 'Mouse moves', noun: 'mouse move' },
+    scrolldepth: { label: 'Scroll depth', noun: 'scroll depth' },
+}
+
+export const HEATMAP_TYPE_OPTIONS: LemonSelectOption<HeatmapKind>[] = (Object.keys(HEATMAP_TYPES) as HeatmapKind[]).map(
+    (value) => ({ value, label: HEATMAP_TYPES[value].label })
+)
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -123,6 +138,13 @@ export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoi
     return `/api/heatmap/${endpoint}`
 }
 
+// A row added but not yet pointed at an event carries a null id. It selects nothing, and the API rejects
+// it, so leave those out of the request instead of failing the whole heatmap over a half-filled row.
+export function eventFilterParam(events: CommonFilters['events']): string | undefined {
+    const selected = events?.filter((event) => !!event.id)
+    return selected?.length ? JSON.stringify(selected) : undefined
+}
+
 export type HrefMatchType = 'exact' | 'pattern'
 
 export function isWithinBounds(
@@ -156,7 +178,7 @@ export interface heatmapDataLogicValues {
     heatmapFilters: HeatmapFilters
     heatmapFixedPositionMode: HeatmapFixedPositionMode
     heatmapJsData: HeatmapJsData
-    heatmapTooltipLabel: string
+    heatmapTooltipNoun: string
     heatmapTooltipSuppressed: boolean
     heightOverride: number
     href: string | null
@@ -300,7 +322,7 @@ export interface heatmapDataLogicMeta {
             min: number
         }
         widthOverride: (windowWidthOverride: number | null) => number
-        heatmapTooltipLabel: (heatmapFilters: HeatmapFilters) => string
+        heatmapTooltipNoun: (heatmapFilters: HeatmapFilters) => string
         heatmapEmpty: (rawHeatmap: HeatmapResponseType | null, rawHeatmapLoading: boolean) => boolean
         maxYFromEvents: (heatmapElements: HeatmapElement[]) => number
         heightOverride: (maxYFromEvents: number, windowHeight: number) => number
@@ -476,7 +498,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     actions.setIsReady(false)
 
-                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -491,7 +513,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
                             filter_test_accounts,
-                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? JSON.stringify(cohort_ids) : undefined,
+                            events: eventFilterParam(events),
                             limit: UNBOUNDED_HEATMAP_LIMIT,
                         },
                         '?'
@@ -517,7 +540,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     await breakpoint(100)
 
-                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
                     const { type } = values.heatmapFilters
 
                     const apiURL = `${heatmapApiPath(props.context, 'events/')}${encodeParams(
@@ -531,6 +554,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            events: eventFilterParam(events),
                             points: JSON.stringify(area.points),
                         },
                         '?'
@@ -595,13 +619,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             (windowWidthOverride: number | null): number => windowWidthOverride ?? DEFAULT_HEATMAP_WIDTH,
         ],
 
-        heatmapTooltipLabel: [
+        heatmapTooltipNoun: [
             (s) => [s.heatmapFilters],
             (heatmapFilters: HeatmapFilters) => {
                 if (heatmapFilters.aggregation === 'unique_visitors') {
-                    return 'visitors'
+                    return 'visitor'
                 }
-                return heatmapFilters.type + 's'
+                return (HEATMAP_TYPES[heatmapFilters.type ?? 'click'] ?? HEATMAP_TYPES.click).noun
             },
         ],
 
@@ -709,6 +733,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         setCommonFilters: () => {
+            // The open drill-down lists interactions for the filters it was opened with. Close it so it
+            // can't show sessions the new filters exclude; the user reselects a hotspot on the new overlay.
+            actions.clearSelectedArea()
             actions.loadHeatmap()
         },
         setHeatmapFilters: () => {
@@ -740,7 +767,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 return
             }
 
-            const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
+            const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
             const { type } = values.heatmapFilters
             const nextOffset = currentEvents.results.length
 
@@ -755,6 +782,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     viewport_width_max: values.viewportRange.max,
                     filter_test_accounts,
                     cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                    events: eventFilterParam(events),
                     points: JSON.stringify(area.points),
                     offset: nextOffset,
                 },

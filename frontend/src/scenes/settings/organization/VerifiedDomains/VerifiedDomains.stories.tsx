@@ -3,10 +3,11 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AvailableFeature, BillingFeatureType, OrganizationDomainType } from '~/types'
@@ -72,6 +73,8 @@ const UNVERIFIED_DOMAIN: OrganizationDomainType = {
     sso_enforcement: '',
 }
 
+const LEGACY_FEATURE_FLAGS = STORYBOOK_FEATURE_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.SSO_SETTINGS_REDESIGN)
+
 const ALL_FEATURES = [
     AvailableFeature.AUTOMATIC_PROVISIONING,
     AvailableFeature.SSO_ENFORCEMENT,
@@ -88,7 +91,7 @@ const meta: Meta<typeof App> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: STORYBOOK_FEATURE_FLAGS,
+        featureFlags: LEGACY_FEATURE_FLAGS,
     },
     decorators: [
         mswDecorator({
@@ -108,6 +111,25 @@ const meta: Meta<typeof App> = {
                             has_saml: true,
                             has_scim: true,
                             has_id_jag: true,
+                        },
+                    ],
+                },
+                '/api/organizations/:id/identity_provider_configs/:configId/scim/logs': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'scim-log',
+                            request_method: 'POST',
+                            request_path: '/scim/v2/idp-config/Users',
+                            request_headers: {},
+                            request_body: null,
+                            response_status: 201,
+                            response_body: null,
+                            identity_provider: 'okta',
+                            duration_ms: 24,
+                            created_at: '2024-01-01T00:00:00Z',
                         },
                     ],
                 },
@@ -169,6 +191,11 @@ export const BoostNeedsUpgrade: Story = {
     ],
 }
 
+export const RedesignedNeedsUpgrade: Story = {
+    ...BoostNeedsUpgrade,
+    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+}
+
 export const EnterpriseMixed: Story = {
     decorators: [
         mswDecorator({
@@ -179,6 +206,57 @@ export const EnterpriseMixed: Story = {
                     VERIFIED_DOMAIN_NO_SAML_SCIM,
                     UNVERIFIED_DOMAIN,
                 ]),
+            },
+        }),
+    ],
+}
+
+export const EnterpriseRedesigned: Story = {
+    ...EnterpriseMixed,
+    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+}
+
+export const EnterpriseRedesignedPartiallyConfigured: Story = {
+    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': () => [200, mockUserWithFeatures(...ALL_FEATURES)],
+                '/api/organizations/:id/domains': domainsResponse([VERIFIED_DOMAIN_NO_SAML_SCIM]),
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'partial-saml-config',
+                            config_scope: ConfigScopeEnumApi.Saml,
+                            organization_domain_ids: ['2'],
+                            has_saml: false,
+                            saml_entity_id: 'https://idp.example.com',
+                            has_scim: false,
+                            has_id_jag: false,
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
+}
+
+export const EnterpriseRedesignedNotConfigured: Story = {
+    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': () => [200, mockUserWithFeatures(...ALL_FEATURES)],
+                '/api/organizations/:id/domains': domainsResponse([VERIFIED_DOMAIN_NO_SAML_SCIM]),
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
             },
         }),
     ],

@@ -177,10 +177,7 @@ export interface EarlyAccessFeatureApi {
      * * `general-availability` - general availability
      * * `archived` - archived */
     stage: EarlyAccessFeatureStageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload: EarlyAccessFeatureApiPayload
@@ -238,10 +235,7 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
      * * `general-availability` - general availability
      * * `archived` - archived */
     stage: EarlyAccessFeatureStageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
     /** Arbitrary JSON metadata associated with this feature. */
     payload?: unknown
@@ -300,10 +294,7 @@ export interface PatchedEarlyAccessFeatureApi {
      * * `general-availability` - general availability
      * * `archived` - archived */
     stage?: EarlyAccessFeatureStageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload?: PatchedEarlyAccessFeatureApiPayload

@@ -1,4 +1,5 @@
 import {
+  buildArchiveListOrdering,
   buildPriorityFilterParam,
   buildSignalReportListOrdering,
   buildSuggestedReviewerFilterParam,
@@ -45,6 +46,9 @@ export function useInboxAllReports(options?: {
   ignoreScope?: boolean;
   ignoreFilters?: boolean;
   pullRequestsOnly?: boolean;
+  hasImplementationPr?: boolean;
+  actionabilityFilter?: string;
+  withPullRequestCount?: boolean;
   withReportsCount?: boolean;
   refetchIntervalMs?: number;
   /**
@@ -53,18 +57,21 @@ export function useInboxAllReports(options?: {
    */
   statusFilter?: string;
   /**
-   * Apply the persisted `prFilter` (with-PR / without-PR) to the query. Only
-   * the sectioned inbox renders the control that sets it, so only it opts in —
-   * otherwise a stored value would silently filter surfaces with no way to
-   * clear it (e.g. empty the legacy Reports tab, which then drops PR-backed
-   * reports itself).
+   * Apply the persisted source filter to the query. The sectioned inbox hides
+   * that control, so it opts out to avoid a stored value filtering the list.
    */
-  applyPrFilter?: boolean;
+  applySourceFilter?: boolean;
+  /** Ignore the shared search value on surfaces that do not render search. */
+  applySearchFilter?: boolean;
+  /** Keep statuses interleaved by the selected sort instead of grouping them. */
+  groupByStatus?: boolean;
 }) {
   const enabled = options?.enabled ?? true;
   const ignoreScope = options?.ignoreScope ?? false;
   const ignoreFilters = options?.ignoreFilters ?? false;
-  const applyPrFilter = options?.applyPrFilter ?? false;
+  const applySourceFilter = options?.applySourceFilter ?? true;
+  const applySearchFilter = options?.applySearchFilter ?? true;
+  const groupByStatus = options?.groupByStatus ?? true;
   const refetchIntervalMs =
     options?.refetchIntervalMs ?? INBOX_REFETCH_INTERVAL_MS;
   // The Pull requests tab fetches a server-filtered list (reports that have a
@@ -72,10 +79,11 @@ export function useInboxAllReports(options?: {
   // sitting past the broad list's first page no longer renders an empty tab
   // under a positive badge.
   const pullRequestsOnly = options?.pullRequestsOnly ?? false;
+  const withPullRequestCount = options?.withPullRequestCount ?? true;
   const withReportsCount = options?.withReportsCount ?? false;
   const scope = useInboxReviewerScopeStore((s) => s.scope);
   const searchQuery = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? "" : s.searchQuery,
+    ignoreFilters || !applySearchFilter ? "" : s.searchQuery,
   );
   const sortField = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? "updated_at" : s.sortField,
@@ -84,13 +92,12 @@ export function useInboxAllReports(options?: {
     ignoreFilters ? "desc" : s.sortDirection,
   );
   const sourceProductFilter = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? EMPTY_FILTER_ARRAY : s.sourceProductFilter,
+    ignoreFilters || !applySourceFilter
+      ? EMPTY_FILTER_ARRAY
+      : s.sourceProductFilter,
   );
   const priorityFilter = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : s.priorityFilter,
-  );
-  const prFilter = useInboxSignalsFilterStore((s) =>
-    ignoreFilters || !applyPrFilter ? "all" : s.prFilter,
   );
   const isForYou = !ignoreScope && scope === INBOX_SCOPE_FOR_YOU;
   const teammateUuid = ignoreScope ? null : parseTeammateInboxScope(scope);
@@ -113,14 +120,12 @@ export function useInboxAllReports(options?: {
       status: pullRequestsOnly
         ? INBOX_PULL_REQUEST_STATUS_FILTER
         : (options?.statusFilter ?? INBOX_PIPELINE_STATUS_FILTER),
-      has_implementation_pr: pullRequestsOnly
-        ? true
-        : prFilter === "with_pr"
-          ? true
-          : prFilter === "without_pr"
-            ? false
-            : undefined,
-      ordering: buildSignalReportListOrdering(sortField, sortDirection),
+      has_implementation_pr:
+        options?.hasImplementationPr ?? (pullRequestsOnly ? true : undefined),
+      actionability: options?.actionabilityFilter,
+      ordering: groupByStatus
+        ? buildSignalReportListOrdering(sortField, sortDirection)
+        : buildArchiveListOrdering(sortField, sortDirection),
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")
@@ -164,7 +169,8 @@ export function useInboxAllReports(options?: {
       count_only: true,
     },
     {
-      enabled: enabled && (!isForYou || reviewerUuid != null),
+      enabled:
+        enabled && withPullRequestCount && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
@@ -220,7 +226,7 @@ export function useInboxAllReports(options?: {
   // in flight and `counts` still reads 0. Anything that records the counts once
   // and never revises them has to wait for this rather than for the list.
   const countsReady =
-    pullRequestCountQuery.isSuccess &&
+    (!withPullRequestCount || pullRequestCountQuery.isSuccess) &&
     (!withReportsCount || reportsCountQuery.isSuccess);
 
   return {
@@ -236,5 +242,7 @@ export function useInboxAllReports(options?: {
     searchQuery,
     sourceProductFilter,
     priorityFilter,
+    sortField,
+    sortDirection,
   };
 }

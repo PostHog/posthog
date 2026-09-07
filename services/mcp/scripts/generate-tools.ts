@@ -401,6 +401,20 @@ function escapeForDescribe(desc: string): string {
 }
 
 /**
+ * Emits a tool's input schema as a builder function. The Orval exports it uses are
+ * builders too (see generate-orval-schemas.mjs); each one is built once into a local
+ * of the same name, so the composed expression reads exactly as it did before.
+ */
+function buildSchemaBuilderDecl(schemaName: string, schemaExpr: string, orvalImports: string[]): string {
+    const used = [...new Set(orvalImports)].filter((name) => new RegExp(`\\b${name}\\b`).test(schemaExpr)).sort()
+    if (used.length === 0) {
+        return `const ${schemaName} = () => ${schemaExpr}`
+    }
+    const locals = used.map((name) => `    const ${name} = orvalSchemas.${name}()`).join('\n')
+    return `const ${schemaName} = () => {\n${locals}\n    return ${schemaExpr}\n}`
+}
+
+/**
  * Parse enrich_url template into prefix, field, and source.
  * '{id}' → { prefix: '', field: 'id', source: 'result' }
  * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
@@ -1074,7 +1088,7 @@ function generateToolCode(
         schemaExpr = `z.preprocess(normalizeParamAliases(${aliasMapLiteral}), ${schemaExpr})`
     }
 
-    const schemaDecl = `const ${schemaName} = ${schemaExpr}`
+    const schemaDecl = buildSchemaBuilderDecl(schemaName, schemaExpr, composition.orvalImports)
 
     const localVarParams = new Set(Object.keys(composition.paramFallbacks))
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
@@ -1226,7 +1240,7 @@ function generateToolCode(
         composition.pathParamNames.length > 0 ||
         enrichUsesParams ||
         !!selectableExtension
-    const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
+    const paramsName = paramsUsed ? 'params' : '_params'
 
     // When `confirmed_action` is declared, emit TWO factories instead of
     // one — `<name>-prepare` and `<name>-execute`. The prepare tool signs
@@ -1268,8 +1282,8 @@ function generateToolCode(
 
     const toolBody = `{
     name: '${toolName}',
-    schema: ${schemaName},
-    ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    schema: ${schemaName}(),
+    handler: async (context: Context, ${paramsName}: z.infer<ReturnType<typeof ${schemaName}>>) => {
 ${handlerBody}    },
 }`
 
@@ -1278,7 +1292,7 @@ ${handlerBody}    },
     const code = `
 ${schemaDecl}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${factoryBody}
+const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultType}> => ${factoryBody}
 `
 
     return {
@@ -1439,7 +1453,7 @@ ${prepareScopeField}        })
     // the signed, verified args under the same `params` name the generated
     // request code expects.
     const executeHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<typeof ${schemaName}>>(context, {
+${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ${schemaName}>>>(context, {
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
@@ -1454,8 +1468,8 @@ ${executeHandlerBody}`
 
     const prepareBody = `{
     name: '${prepareName}',
-    schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    schema: ${schemaName}(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
 ${prepareHandler}    },
 }`
 
@@ -1471,7 +1485,7 @@ ${schemaDecl}
 
 ${executeSchemaDecl}
 
-const ${prepareFactory} = (): ToolBase<typeof ${schemaName}, PrepareConfirmedActionResult> => (${prepareBody})
+const ${prepareFactory} = (): ToolBase<ReturnType<typeof ${schemaName}>, PrepareConfirmedActionResult> => (${prepareBody})
 
 const ${executeFactory} = (): ToolBase<typeof ${executeSchemaName}, ${resultType}> => (${executeBody})
 `
@@ -1518,7 +1532,7 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    handlerBody += `        const parsedParams = ${schemaName}.parse(params)\n`
+    handlerBody += `        const parsedParams = ${schemaName}().parse(params)\n`
 
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
@@ -1576,12 +1590,12 @@ function generateCustomSchemaToolCode(
     }
 
     const code = `
-const ${schemaName} = ${baseSchemaExpr}
+const ${schemaName} = () => ${baseSchemaExpr}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${customResultType}> => ({
+const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${customResultType}> => ({
     name: '${toolName}',
-    schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    schema: ${schemaName}(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
 ${handlerBody}    },
 })
 `
@@ -1841,9 +1855,7 @@ function generateCategoryFile(
     const mapEntries = [restMapEntries, wrapperMapEntries].filter(Boolean).join('\n')
 
     const orvalImportLine =
-        allOrvalImports.size > 0
-            ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/${moduleName}/api'\n`
-            : ''
+        allOrvalImports.size > 0 ? `\nimport * as orvalSchemas from '@/generated/${moduleName}/api'\n` : ''
 
     const schemasImportLine = hasResponseType ? `\nimport type { Schemas } from '@/api/generated'\n` : ''
 
@@ -2377,7 +2389,13 @@ ${spreads}
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
         path.join(GENERATED_DIR, 'index.ts'),
     ]
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], { stdio: 'pipe', cwd: REPO_ROOT })
+    const format = spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], {
+        stdio: 'pipe',
+        cwd: REPO_ROOT,
+    })
+    if (format.status !== 0) {
+        console.warn(`hogli format:js failed:\n${format.stderr?.toString() ?? ''}${format.stdout?.toString() ?? ''}`)
+    }
     spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,

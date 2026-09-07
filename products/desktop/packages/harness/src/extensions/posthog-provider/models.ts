@@ -1,3 +1,4 @@
+import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { CloudRegion } from "@posthog/shared";
@@ -22,6 +23,14 @@ export interface GatewayModel {
 type ModelFamily = "anthropic" | "openai" | "cloudflare" | "baseten";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+// The gateway serves models before pi ships a builtin record for them. Without
+// a map, pi offers the generic level range: it adds `off` and drops `xhigh`
+// and `max`. Adaptive-thinking models reject a disabled-thinking request, so
+// mark `off` unsupported until the builtin catalog catches up.
+const THINKING_LEVEL_MAP_OVERRIDES: Record<string, ThinkingLevelMap> = {
+  "claude-fable-5-1": { off: null, xhigh: "xhigh", max: "max" },
+};
 
 function findBuiltinModel(family: ModelFamily, id: string) {
   if (family === "cloudflare" || family === "baseten") {
@@ -79,8 +88,10 @@ function toModelConfig(
     : ["text"];
 
   const builtin = findBuiltinModel(family, model.id);
-  const thinkingLevelMap = builtin?.thinkingLevelMap
-    ? { thinkingLevelMap: builtin.thinkingLevelMap }
+  const resolvedThinkingLevelMap =
+    THINKING_LEVEL_MAP_OVERRIDES[model.id] ?? builtin?.thinkingLevelMap;
+  const thinkingLevelMap = resolvedThinkingLevelMap
+    ? { thinkingLevelMap: resolvedThinkingLevelMap }
     : {};
 
   if (family === "openai") {

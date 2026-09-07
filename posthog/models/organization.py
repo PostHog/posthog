@@ -278,6 +278,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         db_default=True,
         help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
     )
+    uses_most_specific_access_resolution = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
     read_only_mcp_access = models.BooleanField(
         default=False,

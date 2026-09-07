@@ -1,117 +1,89 @@
-import { Theme } from "@radix-ui/themes";
-import { fireEvent, render, screen } from "@testing-library/react";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import { configure, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PiModelSelector } from "./PiSessionControls";
 
+// Menu open/close and submenu reveals ride animations that starve under
+// parallel suite load; the default 1s async timeout flakes.
+configure({ asyncUtilTimeout: 5000 });
+
+const piModels = [
+  { provider: "posthog" as const, id: "claude-opus-5", name: "Claude Opus 5" },
+  { provider: "posthog" as const, id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
+];
+
+function groupedModelOption(): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue: "claude-opus-5",
+    options: [
+      {
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          {
+            name: "Claude Opus 5",
+            value: "claude-opus-5",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      },
+      {
+        group: "openai",
+        name: "OpenAI",
+        options: [
+          {
+            name: "GPT-5.5",
+            value: "gpt-5.5",
+            _meta: { "posthog.code/modelHarness": "codex" },
+          },
+        ],
+      },
+    ],
+  } as unknown as SessionConfigOption;
+}
+
+async function openSub(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  const trigger = await screen.findByRole("menuitem", { name });
+  await user.click(trigger);
+  // The submenu opens on a Base UI timer that RTL's act-wrapped waitFor never
+  // flushes in jsdom, so poll with plain sleeps instead of findByRole.
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (screen.queryAllByRole("menuitemradio").length > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("submenu did not open");
+}
+
 describe("PiModelSelector", () => {
-  it("keeps Pi configuration open while changing the model", async () => {
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
+  it("offers the full catalog and reports picks by gateway model id", async () => {
     const onChange = vi.fn();
-    const onThinkingLevelChange = vi.fn();
-    const onHarnessChange = vi.fn();
+    const onGatewayModelSelect = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
-      <Theme>
-        <PiModelSelector
-          models={[
-            {
-              provider: "posthog",
-              id: "gpt-5.6-sol",
-              name: "GPT-5.6 Sol",
-            },
-            {
-              provider: "posthog",
-              id: "gpt-5.6-terra",
-              name: "GPT-5.6 Terra",
-            },
-          ]}
-          currentModel={{
-            provider: "posthog",
-            id: "gpt-5.6-sol",
-            name: "GPT-5.6 Sol",
-          }}
-          thinkingLevel="medium"
-          thinkingLevels={["low", "medium", "high"]}
-          onChange={onChange}
-          onThinkingLevelChange={onThinkingLevelChange}
-          onHarnessChange={onHarnessChange}
-        />
-      </Theme>,
+      <PiModelSelector
+        models={piModels}
+        currentModel={piModels[0]}
+        onChange={onChange}
+        modelOption={groupedModelOption()}
+        onGatewayModelSelect={onGatewayModelSelect}
+      />,
     );
 
     await user.click(
-      screen.getByRole("button", {
-        name: "Model and reasoning: GPT-5.6 Sol Medium",
-      }),
+      screen.getByRole("button", { name: "Model: Claude Opus 5" }),
     );
-
-    expect(
-      await screen.findByRole("menuitem", { name: /^Harness Pi/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("menuitem", { name: /^Model/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("menuitem", { name: /^Reasoning/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("menuitemradio", { name: "GPT-5.6 Terra" }),
-    ).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("menuitem", { name: /^Model/ }));
-
-    const terra = await screen.findByRole("menuitemradio", {
-      name: "GPT-5.6 Terra",
-    });
-    expect(terra).toBeInTheDocument();
-
-    fireEvent.click(terra);
-
-    expect(onChange).toHaveBeenCalledWith({
-      provider: "posthog",
-      id: "gpt-5.6-terra",
-      name: "GPT-5.6 Terra",
-    });
-    expect(
-      screen.getByRole("menuitem", { name: /^Model/ }),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("menuitem", { name: /^Reasoning/ }));
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "High" }));
-
-    expect(onThinkingLevelChange).toHaveBeenCalledWith("high");
-    expect(
-      screen.getByRole("menuitem", { name: /^Reasoning/ }),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("menuitem", { name: /^Harness/ }));
+    await openSub(user, /^Model/);
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Codex" }),
+      await screen.findByRole("menuitemradio", { name: "GPT-5.5" }),
     );
 
-    expect(onHarnessChange).toHaveBeenCalledWith("codex");
-    expect(
-      screen.getByRole("menuitem", { name: /^Harness/ }),
-    ).toBeInTheDocument();
-  });
-
-  it("keeps an open menu mounted while the Pi catalog loads", async () => {
-    render(
-      <Theme>
-        <PiModelSelector
-          models={[]}
-          isLoading
-          onChange={vi.fn()}
-          onHarnessChange={vi.fn()}
-          menuOpen
-          onMenuOpenChange={vi.fn()}
-        />
-      </Theme>,
-    );
-
-    expect(screen.getByRole("button", { name: /Loading/ })).toBeInTheDocument();
-    expect(
-      await screen.findByRole("menuitem", { name: /^Harness/ }),
-    ).toBeInTheDocument();
+    expect(onGatewayModelSelect).toHaveBeenCalledWith("gpt-5.5");
+    expect(onGatewayModelSelect).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

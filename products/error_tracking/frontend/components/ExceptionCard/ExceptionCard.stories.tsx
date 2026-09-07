@@ -666,9 +666,9 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
 }
 ExceptionCardHeaderWidthsWithAction.parameters = headerActionParameters()
 
-// The action is a ViewLogsButton: feature-flagged, only rendered on the timeline/recording tabs, and
-// gated on the team's logs config. All three have to be satisfied or the right-hand cell renders empty
-// and the story stops testing the crowded case it exists for.
+// The action is a ViewLogsButton: feature-flagged, and only rendered on the timeline/recording tabs.
+// Both have to be satisfied or the right-hand cell renders empty and the story stops testing the
+// crowded case it exists for.
 function headerActionParameters(): Record<string, unknown> {
     const timeline = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
     const timelineMocks = (timeline.msw as { mocks: Mocks }).mocks

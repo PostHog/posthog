@@ -40,7 +40,7 @@ export interface CreateEventStepInput {
     historicalMigration: boolean
     headers: EventHeaders
     message: Message
-    eventUsageRecord?: EventUsageRecord
+    eventUsageRecords?: EventUsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -49,7 +49,7 @@ export interface CreateEventStepResult<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
-    eventUsageRecord?: EventUsageRecord
+    eventUsageRecords?: EventUsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -67,7 +67,7 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             historicalMigration,
             headers,
             message,
-            eventUsageRecord,
+            eventUsageRecords,
             eventUsageBatch,
         } = input
 
@@ -99,7 +99,7 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             teamId: preparedEvent.teamId,
             headers,
             message,
-            eventUsageRecord,
+            eventUsageRecords,
             eventUsageBatch,
         }
 

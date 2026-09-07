@@ -232,6 +232,8 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                         <Link to={url} className="flex gap-2 items-center">
                                                             <span className="font-semibold">{display}</span>
                                                         </Link>
+                                                    ) : sampleGlobals ? (
+                                                        <span className="text-muted">No associated person</span>
                                                     ) : (
                                                         <span className="text-muted">Loading...</span>
                                                     )}{' '}

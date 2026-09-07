@@ -32,8 +32,10 @@ to take one failing test or red run to a verdict, switch to the `investigating-c
 - **`workflow-health`** — per-workflow CI health over a window (`date_from` / `date_to`, default last 24 hours):
   `run_count`, `success_rate`, `p50_seconds`, `p95_seconds`, `last_failure_at`. Answers "is CI getting faster or
   slower" and "which workflow is the slow or flaky long pole". There is no built-in trend — call it over two
-  adjacent windows and compare. `success_rate` covers completed runs; `p50_seconds` / `p95_seconds` cover
-  successful runs only (cancelled and failed runs end early and would bias the duration trend). Each is `null`
+  adjacent windows and compare. `success_rate` covers runs that succeeded or ended in a decisive failure
+  (`failure`, `timed_out`, `startup_failure`, or `stale`), excluding skipped, cancelled, neutral, and
+  action-required runs. `p50_seconds` / `p95_seconds` cover successful runs only because
+  cancelled and failed runs end early and would bias the duration trend. Each is `null`
   when a window has no qualifying runs — guard for null before comparing two windows (a workflow can have runs
   in one and none in the other). `run_scope=pull_request` scopes to PR-attributed runs, excluding master/main
   (same-repo PRs only — fork runs carry no PR attribution).
@@ -140,3 +142,5 @@ numbers as a saved insight, a dashboard tile, or a scheduled email/Slack deliver
 (`<prefix>github_pull_requests` / `<prefix>github_workflow_runs`, prefix from `engineering-analytics-sources`)
 are directly queryable with HogQL, and that skill carries the curated column semantics plus the
 insight-create / subscriptions-create workflow.
+
+DORA environment defaults include all persistent production-marked or production-named regions. Read `selected_environments` for the validated exact scope. DRF validates explicit filters against real names, including transient environments. It trims and deduplicates valid names and rejects blank or unknown names with a 400 response. Omit the filter to use the default. Each regional deployment counts separately; lead time counts each PR once at its first successful deployment in any selected environment.

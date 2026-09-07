@@ -542,6 +542,7 @@ export class SesWebhookHandler {
             actionId?: string
             parentRunId?: string
             distinctId?: string
+            teamId?: string
             metricName: MinimalAppMetric['metric_name']
             // Replaces the instance_id trackMetric would derive, for metrics keyed by something
             // other than the action or invocation (see buildLinkInstanceId).
@@ -651,6 +652,7 @@ export class SesWebhookHandler {
             actionId?: string
             parentRunId?: string
             distinctId?: string
+            teamId?: string
             metricName: MinimalAppMetric['metric_name']
             instanceIdOverride?: string
             properties?: Record<string, any>
@@ -755,6 +757,7 @@ export class SesWebhookHandler {
                     actionId,
                     parentRunId,
                     distinctId,
+                    teamId,
                     metricName,
                     properties,
                     timestamp,
@@ -773,6 +776,7 @@ export class SesWebhookHandler {
                         actionId,
                         parentRunId,
                         distinctId,
+                        teamId,
                         metricName: 'email_link_clicked_by_link',
                         instanceIdOverride: buildLinkInstanceId(
                             actionId,
@@ -796,6 +800,7 @@ export class SesWebhookHandler {
                         actionId,
                         parentRunId,
                         distinctId,
+                        teamId,
                         metricName: BOUNCE_TYPE_TO_METRIC_NAME[rec.bounce.bounceType],
                         properties,
                         timestamp,

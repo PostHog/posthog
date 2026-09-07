@@ -45,7 +45,6 @@ interface WarmActivationPayload {
   pendingUserMessage?: string;
   pendingUserArtifactIds?: string[];
   suppressWarmReuse: boolean;
-  augmented: boolean;
 }
 
 // The local connect path appends channel CONTEXT.md to initialPrompt and gets
@@ -57,7 +56,7 @@ interface WarmActivationPayload {
 function buildCloudFirstMessage(
   messageText: string | undefined,
   input: TaskCreationInput,
-): { pendingUserMessage?: string; augmented: boolean } {
+): string | undefined {
   const customInstructionsText = messageText
     ? buildCustomInstructionsText(input.customInstructions)
     : null;
@@ -67,14 +66,11 @@ function buildCloudFirstMessage(
     input.channelContextId,
     input.channelContextPath,
   );
-  const pendingUserMessage =
+  return (
     [messageText, customInstructionsText, channelContextText]
       .filter((part): part is string => !!part)
-      .join("\n\n") || undefined;
-  return {
-    pendingUserMessage,
-    augmented: !!(customInstructionsText || channelContextText),
-  };
+      .join("\n\n") || undefined
+  );
 }
 
 export class TaskCreationSaga extends Saga<
@@ -313,7 +309,7 @@ export class TaskCreationSaga extends Saga<
     // Warm-activated at create time: the backend already forwarded the first
     // message (with any uploaded artifacts) to the pre-warmed run.
     if (!taskId && warmPayload && task.latest_run) {
-      if (warmPayload.augmented && warmPayload.pendingUserMessage) {
+      if (warmPayload.pendingUserMessage) {
         this.deps.sessionService.rememberInitialCloudPrompt(
           task.id,
           warmPayload.pendingUserMessage,
@@ -407,15 +403,15 @@ export class TaskCreationSaga extends Saga<
             ? warmPayload.transport
             : await buildTransport();
 
-          const { pendingUserMessage, augmented } = warmPayload
-            ? warmPayload
+          const pendingUserMessage = warmPayload
+            ? warmPayload.pendingUserMessage
             : buildCloudFirstMessage(transport?.messageText, input);
 
           // The sandbox echoes pendingUserMessage back once it boots; until then
           // the optimistic placeholder would show the bare task description with
           // no CONTEXT.md / personalization chip. Hand the augmented message to
           // the session service so it seeds the placeholder right away.
-          if (!isPiRuntime && augmented && pendingUserMessage) {
+          if (!isPiRuntime && pendingUserMessage) {
             this.deps.sessionService.rememberInitialCloudPrompt(
               task.id,
               pendingUserMessage,
@@ -585,6 +581,8 @@ export class TaskCreationSaga extends Saga<
           if (input.adapter) connectParams.adapter = input.adapter;
           if (input.codexModelAccess)
             connectParams.codexModelAccess = input.codexModelAccess;
+          if (input.claudeModelAccess)
+            connectParams.claudeModelAccess = input.claudeModelAccess;
           if (input.model) connectParams.model = input.model;
           if (input.reasoningLevel)
             connectParams.reasoningLevel = input.reasoningLevel;
@@ -763,7 +761,7 @@ export class TaskCreationSaga extends Saga<
       resolvedContent,
       input.filePaths,
     );
-    const { pendingUserMessage, augmented } = buildCloudFirstMessage(
+    const pendingUserMessage = buildCloudFirstMessage(
       transport.messageText,
       input,
     );
@@ -771,7 +769,6 @@ export class TaskCreationSaga extends Saga<
       transport,
       pendingUserMessage,
       suppressWarmReuse: false,
-      augmented,
     };
 
     const lease =
@@ -874,6 +871,9 @@ export class TaskCreationSaga extends Saga<
           // burns the report's one-live-PR gate.
           signal_report_task_relationship: input.signalReportId
             ? input.signalReportTaskRelationship
+            : undefined,
+          signal_report_discussion_question: input.signalReportId
+            ? input.signalReportDiscussionQuestion
             : undefined,
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun

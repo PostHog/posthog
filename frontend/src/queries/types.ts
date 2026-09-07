@@ -1,4 +1,4 @@
-import { ComponentType, HTMLProps } from 'react'
+import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 
@@ -20,6 +20,8 @@ import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    tableLayout?: 'auto' | 'fixed'
+    tableStyle?: CSSProperties
     /** used to override the value in the query */
     showOpenEditorButton?: boolean
     showQueryEditor?: boolean
@@ -57,6 +59,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataNodeLogicKey?: string
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
+    /** Stop Data Table pagination after this many accumulated rows. */
+    dataTableMaxPaginationRows?: number
+    compactDataTableToolbar?: boolean
+    hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
     /** Ignore action/event names in series labels (show only breakdown/compare values) */
@@ -104,7 +110,10 @@ export interface QueryContextColumn {
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left
-    width?: string
+    width?: string | number
+    resizable?: boolean
+    onResize?: (width: number) => void
+    onResizeEnd?: () => void
     hidden?: boolean // don't show this column in the table
     isRowFillFraction?: boolean // if true, this row will be filled with a background color based on the value (from 0 to 1)
 }

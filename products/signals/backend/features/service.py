@@ -22,7 +22,9 @@ from products.signals.backend.artefact_schemas import (
     FeatureSource,
     FeatureStage,
     NoteArtefact,
+    QuestionArtefact,
     SafetyJudgment,
+    SuggestedReviewers,
 )
 from products.signals.backend.features.prompts import (
     FeaturePlanningSessionContext,
@@ -250,6 +252,25 @@ def feature_planning_readiness(*, team_id: int, report: SignalReport) -> Feature
         .distinct()
     )
     missing.extend(label for t, label in _REQUIRED_ARTEFACT_TYPES.items() if t not in present_types)
+    latest: dict[str, str] = dict(
+        SignalReportArtefact.objects.filter(team_id=team_id, report_id=report.id, type__in=_REQUIRED_ARTEFACT_TYPES)
+        .order_by("type", "-created_at", "-id")
+        .distinct("type")
+        .values_list("type", "content")
+    )
+    if "repo_selection" in latest and not RepoSelectionResult.model_validate_json(latest["repo_selection"]).repository:
+        missing.append("repository selection")
+    if (
+        "suggested_reviewers" in latest
+        and not SuggestedReviewers.model_validate_json(latest["suggested_reviewers"]).root
+    ):
+        missing.append("owners")
+    for artefact in SignalReportArtefact.objects.filter(
+        team_id=team_id, report_id=report.id, type=SignalReportArtefact.ArtefactType.QUESTION, created_by__isnull=True
+    ):
+        if not QuestionArtefact.model_validate_json(artefact.content).answered:
+            missing.append("answers to open questions")
+            break
 
     lifecycle = latest_feature_lifecycle(team_id=team_id, report_id=str(report.id))
     planning_finished = (
@@ -271,56 +292,49 @@ def finish_feature_planning(*, team: Team, user: User, report: SignalReport) -> 
     with `associated_report` artefacts. Repeated calls converge the scout without starting another
     initial implementation pass.
     """
-    readiness = feature_planning_readiness(team_id=team.id, report=report)
-    if not readiness.ready:
-        raise FeaturePlanningNotReadyError(readiness.missing)
-
     report_id = str(report.id)
     attribution = ArtefactAttribution.from_user(user.id)
-
-    skill_name = _ensure_owner_scout(
-        team=team,
-        user=user,
-        report_id=report_id,
-        title=report.title or "Untitled feature",
-    )
-
     newly_managed = False
-    if not readiness.planning_finished:
-        with transaction.atomic():
-            SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
+        readiness = feature_planning_readiness(team_id=team.id, report=report)
+        if not readiness.ready:
+            raise FeaturePlanningNotReadyError(readiness.missing)
+        skill_name = _ensure_owner_scout(
+            team=team, user=user, report_id=report_id, title=report.title or "Untitled feature"
+        )
+        if not readiness.planning_finished:
             lifecycle = latest_feature_lifecycle(team_id=team.id, report_id=report_id)
-            if lifecycle is None or lifecycle.feature_stage != FeatureStage.MANAGED:
-                SignalReportArtefact.append_status(
-                    team_id=team.id,
-                    report_id=report_id,
-                    content=SafetyJudgment(choice=True, explanation=None),
-                    attribution=attribution,
-                    reevaluate_autostart=False,
-                )
-                SignalReportArtefact.append_status(
-                    team_id=team.id,
-                    report_id=report_id,
-                    content=ActionabilityAssessment(
-                        explanation="Feature promoted by its owner.",
-                        actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-                        already_addressed=False,
-                    ),
-                    attribution=attribution,
-                    reevaluate_autostart=False,
-                )
-                SignalReportArtefact.append_status(
-                    team_id=team.id,
-                    report_id=report_id,
-                    content=FeatureLifecycle(
-                        feature_stage=FeatureStage.MANAGED,
-                        source=lifecycle.source if lifecycle else FeatureSource.MANUAL,
-                        discovery_run_id=lifecycle.discovery_run_id if lifecycle else None,
-                    ),
-                    attribution=attribution,
-                    reevaluate_autostart=False,
-                )
-                newly_managed = True
+            SignalReportArtefact.append_status(
+                team_id=team.id,
+                report_id=report_id,
+                content=SafetyJudgment(choice=True, explanation=None),
+                attribution=attribution,
+                reevaluate_autostart=False,
+            )
+            SignalReportArtefact.append_status(
+                team_id=team.id,
+                report_id=report_id,
+                content=ActionabilityAssessment(
+                    explanation="Feature promoted by its owner.",
+                    actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                    already_addressed=False,
+                ),
+                attribution=attribution,
+                reevaluate_autostart=False,
+            )
+            SignalReportArtefact.append_status(
+                team_id=team.id,
+                report_id=report_id,
+                content=FeatureLifecycle(
+                    feature_stage=FeatureStage.MANAGED,
+                    source=lifecycle.source if lifecycle else FeatureSource.MANUAL,
+                    discovery_run_id=lifecycle.discovery_run_id if lifecycle else None,
+                ),
+                attribution=attribution,
+                reevaluate_autostart=False,
+            )
+            newly_managed = True
 
     # Start the first pass without waiting for the daily owner scout activation. Kickoff is best
     # effort because the scout can retry it on its next activation.
@@ -338,6 +352,7 @@ def finish_feature_planning(*, team: Team, user: User, report: SignalReport) -> 
                 team=team,
                 report_id=report_id,
                 triggered_by=f"feature_planning_finished:{user.id}",
+                acting_user=user,
             )
             implementation_task_id = started.task_id
         except InvalidScoutReportError as exc:
@@ -417,8 +432,7 @@ def start_feature_planning_session(*, team: Team, user: User, report: SignalRepo
 
 
 def owner_scout_skill_name(report_id: str) -> str:
-    # First UUID group is enough to be unique per project while keeping the name readable.
-    return f"{OWNER_SCOUT_SKILL_PREFIX}{report_id.split('-')[0]}"
+    return f"{OWNER_SCOUT_SKILL_PREFIX}{report_id}"
 
 
 def _ensure_owner_scout(*, team: Team, user: User, report_id: str, title: str) -> str:
@@ -432,6 +446,9 @@ def _ensure_owner_scout(*, team: Team, user: User, report_id: str, title: str) -
     expected_description = build_owner_scout_description(title)
     expected_display_name = build_owner_scout_display_name(title)
     expected_tools = ["edit_report", "start_implementation"]
+
+    legacy_name = f"{OWNER_SCOUT_SKILL_PREFIX}{report_id.split('-')[0]}"
+    SignalScoutConfig.objects.for_team(team.id).filter(skill_name=legacy_name).update(enabled=False)
 
     skill = LLMSkill.objects.filter(team=team, name=skill_name, deleted=False, is_latest=True).first()
     if skill is None:
@@ -447,6 +464,7 @@ def _ensure_owner_scout(*, team: Team, user: User, report_id: str, title: str) -
                 "display_name": expected_display_name,
             },
             category="scout",
+            created_by=user,
             version=1,
             is_latest=True,
         )
@@ -471,9 +489,12 @@ def _ensure_owner_scout(*, team: Team, user: User, report_id: str, title: str) -
             "display_name": expected_display_name,
         }
         skill.save(update_fields=["body", "description", "allowed_tools", "category", "metadata"])
-    SignalScoutConfig.all_teams.get_or_create(
-        team=team,
+    config, _ = SignalScoutConfig.objects.for_team(team.id).get_or_create(
+        team_id=team.id,
         skill_name=skill_name,
         defaults={"enabled": True, "emit": True, "run_interval_minutes": 1440, "created_by": user},
     )
+    if config.created_by_id != user.id:
+        config.created_by = user
+        config.save(update_fields=["created_by"])
     return skill_name

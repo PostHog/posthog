@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonLabel, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonColorPicker,
+    LemonLabel,
+    LemonModal,
+    LemonSkeleton,
+    LemonTag,
+    LemonTable,
+    LemonTableColumns,
+} from '@posthog/lemon-ui'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -12,7 +20,7 @@ import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorTheme
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
-import { DashboardMode } from '~/types'
+import { DashboardMode, DataColorThemeModel } from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -26,6 +34,21 @@ import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalL
 import { dashboardLogic } from './dashboardLogic'
 
 type BreakdownColorRow = BreakdownColorConfig & { pinnedConfig?: BreakdownColorConfig }
+
+function ThemeSwatches({ theme }: { theme: DataColorThemeModel }): JSX.Element {
+    return (
+        <span className="flex shrink-0 items-center gap-0.5">
+            {theme.colors.slice(0, 6).map((color, index) => (
+                <span
+                    key={index}
+                    className="h-4 w-1.5 rounded-full"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ backgroundColor: color }}
+                />
+            ))}
+        </span>
+    )
+}
 
 function BreakdownPropertyGroupTitle({ breakdownProperty }: { breakdownProperty?: string }): JSX.Element {
     if (breakdownProperty == null) {
@@ -192,20 +215,50 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 </>
             }
         >
-            <LemonLabel info="Select a color theme for all insights on this dashboard. If a theme is selected, it will be applied to all series and breakdowns.">
+            <LemonLabel info="Pick a theme to set the colors every insight on this dashboard uses. Anyone who views or shares the dashboard sees the same colors, so series stay recognizable outside PostHog.">
                 Color theme
             </LemonLabel>
-            <LemonSelect
-                className="mt-2"
-                value={dataColorThemeId || null}
-                placeholder="Defined by insight"
-                onChange={(id) => {
-                    ensureEditMode()
-                    setDataColorThemeId(id)
-                }}
-                loading={themesLoading}
-                options={themes.map((theme) => ({ value: theme.id, label: theme.name }))}
-            />
+            <div className="mt-2 flex flex-col gap-1">
+                {themesLoading ? (
+                    <>
+                        <LemonSkeleton.Button className="w-full" />
+                        <LemonSkeleton.Button className="w-full" />
+                    </>
+                ) : (
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            fullWidth
+                            active={dataColorThemeId == null}
+                            onClick={() => {
+                                ensureEditMode()
+                                setDataColorThemeId(null)
+                            }}
+                            data-attr="dashboard-colors-theme-none"
+                        >
+                            Defined by insight
+                        </LemonButton>
+                        {themes.map((theme) => (
+                            <LemonButton
+                                key={theme.id}
+                                type="secondary"
+                                fullWidth
+                                active={dataColorThemeId === theme.id}
+                                onClick={() => {
+                                    ensureEditMode()
+                                    setDataColorThemeId(theme.id)
+                                }}
+                                data-attr={`dashboard-colors-theme-${theme.id}`}
+                            >
+                                <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                                    <span className="truncate">{theme.name}</span>
+                                    <ThemeSwatches theme={theme} />
+                                </span>
+                            </LemonButton>
+                        ))}
+                    </>
+                )}
+            </div>
 
             <LemonLabel
                 className="mt-4 mb-2"

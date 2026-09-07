@@ -15,6 +15,7 @@ import { PersonHogClient } from '~/common/personhog/client'
 import { createIdentityClients } from '~/common/personhog/identity-clients'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
@@ -107,6 +108,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -339,8 +341,12 @@ export class IngestionApiServer implements NodeServer {
             maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+            mergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
+            mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+            mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
         })
-        // Which world person writes land in, deployment-wide: pg (the
+        // Which backend person writes land in, deployment-wide: pg (the
         // default) builds nothing new; the other modes construct the
         // personhog store, shadow keeping pg authoritative.
         const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)
@@ -400,24 +406,24 @@ export class IngestionApiServer implements NodeServer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
+            teamsPrefetchEnabled: this.config.TEAMS_PREFETCH_ENABLED,
+            eventSchemasPrefetchEnabled: this.config.EVENT_SCHEMAS_PREFETCH_ENABLED,
+            hogFunctionsPrefetchEnabled: this.config.HOG_FUNCTIONS_PREFETCH_ENABLED,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(this.config),
-                PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
-                PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
-                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
                 EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events'),
         }
         const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
         const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(

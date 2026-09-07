@@ -29,7 +29,6 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import (
-    CIMDBlocklistEntry,
     CIMDVerificationToken,
     OAuthApplication,
     TokenEndpointAuthMethod,
@@ -217,41 +216,6 @@ def _cache_key(url: str) -> str:
 def _fetch_lock_key(url: str) -> str:
     url_hash = hashlib.sha256(url.encode()).hexdigest()
     return f"cimd:fetching:{url_hash}"
-
-
-def _blocked_key(url: str) -> str:
-    url_hash = hashlib.sha256(url.encode()).hexdigest()
-    return f"cimd:blocked:{url_hash}"
-
-
-def block_cimd_url(url: str, *, reason: str = "", created_by=None, ttl: int = 86400 * 365) -> None:
-    """Add a CIMD URL to the blocklist. Persists in Postgres; Redis is cache."""
-    CIMDBlocklistEntry.objects.update_or_create(
-        cimd_url=url,
-        defaults={"reason": reason, "created_by": created_by},
-    )
-    cache.set(_blocked_key(url), True, timeout=ttl)
-
-
-def unblock_cimd_url(url: str) -> None:
-    """Remove a CIMD URL from the blocklist."""
-    CIMDBlocklistEntry.objects.filter(cimd_url=url).delete()
-    cache.delete(_blocked_key(url))
-
-
-def is_cimd_url_blocked(url: str) -> bool:
-    """Check if a CIMD URL has been blocklisted.
-
-    Postgres is source of truth; Redis is a read-through cache so the hot
-    path stays a single in-memory lookup. A cache miss falls back to a DB
-    read and re-warms the cache, so a Redis flush doesn't expose blocked
-    URLs."""
-    cached = cache.get(_blocked_key(url))
-    if cached is not None:
-        return bool(cached)
-    blocked = CIMDBlocklistEntry.objects.filter(cimd_url=url).exists()
-    cache.set(_blocked_key(url), blocked, timeout=86400 * 365)
-    return blocked
 
 
 def _parse_cache_ttl(response: requests.Response) -> int:
@@ -885,10 +849,6 @@ def fetch_and_upsert_cimd_application(
     that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
     granted off metadata we could not store; see ``_update_cimd_application``.
     """
-    if is_cimd_url_blocked(url):
-        logger.warning("cimd_blocked_url_fetch_attempt", url=url)
-        return None
-
     fetch_lock = _fetch_lock_key(url)
     if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
         return None
@@ -966,12 +926,10 @@ def refresh_cimd_metadata_task(url: str) -> None:
     try:
         with ph_scoped_capture() as capture_ph_event:
             fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-    except CIMDValidationError as e:
-        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+    except (CIMDValidationError, CIMDFetchError) as e:
+        # A non-compliant document or an unreachable partner endpoint is expected here — the URL and its
+        # host belong to a third party we do not control. Log for observability, don't surface as an error.
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
-    except CIMDFetchError as e:
-        logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
-        capture_exception(e)
 
 
 def get_or_create_cimd_application(url: str) -> OAuthApplication:

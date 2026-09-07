@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -281,8 +282,22 @@ describe('createExperimentLogic', () => {
             }
         )
 
-        it('keeps the created experiment when scanner creation fails', async () => {
-            scannerCreateSpy.mockResolvedValueOnce([500, { detail: 'Scanner unavailable' }])
+        it.each([
+            {
+                name: 'a generic failure is reported to error tracking',
+                response: [500, { detail: 'Scanner unavailable' }] as [number, Record<string, unknown>],
+                shouldCapture: true,
+            },
+            {
+                // Missing org AI consent is user-correctable config, not a defect: keep it out of error
+                // tracking so it stops reopening the issue that flagged this path.
+                name: 'a missing AI consent 400 is not reported to error tracking',
+                response: [400, { code: 'ai_data_processing_not_approved' }] as [number, Record<string, unknown>],
+                shouldCapture: false,
+            },
+        ])('keeps the created experiment when scanner creation fails: $name', async ({ response, shouldCapture }) => {
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+            scannerCreateSpy.mockResolvedValueOnce(response)
             await expectLogic(logic, () => {
                 logic.actions.setCreateReplayVisionScanner(true)
                 logic.actions.setExperiment({
@@ -303,6 +318,8 @@ describe('createExperimentLogic', () => {
                     button: expect.objectContaining({ label: 'Set up scanner' }),
                 })
             )
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(shouldCapture ? 1 : 0)
+            captureExceptionSpy.mockRestore()
         })
 
         it('refreshes tree items for experiment and feature flag after creation', async () => {

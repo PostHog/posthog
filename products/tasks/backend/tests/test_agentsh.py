@@ -145,7 +145,13 @@ class TestGeneratePolicyYaml(TestCase):
         # the firewall strips either, the sandbox silently stays on the Python
         # gateway, so a migrated product keeps billing under its old tag.
         policy = yaml.safe_load(generate_policy_yaml([]))
-        for key in ("LLM_GATEWAY_URL", "AI_GATEWAY_URL", "AI_GATEWAY_PRODUCTS"):
+        for key in (
+            "LLM_GATEWAY_URL",
+            "AI_GATEWAY_URL",
+            "AI_GATEWAY_PRODUCTS",
+            "AI_GATEWAY_PRODUCT",
+            "AI_GATEWAY_AI_STAGE",
+        ):
             self.assertIn(key, policy["env_policy"]["allow"])
 
     def test_go_gateway_hosts_reachable(self):
@@ -594,7 +600,9 @@ class TestModalSandboxAgentShWrapping(TestCase):
         cast_sandbox.is_running = Mock(return_value=True)
         cast_sandbox._agent_server_is_healthy = Mock(return_value=False)
         cast_sandbox._free_agent_server_port = Mock()
-        cast_sandbox.write_file = Mock()
+        cast_sandbox.write_file = Mock(
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+        )
         cast_sandbox.execute = execute
 
         sandbox.start_agent_server(

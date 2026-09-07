@@ -113,9 +113,15 @@ function EditableSummary({ report }: { report: SignalReport }): JSX.Element {
 }
 
 /** One open question: the question text, with an in-place answer surface. */
-function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact: SignalReportArtefact }): JSX.Element {
+export function OpenQuestionItem({
+    report,
+    artefact,
+}: {
+    report: SignalReport
+    artefact: SignalReportArtefact
+}): JSX.Element {
     const logic = featureDetailLogic({ reportId: report.id, report })
-    const { answeringQuestionId, answerDraft, answerSaving } = useValues(logic)
+    const { answeringQuestionId, answerDraft, answerSaving, customAnswerSelected } = useValues(logic)
     const { selectAnswer, saveAnswer } = useActions(logic)
 
     const questionText = typeof artefact.content?.question === 'string' ? artefact.content.question : ''
@@ -123,7 +129,7 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
         ? Array.from(new Set(artefact.content.options.filter((option): option is string => typeof option === 'string')))
         : []
     const answering = answeringQuestionId === artefact.id
-    const selectedAnswer = answering ? (options.includes(answerDraft) ? answerDraft : OTHER_ANSWER_VALUE) : undefined
+    const selectedAnswer = answering ? (customAnswerSelected ? OTHER_ANSWER_VALUE : answerDraft) : undefined
     const customAnswer = selectedAnswer === OTHER_ANSWER_VALUE ? answerDraft : ''
     const radioOptions: LemonRadioOption<string>[] = [
         ...options.map((option) => ({
@@ -142,10 +148,10 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
                     value={customAnswer}
                     onFocus={() => {
                         if (selectedAnswer !== OTHER_ANSWER_VALUE) {
-                            selectAnswer(artefact.id, '')
+                            selectAnswer(artefact.id, '', true)
                         }
                     }}
-                    onChange={(value) => selectAnswer(artefact.id, value)}
+                    onChange={(value) => selectAnswer(artefact.id, value, true)}
                     placeholder="Other"
                     size="xsmall"
                     transparentBackground
@@ -182,7 +188,13 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
                 {options.length > 0 ? (
                     <LemonRadio
                         value={selectedAnswer}
-                        onChange={(value) => selectAnswer(artefact.id, value === OTHER_ANSWER_VALUE ? '' : value)}
+                        onChange={(value) =>
+                            selectAnswer(
+                                artefact.id,
+                                value === OTHER_ANSWER_VALUE ? '' : value,
+                                value === OTHER_ANSWER_VALUE
+                            )
+                        }
                         options={radioOptions}
                         radioPosition="top"
                         aria-label="Answer choices"
@@ -191,8 +203,12 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
                 {options.length === 0 ? (
                     <LemonInput
                         value={answering ? answerDraft : ''}
-                        onFocus={() => selectAnswer(artefact.id, '')}
-                        onChange={(value) => selectAnswer(artefact.id, value)}
+                        onFocus={() => {
+                            if (!answering) {
+                                selectAnswer(artefact.id, '', true)
+                            }
+                        }}
+                        onChange={(value) => selectAnswer(artefact.id, value, true)}
                         placeholder="Enter your answer"
                         disabledReason={answerSaving ? 'Saving answer' : undefined}
                         data-attr="feature-question-custom-answer"

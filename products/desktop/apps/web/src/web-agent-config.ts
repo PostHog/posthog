@@ -5,6 +5,7 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import {
+  buildProviderModelGroups,
   DEFAULT_CODEX_MODEL,
   DEFAULT_GATEWAY_MODEL,
   fetchGatewayModels,
@@ -26,6 +27,7 @@ import type { Adapter } from "@posthog/shared";
 export async function getWebPreviewConfigOptions(
   apiHost: string,
   adapter: Adapter = "claude",
+  allHarnessModels = false,
 ): Promise<SessionConfigOption[]> {
   const gatewayUrl = getLlmGatewayUrl(apiHost);
   const gatewayModels = await fetchGatewayModels({ gatewayUrl });
@@ -93,7 +95,9 @@ export async function getWebPreviewConfigOptions(
       name: "Model",
       type: "select",
       currentValue: resolvedModelId,
-      options: modelOptions,
+      options: allHarnessModels
+        ? buildProviderModelGroups(gatewayModels, adapter, resolvedModelId)
+        : modelOptions,
       category: "model",
       description: "Choose which model Claude should use",
     },

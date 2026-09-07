@@ -20,13 +20,24 @@ The work splits in two, because recordings queries build their AST separately fr
   is runner work, so callers must invoke it from their run path, never while building an AST.
 - :func:`exposed_distinct_ids_select` is pure AST construction from a resolved linkage.
 
+Queries can additionally narrow the population's sessions to the ones carrying in-session
+exposure evidence (:func:`exposed_session_ids_select`). What counts as evidence comes from the
+shared session-exposure resolution, so this surface, the session buckets, and the watch shelf
+all mean the same thing by "exposed in this session". Whether the narrowing can answer for an
+experiment at all resolves through :func:`resolve_in_session_exposure_semantics`, which the
+scope control reads too, so the tab disables exactly what a query would be refused for.
+
 The exposure scan window is deliberately the full experiment window, unbounded. Narrowing it
 would change who counts as exposed relative to the analysis. The expensive cases are handled
 instead: precomputing teams read the preaggregated table (converging in TTL-capped chunks for
 long-running experiments), activation-mode exposures always resolve with a live scan because
 they have no preaggregated form (carrying an explicit memory budget on precomputing teams),
 and where neither the preaggregated read nor an affordable live scan is available the query
-is refused with a ValidationError rather than left to time out.
+is refused with a ValidationError rather than left to time out. The in-session evidence scan
+follows the same posture: it always runs live under an explicit memory budget, callers can
+intersect its window with their own date bounds (which never changes results), and its
+stamped-property fallback flavor (the read with no event name to prune on) is refused on
+precomputing teams rather than left to time out.
 """
 
 from dataclasses import dataclass
@@ -43,6 +54,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -67,6 +79,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
 
 logger = structlog.get_logger(__name__)
 
@@ -77,11 +90,34 @@ COHORT_NOT_CALCULATED_MESSAGE = (
     "This experiment's exposure criteria reference a cohort that hasn't finished calculating. "
     "Try again when the cohort is ready."
 )
+EXPERIMENT_HAS_NO_FLAG_MESSAGE = "This experiment has no feature flag, so exposures can't be resolved."
+# Written to stand alone next to the scope control's disabled in-session option, which is how the
+# tab surfaces them via :func:`resolve_in_session_exposure_semantics`.
+IN_SESSION_EXPOSURE_UNMATCHABLE_REASON = (
+    "This experiment's exposure event has only ever been captured server-side, where there is no "
+    "session to record, so no session can contain it."
+)
+IN_SESSION_EXPOSURE_ACTIVATION_REASON = (
+    "This experiment uses an activation event, so its exposure can span more than one session and "
+    "can't be pinned to a single session."
+)
+IN_SESSION_EXPOSURE_FALLBACK_TOO_LARGE_REASON = (
+    "This experiment's exposure event was never captured with a session ID, and this project is too "
+    "large for the fallback that matches sessions on the feature flag being active."
+)
+# Appended when a query actually carries the narrowing, so the API error names the way out. The
+# scope control shows the bare reason instead: its option is disabled, so there is nothing to remove.
+_IN_SESSION_REFUSAL_QUERY_SUFFIX = " Remove the in-session narrowing to see exposed participants' sessions."
 # Sized an order of magnitude above the peak observed on the largest precompute-enabled team
 # (#83514), so it fires only for a scan far outside anything measured, and below the cluster's
 # default per-query limit, so the kill renders as the standard memory-limit error before the
 # scan becomes cluster-level pressure.
 ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES = 4 * 1024**3
+# The in-session evidence scan and its GLOBAL IN session-id set have no preaggregated form, so like
+# the activation scan they run live under an explicit ceiling. Sized an order of magnitude above
+# the evidence-session sets measured for the broadest experiments on the largest internal project,
+# and below the cluster's default per-query limit, for the same graceful-kill reason as above.
+IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES = 4 * 1024**3
 
 
 def validate_experiment_exposure_access(
@@ -141,16 +177,107 @@ class ExperimentExposureLinkage:
     # population is already test-filtered at the person level. Queries that restrict their rows
     # to this population can skip re-applying the same filters to their own rows.
     population_filters_test_accounts: bool = False
+    # Resolved only when the query narrows to in-session exposure evidence; None otherwise.
+    # Carries which event and property the evidence reads and whether the stamped-property
+    # fallback applies, resolved through the shared session-exposure seam so this surface
+    # can't disagree with the session buckets and the watch shelf on what "exposed in this
+    # session" means.
+    session_exposure: SessionExposure | None = None
 
 
-def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | None) -> ExperimentExposureLinkage:
+@frozen
+class InSessionExposureSemantics:
+    """How the in-session narrowing reads on one experiment.
+
+    One resolution serves both the recordings query's refusal and the tab's scope control, so the
+    two can't drift: the control disables exactly what the query would refuse, and the copy can say
+    when the evidence is the stamped-property stand-in rather than the exposure event itself.
+    """
+
+    # None exactly when ``unavailable_reason`` is set.
+    session_exposure: SessionExposure | None
+    # Why in-session narrowing can't answer for this experiment. None when it can.
+    unavailable_reason: str | None
+
+    @property
+    def available(self) -> bool:
+        """True when a query carrying the narrowing would be accepted."""
+        return self.unavailable_reason is None
+
+    @property
+    def uses_stamped_fallback(self) -> bool:
+        """True when the evidence is the stamped ``$feature/<key>`` property: it means the flag was
+        active in the session, not that the exposure event was captured there."""
+        return self.session_exposure is not None and self.session_exposure.used_fallback
+
+
+def _precomputation_covers_full_window(config: TeamExperimentsConfig, experiment: Experiment) -> bool:
+    """The team-level marker that a full-window live events scan is a real cost here: precomputation
+    is enabled and the experiment has run past the minimum runtime, so the analysis reads
+    preaggregated data instead of scanning live. The population read and the in-session fallback
+    refusal both key off this one predicate so their cost postures cannot drift.
+    """
+    return config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
+        experiment.start_date, experiment.end_date
+    )
+
+
+def _fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) -> bool:
+    """Whether the stamped-property evidence scan must be refused for this team and experiment.
+
+    Unlike the exposure-event scan, the fallback has no event name to prune on, so it reads every
+    event in the experiment window. On the teams where precomputation marks full-window live scans
+    as a real cost, that scan times out instead of answering, so refusing is the honest posture,
+    the same one the population read takes, including its young-experiment exception, whose window
+    is hours wide and cheap on any team.
+    """
+    if experiment.start_date is None:
+        return False
+    config = get_or_create_team_extension(team, TeamExperimentsConfig)
+    return _precomputation_covers_full_window(config, experiment)
+
+
+def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) -> InSessionExposureSemantics:
+    """Resolve whether the in-session narrowing can answer for this experiment, and how.
+
+    Postgres reads only (taxonomy plus team config, no ClickHouse), so the tab can ask on mount
+    and disable the option instead of letting a doomed query surface as an error.
+    """
+    if getattr(experiment, "feature_flag", None) is None:
+        return InSessionExposureSemantics(session_exposure=None, unavailable_reason=EXPERIMENT_HAS_NO_FLAG_MESSAGE)
+    if has_activation_config(experiment.exposure_criteria):
+        # Activation mode counts exposure from the activation event, at or after the first flag
+        # exposure and often in a later session, while the in-session evidence matches the flag
+        # event. The two can't agree inside one session, so refuse rather than list the wrong
+        # session or nothing.
+        return InSessionExposureSemantics(
+            session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_ACTIVATION_REASON
+        )
+    # A Postgres EventProperty read, so it stays out of the common no-narrowing path.
+    session_exposure = resolve_session_exposure(team, experiment, event_names=frozenset())
+    if session_exposure.is_unmatchable:
+        return InSessionExposureSemantics(
+            session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_UNMATCHABLE_REASON
+        )
+    if session_exposure.used_fallback and _fallback_evidence_scan_is_unaffordable(team, experiment):
+        return InSessionExposureSemantics(
+            session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_FALLBACK_TOO_LARGE_REASON
+        )
+    return InSessionExposureSemantics(session_exposure=session_exposure, unavailable_reason=None)
+
+
+def resolve_exposure_linkage(
+    team: Team, *, experiment_id: int, variant: str | None, in_session: bool = False
+) -> ExperimentExposureLinkage:
     """Validate the experiment and resolve how its exposed population will be read.
 
     Raises ValidationError for experiments the linkage can't answer for: unknown or draft
     experiments, group-aggregated ones (whose exposed entities are groups rather than
     persons and so never match a recording's distinct id), unknown variants, and
     experiments whose exposures can be resolved neither from the preaggregated table nor
-    with a live scan the team can afford.
+    with a live scan the team can afford. An `in_session` request is refused when the
+    exposure event was never captured with a session id and nothing stands in for it
+    (custom criteria get no stand-in), because every session would then read as unexposed.
     """
     try:
         experiment = Experiment.objects.get(id=experiment_id, team=team, deleted=False)
@@ -159,7 +286,7 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
 
     flag = getattr(experiment, "feature_flag", None)
     if flag is None:
-        raise ValidationError("This experiment has no feature flag, so exposures can't be resolved.")
+        raise ValidationError(EXPERIMENT_HAS_NO_FLAG_MESSAGE)
     if experiment.start_date is None:
         raise ValidationError("This experiment hasn't launched, so it has no exposed sessions yet.")
     if (flag.filters or {}).get("aggregation_group_type_index") is not None:
@@ -181,6 +308,13 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         requested_variants = [variant]
     else:
         requested_variants = variant_keys
+
+    session_exposure: SessionExposure | None = None
+    if in_session:
+        semantics = resolve_in_session_exposure_semantics(team, experiment)
+        if semantics.unavailable_reason is not None:
+            raise ValidationError(semantics.unavailable_reason + _IN_SESSION_REFUSAL_QUERY_SUFFIX)
+        session_exposure = semantics.session_exposure
 
     exposure_params = get_exposure_config_params_for_builder(experiment.exposure_criteria, team, experiment.start_date)
     date_range_query = QueryDateRange(
@@ -211,8 +345,16 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         context=context,
         requested_variants=requested_variants,
         preaggregation_job_ids=read.preaggregation_job_ids,
-        live_scan_max_memory_bytes=read.live_scan_max_memory_bytes,
+        # The evidence scan always runs live whatever path the population resolves through, so a
+        # narrowed listing carries the ceiling even where the population read needs none. Activation
+        # (the other ceiling source) is refused with in_session, so the two never compete.
+        live_scan_max_memory_bytes=(
+            IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES
+            if session_exposure is not None
+            else read.live_scan_max_memory_bytes
+        ),
         population_filters_test_accounts=exposure_params.filter_test_accounts,
+        session_exposure=session_exposure,
     )
 
 
@@ -241,9 +383,7 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
     # Below the minimum runtime the analysis skips precomputation too: the scan window is
     # hours wide (cheap on any team), and the current-day cache TTL would hide exposures
     # from the tab for up to 15 minutes right when users watch it most.
-    if not config.experiment_precomputation_enabled or not experiment_has_min_runtime_for_precomputation(
-        experiment.start_date, experiment.end_date
-    ):
+    if not _precomputation_covers_full_window(config, experiment):
         tag_queries(experiment_exposures_path="direct_scan")
         return _ExposureRead(preaggregation_job_ids=None, live_scan_max_memory_bytes=None)
 
@@ -360,4 +500,60 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
     # exposure source twice. MATERIALIZED computes it once and reuses the result, which keeps the
     # live path to a single events scan and holds only the exposed rows in memory.
     query.ctes = {"exposures": ast.CTE(name="exposures", expr=exposure_select, cte_type="subquery", materialized=True)}
+    return query
+
+
+def exposed_session_ids_select(
+    linkage: ExperimentExposureLinkage,
+    *,
+    clamp_date_from: datetime | None = None,
+    clamp_date_to: datetime | None = None,
+) -> ast.SelectQuery:
+    """Distinct ids of sessions carrying in-session exposure evidence, for narrowing the
+    person-scoped population to the sessions where the exposure can be watched happening.
+
+    Pure AST construction; the linkage must have been resolved with ``in_session=True``.
+
+    The evidence condition comes from the shared session-exposure resolution, including the
+    stamped ``$feature/<flag_key>`` fallback when the exposure event was never captured with a
+    session id. This narrowing composes with the exposure join rather than replacing it: the
+    join still decides who counts as exposed (and bounds sessions to first exposure), so
+    deliberately no test-account filtering here, where it could only re-hide sessions of
+    persons the analysis counts. The scan prunes by event name except on the fallback path,
+    which reads the stamped property off every event in the window, the same read the session
+    buckets run.
+
+    The scan window is the experiment's, matching the population scan, intersected with the
+    caller's clamp when given: evidence lives inside the sessions being listed, so a caller that
+    bounds its sessions by date can pass those bounds (with its session-length buffer) and drop
+    the part of the scan that could only nominate sessions it already excludes. Unlike a fixed
+    recency clamp, the intersection never changes results: deduped first-exposure evidence
+    stays in scope whenever the listed window covers it.
+
+    Always a live events scan, whatever path the population resolves through: the
+    preaggregated exposures table carries no session ids.
+    """
+    assert linkage.session_exposure is not None
+    scan_date_from = linkage.context.date_range_query.date_from()
+    scan_date_to = linkage.context.date_range_query.date_to()
+    if clamp_date_from is not None:
+        scan_date_from = max(scan_date_from, clamp_date_from)
+    if clamp_date_to is not None:
+        scan_date_to = min(scan_date_to, clamp_date_to)
+    query = parse_select(
+        """
+        SELECT DISTINCT `$session_id` AS session_id
+        FROM events
+        WHERE timestamp >= {date_from}
+            AND timestamp <= {date_to}
+            AND `$session_id` != ''
+            AND {evidence}
+        """,
+        placeholders={
+            "date_from": ast.Constant(value=scan_date_from),
+            "date_to": ast.Constant(value=scan_date_to),
+            "evidence": linkage.session_exposure.condition(linkage.requested_variants),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
     return query

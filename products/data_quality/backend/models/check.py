@@ -182,6 +182,11 @@ class DataQualityCheck(
         blank=True,
         help_text="When the check last passed. Null means it has not passed within the run retention window.",
     )
+    failing_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the current streak of failing runs started. Null when the check is not failing.",
+    )
 
     fingerprint = models.CharField(
         max_length=64,

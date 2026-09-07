@@ -2,55 +2,21 @@
 
 ## 1. Database users (posthog-cloud-infra)
 
-`aurora_user_management/v3.0.0` has four tiers, all built on
-`pg_read_all_data` / `pg_write_all_data`. None fit a monitoring agent:
-`readonly` grants SELECT on every table (too much) while still **not** letting
-the role see other users' rows in `pg_stat_statements` / `pg_stat_activity`
-(too little — that needs `pg_read_all_stats`, which `pg_monitor` includes).
+`aurora_user_management/v3.0.0` has a `monitor` tier for telemetry agents:
+`pg_monitor` plus `CONNECT`, no table data. `readonly` is the wrong tier for
+this job: it grants SELECT on every table and still hides other users' rows in
+`pg_stat_statements` / `pg_stat_activity` (that needs `pg_read_all_stats`,
+which `pg_monitor` includes).
 
-Add a `monitor` tier to the module. It is the same shape as the others:
+Per monitored cluster, add `"pgcollector"` to `users_monitor` in that cluster's
+own user config. The dev cloud cluster does this in
+`terraform/environments/aws-accnt-dev/us-east-1/postgres/users.tf`; keep it out
+of the shared `posthog_app_db_users` registry unless every cluster should get it.
 
-```hcl
-# variables.tf
-variable "users_monitor" {
-  description = "Users granted pg_monitor (pg_read_all_stats + pg_read_all_settings + pg_stat_scan_tables): full visibility into stats views and settings, NO data access. For telemetry agents such as pgcollector."
-  type        = list(string)
-  default     = []
-}
-
-# main.tf — locals
-tier = merge(
-  ...,
-  { for u in var.users_monitor : u => "monitor" },
-)
-all_users = concat(..., var.users_monitor)
-
-builtin_roles = {
-  ...
-  monitor = ["pg_monitor"]
-}
-database_privileges = {
-  ...
-  monitor = ["CONNECT"]
-}
-```
-
-(`validate_tiers`' error message should mention the new list.)
-
-Then, per monitored cluster, add `"pgcollector"` to `users_monitor` in that
-cluster's users config — for the `cloud` cluster that's the `posthog_app_db_users`
-module outputs (a new `cloud_users_monitor` output feeding the v3 lane), for
-`persons` the `postgres-persons` configuration.
-
-The **sink** database is a normal app database: pgcollector creates and alters
-its own tables, so its user goes in `users_ddl` of whichever config manages
-the stats cluster.
-
-`pg_monitor` is enough for every collector shipped today, including
-`pg_stat_statements` (the extension must be installed in the target database
-— `CREATE EXTENSION pg_stat_statements` once, by a DDL user — and
-`shared_preload_libraries` must include it, which is the RDS default parameter
-group's setting on Aurora Postgres).
+The **sink** database, its `pgcollector` (ddl) and `pgapi` (readonly) users,
+the `PostHogAppDatabaseId` tag the golden chart selects nodes by, and the
+`k8s-pgcollector` IRSA role all come from `terraform/modules/pgcollector`. One
+module call per environment; see its README for the inputs.
 
 ### Extensions and Aurora functions
 
@@ -70,11 +36,12 @@ Nothing here requires a parameter-group change or a reboot.
   `aurora_compute_plan_id` (default on, 14.10+/15.5+) must stay on for
   `aurora_plans` and `plan_id` in activity samples.
 
-Parameter-group niceties (dynamic, no reboot; both optional): append `%Q` to
-`log_line_prefix` so log rows join `cur_queries` by query id instead of text
-fingerprint; the log sampling, lock-wait and CloudWatch-export settings the
-logs collector relies on are already set fleet-wide. Clusters that don't
-preload `auto_explain` simply produce no `ts_log_plans`.
+Parameter-group niceties (dynamic, no reboot): the log sampling, lock-wait and
+CloudWatch-export settings the logs collector relies on are already set
+fleet-wide. RDS and Aurora refuse to modify `log_line_prefix`, so there is no
+`%Q` (query id) on log lines; the collector joins log rows to `cur_queries` by
+text fingerprint instead. Clusters that don't preload `auto_explain` simply
+produce no `ts_log_plans`.
 
 ### Load profile on the monitored cluster
 
@@ -106,7 +73,11 @@ database this is a non-issue.
 
 ## 2. Helm (charts/posthog-app)
 
-See [`deploy/values.example.yaml`](../deploy/values.example.yaml). Key points:
+The charts app is `apps/pgcollector`, onboarded through platformctl: a
+`service.yaml` per app declares the Stages, and platformctl generates the Argo CD
+Application and the Kargo project, warehouse and stage. Do not hand-write an
+ApplicationSet. See [`deploy/values.example.yaml`](../deploy/values.example.yaml)
+for the values. Key points:
 
 * **`pgbouncer: false` on every `psql:` entry.** pgcollector sets session GUCs
   and needs stable backends; it refuses to start if it detects PgBouncer.
@@ -145,7 +116,7 @@ Parameter-group settings that make this worthwhile (mostly already set):
 |---|---|---|
 | `log_min_duration_sample` / `log_statement_sample_rate` | `1000` / `0.01` | sampled per-statement durations → p50/p95/p99 |
 | `log_min_duration_statement` | `10000` | every slow statement |
-| `log_line_prefix` | RDS default + `%Q` | **query id on every line** so log rows join `cur_queries` exactly; without it we join on a text fingerprint |
+| `log_line_prefix` | RDS default (not modifiable) | no query id on log lines, so log rows join `cur_queries` on a text fingerprint; self-managed Postgres can append `%Q` for an exact join |
 | `auto_explain.*` | json, sample 0.01 | plans for sampled slow statements → `ts_log_plans` |
 | `log_lock_waits`, `log_temp_files=0`, `log_checkpoints`, `log_autovacuum_min_duration=0` | on | events + `ts_temp_files`, `ts_checkpoints`, `ts_autovacuum_runs` |
 

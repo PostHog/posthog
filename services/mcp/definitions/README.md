@@ -20,7 +20,7 @@ OpenAPI schema (Django)
         ▼
   YAML definitions       ← product teams enable tools, add scopes/annotations/descriptions
         │
-        ├──► generate-orval-schemas   → Zod schemas from OpenAPI (src/generated/{product}/api.ts)
+        ├──► generate-orval-schemas   → Zod schema builders from OpenAPI (src/generated/{product}/api.ts)
         │
         └──► generate-tools           → TypeScript handlers (src/tools/generated/{product}.ts)
                                         JSON definitions  (schema/generated-tool-definitions.json)

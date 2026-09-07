@@ -84,3 +84,9 @@ pub const V2_PROP_DEFS_DROPPED_UNCACHED: &str = "propdefs_v2_propdefs_dropped_un
 // target table. Stripped rows stay in the shared dedup cache on purpose, so the dead
 // tenant's events stop re-issuing the same failing write.
 pub const V2_BATCH_ROWS_DROPPED_FK: &str = "propdefs_v2_batch_rows_dropped_fk";
+
+// Read-before-write: batches are checked against a Postgres reader before the
+// upsert, and rows the database already covers are dropped from the write.
+pub const READ_FILTER_ATTEMPT: &str = "propdefs_v2_read_filter_attempt";
+pub const READ_FILTER_ROWS_DROPPED: &str = "propdefs_v2_read_filter_rows_dropped";
+pub const READ_FILTER_TIME: &str = "propdefs_v2_read_filter_ms";

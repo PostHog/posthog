@@ -7,6 +7,8 @@ export function makeQuota(overrides: Partial<VisionQuotaApi> = {}): VisionQuotaA
     return {
         credit_limit: 10_000,
         credits_used: 0,
+        credits_settled: 0,
+        credits_reserved: 0,
         remaining: 10_000,
         exhausted: false,
         projected_monthly_credits: 0,

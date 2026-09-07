@@ -1,5 +1,6 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,9 +14,11 @@ from products.signals.backend.artefact_schemas import (
     FeatureStage,
     Priority,
     PriorityAssessment,
+    QuestionArtefact,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.auto_start import _create_implementation_task_if_absent
 from products.signals.backend.features.service import (
     CreatedFeatureDiscovery,
     FeaturePlanningNotReadyError,
@@ -26,8 +29,15 @@ from products.signals.backend.features.service import (
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutConfig
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.test.test_signal_report_api import authenticate_as_sandbox_token
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task  # tach-ignore
+
+
+@pytest.fixture(autouse=True)
+def enable_features():
+    with patch("products.signals.backend.features.access.posthoganalytics.feature_enabled", return_value=True):
+        yield
 
 
 def _mock_created_task(team: Team, user: User) -> MagicMock:
@@ -46,8 +56,9 @@ def _mock_created_task(team: Team, user: User) -> MagicMock:
     return created
 
 
-def _make_ready_feature(team: Team, user: User) -> SignalReport:
+def _make_ready_feature(team: Team, user: User, feature_id: UUID | None = None) -> SignalReport:
     report = SignalReport.objects.create(
+        **({"id": feature_id} if feature_id else {}),
         team=team,
         status=SignalReport.Status.READY,
         title="Feature: something",
@@ -254,7 +265,14 @@ class TestFeatureAPI(APIBaseTest):
     def test_start_implementation_endpoint_starts_a_pass(self, mock_create):
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-me2", extra_data={"login": "me"})
         mock_create.return_value = _mock_created_task(self.team, self.user)
-        report = _make_ready_feature(self.team, self.user)  # repo + owners + priority, no impl run yet
+        report = _make_ready_feature(self.team, self.user)
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FeatureLifecycle(feature_stage=FeatureStage.MANAGED, source=FeatureSource.MANUAL),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reevaluate_autostart=False,
+        )
 
         response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/start_implementation/")
         assert response.status_code == 200, response.content
@@ -262,6 +280,8 @@ class TestFeatureAPI(APIBaseTest):
         assert body["task_id"] == str(mock_create.return_value.task_id)
         assert body["repository"] == "posthog/posthog"
         assert mock_create.call_args.kwargs["ai_stage"] == "implementation"
+        assert mock_create.call_args.kwargs["user_id"] == self.user.id
+        assert mock_create.call_args.kwargs["internal"] is True
 
     def test_finish_planning_endpoint_404_for_other_team_report(self):
         other_org = Organization.objects.create(name="other")
@@ -355,3 +375,128 @@ class TestFeatureAPI(APIBaseTest):
             type=SignalReportArtefact.ArtefactType.FEATURE_LIFECYCLE,
         ).get()
         assert FeatureLifecycle.model_validate_json(lifecycle.content).feature_stage == FeatureStage.MANAGED
+
+    def test_features_are_hidden_when_the_flag_is_disabled(self):
+        with patch("products.signals.backend.features.access.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/features/")
+        assert response.status_code == 404
+
+    def test_stage_pagination_does_not_hide_live_features_behind_staged_features(self):
+        staged_ids = []
+        for stage in [FeatureStage.STAGED, FeatureStage.STAGED, FeatureStage.MANAGED]:
+            report = _make_ready_feature(self.team, self.user)
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=FeatureLifecycle(
+                    feature_stage=stage, source=FeatureSource.DISCOVERY, discovery_run_id=str(uuid4())
+                ),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            if stage == FeatureStage.STAGED:
+                staged_ids.append(str(report.id))
+        url = f"/api/projects/{self.team.id}/signals/features/"
+        live = self.client.get(url, {"stage": "live", "limit": "1"})
+        assert live.status_code == 200, live.content
+        assert [row["id"] for row in live.json()["results"]] == [str(report.id)]
+        first = self.client.get(url, {"stage": "staged", "limit": "1"}).json()
+        second = self.client.get(first["next"]).json()
+        assert {row["id"] for page in [first, second] for row in page["results"]} == set(staged_ids)
+        assert second["next"] is None
+
+    def test_readiness_blocks_unanswered_questions_and_empty_repository(self):
+        report = _make_ready_feature(self.team, self.user)
+        question = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=QuestionArtefact(question="Which users?", options=["Everyone", "Staff"]),
+            attribution=ArtefactAttribution.system(),
+        )
+        url = f"/api/projects/{self.team.id}/signals/features/{report.id}/planning_readiness/"
+        response = self.client.get(url)
+        assert response.status_code == 200, response.content
+        assert response.json()["missing"] == ["answers to open questions"]
+        question.content = QuestionArtefact(
+            question="Which users?", options=["Everyone", "Staff"], answered=True, answer="Staff"
+        ).model_dump_json()
+        question.save(update_fields=["content"])
+        assert self.client.get(url).json()["ready"] is True
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository=None, reason="No repository"),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        assert self.client.get(url).json()["missing"] == ["repository selection"]
+
+    @patch("products.tasks.backend.facade.api.create_and_run_task")
+    def test_batch_promotions_get_distinct_owner_scouts(self, mock_create):
+        reports = [
+            _make_ready_feature(self.team, self.user, UUID(f"01991688-1234-7000-8000-{index:012d}"))
+            for index in range(2)
+        ]
+        for report in reports:
+            mock_create.return_value = _mock_created_task(self.team, self.user)
+            finish_feature_planning(team=self.team, user=self.user, report=report)
+        names = [owner_scout_skill_name(str(report.id)) for report in reports]
+        assert names[0] != names[1]
+        assert SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name__in=names, enabled=True).count() == 2
+        for report, name in zip(reports, names):
+            assert str(report.id) in LLMSkill.objects.get(team=self.team, name=name, is_latest=True).body
+
+    @patch("products.signals.backend.features.views.start_feature_discovery")
+    def test_scoped_oauth_can_read_custom_actions_and_start_discovery(self, mock_start):
+        authenticate_as_sandbox_token(self)
+        mock_start.return_value = CreatedFeatureDiscovery(run_id=str(uuid4()))
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/features/discovery_runs/")
+        assert response.status_code == 200, response.content
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/features/discover/",
+            {"repository": "PostHog/posthog", "focus": "Replay"},
+        )
+        assert response.status_code == 201, response.content
+
+    @patch("products.signals.backend.auto_start.resolve_agent_runtime")
+    @patch("products.tasks.backend.facade.api.create_and_run_task")
+    def test_generic_report_autostart_cannot_bypass_feature_readiness(self, mock_create, mock_runtime):
+        report = _make_ready_feature(self.team, self.user)
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FeatureLifecycle(feature_stage=FeatureStage.PLANNING, source=FeatureSource.MANUAL),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reevaluate_autostart=False,
+        )
+        started = _create_implementation_task_if_absent(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            title="Feature",
+            description="Implement",
+            user_id=self.user.id,
+            repository="PostHog/posthog",
+            base_branch=None,
+        )
+        assert not started
+        mock_create.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.create_and_run_task")
+    def test_implementation_task_rolls_back_when_recording_its_association_fails(self, mock_create):
+        report = _make_ready_feature(self.team, self.user)
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FeatureLifecycle(feature_stage=FeatureStage.MANAGED, source=FeatureSource.MANUAL),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reevaluate_autostart=False,
+        )
+        mock_create.side_effect = lambda **kwargs: _mock_created_task(self.team, self.user)
+        task_count = Task.objects.filter(team=self.team).count()
+        with patch(
+            "products.signals.backend.task_run_artefacts.record_implementation_task",
+            side_effect=RuntimeError("Association unavailable"),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/start_implementation/")
+            assert response.status_code == 500
+        assert Task.objects.filter(team=self.team).count() == task_count

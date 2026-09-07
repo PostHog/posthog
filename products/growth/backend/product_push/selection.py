@@ -28,6 +28,7 @@ from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import is_retry_eligible
+from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS, OrganizationId
 
 # The order in which we push products to organizations that don't use them yet.
 # Seeded from the preference weights of the retired cross-sell suggester, whose
@@ -36,7 +37,9 @@ from products.growth.backend.product_push.cadence import is_retry_eligible
 BLESSED_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.PRODUCT_ANALYTICS,
     ProductKey.WEB_ANALYTICS,
+    ProductKey.SELF_DRIVING,
     ProductKey.SESSION_REPLAY,
+    ProductKey.POSTHOG_SLACK,
     ProductKey.ERROR_TRACKING,
     ProductKey.FEATURE_FLAGS,
     ProductKey.EXPERIMENTS,
@@ -56,6 +59,8 @@ FALLBACK_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.LLM_PROMPTS,
     ProductKey.LOGS,
     ProductKey.WORKFLOWS,
+    ProductKey.POSTHOG_DESKTOP,
+    ProductKey.POSTHOG_GITHUB,
 ]
 
 # Display resolution for pushable products: ProductKey → catalog path (the id the
@@ -128,11 +133,27 @@ def get_org_used_product_keys(organization: Organization) -> set[str]:
         if product_type not in ACTIVATION_CHECK_PRODUCT_KEYS or activated_at is not None:
             projects_using[product_type].add(project_id)
 
-    return {product for product, projects in projects_using.items() if len(projects) * 2 > total_projects}
+    used = {product for product, projects in projects_using.items() if len(projects) * 2 > total_projects}
+
+    # Surfaces adopt org-wide from live state, not a ProductIntent row (see surfaces.py).
+    for surface_key, is_adopted in SURFACE_ADOPTION_CHECKS.items():
+        if is_adopted(organization.id):
+            used.add(surface_key)
+
+    return used
 
 
-def project_uses_product(project_id: int, product_key: str) -> bool:
-    """The per-project version of the usage signal in get_org_used_product_keys."""
+def project_uses_product(project_id: int, product_key: str, organization_id: OrganizationId) -> bool:
+    """The per-project version of the usage signal in get_org_used_product_keys.
+
+    Growth surfaces are org-wide, so a project "uses" one whenever its organization has
+    adopted it — suppressing the promo in every project once the org connects it. The caller
+    passes organization_id (it always has it) so surfaces resolve without a project lookup.
+    """
+    surface_check = SURFACE_ADOPTION_CHECKS.get(product_key)
+    if surface_check is not None:
+        return surface_check(organization_id)
+
     intents = ProductIntent.objects.filter(team__project_id=project_id, product_type=product_key)
     if product_key in ACTIVATION_CHECK_PRODUCT_KEYS:
         intents = intents.filter(activated_at__isnull=False)

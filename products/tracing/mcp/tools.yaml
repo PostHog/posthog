@@ -205,6 +205,18 @@ tools:
         response:
             include:
                 - results
+    environments-tracing-config-partial-update:
+        operation: environments_tracing_config_partial_update
+        enabled: false
+    environments-tracing-config-retrieve:
+        operation: environments_tracing_config_retrieve
+        enabled: false
+    organizations-projects-tracing-config-partial-update:
+        operation: organizations_projects_tracing_config_partial_update
+        enabled: false
+    organizations-projects-tracing-config-retrieve:
+        operation: organizations_projects_tracing_config_retrieve
+        enabled: false
     query-apm-spans:
         operation: tracing_spans_query_create
         enabled: true

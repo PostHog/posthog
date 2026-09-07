@@ -741,7 +741,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'selectedCommentId'],
-            notebookKernelInfoLogic({ shortId: props.shortId, mode: props.mode }),
+            notebookKernelInfoLogic({
+                shortId: props.shortId,
+                mode: props.mode,
+                // A shared view is exactly the one that renders from cachedNotebook, and both kernel
+                // endpoints are team-scoped. This is the mount that matters: the panel is not the
+                // only thing that brings the logic up.
+                isShared: !!props.cachedNotebook,
+            }),
             ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showVariablesOverride'],

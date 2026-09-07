@@ -64,7 +64,8 @@ from posthog.hogql_queries.insights.trends.trend_validation_rules import (
 )
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
+from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
@@ -72,20 +73,19 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_OTHER_STRING_LABEL,
     has_breakdown_filter,
 )
-from posthog.hogql_queries.insights.utils.utils import get_response_hogql
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.hogql_queries.utils.utils import get_response_hogql
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
 from products.actions.backend.models.action import Action
@@ -108,7 +108,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         limit_context: Optional[LimitContext] = None,
         user: Optional[User] = None,
     ):
-        from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
+        from posthog.hogql_queries.utils.utils import convert_active_user_math_based_on_interval
 
         if isinstance(query, dict):
             query = TrendsQuery.model_validate(query)
@@ -822,6 +822,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 now=datetime.now(),
                 compare_to=self.query.compareFilter.compare_to,
                 exact_timerange=self.exact_timerange,
+                full_comparison_period=True,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
@@ -829,6 +830,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             interval=self.query.interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
+            full_comparison_period=True,
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:

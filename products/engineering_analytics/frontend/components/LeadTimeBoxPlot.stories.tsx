@@ -12,10 +12,12 @@ function bucket(
         label,
         count,
         minSeconds: min,
+        p05Seconds: (min + p25) / 2,
         p25Seconds: p25,
         p50Seconds: p50,
         meanSeconds: mean,
         p75Seconds: p75,
+        p95Seconds: (p75 + max) / 2,
         maxSeconds: max,
     }
 }
@@ -24,10 +26,12 @@ const EMPTY_BUCKET: BoxPlotBucket = {
     label: 'Jul 13',
     count: 0,
     minSeconds: null,
+    p05Seconds: null,
     p25Seconds: null,
     p50Seconds: null,
     meanSeconds: null,
     p75Seconds: null,
+    p95Seconds: null,
     maxSeconds: null,
 }
 

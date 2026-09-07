@@ -1,8 +1,25 @@
 """Features tab membership and lifecycle queries."""
 
+from django.db.models import (
+    Case,
+    CharField,
+    Exists,
+    IntegerField,
+    JSONField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce
+
 from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import FeatureLifecycle, FeatureStage
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 
 def fetch_feature_lifecycles(team_id: int) -> dict[str, FeatureLifecycle]:
@@ -95,3 +112,59 @@ def fetch_feature_stages(team_id: int, report_ids: list[str]) -> dict[str, Featu
     for report_id in legacy_ids:
         stages[report_id] = FeatureStage.MANAGED if report_id in completed_ids else FeatureStage.PLANNING
     return stages
+
+
+def feature_reports_queryset(team_id: int, stage: str | None = None) -> QuerySet[SignalReport]:
+    artefacts = SignalReportArtefact.objects.filter(team_id=team_id, report_id=OuterRef("pk"))
+    lifecycle = (
+        artefacts.filter(type="feature_lifecycle")
+        .order_by("-created_at", "-id")
+        .annotate(stage=KeyTextTransform("feature_stage", Cast("content", JSONField())))
+    )
+    planning = artefacts.filter(type="task_run", content__contains='"product":"signals"').filter(
+        content__contains='"type":"planning"'
+    )
+    membership = (
+        SignalReportArtefact.objects.filter(team_id=team_id)
+        .filter(
+            Q(type="feature_lifecycle")
+            | (Q(type="task_run", content__contains='"product":"signals"') & Q(content__contains='"type":"planning"'))
+        )
+        .order_by()
+        .values("report_id")
+    )
+    reports = (
+        SignalReport.objects.filter(team_id=team_id, id__in=Subquery(membership))
+        .exclude(status=SignalReport.Status.DELETED)
+        .annotate(
+            explicit_stage=Subquery(lifecycle.values("stage")[:1], output_field=CharField()),
+            has_planning=Exists(planning),
+            planning_finished=Exists(artefacts.filter(type="safety_judgment")),
+        )
+        .filter(Q(explicit_stage__in=[stage.value for stage in FeatureStage]) | Q(has_planning=True))
+        .annotate(
+            feature_stage=Coalesce(
+                "explicit_stage",
+                Case(
+                    When(planning_finished=True, then=Value("managed")),
+                    default=Value("planning"),
+                    output_field=CharField(),
+                ),
+            )
+        )
+        .annotate(
+            stage_order=Case(
+                When(feature_stage="staged", then=Value(0)),
+                When(feature_stage="planning", then=Value(1)),
+                default=Value(2),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("stage_order", "-created_at", "-id")
+    )
+
+    if stage == "staged":
+        return reports.filter(feature_stage="staged")
+    if stage == "live":
+        return reports.exclude(feature_stage="staged")
+    return reports

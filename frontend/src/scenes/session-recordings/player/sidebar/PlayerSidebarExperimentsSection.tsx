@@ -11,7 +11,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { colonDelimitedDuration } from 'lib/utils/durations'
+import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
@@ -215,40 +215,72 @@ function OpenExperimentButton({ item }: { item: ExperimentSessionContextItemApi 
     )
 }
 
-const OUT_OF_WINDOW_TOOLTIP =
-    "The exposure was captured just outside this recording's playable range, so there's no moment to jump to."
-
 // The person's counted first exposure may lie in an earlier session (the experiment analysis counts
 // exposure per person across the whole run window), so an in-session metric event can precede this one.
 const EXPOSURE_CAVEAT =
     'They may have been enrolled in an earlier session, so metric events can fire before this moment.'
 
-function ExposureTime({
-    timeInRecording,
-    onSeek,
-    outOfWindow,
-}: {
-    timeInRecording: number
-    onSeek?: () => void
-    outOfWindow?: boolean
-}): JSX.Element {
-    const label = colonDelimitedDuration(Math.max(0, timeInRecording) / 1000, null)
-    if (onSeek) {
-        return (
-            <Tooltip title={`Jump to the first exposure in this session. ${EXPOSURE_CAVEAT}`}>
-                <Link
-                    className="text-xs tabular-nums shrink-0 min-w-10 text-right"
-                    onClick={onSeek}
-                    data-attr="replay-experiment-context-jump-to-first-exposure"
-                >
-                    {label}
-                </Link>
-            </Tooltip>
-        )
+type ExposurePlacement = 'before' | 'inside' | 'after'
+
+interface ExposureSeek {
+    // Signed offset against the nearest captured frame: negative before the first frame, positive
+    // after the last one, and the offset from the start for an in-window exposure.
+    offsetMs: number
+    placement: ExposurePlacement
+    // The frame we can show: the exposure moment when it is in window, else the closest captured
+    // frame (the first for a before-start exposure, the last for an after-end one).
+    seekTargetMs: number
+}
+
+// The recorder can boot after the exposure event fired, or stop before it, so the exposure can fall
+// outside the captured frames. Place it against the window and pick the closest frame to jump to.
+export function computeExposureSeek(
+    exposedAtMs: number,
+    recordingStartMs: number,
+    recordingEndMs: number | null
+): ExposureSeek {
+    if (exposedAtMs < recordingStartMs) {
+        return { offsetMs: exposedAtMs - recordingStartMs, placement: 'before', seekTargetMs: recordingStartMs }
     }
+    if (recordingEndMs != null && exposedAtMs > recordingEndMs) {
+        return { offsetMs: exposedAtMs - recordingEndMs, placement: 'after', seekTargetMs: recordingEndMs }
+    }
+    return { offsetMs: exposedAtMs - recordingStartMs, placement: 'inside', seekTargetMs: exposedAtMs }
+}
+
+interface ExposureTimeProps {
+    offsetMs: number
+    placement: ExposurePlacement
+    onSeek: () => void
+}
+
+// The label carries the signed offset so an out-of-window exposure reads as real, not as 00:00. A
+// before-start or after-end jump lands on the closest captured frame rather than the exposure
+// moment, so the tooltip names the gap and says what the jump does.
+function ExposureTime({ offsetMs, placement, onSeek }: ExposureTimeProps): JSX.Element {
+    // An in-window offset is a playback position, so it floors to match the player clock. An
+    // out-of-window gap rounds up instead: flooring one under a second would print 00:00, the same
+    // "no exposure here" reading this column exists to correct.
+    const seconds = placement === 'inside' ? Math.floor(offsetMs / 1000) : Math.ceil(Math.abs(offsetMs) / 1000)
+    const magnitude = colonDelimitedDuration(seconds, null)
+    const label = placement === 'before' ? `-${magnitude}` : placement === 'after' ? `+${magnitude}` : magnitude
+    // The same rounded value as the label, so the spelled-out gap and the compact offset agree.
+    const gap = humanFriendlyDuration(seconds)
+    const tooltip =
+        placement === 'before'
+            ? `The exposure fired ${gap} before the replay begins. Jumps to the first frame.`
+            : placement === 'after'
+              ? `The exposure fired ${gap} after the replay ends. Jumps to the last frame.`
+              : `Jump to the first exposure in this session. ${EXPOSURE_CAVEAT}`
     return (
-        <Tooltip title={outOfWindow ? OUT_OF_WINDOW_TOOLTIP : `First exposure in this session. ${EXPOSURE_CAVEAT}`}>
-            <span className="text-secondary text-xs tabular-nums shrink-0 min-w-10 text-right">{label}</span>
+        <Tooltip title={tooltip}>
+            <Link
+                className="text-xs tabular-nums shrink-0 min-w-10 text-right"
+                onClick={onSeek}
+                data-attr="replay-experiment-context-jump-to-first-exposure"
+            >
+                {label}
+            </Link>
         </Tooltip>
     )
 }
@@ -276,15 +308,13 @@ function NotExposedInSessionLabel({ children, className }: { children: string; c
 
 function ExperimentContextRow({
     item,
-    onSeek,
-    outOfWindow,
-    timeInRecording,
+    exposure,
     leading,
 }: {
     item: ExperimentSessionContextItemApi
-    onSeek?: () => void
-    outOfWindow?: boolean
-    timeInRecording?: number | null
+    // The exposure timestamp column: its signed offset and the jump to the closest captured frame.
+    // Absent for a row with no exposure (enrolled-only), or before the recording window resolves.
+    exposure?: ExposureTimeProps | null
     // Leading slot rendered before the timestamp — the metric-events expand toggle, or a same-width
     // spacer so the timestamp and name columns line up across rows.
     leading?: JSX.Element | null
@@ -295,9 +325,7 @@ function ExperimentContextRow({
     return (
         <div className="flex flex-row items-center gap-x-2 min-w-0">
             {leading}
-            {timeInRecording != null ? (
-                <ExposureTime timeInRecording={timeInRecording} onSeek={onSeek} outOfWindow={outOfWindow} />
-            ) : null}
+            {exposure ? <ExposureTime {...exposure} /> : null}
             <div className="flex-1 min-w-0 truncate">{item.experiment_name}</div>
             <VariantTag item={item} />
             <OpenExperimentButton item={item} />
@@ -394,24 +422,26 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     // experiment reuses the exact same treatment as the list rows below it.
     const renderSeenRow = (item: ExperimentSessionContextItemApi): JSX.Element => {
         const exposedAtMs = item.first_exposure_timestamp ? dayjs(item.first_exposure_timestamp).valueOf() : null
-        const canSeek = isWithinRecording(exposedAtMs)
-        // Distinguish "seen but outside the window" (worth a tooltip) from "bounds not known yet"
-        // (transient, no tooltip) so we never explain a non-jump we can't actually vouch for.
-        const outOfWindow =
-            exposedAtMs != null &&
-            recordingStartMs != null &&
-            recordingEndMs != null &&
-            (exposedAtMs < recordingStartMs || exposedAtMs > recordingEndMs)
+        // The exposure needs the resolved recording start to place it and to jump. Without it there
+        // is no offset to show and nowhere to seek, so the row renders without a timestamp column.
+        const seek =
+            exposedAtMs != null && recordingStartMs != null
+                ? computeExposureSeek(exposedAtMs, recordingStartMs, recordingEndMs)
+                : null
         const hasMetrics = item.metrics_in_session.length > 0
         const isExpanded = expandedExperimentIds.includes(item.experiment_id)
         return (
             <div key={item.experiment_id} className="flex flex-col gap-y-0.5 min-w-0">
                 <ExperimentContextRow
                     item={item}
-                    onSeek={canSeek && exposedAtMs != null ? () => seekToTimestamp(exposedAtMs) : undefined}
-                    outOfWindow={outOfWindow}
-                    timeInRecording={
-                        exposedAtMs != null && recordingStartMs != null ? exposedAtMs - recordingStartMs : null
+                    exposure={
+                        seek
+                            ? {
+                                  offsetMs: seek.offsetMs,
+                                  placement: seek.placement,
+                                  onSeek: () => seekToTimestamp(seek.seekTargetMs),
+                              }
+                            : null
                     }
                     leading={
                         // -me-1.5 pulls the timestamp back toward the toggle so the icon and time read

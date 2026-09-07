@@ -530,6 +530,8 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "AI_GATEWAY_URL",
                 "AI_GATEWAY_PRODUCTS",
                 "AI_GATEWAY_TOKEN",
+                "AI_GATEWAY_PRODUCT",
+                "AI_GATEWAY_AI_STAGE",
                 "IS_SANDBOX",
                 "PYTHONPATH",
             ],

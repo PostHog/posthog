@@ -67,6 +67,7 @@ describe('toolPolicy', () => {
             'workflows-publish',
             'experiment-ship-variant',
             'feature-requests-remove-evidence-create',
+            'inbox-reports-claim',
             'skill-archive',
             'error-tracking-issues-merge-create',
         ])('%s is destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(true))
@@ -194,8 +195,8 @@ describe('toolPolicy', () => {
                 true,
             ],
             [
-                'dashboard-create-text-tile',
-                makeRecord({ input: { command: 'call dashboard-create-text-tile {"dashboard_id":1}' } }),
+                'dashboard-create-tile',
+                makeRecord({ input: { command: 'call dashboard-create-tile {"dashboard_id":1}' } }),
                 true,
             ],
             ['dashboard-tile-copy', makeRecord({ input: { command: 'call dashboard-tile-copy {"id":1}' } }), true],

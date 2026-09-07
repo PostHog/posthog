@@ -85,19 +85,33 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        // An inserted code cell holds no code and no result, so a closed editor panel leaves the
-        // user an empty box. Resolving through getInsertedComponentPanelVisibility rather than
-        // reading the prop keeps this honest if the panel prop is renamed again.
+        it('gates widget insertion and registers only the Widget component', () => {
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true }, 'Widget')).toEqual([
+                { key: 'component-Widget', category: 'Common' },
+            ])
+            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([])
+            for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
+                expect(NOTEBOOK_MARKDOWN_REGISTRY.components).not.toHaveProperty(legacyTag)
+            }
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ToolbarComponent).toBeTruthy()
+        })
+
+        // The panel visibility resolver is the notebook shell's public behavior. Testing through it
+        // keeps new programmable blocks usable even if the persisted panel prop changes.
         it.each([
             ['SQL', 'component-SQLV2'],
             ['Python', 'component-PythonV2'],
-        ])('inserts a %s cell with its code editor open', (_label, commandKey) => {
+            ['Widget', 'component-Widget'],
+        ])('inserts a %s block with its input panel open', (_label, commandKey) => {
             const insertedNodes: NotebookComponentBlockNode[] = []
             const noop = (): void => {}
             const commands = buildInsertCommands(
                 mergeMarkdownNotebookRegistries(
                     getMarkdownNotebookDefaultRegistry(),
-                    getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
+                    getMarkdownRegistryForFeatureFlags({
+                        [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
+                        [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true,
+                    })
                 ),
                 (_nodeId, node) => insertedNodes.push(node),
                 noop,
@@ -338,6 +352,26 @@ describe('markdownNotebookRegistry', () => {
 
         expect(fields[0].textContent).toContain('Session recording ID')
         expect(fields[1].textContent).toContain('View')
+    })
+
+    it('hides the backing canvas ID from generated widget settings', () => {
+        const { container } = render(
+            <RealNotebookNodeIdentityAndViewEdit
+                node={{
+                    id: 'generated-widget-node',
+                    type: 'component',
+                    tagName: 'Widget',
+                    props: { id: 'canvas-id' },
+                }}
+                mode="edit"
+                updateProps={jest.fn()}
+                deleteNode={jest.fn()}
+                notebookNodeType={NotebookNodeType.GeneratedWidget}
+                options={KNOWN_NODES[NotebookNodeType.GeneratedWidget]}
+            />
+        )
+
+        expect(container.childElementCount).toBe(0)
     })
 
     it('selects a referenced object from the same picker used by notebook insertion', () => {

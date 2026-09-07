@@ -41,7 +41,6 @@ def compute_observation_stats(
         "monitor": None,
         "classifier": None,
         "scorer": None,
-        "summarizer": None,
     }
 
     if scanner.scanner_type == ScannerType.MONITOR:
@@ -52,8 +51,6 @@ def compute_observation_stats(
         payload["available_tags"] = available_tags
     elif scanner.scanner_type == ScannerType.SCORER:
         payload["scorer"] = _scorer_stats(scanner, queryset)
-    elif scanner.scanner_type == ScannerType.SUMMARIZER:
-        payload["summarizer"] = _summarizer_stats(queryset)
 
     return payload
 
@@ -272,61 +269,9 @@ def _classifier_stats(queryset: QuerySet[ReplayObservation]) -> tuple[dict[str, 
     )
 
 
-def _rank_counts(counts: dict[str, int], key: str = "tag") -> list[dict[str, Any]]:
+def _rank_counts(counts: dict[str, int]) -> list[dict[str, Any]]:
     items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:_TOP_TAGS]
-    return [{key: value, "count": count} for value, count in items]
-
-
-def _summarizer_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
-    succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED).order_by()
-    inner_sql, inner_params = succeeded.values("id", "scanner_result").query.sql_with_params()
-    # Stored facet arrays may repeat a term, so rank by distinct observations rather than array elements.
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            WITH succeeded AS ({inner_sql})
-            SELECT 'friction' AS bucket, term, COUNT(DISTINCT s.id) AS c
-            FROM succeeded s, jsonb_array_elements_text(
-                COALESCE(s.scanner_result -> 'model_output' -> 'friction_points', '[]'::jsonb)
-            ) AS term
-            GROUP BY term
-            UNION ALL
-            SELECT 'keyword' AS bucket, term, COUNT(DISTINCT s.id) AS c
-            FROM succeeded s, jsonb_array_elements_text(
-                COALESCE(s.scanner_result -> 'model_output' -> 'keywords', '[]'::jsonb)
-            ) AS term
-            GROUP BY term
-            UNION ALL
-            SELECT 'total' AS bucket, NULL AS term, COUNT(*) AS c FROM succeeded s
-            WHERE COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'friction_points'), 0) > 0
-               OR COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'keywords'), 0) > 0
-            UNION ALL
-            SELECT 'friction_total' AS bucket, NULL AS term, COUNT(*) AS c FROM succeeded s
-            WHERE COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'friction_points'), 0) > 0
-            """,
-            inner_params,
-        )
-        rows = cursor.fetchall()
-
-    friction_counts: dict[str, int] = {}
-    keyword_counts: dict[str, int] = {}
-    total_with_facets = 0
-    total_with_friction = 0
-    for bucket, term, count in rows:
-        if bucket == "total":
-            total_with_facets = count
-        elif bucket == "friction_total":
-            total_with_friction = count
-        elif term is not None:
-            target = friction_counts if bucket == "friction" else keyword_counts
-            target[term] = target.get(term, 0) + count
-
-    return {
-        "friction_ranked": _rank_counts(friction_counts, key="term"),
-        "keyword_ranked": _rank_counts(keyword_counts, key="term"),
-        "total_with_facets": total_with_facets,
-        "total_with_friction": total_with_friction,
-    }
+    return [{"tag": tag, "count": count} for tag, count in items]
 
 
 def _scorer_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:

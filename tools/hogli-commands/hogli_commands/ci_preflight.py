@@ -46,9 +46,11 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
+from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIPT_SCOPE, WARN_AT
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
+from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
-Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
+Requirement = Literal["node", "desktop-node", "stack", "clickhouse", "python-env"]
 
 
 @dataclass
@@ -64,11 +66,29 @@ class DiffCheck:
     advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
+    # Append `--against <base>`, plus `--committed` when the run is scoped to commits.
+    # A check that measures file content has to agree with preflight on both which base
+    # to compare against and which copy of the file to read.
+    takes_diff_scope: bool = False
     # Run once per pnpm workspace containing matched files (cwd = that workspace),
     # so nested workspaces like products/desktop validate their own lockfile instead
     # of the root one. Capability (node_modules present) is checked per workspace.
     workspace_scoped: bool = False
+    # A zero exit with output is a warning worth showing, not a clean pass —
+    # for advisory checks whose findings print on stdout with exit 0. Warnings
+    # never block and never count toward the advisory footer.
+    soft: bool = False
     matched: list[str] = field(default_factory=list)
+
+    @property
+    def measures(self) -> bool:
+        """Whether this check runs something, or only advises.
+
+        A check that runs nothing has found nothing, so it must not be reported
+        as a finding whatever shape it takes: a nudge (``advice``) and a
+        guidance-only check (``verify is None``) are both unmeasured.
+        """
+        return self.advice is None and self.verify is not None
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
@@ -113,6 +133,25 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="complexity",
+        label=f"cyclomatic complexity (warn >{WARN_AT}, >{TEST_WARN_AT} in tests)",
+        # From complexity_lint.py so preflight and the command can't drift on scope.
+        triggers=[*PYTHON_SCOPE, *TYPESCRIPT_SCOPE],
+        verify=["hogli", "lint:complexity"],
+        takes_files=True,
+        soft=True,
+    ),
+    DiffCheck(
+        key="size",
+        label="file size (warn >1000 lines)",
+        # From size_lint.py so preflight and the command can't drift on scope.
+        triggers=[*SIZE_SCOPE],
+        verify=["hogli", "lint:size"],
+        takes_files=True,
+        takes_diff_scope=True,
+        soft=True,
+    ),
+    DiffCheck(
         key="ruff-format",
         label="Python format (ruff format)",
         triggers=["*.py"],
@@ -146,6 +185,26 @@ DIFF_CHECKS: list[DiffCheck] = [
         # breakage), and that costs minutes cold. Naming the command lets the agent judge.
         verify=None,
         advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
+    ),
+    DiffCheck(
+        key="django-template-format",
+        label="Django template formatting (djlint)",
+        # `*` spans `/`, so these cover the nested template directories too.
+        triggers=["posthog/templates/*.html", "products/*/backend/templates/*.html"],
+        # Mirrors lint-staged's `format:html`, which agents bypass via --no-verify.
+        verify=["hogli", "format:html:check"],
+        fix=["hogli", "format:html"],
+        takes_files=True,
+    ),
+    DiffCheck(
+        key="django-template-lint",
+        label="Django template lint (djlint)",
+        # Only the email templates are clean against the rule set, so only they are linted.
+        # lint-staged formats templates but does not lint them: a second glob over the same
+        # files would let it run the linter against a file the formatter is still rewriting.
+        triggers=["posthog/templates/email/*.html"],
+        verify=["hogli", "lint:html"],
+        takes_files=True,
     ),
     DiffCheck(
         key="markdown-format",
@@ -185,13 +244,32 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="openapi",
-        label="OpenAPI types out of date (frontend/MCP drift)",
+        # Measuring real drift means regenerating and diffing, which needs the dev stack.
+        # This check only knows that the diff touches files the generated types are built
+        # from, so the label names that trigger instead of asserting the types are stale.
+        # A branch keeps those source edits in its diff after a regen, so a label that
+        # claims staleness can never be cleared by running the fix.
+        label="OpenAPI sources changed (generated types may need a regen)",
         # From build.py so preflight and build:openapi can't drift on which diffs need a regen.
         triggers=list(BUILD_TRIGGERS["build:openapi"]),
-        # Drift detection regenerates then diffs — needs the DB. Guidance-only here.
         verify=None,
         fix=["hogli", "build:openapi"],
         requires=("stack",),
+    ),
+    DiffCheck(
+        key="taxonomy",
+        label="taxonomy JSON out of sync with posthog/taxonomy/taxonomy.py",
+        # From build.py so preflight and build:taxonomy-json can't drift on which diffs
+        # need a regen, plus the generator and its output, so an edit to any side of the
+        # relation is caught.
+        triggers=[
+            *BUILD_TRIGGERS["build:taxonomy-json"],
+            "bin/build-taxonomy-json.py",
+            "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+        ],
+        verify=["hogli", "build:taxonomy-json", "--check"],
+        fix=["hogli", "build:taxonomy-json"],
+        requires=("python-env",),
     ),
     DiffCheck(
         key="migrations",
@@ -249,12 +327,38 @@ def _port_open(port: int) -> bool:
         return False
 
 
+def _project_python_ready() -> bool:
+    """Whether the synced project environment is the `python` on PATH.
+
+    `import posthog` is the proxy for it, because it runs `posthog/__init__.py`,
+    which is where the generator fails when the environment is stale. A narrower
+    probe such as `import django` passes on a venv that has fallen behind
+    `uv.lock`, and the check then blocks the push under a drift label it never
+    measured. `cwd` is required, because `python -c` resolves `posthog` from the
+    working directory. The probe spawns the same interpreter a
+    `#!/usr/bin/env python` script gets, so probe and subject agree. A checkout
+    without the environment must read as "skipped", not "fail".
+    """
+    try:
+        probe = subprocess.run(
+            ["python", "-c", "import posthog"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return probe.returncode == 0
+
+
 def _capability_met(req: Requirement) -> bool:
     if req == "node":
         return _has_node_modules()
     if req == "desktop-node":
         # products/desktop is a nested standalone workspace with its own install.
         return (REPO_ROOT / "products" / "desktop" / "node_modules" / ".pnpm").exists()
+    if req == "python-env":
+        return _project_python_ready()
     if req == "stack":
         # Postgres reachable — proxy for "dev stack is running".
         return _port_open(5432)
@@ -265,7 +369,7 @@ def _unmet(chk: DiffCheck) -> list[Requirement]:
     return [req for req in chk.requires if not _capability_met(req)]
 
 
-Status = Literal["pass", "fail", "advisory", "skipped"]
+Status = Literal["pass", "fail", "warning", "advisory", "skipped"]
 
 # Generous: pnpm installs and migrations:check are legitimately slow, but a wedged
 # command must not hang the agent loop forever (output is captured, not streamed).
@@ -328,7 +432,7 @@ def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return overall, " · ".join(parts)
 
 
-def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: bool) -> tuple[Status, str]:
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
@@ -341,11 +445,24 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         # Guidance-only (no runnable local check, or its fix needs an absent capability):
         # advise regardless, so the hint still shows on a bare checkout — even with --fix.
         # Ownership framing lives once in the advisory footer, not per check.
-        return "advisory", f"run `{' '.join(chk.fix or [])}` and commit before pushing"
+        # Phrased as a condition the reader can check, because nothing here measured
+        # whether the fix is needed: an unconditional "run this and commit" reads as a
+        # finding, and sends anyone who already ran it looking for a diff that isn't there.
+        return "advisory", f"if you have not run `{' '.join(chk.fix or [])}` since changing them, run it and commit"
     elif unmet:
         return "skipped", f"needs {', '.join(unmet)}"
     else:
         cmd = list(chk.verify)
+    if chk.takes_diff_scope:
+        # Forward only an explicit base. Passing a default would pin the child to
+        # `origin/master` while `changed_files` falls back to local `master`, and the two
+        # would then disagree in a clone that has no remote ref. Strict runs also pass
+        # `--committed`, because only commits are about to be pushed; advisory runs keep
+        # the working tree in scope and so must be measured from it.
+        if against is not None:
+            cmd += ["--against", against]
+        if strict:
+            cmd.append("--committed")
     if chk.takes_files:
         # Drop deleted paths: ruff (and friends) error E902 on a path that no longer exists.
         present = [f for f in chk.matched if (REPO_ROOT / f).exists()]
@@ -359,6 +476,9 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     except subprocess.TimeoutExpired:
         return "fail", f"`{cmd[0]}` timed out after {_CHECK_TIMEOUT_SECONDS}s"
     if result.returncode == 0:
+        if chk.soft and result.stdout.strip():
+            warn_lines = result.stdout.strip().splitlines()
+            return "warning", " · ".join(warn_lines[:3])
         return "pass", "fixed" if do_fix else "ok"
     lines = (result.stdout or result.stderr).strip().splitlines()
     return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
@@ -533,8 +653,14 @@ def _staleness(branch_files: list[str]) -> tuple[Status, str, dict[str, Any]]:
     return "pass", f"{behind} commits behind master{synced} — no conflict or drift risk detected", props
 
 
-_ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "advisory": "→", "skipped": "·"}
-_COLOR: dict[Status, str] = {"pass": "green", "fail": "red", "advisory": "yellow", "skipped": "bright_black"}
+_ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "warning": "⚠", "advisory": "→", "skipped": "·"}
+_COLOR: dict[Status, str] = {
+    "pass": "green",
+    "fail": "red",
+    "warning": "yellow",
+    "advisory": "yellow",
+    "skipped": "bright_black",
+}
 
 
 def _emit_telemetry(summary: dict[str, Any]) -> None:
@@ -643,11 +769,11 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.echo(f"       {detail}")
 
     for chk in triggered:
-        status, detail = _run_diff_check(chk, do_fix)
+        status, detail = _run_diff_check(chk, do_fix, against, strict)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
-        advisories += status == "advisory" and chk.advice is None
+        advisories += status == "advisory" and chk.measures
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])

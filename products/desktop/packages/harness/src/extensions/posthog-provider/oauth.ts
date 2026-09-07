@@ -187,8 +187,8 @@ const REGION_LOGIN_OPTIONS: { id: CloudRegion; label: string }[] = [
 
 /**
  * Prompts the user to pick their PostHog region via the login callbacks'
- * selector. `dev` is intentionally not offered here; it stays reachable only
- * through an explicit `POSTHOG_REGION=dev`.
+ * selector. Development regions are intentionally not offered here; they stay
+ * reachable only through an explicit `POSTHOG_REGION`.
  */
 async function selectRegion(
   callbacks: OAuthLoginCallbacks,

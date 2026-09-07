@@ -3,6 +3,7 @@ import json
 import base64
 import datetime as dt
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -25,6 +26,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -245,6 +247,35 @@ class _LogsValuesQuerySerializer(serializers.Serializer):
     )
 
 
+class OrderBy(models.TextChoices):
+    LATEST = "latest", "latest"
+    EARLIEST = "earliest", "earliest"
+
+
+# Scope fields ride on every logs body that reaches the query runner, so they are built here
+# rather than redeclared per serializer — the help text is what drf-spectacular ships into the
+# generated TypeScript and the MCP tool schemas, and six copies drift.
+def _person_scope_field(noun: str) -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        help_text=(
+            f"Scope {noun} to one person (UUID or numeric ID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
+    )
+
+
+def _session_scope_field(noun: str) -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        help_text=(
+            f"Scope {noun} to one session ID. Matched server-side against the team's configured "
+            "session-id log attribute keys plus the built-in conventions, in both log attributes "
+            "and resource attributes."
+        ),
+    )
+
+
 class _LogsQueryBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -263,7 +294,7 @@ class _LogsQueryBodySerializer(serializers.Serializer):
         help_text="Filter by service names.",
     )
     orderBy = serializers.ChoiceField(
-        choices=["latest", "earliest"],
+        choices=OrderBy.choices,
         required=False,
         help_text="Order results by timestamp.",
     )
@@ -292,13 +323,8 @@ class _LogsQueryBodySerializer(serializers.Serializer):
             "Values come back on each result row keyed by the aliases echoed in the response `columns` field."
         ),
     )
-    personId = serializers.CharField(
-        required=False,
-        help_text=(
-            "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's "
-            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
-        ),
-    )
+    personId = _person_scope_field("results")
+    sessionId = _session_scope_field("results")
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -339,13 +365,8 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         required=False,
         help_text='Rank breakdown values by "count" (default) or "bytes" before collapsing the tail into "other".',
     )
-    personId = serializers.CharField(
-        required=False,
-        help_text=(
-            "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's "
-            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
-        ),
-    )
+    personId = _person_scope_field("results")
+    sessionId = _session_scope_field("results")
 
 
 class _LogsSparklineRequestSerializer(serializers.Serializer):
@@ -442,13 +463,8 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters for the query.",
     )
-    personId = serializers.CharField(
-        required=False,
-        help_text=(
-            "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's "
-            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
-        ),
-    )
+    personId = _person_scope_field("counts")
+    sessionId = _session_scope_field("counts")
 
 
 class _LogsFacetValuesRequestSerializer(serializers.Serializer):
@@ -756,6 +772,8 @@ class _LogsPatternsBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters applied before mining. Same shape as the query-logs endpoint.",
     )
+    personId = _person_scope_field("mining")
+    sessionId = _session_scope_field("mining")
 
 
 class _LogsPatternsRequestSerializer(serializers.Serializer):
@@ -1072,6 +1090,8 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         max_value=MAX_GROUP_LIMIT,
         help_text=f"Maximum number of groups to return (top-N by orderGroupsBy). Defaults to {DEFAULT_GROUP_LIMIT}.",
     )
+    personId = _person_scope_field("grouping")
+    sessionId = _session_scope_field("grouping")
 
 
 class _LogsGroupByRequestSerializer(serializers.Serializer):
@@ -1186,6 +1206,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+            # Patterns and Group are modes of the same viewer, so they inherit its scope. Dropping
+            # these would mine or aggregate the whole project and label the result one session.
+            personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
         )
 
     @extend_schema(request=_LogsQueryRequestSerializer, responses={200: _LogsQueryResponseSerializer})
@@ -1244,6 +1268,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "personId": query_data.get("personId", None),
+            "sessionId": query_data.get("sessionId", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
             "excludeAttributes": query_data.get("excludeAttributes", False),
             "customColumns": custom_columns,
@@ -1339,6 +1364,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             resourceFingerprint=query_data.get("resourceFingerprint", None),
             personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
             sparklineRankBy=query_data.get("sparklineRankBy"),
         )
@@ -1391,6 +1417,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
         )
 
         runner = LogFacetValuesQueryRunner(
@@ -1713,7 +1740,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         runner = LogAttributesQueryRunner(team=self.team, query=query)
 
-        result = runner.calculate()
+        try:
+            result = runner.calculate()
+        except (QueryError, ExposedCHQueryError) as e:
+            # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             {
                 "results": [r.model_dump(exclude_none=True) for r in result.results],
@@ -1788,7 +1819,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             runner = LogValuesQueryRunner(team=self.team, query=query)
 
-            result = runner.calculate()
+            try:
+                result = runner.calculate()
+            except (QueryError, ExposedCHQueryError) as e:
+                # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             span.set_attribute("result_count", len(result.results))
             return Response(
                 {"results": [r.model_dump() for r in result.results], "refreshing": False},

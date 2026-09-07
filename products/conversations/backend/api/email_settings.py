@@ -11,7 +11,9 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
+from disposable_email_domains import blocklist as disposable_email_domains_list
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from free_email_domains import whitelist as free_email_domains_list
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -57,6 +59,11 @@ from products.conversations.backend.services.email_channel_setup import (
 )
 
 logger = structlog.get_logger(__name__)
+
+SHARED_EMAIL_DOMAIN_ERROR = (
+    "We can't send support email from {domain}. Sending needs DNS records on a domain you own, "
+    "so use an address like support@yourcompany.com."
+)
 
 FORWARDING_CHALLENGE_BASE_COOLDOWN_SECONDS = 30
 FORWARDING_CHALLENGE_MAX_COOLDOWN_SECONDS = 60 * 60
@@ -499,6 +506,12 @@ class EmailConnectView(APIView):
         sibling: EmailChannel | None = None
         dns_records: dict = {}
         if kind == EmailChannelKind.SUPPORT:
+            # A shared provider domain can never pass DNS verification, so Mailgun would reject it
+            # later with a message about the domain being claimed by someone else. Customer
+            # communication channels are exempt: they forward mail instead of sending from it.
+            if domain in free_email_domains_list or domain in disposable_email_domains_list:
+                return Response({"error": SHARED_EMAIL_DOMAIN_ERROR.format(domain=domain)}, status=400)
+
             if (
                 EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT)
                 .exclude(team__organization_id=team.organization_id)

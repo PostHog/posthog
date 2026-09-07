@@ -13,7 +13,7 @@ interface SessionInitializingViewProps {
 
 const REVEAL_DELAY_MS = 2000;
 
-function copyFor(
+export function sessionInitializingCopy(
   executionTarget: "cloud" | "local",
   cloudStatus: TaskRunStatus | null | undefined,
 ): { heading: string; subtitle: string } {
@@ -49,7 +49,7 @@ export function SessionInitializingView({
   heading,
   subtitle,
 }: SessionInitializingViewProps) {
-  const copy = copyFor(executionTarget, cloudStatus);
+  const copy = sessionInitializingCopy(executionTarget, cloudStatus);
   const visibleHeading = heading ?? copy.heading;
   const visibleSubtitle = subtitle ?? copy.subtitle;
 

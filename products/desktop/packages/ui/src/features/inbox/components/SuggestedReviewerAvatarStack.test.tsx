@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   currentUserUuid: "user-me",
   mutate: vi.fn(),
   trackAction: vi.fn(),
+  trackResult: vi.fn(),
   lastSurface: undefined as string | undefined,
 }));
 
@@ -35,6 +36,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
     mocks.lastSurface = surface;
     return mocks.trackAction;
   },
+  useReportActionResultTracker: () => mocks.trackResult,
 }));
 
 import { SuggestedReviewerAvatarStack } from "./SuggestedReviewerAvatarStack";
@@ -130,7 +132,7 @@ describe("SuggestedReviewerAvatarStack", () => {
     expect(screen.getByText("2 suggested reviewers")).toBeTruthy();
   });
 
-  it("removes the current user and tracks the list action", async () => {
+  it("removes the current user from the reviewer menu", async () => {
     const onCardClick = vi.fn();
     const user = userEvent.setup();
     document.addEventListener("click", onCardClick);
@@ -138,33 +140,61 @@ describe("SuggestedReviewerAvatarStack", () => {
       <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />,
     );
 
+    expect(screen.queryByRole("button", { name: "Not for me" })).toBeNull();
     await user.click(
       screen.getByRole("button", {
         name: "View suggested reviewer rationale",
       }),
     );
-    const button = await screen.findByRole("button", {
+    const button = screen.getByRole("button", {
       name: "Remove me from reviewers",
     });
-    expect(
-      screen.getByText("Recently changed the affected request parser."),
-    ).toBeTruthy();
 
     await user.click(button);
 
     expect(onCardClick).not.toHaveBeenCalled();
-    expect(mocks.mutate).toHaveBeenCalledWith({
-      artefactId: "reviewers-1",
-      content: [{ github_login: "bob" }],
-      optimisticReviewers: [teammate],
-    });
-    expect(mocks.trackAction).toHaveBeenCalledWith(
-      "remove_suggested_reviewer",
+    expect(mocks.mutate).toHaveBeenCalledWith(
       {
-        suggested_reviewer_login: "alice",
-        suggested_reviewer_uuid: "user-me",
+        content: [{ github_login: "bob" }],
+        optimisticReviewers: [teammate],
       },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
     );
+    expect(mocks.trackAction).toHaveBeenCalledWith("remove_suggested_reviewer");
     document.removeEventListener("click", onCardClick);
+  });
+
+  it("does not render the reviewer action as a report status", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <SuggestedReviewerAvatarStack
+        report={report}
+        artefacts={artefacts}
+        surface="triage"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Not for me" })).toBeNull();
+    expect(mocks.lastSurface).toBe("triage");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Remove me from reviewers" }),
+    ).toBeTruthy();
+
+    rerender(
+      <SuggestedReviewerAvatarStack
+        report={report}
+        artefacts={artefacts}
+        surface="detail_pane"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Not for me" })).toBeNull();
   });
 });

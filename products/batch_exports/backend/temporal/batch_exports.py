@@ -2,7 +2,6 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
-import operator
 import dataclasses
 import collections.abc
 from zoneinfo import ZoneInfo
@@ -194,69 +193,6 @@ class TaskNotDoneError(Exception):
 
     def __init__(self, task: str):
         super().__init__(f"Expected task '{task}' to be done by now")
-
-
-def generate_query_ranges(
-    remaining_range: tuple[dt.datetime | None, dt.datetime],
-    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
-) -> typing.Iterator[tuple[dt.datetime | None, dt.datetime]]:
-    """Recursively yield ranges of dates that need to be queried.
-
-    There are essentially 3 scenarios we are expecting:
-    1. The batch export just started, so we expect `done_ranges` to be an empty
-       list, and thus should return the `remaining_range`.
-    2. The batch export crashed mid-execution, so we have some `done_ranges` that
-       do not completely add up to the full range. In this case we need to yield
-       ranges in between all the done ones.
-    3. The batch export crashed right after we finish, so we have a full list of
-       `done_ranges` adding up to the `remaining_range`. In this case we should not
-       yield anything.
-
-    Case 1 is fairly trivial and we can simply return `remaining_range` if we get
-    an empty `done_ranges`.
-
-    Case 2 is more complicated and we can expect that the ranges produced by this
-    function will lead to duplicate events selected, as our batch export query is
-    inclusive in the lower bound. Since multiple rows may have the same
-    `inserted_at` we cannot simply skip an `inserted_at` value, as there may be a
-    row that hasn't been exported as it with the same `inserted_at` as a row that
-    has been exported. So this function will return ranges with `inserted_at`
-    values that were already exported for at least one event. Ideally, this is
-    *only* one event, but we can never be certain.
-    """
-    if len(done_ranges) == 0:
-        yield remaining_range
-        return
-
-    epoch = dt.datetime.fromtimestamp(0, tz=dt.UTC)
-    list_done_ranges: list[tuple[dt.datetime, dt.datetime]] = list(done_ranges)
-
-    list_done_ranges.sort(key=operator.itemgetter(0))
-
-    while True:
-        try:
-            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.pop(0)
-        except IndexError:
-            if remaining_range[0] != remaining_range[1]:
-                # If they were equal it would mean we have finished.
-                yield remaining_range
-
-            return
-        else:
-            candidate_end_at = next_range[0] if next_range[0] is not None else epoch
-
-        candidate_start_at = remaining_range[0]
-        remaining_range = (next_range[1], remaining_range[1])
-
-        if candidate_start_at is not None and candidate_start_at >= candidate_end_at:
-            # We have landed within a done range.
-            continue
-
-        if candidate_start_at is None and candidate_end_at == epoch:
-            # We have landed within the first done range of a backfill.
-            continue
-
-        yield (candidate_start_at, candidate_end_at)
 
 
 def iter_records(

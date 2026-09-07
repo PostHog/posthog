@@ -22,6 +22,7 @@ from products.slack_app.backend.api import (
     _user_repo_list_cache_key,
     parse_rules_command,
 )
+from products.slack_app.backend.services.commands import MENTION_HELP_REDIRECT
 
 
 def _repo_dict(org: str, name: str, repo_id: int = 1) -> dict:
@@ -462,11 +463,11 @@ class TestHandleRulesCommandActivity:
         )
 
         assert result.status == "handled"
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "No routing rules" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
-    def test_help_uses_posthog_commands(self, mock_slack_cls):
+    def test_help_points_at_the_slash_command(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
@@ -480,10 +481,10 @@ class TestHandleRulesCommandActivity:
             self.user.id,
         )
 
+        # The mention is still consumed as a command rather than becoming a task.
         assert result.status == "handled"
-        msg = mock_slack.client.chat_postMessage.call_args
-        assert "@PostHog <task description>" in msg.kwargs["text"]
-        assert "@PostHog Desktop" not in msg.kwargs["text"]
+        msg = mock_slack.client.chat_postEphemeral.call_args
+        assert msg.kwargs["text"] == MENTION_HELP_REDIRECT
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):
@@ -508,7 +509,7 @@ class TestHandleRulesCommandActivity:
         )
 
         assert result.status == "handled"
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "JS SDK bugs" in msg.kwargs["text"]
         assert "Backend issues" in msg.kwargs["text"]
 
@@ -534,7 +535,7 @@ class TestHandleRulesCommandActivity:
         rule = RepoRoutingRule.objects.get(team=self.team)
         assert rule.rule_text == "JS SDK bugs"
         assert rule.repository == "posthog/posthog-js"
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "Added rule" in msg.kwargs["text"]
 
     def test_add_without_repo_returns_needs_picker(self):
@@ -569,7 +570,7 @@ class TestHandleRulesCommandActivity:
 
         assert result.status == "handled"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 0
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "not connected" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
@@ -614,7 +615,7 @@ class TestHandleRulesCommandActivity:
 
         assert result.status == "handled"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 1
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "does not exist" in msg.kwargs["text"]
 
     def test_non_command_returns_not_a_command(self):

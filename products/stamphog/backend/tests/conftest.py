@@ -1,4 +1,3 @@
-import os
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.models import OAuthApplication
 from posthog.models.scoping import team_scope
+from posthog.temporal.common.errors import describe_failure
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_US
 
 from products.stamphog.backend.temporal.activities import (
@@ -123,7 +123,10 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
         _run_activity(run_review_in_sandbox, inp)
         _run_activity(post_verdict, inp)
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
-        _run_activity(mark_review_failed, MarkReviewFailedInput(review_run_id, team_id, str(e)))
+        _run_activity(
+            mark_review_failed,
+            MarkReviewFailedInput(review_run_id, team_id, describe_failure(e)),
+        )
 
 
 @dataclass
@@ -190,9 +193,9 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
             )
         )
-        # Hosted reviews hard-require the gateway (no raw-Anthropic fallback); point it at the
-        # stamphog product route like production would.
-        stack.enter_context(patch.dict(os.environ, {"AI_GATEWAY_URL": "https://llm-gateway.test/stamphog/v1"}))
+        # Hosted reviews require a gateway; the fixture points settings at the legacy stamphog route.
+        # Go-gateway tests override both settings of the pair locally.
+        stack.enter_context(override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1"))
         # mark_review_failed emits a failure event through the real analytics client — a network
         # boundary, faked like the rest. Tests asserting on the event re-patch this locally.
         stack.enter_context(patch("products.stamphog.backend.temporal.activities.ph_scoped_capture"))
@@ -229,7 +232,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
         stack.enter_context(patch("products.stamphog.backend.logic.channel_resolution.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
-                "products.stamphog.backend.logic.digest.get_llm_client",
+                "products.stamphog.backend.logic.digest.build_anthropic_client",
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )

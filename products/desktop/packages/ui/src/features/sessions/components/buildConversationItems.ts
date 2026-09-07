@@ -40,6 +40,8 @@ export interface TurnContext {
   childItems: Map<string, ConversationItem[]>;
   turnCancelled: boolean;
   turnComplete: boolean;
+  /** From the prompt response; null when the agent reported no gateway trace. */
+  traceId?: string | null;
 }
 
 export type ConversationItem =
@@ -133,6 +135,7 @@ export interface ItemBuilder {
    *  frozen and only re-derive the active turn. */
   currentTurnStartIndex: number;
   pendingPrompts: Map<number | string, TurnState>;
+  promptDeliveryIds: Set<string>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
@@ -172,6 +175,7 @@ export function createItemBuilder(): ItemBuilder {
     currentTurn: null,
     currentTurnStartIndex: 0,
     pendingPrompts: new Map(),
+    promptDeliveryIds: new Set(),
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
@@ -584,6 +588,13 @@ function handlePromptRequest(
 
   const userPrompt = extractUserPrompt(msg.params);
   const userContent = userPrompt.content;
+  const messageId = (msg.params as { _meta?: { messageId?: unknown } } | null)
+    ?._meta?.messageId;
+  const isRedelivery =
+    typeof messageId === "string" && b.promptDeliveryIds.has(messageId);
+  if (typeof messageId === "string") {
+    b.promptDeliveryIds.add(messageId);
+  }
 
   if (userContent.trim().length === 0 && userPrompt.attachments.length === 0) {
     return;
@@ -656,7 +667,7 @@ function handlePromptRequest(
       id: `${turnId}-skill-action`,
       buttonId: skillButtonId,
     });
-  } else {
+  } else if (!isRedelivery) {
     b.items.splice(insertIndex, 0, {
       type: "user_message",
       id: `${turnId}-user`,
@@ -676,11 +687,12 @@ function handlePromptResponse(
   if (!turn) return;
   const result = msg.result as {
     stopReason?: string;
-    _meta?: { interruptReason?: string };
+    _meta?: { interruptReason?: string; traceId?: string | null };
   };
   completePromptTurn(b, turn, ts, {
     stopReason: result?.stopReason,
     interruptReason: result?._meta?.interruptReason,
+    traceId: result?._meta?.traceId ?? null,
   });
 }
 
@@ -688,8 +700,15 @@ function completePromptTurn(
   b: ItemBuilder,
   turn: TurnState,
   ts: number,
-  result: { stopReason?: string; interruptReason?: string } = {},
+  result: {
+    stopReason?: string;
+    interruptReason?: string;
+    traceId?: string | null;
+  } = {},
 ) {
+  // The prompt response and `_posthog/turn_complete` race in cloud logs, so
+  // the trace id is taken from whichever carries it, even after completion.
+  if (result.traceId !== undefined) turn.context.traceId = result.traceId;
   if (turn.isComplete) return;
 
   turn.isComplete = true;
@@ -793,10 +812,13 @@ function handleNotification(
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE)
   ) {
     b.isBackgroundTurnActive = false;
-    const params = msg.params as { stopReason?: string } | undefined;
+    const params = msg.params as
+      | { stopReason?: string; traceId?: string | null }
+      | undefined;
     if (!b.currentTurn) return;
     completePromptTurn(b, b.currentTurn, ts, {
       stopReason: params?.stopReason,
+      traceId: params?.traceId,
     });
     return;
   }

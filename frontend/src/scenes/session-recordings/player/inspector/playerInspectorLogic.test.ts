@@ -3,7 +3,6 @@ import { HttpResponse } from 'msw'
 
 import { RecordingSnapshot } from '@posthog/replay-shared'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     PlayerInspectorLogicProps,
@@ -456,21 +455,7 @@ describe('playerInspectorLogic', () => {
     })
 
     describe('experiment variant markers', () => {
-        // The featureFlags reducer persists to localStorage, so each test pins the flag state
-        // explicitly and remounts the inspector so the context load runs with that state.
-        const remountWithFlagState = (enabled: boolean): void => {
-            featureFlagLogic.actions.setFeatureFlags(
-                enabled ? [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT] : [],
-                enabled ? { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true } : {}
-            )
-            logic.unmount()
-            logic = playerInspectorLogic(playerLogicProps)
-            logic.mount()
-        }
-
         it('synthesizes one marker per context item with a first-exposure timestamp', async () => {
-            remountWithFlagState(true)
-
             const contextLogic = sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
             await expectLogic(contextLogic).toDispatchActions([
                 (action) =>
@@ -492,19 +477,6 @@ describe('playerInspectorLogic', () => {
 
             const seekbarMarkers = logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')
             expect(seekbarMarkers).toHaveLength(1)
-        })
-
-        it('synthesizes no markers when the feature flag is off', async () => {
-            remountWithFlagState(false)
-
-            // With the flag off the context load never starts (afterMount is gated on the flag),
-            // so there is no exposure data and no markers are synthesized.
-            await expectLogic(
-                sessionRecordingExperimentContextLogic({ sessionRecordingId: '1' })
-            ).toNotHaveDispatchedActions(['loadExperimentContext'])
-
-            expect(logic.values.allItems.items.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
-            expect(logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
         })
     })
 

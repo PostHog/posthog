@@ -198,6 +198,11 @@ const serializeDefinition = ({
 // props are also warned on (see columnMappingWarnings). Warn-only — the user can still proceed.
 const RESERVED_PERSON_PROPERTY_NAMES = new Set(['email', 'name', 'username'])
 
+// What the key column is called on screen. Shared so the field label, the mapping warning and the
+// submit gate name the same thing.
+export const keyColumnLabel = (targetType: CustomPropertyTargetType): string =>
+    targetType === 'group' ? 'group key column' : 'distinct ID column'
+
 // The backend stores column_property_map as a JSON object; the form edits it as an ordered list.
 // Descriptions are stored in a parallel {column: description} object and folded back in per column.
 const parseColumnPropertyMap = (value: unknown, descriptions: unknown): ColumnPropertyMapping[] => {
@@ -241,6 +246,7 @@ export interface customPropertyDefinitionsLogicValues {
     definitionsInitialLoading: boolean
     definitionsLoading: boolean
     editingDefinition: CustomPropertyDefinitionApi | null
+    editingHasWorkflowReference: boolean
     editingReferences: readonly CustomPropertyReferenceApi[]
     filteredDefinitions: CustomPropertyDefinitionApi[]
     hasSyncedWarehouseTables: boolean | null
@@ -254,6 +260,7 @@ export interface customPropertyDefinitionsLogicValues {
     newWorkflowUrlLoading: boolean
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    profileMappingDisabledReason: string | undefined
     profileSourceBinding: ProfileSourceBinding | null
     runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
     runsCountBySourceId: Record<string, number>
@@ -535,6 +542,11 @@ export interface customPropertyDefinitionsLogicMeta {
         ) => WarehouseColumn[]
         serializedColumnPropertyMap: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         serializedColumnDescriptions: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
+        profileMappingDisabledReason: (
+            customPropertyForm: CustomPropertyFormValues,
+            editingDefinition: CustomPropertyDefinitionApi | null,
+            serializedColumnPropertyMap: Record<string, string>
+        ) => string | undefined
         columnMappingWarnings: (
             customPropertyForm: CustomPropertyFormValues,
             personPropertyDefinitions: PropertyDefinition[]
@@ -544,6 +556,10 @@ export interface customPropertyDefinitionsLogicMeta {
             searchTerm: string,
             targetTypeFilter: CustomPropertyTargetTypeFilter
         ) => CustomPropertyDefinitionApi[]
+        editingHasWorkflowReference: (
+            definitions: CustomPropertyDefinitionApi[],
+            editingDefinition: CustomPropertyDefinitionApi | null
+        ) => boolean
         editingReferences: (
             definitions: CustomPropertyDefinitionApi[],
             editingDefinition: CustomPropertyDefinitionApi | null
@@ -1140,13 +1156,46 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 )
             },
         ],
+        // Why a new person/group source can't be saved yet, or undefined once it can. The mapping
+        // rows aren't LemonFields, so this gates the submit button rather than showing a per-field
+        // error. It reads the serialized map instead of the rows on screen, because a row on the key
+        // column is dropped from the payload: rows that all sit on the key column would otherwise
+        // post an empty column_property_map, which the backend rejects after the definition itself
+        // is already created.
+        profileMappingDisabledReason: [
+            (s) => [s.customPropertyForm, s.editingDefinition, s.serializedColumnPropertyMap],
+            (
+                form: CustomPropertyFormValues,
+                editingDefinition: CustomPropertyDefinitionApi | null,
+                serializedColumnPropertyMap: Record<string, string>
+            ): string | undefined => {
+                const isProfile = form.targetType === 'person' || form.targetType === 'group'
+                // The column map is create-only on the backend, so an existing source has no
+                // mapping left to gate.
+                if (!isProfile || editingDefinition?.source || Object.keys(serializedColumnPropertyMap).length > 0) {
+                    return undefined
+                }
+                const hasCompleteRow = form.columnMappings.some(
+                    (mapping) => mapping.column.trim() && mapping.property.trim()
+                )
+                return hasCompleteRow
+                    ? `Map a column other than the ${keyColumnLabel(form.targetType)}`
+                    : 'Map at least one column to a property'
+            },
+        ],
         // Warn-only collision check per mapping: a chosen person-property name that is `$`-prefixed,
-        // an identity property, or already defined on persons could overwrite existing values.
+        // an identity property, or already defined on persons could overwrite existing values. A row
+        // on the key column is reported here too, because serializedColumnPropertyMap drops it.
         columnMappingWarnings: [
             (s) => [s.customPropertyForm, s.personPropertyDefinitions],
             (form: CustomPropertyFormValues, personPropertyDefinitions: PropertyDefinition[]): (string | null)[] => {
                 const existing = new Set(personPropertyDefinitions.map((definition) => definition.name))
+                const keyColumn = form.keyColumn?.trim()
+                const keyColumnLabelText = keyColumnLabel(form.targetType)
                 return form.columnMappings.map((mapping) => {
+                    if (keyColumn && mapping.column.trim() === keyColumn) {
+                        return `"${keyColumn}" is the ${keyColumnLabelText}, so this mapping isn't saved. Map a different column.`
+                    }
                     const name = mapping.property.trim()
                     if (!name) {
                         return null
@@ -1176,6 +1225,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                             definition.name.toLowerCase().includes(query) ||
                             definition.description?.toLowerCase().includes(query))
                 )
+            },
+        ],
+        editingHasWorkflowReference: [
+            (s) => [s.definitions, s.editingDefinition],
+            (
+                definitions: CustomPropertyDefinitionApi[],
+                editingDefinition: CustomPropertyDefinitionApi | null
+            ): boolean => {
+                if (!editingDefinition) {
+                    return false
+                }
+                const fresh = definitions.find((definition) => definition.id === editingDefinition.id)
+                return fresh?.has_workflow_reference ?? editingDefinition.has_workflow_reference
             },
         ],
         editingReferences: [
@@ -1250,7 +1312,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 groupTypeIndex: definition.group_type_index ?? null,
                 sourceMode: definition.source
                     ? 'data_warehouse'
-                    : definition.references?.length
+                    : definition.has_workflow_reference
                       ? 'workflow'
                       : 'manual',
                 savedQuery: definition.source?.saved_query ?? null,

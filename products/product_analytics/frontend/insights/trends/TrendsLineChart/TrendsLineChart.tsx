@@ -157,20 +157,6 @@ export function TrendsLineChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const indexByResult = useMemo(() => {
-        const m = new Map<IndexedTrendResult, number>()
-        ;(indexedResults ?? []).forEach((r, i) => m.set(r, i))
-        return m
-    }, [indexedResults])
-
-    const getYAxisId = useCallback(
-        (r: IndexedTrendResult) => {
-            const idx = indexByResult.get(r) ?? 0
-            return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-        },
-        [indexByResult, showMultipleYAxes]
-    )
-
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
     // The persons modal is intentionally unavailable for multi-series formulas (there's no
     // single series of actors behind a computed ratio). On dashboard/card tiles a click
@@ -299,6 +285,12 @@ export function TrendsLineChart({
             getTrendsColor,
             getLabel,
         ]
+    )
+
+    // Anomaly markers must read the same axis their series is scaled against.
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => series.find((s) => s.key === String(r.id))?.yAxisId ?? DEFAULT_Y_AXIS_ID,
+        [series]
     )
 
     const config = useChartConfig(

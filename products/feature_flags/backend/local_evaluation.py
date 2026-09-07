@@ -60,7 +60,10 @@ from products.feature_flags.backend.flags_cache import (
 )
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    PropertyMatchingVersion,
+    TeamFeatureFlagsConfig,
+)
 from products.feature_flags.backend.types import FlagFilters, FlagProperty, PropertyFilterType
 from products.surveys.backend.models import Survey
 
@@ -549,12 +552,14 @@ def _local_eval_response(
     group_type_mapping: dict[str, str],
     cohorts: dict[str, Any],
     minimal_flag_called_events: bool,
+    property_matching_version: int,
 ) -> dict[str, Any]:
     return {
         "flags": flags,
         "group_type_mapping": group_type_mapping,
         "cohorts": cohorts,
         "minimal_flag_called_events": minimal_flag_called_events,
+        "property_matching_version": property_matching_version,
     }
 
 
@@ -563,7 +568,13 @@ def _get_flags_response_for_local_evaluation(team: Team) -> dict[str, Any]:
     results = _get_flags_response_for_local_evaluation_batch([team])
     return results.get(
         team.id,
-        _local_eval_response(flags=[], group_type_mapping={}, cohorts={}, minimal_flag_called_events=False),
+        _local_eval_response(
+            flags=[],
+            group_type_mapping={},
+            cohorts={},
+            minimal_flag_called_events=False,
+            property_matching_version=PropertyMatchingVersion.LEGACY,
+        ),
     )
 
 
@@ -584,15 +595,16 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     team_by_id = {t.id: t for t in teams}
     project_ids = list({t.project_id for t in teams})
 
-    # Slim $feature_flag_called gate, exposed top-level so local-eval SDKs (which never
-    # call /flags) get the same signal FlagsResponse.minimal_flag_called_events carries.
-    # Absent row → False → SDKs send full events, same fail-safe as the /flags path.
-    minimal_flag_called_events_by_team: defaultdict[int, bool] = defaultdict(
-        bool,
-        TeamFeatureFlagsConfig.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+    # Local-evaluation SDKs never call /flags, so team rollout settings must travel in
+    # this blob. Missing config rows retain both legacy behaviors.
+    team_config_by_team_id = {
+        team_id: (minimal_flag_called_events, property_matching_version)
+        for team_id, minimal_flag_called_events, property_matching_version in TeamFeatureFlagsConfig.objects.db_manager(
+            DATABASE_FOR_LOCAL_EVALUATION
+        )
         .filter(team_id__in=team_ids)
-        .values_list("team_id", "minimal_flag_called_events"),
-    )
+        .values_list("team_id", "minimal_flag_called_events", "property_matching_version")
+    }
 
     # Bulk load survey flag IDs across all teams
     survey_flag_ids: set[int] = set()
@@ -722,11 +734,15 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue
 
+        minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
+            tid, (False, PropertyMatchingVersion.LEGACY)
+        )
         response_data = _local_eval_response(
             flags=flags_data,
             group_type_mapping=gtm_by_project.get(team.project_id, {}),
             cohorts=cohorts,
-            minimal_flag_called_events=minimal_flag_called_events_by_team[tid],
+            minimal_flag_called_events=minimal_flag_called_events,
+            property_matching_version=property_matching_version,
         )
 
         results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
@@ -734,11 +750,15 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     # Ensure every requested team has a result, even if it had no flags
     for tid in team_ids:
         if tid not in results:
+            minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
+                tid, (False, PropertyMatchingVersion.LEGACY)
+            )
             results[tid] = _local_eval_response(
                 flags=[],
                 group_type_mapping=gtm_by_project.get(team_by_id[tid].project_id, {}),
                 cohorts={},
-                minimal_flag_called_events=minimal_flag_called_events_by_team[tid],
+                minimal_flag_called_events=minimal_flag_called_events,
+                property_matching_version=property_matching_version,
             )
 
     return results
@@ -784,6 +804,7 @@ _TOP_LEVEL_FIELDS_TO_COMPARE: list[tuple[str, str, Any]] = [
     ("cohorts", "COHORTS_MISMATCH", None),
     ("group_type_mapping", "GROUP_TYPE_MAPPING_MISMATCH", None),
     ("minimal_flag_called_events", "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH", False),
+    ("property_matching_version", "PROPERTY_MATCHING_VERSION_MISMATCH", PropertyMatchingVersion.LEGACY),
 ]
 
 

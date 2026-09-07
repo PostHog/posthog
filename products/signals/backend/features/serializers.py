@@ -35,7 +35,7 @@ class InboxFeatureReportSerializer(serializers.ModelSerializer):
 
     def get_feature_stage(self, obj: SignalReport) -> str:
         feature_stages: dict[str, FeatureStage] = self.context.get("feature_stages", {})
-        return feature_stages.get(str(obj.id), FeatureStage.PLANNING).value
+        return getattr(obj, "feature_stage", feature_stages.get(str(obj.id), FeatureStage.PLANNING).value)
 
     class Meta:
         model = SignalReport
@@ -169,3 +169,17 @@ class InboxFeatureDiscoveryRunSerializer(serializers.ModelSerializer):
 
 class InboxFeatureErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="What happened and what to do next.")
+
+
+class InboxFeaturePlanningReadinessSerializer(serializers.Serializer):
+    ready = serializers.BooleanField(help_text="Whether all required feature decisions are present.")
+    missing = serializers.ListField(
+        child=serializers.CharField(), help_text="Decisions required before implementation."
+    )
+    planning_finished = serializers.BooleanField(help_text="Whether ownership has been activated.")
+
+
+class InboxFeatureListQuerySerializer(serializers.Serializer):
+    stage = serializers.ChoiceField(
+        choices=["live", "staged"], required=False, help_text="Filter staged discoveries or live features."
+    )

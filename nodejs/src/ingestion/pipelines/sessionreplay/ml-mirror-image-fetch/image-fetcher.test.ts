@@ -350,7 +350,12 @@ describe('HttpImageFetcher', () => {
                 requestNumber += 1
                 return requestNumber === 1
                     ? { ran: true as const, value: await request() }
-                    : { ran: false as const, reason: 'backoff' as const, waitMs: 90_000 }
+                    : {
+                          ran: false as const,
+                          reason: 'backoff' as const,
+                          blockingReason: 'retry_after' as const,
+                          waitMs: 90_000,
+                      }
             },
         })
 
@@ -359,6 +364,7 @@ describe('HttpImageFetcher', () => {
             redirects: 1,
             currentUrl: 'https://cdn.example.net/a.png',
             schedulingReason: 'backoff',
+            schedulingBlockingReason: 'retry_after',
             schedulingWaitMs: 90_000,
         })
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)

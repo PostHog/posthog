@@ -102,7 +102,7 @@ export interface ErrorTrackingPipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
-    createEventUsageBatch?: () => UsageRecordBatch
+    createEventUsageBatch: () => UsageRecordBatch
 }
 
 /**
@@ -146,7 +146,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
-        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
+        createEventUsageBatch,
     } = config
 
     const preCymbal = newCommonIngestionPipeline<ErrorTrackingPipelineInput, { message: Message }, OverflowOutput>({

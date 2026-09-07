@@ -397,6 +397,8 @@ export interface PosthogRunStartedParams {
 export interface PosthogTurnCompleteParams {
     sessionId?: string
     stopReason?: string
+    /** The turn's gateway trace id, when the agent's traceparent hook reported one. */
+    traceId?: string
 }
 
 export interface PosthogNotificationParamsByMethod {

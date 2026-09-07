@@ -2,29 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    StreamlitAppsCreateBody,
-    StreamlitAppsCreateVersionFromSourceCreateBody,
-    StreamlitAppsCreateVersionFromSourceCreateParams,
-    StreamlitAppsDestroyParams,
-    StreamlitAppsListQueryParams,
-    StreamlitAppsPartialUpdateBody,
-    StreamlitAppsPartialUpdateParams,
-    StreamlitAppsRetrieveParams,
-    StreamlitAppsStartCreateParams,
-    StreamlitAppsStatusRetrieveParams,
-    StreamlitAppsStopCreateParams,
-    StreamlitAppsVersionsRetrieveParams,
-} from '@/generated/streamlit_apps/api'
+import * as orvalSchemas from '@/generated/streamlit_apps/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const StreamlitAppsCreateSchema = StreamlitAppsCreateBody
+const StreamlitAppsCreateSchema = () => {
+    const StreamlitAppsCreateBody = orvalSchemas.StreamlitAppsCreateBody()
+    return StreamlitAppsCreateBody
+}
 
-const streamlitAppsCreate = (): ToolBase<typeof StreamlitAppsCreateSchema, WithPostHogUrl<Schemas.AppContract>> => ({
+const streamlitAppsCreate = (): ToolBase<
+    ReturnType<typeof StreamlitAppsCreateSchema>,
+    WithPostHogUrl<Schemas.AppContract>
+> => ({
     name: 'streamlit-apps-create',
-    schema: StreamlitAppsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsCreateSchema>) => {
+    schema: StreamlitAppsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -48,12 +41,15 @@ const streamlitAppsCreate = (): ToolBase<typeof StreamlitAppsCreateSchema, WithP
     },
 })
 
-const StreamlitAppsDeleteSchema = StreamlitAppsDestroyParams.omit({ project_id: true })
+const StreamlitAppsDeleteSchema = () => {
+    const StreamlitAppsDestroyParams = orvalSchemas.StreamlitAppsDestroyParams()
+    return StreamlitAppsDestroyParams.omit({ project_id: true })
+}
 
-const streamlitAppsDelete = (): ToolBase<typeof StreamlitAppsDeleteSchema, unknown> => ({
+const streamlitAppsDelete = (): ToolBase<ReturnType<typeof StreamlitAppsDeleteSchema>, unknown> => ({
     name: 'streamlit-apps-delete',
-    schema: StreamlitAppsDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsDeleteSchema>) => {
+    schema: StreamlitAppsDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -63,12 +59,18 @@ const streamlitAppsDelete = (): ToolBase<typeof StreamlitAppsDeleteSchema, unkno
     },
 })
 
-const StreamlitAppsGetSchema = StreamlitAppsRetrieveParams.omit({ project_id: true })
+const StreamlitAppsGetSchema = () => {
+    const StreamlitAppsRetrieveParams = orvalSchemas.StreamlitAppsRetrieveParams()
+    return StreamlitAppsRetrieveParams.omit({ project_id: true })
+}
 
-const streamlitAppsGet = (): ToolBase<typeof StreamlitAppsGetSchema, WithPostHogUrl<Schemas.AppContract>> => ({
+const streamlitAppsGet = (): ToolBase<
+    ReturnType<typeof StreamlitAppsGetSchema>,
+    WithPostHogUrl<Schemas.AppContract>
+> => ({
     name: 'streamlit-apps-get',
-    schema: StreamlitAppsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsGetSchema>) => {
+    schema: StreamlitAppsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AppContract>({
             method: 'GET',
@@ -78,15 +80,18 @@ const streamlitAppsGet = (): ToolBase<typeof StreamlitAppsGetSchema, WithPostHog
     },
 })
 
-const StreamlitAppsListSchema = StreamlitAppsListQueryParams
+const StreamlitAppsListSchema = () => {
+    const StreamlitAppsListQueryParams = orvalSchemas.StreamlitAppsListQueryParams()
+    return StreamlitAppsListQueryParams
+}
 
 const streamlitAppsList = (): ToolBase<
-    typeof StreamlitAppsListSchema,
+    ReturnType<typeof StreamlitAppsListSchema>,
     WithPostHogUrl<Schemas.PaginatedAppSummaryContractList>
 > => ({
     name: 'streamlit-apps-list',
-    schema: StreamlitAppsListSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsListSchema>) => {
+    schema: StreamlitAppsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAppSummaryContractList>({
             method: 'GET',
@@ -111,18 +116,26 @@ const streamlitAppsList = (): ToolBase<
     },
 })
 
-const StreamlitAppsSetSourceSchema = StreamlitAppsCreateVersionFromSourceCreateParams.omit({ project_id: true })
-    .extend(StreamlitAppsCreateVersionFromSourceCreateBody.shape)
-    .extend({
-        source: StreamlitAppsCreateVersionFromSourceCreateBody.shape['source'].describe(
-            "The complete Python source for the app's root app.py (a Streamlit script, e.g. starting with `import streamlit as st`). Sent as plain text."
-        ),
-    })
+const StreamlitAppsSetSourceSchema = () => {
+    const StreamlitAppsCreateVersionFromSourceCreateBody = orvalSchemas.StreamlitAppsCreateVersionFromSourceCreateBody()
+    const StreamlitAppsCreateVersionFromSourceCreateParams =
+        orvalSchemas.StreamlitAppsCreateVersionFromSourceCreateParams()
+    return StreamlitAppsCreateVersionFromSourceCreateParams.omit({ project_id: true })
+        .extend(StreamlitAppsCreateVersionFromSourceCreateBody.shape)
+        .extend({
+            source: StreamlitAppsCreateVersionFromSourceCreateBody.shape['source'].describe(
+                "The complete Python source for the app's root app.py (a Streamlit script, e.g. starting with `import streamlit as st`). Sent as plain text."
+            ),
+        })
+}
 
-const streamlitAppsSetSource = (): ToolBase<typeof StreamlitAppsSetSourceSchema, Schemas.AppVersionContract> => ({
+const streamlitAppsSetSource = (): ToolBase<
+    ReturnType<typeof StreamlitAppsSetSourceSchema>,
+    Schemas.AppVersionContract
+> => ({
     name: 'streamlit-apps-set-source',
-    schema: StreamlitAppsSetSourceSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsSetSourceSchema>) => {
+    schema: StreamlitAppsSetSourceSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsSetSourceSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source !== undefined) {
@@ -137,12 +150,18 @@ const streamlitAppsSetSource = (): ToolBase<typeof StreamlitAppsSetSourceSchema,
     },
 })
 
-const StreamlitAppsStartSchema = StreamlitAppsStartCreateParams.omit({ project_id: true })
+const StreamlitAppsStartSchema = () => {
+    const StreamlitAppsStartCreateParams = orvalSchemas.StreamlitAppsStartCreateParams()
+    return StreamlitAppsStartCreateParams.omit({ project_id: true })
+}
 
-const streamlitAppsStart = (): ToolBase<typeof StreamlitAppsStartSchema, WithPostHogUrl<Schemas.AppContract>> => ({
+const streamlitAppsStart = (): ToolBase<
+    ReturnType<typeof StreamlitAppsStartSchema>,
+    WithPostHogUrl<Schemas.AppContract>
+> => ({
     name: 'streamlit-apps-start',
-    schema: StreamlitAppsStartSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsStartSchema>) => {
+    schema: StreamlitAppsStartSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsStartSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AppContract>({
             method: 'POST',
@@ -152,12 +171,15 @@ const streamlitAppsStart = (): ToolBase<typeof StreamlitAppsStartSchema, WithPos
     },
 })
 
-const StreamlitAppsStatusSchema = StreamlitAppsStatusRetrieveParams.omit({ project_id: true })
+const StreamlitAppsStatusSchema = () => {
+    const StreamlitAppsStatusRetrieveParams = orvalSchemas.StreamlitAppsStatusRetrieveParams()
+    return StreamlitAppsStatusRetrieveParams.omit({ project_id: true })
+}
 
-const streamlitAppsStatus = (): ToolBase<typeof StreamlitAppsStatusSchema, Schemas.StreamlitAppStatus> => ({
+const streamlitAppsStatus = (): ToolBase<ReturnType<typeof StreamlitAppsStatusSchema>, Schemas.StreamlitAppStatus> => ({
     name: 'streamlit-apps-status',
-    schema: StreamlitAppsStatusSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsStatusSchema>) => {
+    schema: StreamlitAppsStatusSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsStatusSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.StreamlitAppStatus>({
             method: 'GET',
@@ -167,12 +189,18 @@ const streamlitAppsStatus = (): ToolBase<typeof StreamlitAppsStatusSchema, Schem
     },
 })
 
-const StreamlitAppsStopSchema = StreamlitAppsStopCreateParams.omit({ project_id: true })
+const StreamlitAppsStopSchema = () => {
+    const StreamlitAppsStopCreateParams = orvalSchemas.StreamlitAppsStopCreateParams()
+    return StreamlitAppsStopCreateParams.omit({ project_id: true })
+}
 
-const streamlitAppsStop = (): ToolBase<typeof StreamlitAppsStopSchema, WithPostHogUrl<Schemas.AppContract>> => ({
+const streamlitAppsStop = (): ToolBase<
+    ReturnType<typeof StreamlitAppsStopSchema>,
+    WithPostHogUrl<Schemas.AppContract>
+> => ({
     name: 'streamlit-apps-stop',
-    schema: StreamlitAppsStopSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsStopSchema>) => {
+    schema: StreamlitAppsStopSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsStopSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AppContract>({
             method: 'POST',
@@ -182,14 +210,19 @@ const streamlitAppsStop = (): ToolBase<typeof StreamlitAppsStopSchema, WithPostH
     },
 })
 
-const StreamlitAppsUpdateSchema = StreamlitAppsPartialUpdateParams.omit({ project_id: true }).extend(
-    StreamlitAppsPartialUpdateBody.shape
-)
+const StreamlitAppsUpdateSchema = () => {
+    const StreamlitAppsPartialUpdateBody = orvalSchemas.StreamlitAppsPartialUpdateBody()
+    const StreamlitAppsPartialUpdateParams = orvalSchemas.StreamlitAppsPartialUpdateParams()
+    return StreamlitAppsPartialUpdateParams.omit({ project_id: true }).extend(StreamlitAppsPartialUpdateBody.shape)
+}
 
-const streamlitAppsUpdate = (): ToolBase<typeof StreamlitAppsUpdateSchema, WithPostHogUrl<Schemas.AppContract>> => ({
+const streamlitAppsUpdate = (): ToolBase<
+    ReturnType<typeof StreamlitAppsUpdateSchema>,
+    WithPostHogUrl<Schemas.AppContract>
+> => ({
     name: 'streamlit-apps-update',
-    schema: StreamlitAppsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsUpdateSchema>) => {
+    schema: StreamlitAppsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -213,15 +246,18 @@ const streamlitAppsUpdate = (): ToolBase<typeof StreamlitAppsUpdateSchema, WithP
     },
 })
 
-const StreamlitAppsVersionsSchema = StreamlitAppsVersionsRetrieveParams.omit({ project_id: true })
+const StreamlitAppsVersionsSchema = () => {
+    const StreamlitAppsVersionsRetrieveParams = orvalSchemas.StreamlitAppsVersionsRetrieveParams()
+    return StreamlitAppsVersionsRetrieveParams.omit({ project_id: true })
+}
 
 const streamlitAppsVersions = (): ToolBase<
-    typeof StreamlitAppsVersionsSchema,
+    ReturnType<typeof StreamlitAppsVersionsSchema>,
     WithPostHogUrl<Schemas.StreamlitAppVersionList>
 > => ({
     name: 'streamlit-apps-versions',
-    schema: StreamlitAppsVersionsSchema,
-    handler: async (context: Context, params: z.infer<typeof StreamlitAppsVersionsSchema>) => {
+    schema: StreamlitAppsVersionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsVersionsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.StreamlitAppVersionList>({
             method: 'GET',

@@ -1,5 +1,6 @@
 import logging
 
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from posthog.models.team import Team
@@ -60,6 +61,13 @@ class TeamWorkflowsConfig(models.Model):
     # Staff override. While set, automatic promotion and demotion both skip this team, so a team
     # can be held at a tier that its sending history would not give it.
     email_sending_tier_pinned = models.BooleanField(default=False, db_default=False)
+
+    # Staff-controlled overrides for AI tasks created by workflows. Null keeps the
+    # product defaults; zero pauses new task creation at that scope.
+    workflow_task_rate_limit_per_day = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
+    workflow_task_team_rate_limit_per_day = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0)]
+    )
 
 
 register_team_extension_signal(TeamWorkflowsConfig, logger=logger)

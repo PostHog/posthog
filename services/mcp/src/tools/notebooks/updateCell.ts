@@ -12,10 +12,11 @@ import {
 } from './cellRuns'
 import { collectRunRefs, directDependents, findCellTag, parseCellTags, replaceCellTag, upsertProp } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 
-export const NotebooksUpdateCellSchema = z
+const UpdateCellInputSchema = z
     .object({
-        notebook_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
+        notebook_id: z.string().describe(NOTEBOOK_SHORT_ID_DESCRIPTION),
         node_id: z.string().describe('The cell to update, as returned by notebooks-add-cell.'),
         code: z
             .string()
@@ -23,6 +24,8 @@ export const NotebooksUpdateCellSchema = z
             .describe('New SQL or Python source. Omit to re-run the cell as-is (e.g. a stale cell).'),
     })
     .strict()
+
+export const NotebooksUpdateCellSchema = z.preprocess(notebookIdAliases('notebook_id'), UpdateCellInputSchema)
 
 export interface UpdateCellResult {
     node_id: string

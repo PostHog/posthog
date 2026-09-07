@@ -74,10 +74,10 @@ export interface PaginatedMCPAnalyticsSubmissionListApi {
  * * `docs` - Docs
  * * `other` - Other
  */
-export type MCPFeedbackCreateCategoryEnumApi =
-    (typeof MCPFeedbackCreateCategoryEnumApi)[keyof typeof MCPFeedbackCreateCategoryEnumApi]
+export type MCPAnalyticsSubmissionFeedbackCategoryEnumApi =
+    (typeof MCPAnalyticsSubmissionFeedbackCategoryEnumApi)[keyof typeof MCPAnalyticsSubmissionFeedbackCategoryEnumApi]
 
-export const MCPFeedbackCreateCategoryEnumApi = {
+export const MCPAnalyticsSubmissionFeedbackCategoryEnumApi = {
     Results: 'results',
     Usability: 'usability',
     Bug: 'bug',
@@ -138,7 +138,7 @@ export interface MCPFeedbackCreateApi {
      * * `bug` - Bug
      * * `docs` - Docs
      * * `other` - Other */
-    category?: MCPFeedbackCreateCategoryEnumApi
+    category?: MCPAnalyticsSubmissionFeedbackCategoryEnumApi
 }
 
 /**

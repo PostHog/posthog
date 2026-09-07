@@ -1556,13 +1556,34 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__mermaid-block {
-    // Diagrams render at natural width (see MermaidDiagram's naturalWidth prop), so wide ones
-    // scroll here instead of shrinking to fit. Don't cap the svg width, that would re-shrink them.
-    overflow-x: auto;
+    position: relative;
 
-    // Mermaid measures node label widths against the document font, but the surrounding
-    // code group is monospace; without this reset labels render wider than their boxes and clip.
+    // Mermaid measures labels against this font; inheriting the code group's monospace font clips them.
     font-family: var(--font-sans);
+}
+
+.MarkdownNotebook__mermaid-preview {
+    // Diagrams render at natural width, so wide ones scroll here instead of shrinking to fit.
+    overflow-x: auto;
+}
+
+.MarkdownNotebook__mermaid-actions {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: var(--z-raised);
+    pointer-events: none;
+    user-select: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.MarkdownNotebook__mermaid-block:hover .MarkdownNotebook__mermaid-actions,
+.MarkdownNotebook__mermaid-block:focus-within .MarkdownNotebook__mermaid-actions,
+.MarkdownNotebook__mermaid-block:has([data-attr='mermaid-error']) .MarkdownNotebook__mermaid-actions,
+.MarkdownNotebook__mermaid-block:has([data-attr='mermaid-error-boundary']) .MarkdownNotebook__mermaid-actions {
+    pointer-events: auto;
+    opacity: 1;
 }
 
 .MarkdownNotebook__divider-block {

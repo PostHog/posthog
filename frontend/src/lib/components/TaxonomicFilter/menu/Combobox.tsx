@@ -234,10 +234,12 @@ export function MenuFilterCombobox({
     // Per-group `isFetching` flags (true during background refetches too, unlike
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
-    const [fetchingByType, setFetchingByType] = useState<Record<string, boolean>>({})
-    // Only engages while actively searching a fetching scope. Recent/Pinned
-    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
-    const searching = !drillItems && !!searchQuery.trim()
+    const [fetchingByType, setFetchingByType] = useState<Record<string, { query?: string; fetching: boolean }>>({})
+    // Only engages while actively searching a fetching scope. Recent/Pinned read
+    // pre-resolved entries (`drillItems` when drilled to, the recents/pinned props
+    // when picked from the category select) and never fetch, so they're never gated.
+    const readsResolvedEntries = !!drillItems || activeScope === 'recent' || activeScope === 'pinned'
+    const searching = !readsResolvedEntries && !!searchQuery.trim()
     // Reveal barrier (ported from the legacy `taxonomicFilterLogic`): on a fresh
     // search we hold the result list behind skeletons until every visible group's
     // fetch settles (or a 5s fallback), so slower groups don't render on top of a
@@ -248,6 +250,7 @@ export function MenuFilterCombobox({
     // sharing this same list are still in flight.
     const [revealBarrierOpen, setRevealBarrierOpen] = useState(() => !searching)
     const [barrierQuery, setBarrierQuery] = useState(searchQuery)
+    const [barrierScope, setBarrierScope] = useState(activeScope)
     // Seed the highlight with the committed selection so the preview
     // pane shows the right definition before any row hovers fire. Once
     // the list mounts, `autoHighlight="always"` + the reordered
@@ -280,8 +283,12 @@ export function MenuFilterCombobox({
         setLoadingByType((prev) => (prev[type] === loading ? prev : { ...prev, [type]: loading }))
     }, [])
 
-    const reportFetching = useCallback((type: string, fetching: boolean): void => {
-        setFetchingByType((prev) => (prev[type] === fetching ? prev : { ...prev, [type]: fetching }))
+    const reportFetching = useCallback((type: string, fetching: boolean, query?: string): void => {
+        setFetchingByType((prev) =>
+            prev[type]?.fetching === fetching && prev[type]?.query === query
+                ? prev
+                : { ...prev, [type]: { query, fetching } }
+        )
     }, [])
 
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
@@ -552,6 +559,12 @@ export function MenuFilterCombobox({
         let base: MenuFilterEntry[]
         if (!q) {
             base = indexed
+        } else if (readsResolvedEntries) {
+            // Recent/Pinned rows come from the user's saved lists and never reach an
+            // endpoint, so the client Fuse is the only search they get. Without this
+            // branch the endpoint passthrough below keeps every saved row, because each
+            // row carries its source group (Events, Cohorts, ...) and those do fetch.
+            base = fuseMatchEntries(indexed, q)
         } else {
             // The endpoint is the search authority for endpoint-backed
             // groups (e.g. Cohorts use `name__icontains` server-side, plus
@@ -613,7 +626,17 @@ export function MenuFilterCombobox({
             return assembled
         }
         return base
-    }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, suggestedPrefix, showChips, activeChip, drillTo])
+    }, [
+        indexed,
+        searchQuery,
+        readsResolvedEntries,
+        selectedRowId,
+        recentsPinnedPrefix,
+        suggestedPrefix,
+        showChips,
+        activeChip,
+        drillTo,
+    ])
 
     // O(1) row -> rendered-position lookup, rebuilt with `filtered`. Avoids an
     // O(n) `indexOf` per commit and the stale-index risk if `filtered`'s identity
@@ -656,15 +679,15 @@ export function MenuFilterCombobox({
     // Close synchronously the instant the query changes (React "adjust state
     // while rendering" pattern) so a stale list never paints between keystroke
     // and the fetch starting. Re-opens immediately for empty/drill scopes.
-    if (searchQuery !== barrierQuery) {
+    if (searchQuery !== barrierQuery || activeScope !== barrierScope) {
         setBarrierQuery(searchQuery)
+        setBarrierScope(activeScope)
         setRevealBarrierOpen(!searching)
     }
-    const anyFetching = useMemo(() => targetGroups.some((g) => fetchingByType[g.type]), [targetGroups, fetchingByType])
-    // Open once every visible group has settled. Edge-triggered on results /
-    // fetching changes (not the bare query change) so the close commit — where
-    // the Fetchers haven't yet reported `isFetching` — can't open it early.
-    // Mirrors legacy's `!anyGroupLoading` check after `infiniteListResultsReceived`.
+    const anyFetching = targetGroups.some(
+        (g) => fetchingByType[g.type]?.query !== searchQuery || fetchingByType[g.type]?.fetching
+    )
+    // A missing report or one from a previous query cannot establish that a category has settled.
     useEffect(() => {
         if (revealBarrierOpen || !searching) {
             return
@@ -672,8 +695,7 @@ export function MenuFilterCombobox({
         if (!anyFetching) {
             setRevealBarrierOpen(true)
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [itemsByType, fetchingByType])
+    }, [anyFetching, revealBarrierOpen, searching, barrierScope])
     // 5s fallback so a wedged/never-settling fetch can't trap the list behind
     // skeletons forever. Re-armed on every fresh query.
     useEffect(() => {
@@ -682,7 +704,7 @@ export function MenuFilterCombobox({
         }
         const id = window.setTimeout(() => setRevealBarrierOpen(true), REVEAL_BARRIER_TIMEOUT_MS)
         return () => window.clearTimeout(id)
-    }, [barrierQuery, searching])
+    }, [barrierQuery, barrierScope, searching])
     // While held, show skeletons in place of the (stale/partial) result list.
     const barrierClosed = searching && !revealBarrierOpen
     const displayedItems = barrierClosed ? NO_ENTRIES : filtered
@@ -1376,10 +1398,11 @@ function Fetcher({
     onLoadingChange: (type: string, loading: boolean) => void
     /** Reports `isFetching` (true during background refetches too) so the
      *  parent's reveal barrier holds the list until every group settles. */
-    onFetchingChange: (type: string, fetching: boolean) => void
+    onFetchingChange: (type: string, fetching: boolean, query?: string) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
-    const list = useGroupList({ ...getGroupListInput(group), excludeStale })
+    const input = getGroupListInput(group)
+    const list = useGroupList({ ...input, excludeStale })
     useEffect(() => {
         onItems(group.type, list.items)
     }, [group.type, list.items, onItems])
@@ -1387,8 +1410,8 @@ function Fetcher({
         onLoadingChange(group.type, list.showLoadingState)
     }, [group.type, list.showLoadingState, onLoadingChange])
     useEffect(() => {
-        onFetchingChange(group.type, list.isFetching)
-    }, [group.type, list.isFetching, onFetchingChange])
+        onFetchingChange(group.type, list.isFetching, input.searchQuery)
+    }, [group.type, list.isFetching, input.searchQuery, onFetchingChange])
     // Make sure we flip back to "not loading"/"not fetching" when this group
     // unmounts — otherwise a stale `true` from a previously-active chip would
     // keep the skeleton (or the reveal barrier) stuck after we switch scope.

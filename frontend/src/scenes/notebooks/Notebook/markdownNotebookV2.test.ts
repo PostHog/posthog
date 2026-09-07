@@ -259,6 +259,7 @@ Dashboard 123
         [NotebookNodeType.Action, 'Action'],
         [NotebookNodeType.Workflow, 'Workflow'],
         [NotebookNodeType.ErrorTrackingIssue, 'ErrorTrackingIssue'],
+        [NotebookNodeType.GeneratedWidget, 'Widget'],
     ])('converts the %s widget node to its markdown component', (nodeType, tagName) => {
         expect(
             convertNotebookContentToMarkdown({

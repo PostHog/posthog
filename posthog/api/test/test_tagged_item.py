@@ -97,6 +97,15 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         # Tags are returned in alphabetical order regardless of insertion order
         assert response.json() == ["apple tag", "zebra tag"]
 
+    def test_can_search_tags_with_pagination(self) -> None:
+        Tag.objects.bulk_create([Tag(name=f"dashboard-{index:03}", team_id=self.team.id) for index in range(3)])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tags?search=dashboard&limit=2")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == ["dashboard-000", "dashboard-001"]
+        assert response.json()["next"] is not None
+
 
 class TestBulkUpdateTags(APIBaseTest):
     def _bulk_update_url(self):

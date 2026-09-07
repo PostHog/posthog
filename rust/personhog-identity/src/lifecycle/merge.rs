@@ -36,6 +36,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
+use personhog_common::persons::person_uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
@@ -110,6 +111,15 @@ pub struct MergeRequest {
     /// Per-source distinct-id count guard. Required: an unlimited merge
     /// would make the flip's repoint an unbounded statement.
     pub move_limit: i64,
+    /// The event that asked for this merge, recorded as $creator_event_uuid
+    /// on a person this call's establishment births. Skipped when empty so
+    /// older frozen rows compare equal.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub creator_event_uuid: String,
+    /// Establishment birthed the target, so the fold and the abort delivery
+    /// stamp its creating event (a recycled source can complete a born fold).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub target_born: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +129,21 @@ pub struct MergeSourceEntry {
     /// caller's warning correlation, unused by the saga itself.
     #[serde(default)]
     pub event_uuid: String,
+}
+
+/// Whether another driver advanced or settled the op past our step.
+async fn op_moved_on(pool: &PgPool, op: &OpRow) -> Result<bool, SagaError> {
+    let current = sqlx::query!(
+        r#"SELECT step, completed_at FROM lifecycle_op WHERE op_id = $1"#,
+        op.op_id
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(match current {
+        // A vanished row was completed and garbage-collected.
+        None => true,
+        Some(row) => row.completed_at.is_some() || row.step != op.step,
+    })
 }
 
 /// The recorded `lifecycle_op.outcome` payload: one entry per requested
@@ -137,6 +162,9 @@ pub struct MergeOutcome {
 pub struct MergeSourceRecord {
     pub distinct_id: String,
     pub outcome: String,
+    /// Defaulted so rows written before the field existed replay as `None`.
+    #[serde(default)]
+    pub person_id: Option<i64>,
 }
 
 pub const OUTCOME_MERGED: &str = "merged";
@@ -144,6 +172,24 @@ pub const OUTCOME_NOOP_SAME_PERSON: &str = "noop_same_person";
 pub const OUTCOME_SKIPPED_ALREADY_IDENTIFIED: &str = "skipped_already_identified";
 pub const OUTCOME_SKIPPED_CONFLICT: &str = "skipped_conflict";
 pub const OUTCOME_SKIPPED_MOVE_LIMIT: &str = "skipped_move_limit";
+pub const OUTCOME_SKIPPED_REFUSED: &str = "skipped_refused";
+
+#[derive(Clone, Copy)]
+enum AbortOutcome {
+    /// Claim contention: another live op held a person. Unsettled.
+    Conflict,
+    /// A definitive leader refusal: retrying meets the same answer.
+    Refused,
+}
+
+impl AbortOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            AbortOutcome::Conflict => OUTCOME_SKIPPED_CONFLICT,
+            AbortOutcome::Refused => OUTCOME_SKIPPED_REFUSED,
+        }
+    }
+}
 pub const OUTCOME_ERROR: &str = "error";
 
 /// Per-person row statuses this driver writes. `marked`/`sealed` are the
@@ -168,6 +214,8 @@ const LEADER_CALL_CONCURRENCY: usize = 8;
 
 const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_merge_outcomes_total";
+/// Pre-flip aborts by refusal slug.
+const ABORTS_TOTAL: &str = "personhog_lifecycle_merge_aborts_total";
 
 fn record_transition(from: &str, to: &str) {
     common_metrics::inc(
@@ -201,6 +249,7 @@ fn record_outcomes(outcome: &Value) {
         OUTCOME_SKIPPED_ALREADY_IDENTIFIED,
         OUTCOME_SKIPPED_CONFLICT,
         OUTCOME_SKIPPED_MOVE_LIMIT,
+        OUTCOME_SKIPPED_REFUSED,
         OUTCOME_ERROR,
     ] {
         let count = parsed.results.iter().filter(|r| r.outcome == label).count();
@@ -293,6 +342,51 @@ impl MergeOpExecutor {
         .fetch_optional(self.engine.pool())
         .await
         .map_err(|e| Status::internal(format!("database error: {e}")))
+    }
+
+    /// Whether this terminal row is a disposable claim abort.
+    pub fn is_claim_abort(row: &OpRow) -> bool {
+        row.completed_at.is_some()
+            && row
+                .outcome
+                .as_ref()
+                .and_then(|o| o.get("claim_abort"))
+                .and_then(Value::as_bool)
+                == Some(true)
+    }
+
+    /// Delete a claim-aborted op; the flag is re-checked in SQL.
+    // See `find` for why result_large_err is allowed.
+    #[allow(clippy::result_large_err)]
+    pub async fn discard_claim_abort(&self, op_id: Uuid) -> Result<(), Status> {
+        let mut tx = self
+            .engine
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| Status::internal(format!("discard begin failed: {e}")))?;
+        let deleted = sqlx::query!(
+            r#"
+            DELETE FROM lifecycle_op
+            WHERE op_id = $1
+              AND completed_at IS NOT NULL
+              AND (outcome->>'claim_abort')::boolean IS TRUE
+            "#,
+            op_id
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| Status::internal(format!("discard failed: {e}")))?;
+        if deleted.rows_affected() > 0 {
+            sqlx::query!("DELETE FROM lifecycle_op_person WHERE op_id = $1", op_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| Status::internal(format!("discard marks failed: {e}")))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("discard commit failed: {e}")))?;
+        Ok(())
     }
 
     /// Drive the op to terminal with the given frozen request (a resumed
@@ -781,7 +875,15 @@ async fn abort_in_claim_tx(
     op: &OpRow,
     dispositions: Vec<Disposition>,
 ) -> Result<(), SagaError> {
-    let outcome = outcome_from_dispositions(&dispositions, true, None, &HashMap::new())?;
+    let mut outcome = outcome_from_dispositions(
+        &dispositions,
+        Some(AbortOutcome::Conflict),
+        None,
+        &HashMap::new(),
+    )?;
+    // The entrance discards flagged rows on the next presentation of the
+    // op id, so a plain retry re-runs where a recorded conflict replays.
+    outcome["claim_abort"] = Value::Bool(true);
     if !complete_op_in_tx(
         &mut tx,
         op.op_id,
@@ -935,7 +1037,7 @@ impl MergeDriver {
             )
             .execute(&mut *tx)
             .await?;
-            let outcome = build_outcome(&mut tx, op, true).await?;
+            let outcome = build_outcome(&mut tx, op, Some(AbortOutcome::Conflict)).await?;
             if !complete_op_in_tx(
                 &mut tx,
                 op.op_id,
@@ -997,11 +1099,8 @@ impl MergeDriver {
         Ok(())
     }
 
-    /// Back the op out after a pre-flip refusal: release the live
-    /// sources' fences (an aborted release cannot itself be refused),
-    /// settle the marks, and complete as aborted. Nothing irreversible
-    /// has happened before the flip, so unwinding is safe; a refusal
-    /// after the flip has no undo and parks instead.
+    /// Back the op out after a pre-flip refusal. Nothing is destroyed
+    /// before the flip, so unwinding is safe; post-flip refusals park.
     async fn abort_refused(
         &self,
         pool: &PgPool,
@@ -1020,7 +1119,6 @@ impl MergeDriver {
         .fetch_all(pool)
         .await?;
         let pairs: Vec<(i64, Uuid)> = live.iter().map(|s| (s.person_id, s.person_uuid)).collect();
-        self.release_fences(op, &pairs).await?;
 
         let mut tx = pool.begin().await?;
         sqlx::query!(
@@ -1042,7 +1140,8 @@ impl MergeDriver {
         )
         .execute(&mut *tx)
         .await?;
-        let outcome = build_outcome(&mut tx, op, true).await?;
+        // Fence contention never reaches this abort; it retries at the step.
+        let outcome = build_outcome(&mut tx, op, Some(AbortOutcome::Refused)).await?;
         if !complete_op_in_tx(
             &mut tx,
             op.op_id,
@@ -1056,15 +1155,28 @@ impl MergeDriver {
             return Ok(());
         }
         tx.commit().await?;
+        // Attribute the abort before the releases: a failed release
+        // leaves the op terminal with nothing retrying it.
         tracing::error!(
             op_id = %op.op_id,
             step = %from_step.as_str(),
-            reason = %personhog_common::grpc::semantic_refusal_reason(status).unwrap_or("unknown"),
+            reason = %personhog_common::grpc::refusal_reason_label(status),
             message = %status.message(),
-            "leader definitively refused a pre-flip merge step; op aborted and fences released"
+            "leader definitively refused a pre-flip merge step; op aborted, releasing its fences"
         );
         record_transition(from_step.as_str(), STEP_ABORTED);
+        common_metrics::inc(
+            ABORTS_TOTAL,
+            &[(
+                "reason".to_string(),
+                personhog_common::grpc::refusal_reason_label(status).to_string(),
+            )],
+            1,
+        );
         record_outcomes(&outcome);
+        // Releases only after the completing CAS proves we still owned the
+        // op; ghosts left by a crash here are healed lazily by the leader.
+        self.release_fences(op, &pairs).await?;
         Ok(())
     }
 
@@ -1150,6 +1262,8 @@ async fn settle_drops(
             continue;
         };
         if vanished.contains(&person_id) {
+            // error-without-merged reads as an abort to the caller's fold
+            // guard, so this shape cannot read as executed.
             disposition.decision = OUTCOME_ERROR.to_string();
         } else if identified.contains(&person_id) {
             disposition.decision = OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string();
@@ -1223,13 +1337,32 @@ impl MergeDriver {
             });
         }
 
+        // The stub never reached the changelog, so the born stamp rides the
+        // fold's $set; the uuid check keeps it off a person the claim
+        // resolved after a rival settled the newborn away.
+        let mut event_set = request.event_set.clone();
+        if request.target_born
+            && !request.creator_event_uuid.is_empty()
+            && target.person_uuid == person_uuid(op.team_id, &request.target_distinct_id)
+        {
+            if event_set.is_null() {
+                event_set = Value::Object(Default::default());
+            }
+            let map = event_set.as_object_mut().ok_or_else(|| {
+                SagaError::CorruptState(format!("merge op {} event_set is not a map", op.op_id))
+            })?;
+            map.insert(
+                "$creator_event_uuid".to_string(),
+                Value::String(request.creator_event_uuid.clone()),
+            );
+        }
         let response = match self
             .leader
             .fold_person_document(FoldPersonDocumentRequest {
                 team_id: op.team_id,
                 person_id: target.person_id,
                 sealed_snapshots: snapshots,
-                event_set: encode_json_map(&request.event_set)?,
+                event_set: encode_json_map(&event_set)?,
                 event_set_once: encode_json_map(&request.event_set_once)?,
                 op_id: op.op_id.to_string(),
             })
@@ -1239,8 +1372,22 @@ impl MergeDriver {
             Err(status) => {
                 return match SagaError::leader(status) {
                     SagaError::LeaderRefused(status) => {
-                        self.abort_refused(pool, op, MergeStep::SourcesSealed, &status)
-                            .await
+                        // Under a stale claim the advancing driver still
+                        // needs the fences, so Busy re-attaches the retry;
+                        // under a live claim the pre-flip abort is safe.
+                        if personhog_common::grpc::semantic_refusal_reason(&status)
+                            == Some("fold-unverified")
+                            && op_moved_on(pool, op).await?
+                        {
+                            tracing::info!(
+                                op_id = %op.op_id,
+                                "stale drive's fold refusal deferred to the op row; the caller's retry attaches to it"
+                            );
+                            Err(SagaError::Busy)
+                        } else {
+                            self.abort_refused(pool, op, MergeStep::SourcesSealed, &status)
+                                .await
+                        }
                     }
                     err => Err(err),
                 };
@@ -1258,6 +1405,7 @@ impl MergeDriver {
             "properties": serde_json::from_slice::<Value>(&folded.properties)
                 .unwrap_or_else(|_| Value::Object(serde_json::Map::new())),
             "created_at": folded.created_at,
+            "last_seen_at": folded.last_seen_at,
             "is_identified": folded.is_identified,
             "version": folded.version,
         });
@@ -1293,11 +1441,12 @@ impl MergeDriver {
 
 struct TargetRow {
     person_id: i64,
+    person_uuid: Uuid,
 }
 
 async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
     let row = sqlx::query!(
-        "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+        "SELECT person_id, person_uuid FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
         op.op_id,
         ROLE_TARGET,
     )
@@ -1305,6 +1454,7 @@ async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
     .await?;
     Ok(TargetRow {
         person_id: row.person_id,
+        person_uuid: row.person_uuid,
     })
 }
 
@@ -1348,6 +1498,31 @@ async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
     .fetch_all(&mut *tx)
     .await?;
     sources.sort_unstable();
+
+    // Lock every row up front in id order; the writer's flush does the
+    // same, so a deadlock cycle is impossible. Including the target keeps
+    // the lock set a superset of any partner's.
+    let mut lock_ids = sources.clone();
+    lock_ids.push(target);
+    lock_ids.sort_unstable();
+    let lock_persons_sql = format!(
+        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+        person_table = tables.person,
+    );
+    sqlx::query(&lock_persons_sql)
+        .bind(team_id)
+        .bind(&lock_ids)
+        .execute(&mut *tx)
+        .await?;
+    let lock_pdi_sql = format!(
+        "SELECT id FROM {pdi_table} WHERE team_id = $1 AND person_id = ANY($2) ORDER BY id FOR UPDATE",
+        pdi_table = tables.person_distinct_id,
+    );
+    sqlx::query(&lock_pdi_sql)
+        .bind(team_id)
+        .bind(&sources)
+        .execute(&mut *tx)
+        .await?;
 
     let repointed = repoint_distinct_ids(&mut tx, tables, team_id, &sources, target).await?;
     record_moved_mappings(&mut tx, op, &sources, &repointed).await?;
@@ -1521,11 +1696,8 @@ async fn move_hash_key_overrides(
 }
 
 /// Scrub and tombstone the sealed source person rows at the death version
-/// the leader derives from the same seal (sealed + 1; the leader
-/// max-merges with its current version as defense in depth), so a reused
-/// key revives above it. Exact PG/CH agreement additionally assumes no
-/// spent-but-unconfirmed version sits above the seal — the fence path
-/// does not consult the leader's emitted-version floor today.
+/// the leader derives from the same seal (sealed + 1), so a reused key
+/// revives above it.
 async fn tombstone_sealed_sources(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
@@ -1653,7 +1825,7 @@ impl MergeDriver {
         )
         .execute(&mut *tx)
         .await?;
-        let outcome = build_outcome(&mut tx, op, false).await?;
+        let outcome = build_outcome(&mut tx, op, None).await?;
         if !complete_op_in_tx(
             &mut tx,
             op.op_id,
@@ -1697,7 +1869,11 @@ async fn claim_record(tx: &mut Tx<'_>, op: &OpRow) -> Result<ClaimRecord, SagaEr
 /// their row's status: `deleted` means the merge committed for that
 /// person; anything else on a non-aborted path is an anomaly reported as
 /// `error`.
-async fn build_outcome(tx: &mut Tx<'_>, op: &OpRow, aborted: bool) -> Result<Value, SagaError> {
+async fn build_outcome(
+    tx: &mut Tx<'_>,
+    op: &OpRow,
+    abort_outcome: Option<AbortOutcome>,
+) -> Result<Value, SagaError> {
     let record = claim_record(tx, op).await?;
     let statuses: HashMap<i64, String> = sqlx::query!(
         "SELECT person_id, status FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
@@ -1710,7 +1886,7 @@ async fn build_outcome(tx: &mut Tx<'_>, op: &OpRow, aborted: bool) -> Result<Val
     .map(|r| (r.person_id, r.status))
     .collect();
 
-    let survivor = if aborted {
+    let survivor = if abort_outcome.is_some() {
         None
     } else {
         let row = sqlx::query!(
@@ -1723,12 +1899,12 @@ async fn build_outcome(tx: &mut Tx<'_>, op: &OpRow, aborted: bool) -> Result<Val
         row.sealed
     };
 
-    outcome_from_dispositions(&record.dispositions, aborted, survivor, &statuses)
+    outcome_from_dispositions(&record.dispositions, abort_outcome, survivor, &statuses)
 }
 
 fn outcome_from_dispositions(
     dispositions: &[Disposition],
-    aborted: bool,
+    abort_outcome: Option<AbortOutcome>,
     survivor: Option<Value>,
     statuses: &HashMap<i64, String>,
 ) -> Result<Value, SagaError> {
@@ -1740,10 +1916,10 @@ fn outcome_from_dispositions(
                     .person_id
                     .and_then(|id| statuses.get(&id))
                     .map(String::as_str);
-                match (aborted, status) {
-                    (true, _) => OUTCOME_SKIPPED_CONFLICT,
-                    (false, Some(STATUS_DELETED)) => OUTCOME_MERGED,
-                    (false, _) => OUTCOME_ERROR,
+                match (abort_outcome, status) {
+                    (Some(abort), _) => abort.as_str(),
+                    (None, Some(STATUS_DELETED)) => OUTCOME_MERGED,
+                    (None, _) => OUTCOME_ERROR,
                 }
             } else {
                 d.decision.as_str()
@@ -1751,11 +1927,12 @@ fn outcome_from_dispositions(
             MergeSourceRecord {
                 distinct_id: d.distinct_id.clone(),
                 outcome: outcome.to_string(),
+                person_id: d.person_id,
             }
         })
         .collect();
     serde_json::to_value(MergeOutcome {
-        aborted,
+        aborted: abort_outcome.is_some(),
         survivor,
         results,
     })

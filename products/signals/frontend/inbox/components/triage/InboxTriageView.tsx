@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconArchive, IconArrowLeft, IconPullRequest } from '@posthog/icons'
+import { IconArrowLeft, IconCheckCircle, IconHide, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -96,7 +96,8 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 
 function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
     const { canCreatePr, isCreatingPr, aiConsentDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
-    const { archiveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
+    const { dismissCurrent, resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } =
+        useActions(inboxTriageLogic)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
@@ -190,12 +191,23 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                 <LemonButton
                     type="secondary"
                     size="small"
-                    icon={<IconArchive />}
-                    onClick={archiveCurrent}
+                    icon={<IconCheckCircle />}
+                    onClick={resolveCurrent}
+                    sideIcon={<KeyboardShortcut r />}
+                    data-attr="inbox-triage-resolve"
+                >
+                    Resolve
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconHide />}
+                    onClick={dismissCurrent}
                     sideIcon={<KeyboardShortcut a />}
+                    // pinned: data-attr predates the Archive → Dismiss rename; dashboards read it.
                     data-attr="inbox-triage-archive"
                 >
-                    Archive
+                    Dismiss
                 </LemonButton>
                 {canCreatePr && (
                     <LemonButton
@@ -252,8 +264,16 @@ export function InboxTriageView(): JSX.Element {
         expanded,
         counter,
     } = useValues(inboxTriageLogic)
-    const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent, ensureLoaded } =
-        useActions(inboxTriageLogic)
+    const {
+        navigate,
+        toggleExpanded,
+        setExpanded,
+        dismissCurrent,
+        resolveCurrent,
+        createPrForCurrent,
+        openCurrent,
+        ensureLoaded,
+    } = useActions(inboxTriageLogic)
 
     useKeyboardHotkeys(
         {
@@ -278,7 +298,8 @@ export function InboxTriageView(): JSX.Element {
             },
             e: { action: outsideDialogs(() => toggleExpanded()) },
             o: { action: outsideDialogs(() => openCurrent()) },
-            a: { action: outsideDialogs(() => archiveCurrent()) },
+            a: { action: outsideDialogs(() => dismissCurrent()) },
+            r: { action: outsideDialogs(() => resolveCurrent()) },
             c: { action: outsideDialogs(() => createPrForCurrent()) },
             escape: {
                 // Escape peels back one layer: the expanded summary, then triage mode itself.
@@ -291,7 +312,16 @@ export function InboxTriageView(): JSX.Element {
                 }),
             },
         },
-        [expanded, navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent]
+        [
+            expanded,
+            navigate,
+            toggleExpanded,
+            setExpanded,
+            dismissCurrent,
+            resolveCurrent,
+            createPrForCurrent,
+            openCurrent,
+        ]
     )
 
     // Once per open, when the queue has settled, so the panel shows up next to the other

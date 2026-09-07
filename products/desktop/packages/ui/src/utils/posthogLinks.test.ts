@@ -1,6 +1,7 @@
 import {
   canvasShareUrl,
   errorTrackingIssueUrl,
+  inboxReportUrl,
   parseShareLink,
 } from "@posthog/ui/utils/posthogLinks";
 import { describe, expect, it, vi } from "vitest";
@@ -14,6 +15,14 @@ describe("canvasShareUrl", () => {
     expect(canvasShareUrl("chan/1", "dash 2", "us")).toBe(
       "https://us.posthog.com/code/canvas/chan%2F1/dash%202",
     );
+  });
+});
+
+describe("inboxReportUrl", () => {
+  it("builds the browser-accessible report URL", () => {
+    expect(
+      inboxReportUrl("report/id", { projectId: 123, cloudRegion: "us" }),
+    ).toBe("https://us.posthog.com/project/123/inbox/report%2Fid");
   });
 });
 

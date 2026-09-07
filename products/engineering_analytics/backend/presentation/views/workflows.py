@@ -64,8 +64,10 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success "
             "rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed "
-            "by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) "
-            "and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, "
+            "by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive "
+            "failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over "
+            "successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. "
+            "Optionally scope to a single git branch via `branch`, "
             "or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' "
             "and 'which workflow is the long pole'; compare two windows to get a trend."
         ),
@@ -357,7 +359,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
         },
         description=(
-            "Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run "
+            "Repo-level headline aggregates over a window (default -30d): run count, conclusive-run success rate, re-run "
             "cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; "
             "coarse — draft and ready time fused), median time-to-green, billable minutes + estimated cost "
             "(with the merge-queue slice of billable minutes broken out), and merge-queue landing stats "

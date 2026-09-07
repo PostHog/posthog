@@ -34,6 +34,24 @@ Two tRPC surfaces exist:
 - `@posthog/host-router`: Electron main process API for its renderer.
 - `@posthog/workspace-server`: privileged Node backend API consumed by `@posthog/workspace-client`.
 
+## New task startup
+
+Submitting a task keeps the composer busy until creation opens the task's chat.
+The chat displays the submitted prompt with the current startup status until
+initialization ends and the transcript or error state takes over. The waiting
+message and composer use the same outer gutters and column width as the live chat.
+
+New cloud runs seed the full user message before subscribing to setup progress.
+The chat renders that message immediately, including its space context chip.
+Reopened transcripts reconcile the plain initial prompt with its context-bearing
+echo before rendering, so the same submission appears only once.
+
+Cloud creation can succeed while the run is still queued. The pending prompt
+remains available to the chat after that success; `SessionView` clears it when
+initialization ends. Successful submissions are marked as submitted so startup
+recovery does not reopen them as unsent drafts. Failed creation retains the prompt
+for recovery into the originating composer.
+
 ## Dependency Injection
 
 Use plain Inversify through `@posthog/di`.

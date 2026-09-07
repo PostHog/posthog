@@ -1933,6 +1933,41 @@ pub fn mock_group_type_cache(
     Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
 }
 
+pub struct FailingGroupTypeFetcher {
+    fetch_calls: Arc<std::sync::atomic::AtomicU32>,
+}
+
+#[async_trait]
+impl GroupTypeMappingFetcher for FailingGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        self.fetch_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(GroupTypeFetchError::DatabaseUnavailable)
+    }
+}
+
+/// A group type cache whose lookups always fail, for tests that need the matcher to see a
+/// real mapping error rather than a seeded one. Also returns the number of lookups that
+/// reached the fetcher, so tests can pin that a request reuses its first failed outcome
+/// instead of querying again.
+pub fn failing_group_type_cache() -> (
+    Arc<GroupTypeCacheManager>,
+    Arc<std::sync::atomic::AtomicU32>,
+) {
+    let fetch_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let cache = Arc::new(GroupTypeCacheManager::new_with_fetcher(
+        FailingGroupTypeFetcher {
+            fetch_calls: Arc::clone(&fetch_calls),
+        },
+        None,
+        None,
+    ));
+    (cache, fetch_calls)
+}
+
 /// Delete a single auth token cache entry from Redis.
 ///
 /// Both secret API tokens and personal API keys share the same cache namespace

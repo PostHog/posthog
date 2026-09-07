@@ -16,7 +16,6 @@ const {
   track,
   useAppView,
   navigateToInbox,
-  navigateToAgents,
   navigateToSkills,
   navigateToMcpServers,
   navigateToCommandCenter,
@@ -28,7 +27,6 @@ const {
   track: vi.fn(),
   useAppView: vi.fn(),
   navigateToInbox: vi.fn(),
-  navigateToAgents: vi.fn(),
   navigateToSkills: vi.fn(),
   navigateToMcpServers: vi.fn(),
   navigateToCommandCenter: vi.fn(),
@@ -65,7 +63,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
-  navigateToAgents,
   navigateToCommandCenter,
   navigateToContext: vi.fn(),
   navigateToInbox,

@@ -127,6 +127,13 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A scout whose reports nobody engages with (no open, rating, or action — the cloud web inbox records reads; other clients don't yet) is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
+- `write_scopes` — defaults to `[]`: the scout reads the project and writes only what every scout writes (its findings, its memory, and notebooks).
+  Grant `dashboard:write`, `insight:write`, `annotation:write`, or `alert:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
+  Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
+  A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
+  A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
+  Applies from the scout's next run.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.

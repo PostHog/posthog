@@ -82,7 +82,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
             name=SchemaExternalDataSourceType.NOTION,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Notion",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Notion internal integration token to pull your Notion data into the PostHog Data warehouse.
 
 Create an internal integration at [notion.so/my-integrations](https://www.notion.so/my-integrations) and copy its token (starts with `ntn_` or `secret_`).

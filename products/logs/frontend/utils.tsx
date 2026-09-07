@@ -3,7 +3,7 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
@@ -162,17 +162,18 @@ export function isSessionIdKey(key: string, configuredKeys?: string[]): boolean 
     return (configuredKeys ?? []).includes(key) || matchesKey(key, SESSION_ID_KEYS)
 }
 
-export interface SessionIdMatch {
+export interface LogIdentityMatch {
     key: string
     value: string
     source: 'attribute' | 'resource_attribute'
 }
 
-export function getSessionIdWithKey(
+function getIdentityMatch(
     attributes: Record<string, unknown> | undefined,
     resourceAttributes: Record<string, unknown> | undefined,
-    configuredKeys?: string[]
-): SessionIdMatch | null {
+    configuredKeys: string[] | undefined,
+    isConventionKey: (key: string) => boolean
+): LogIdentityMatch | null {
     // Configured keys win over the built-in conventions, in list order: for each key,
     // attributes are checked before resource_attributes, and the first value found wins.
     for (const key of configuredKeys ?? []) {
@@ -185,19 +186,36 @@ export function getSessionIdWithKey(
             return { key, value: String(resourceAttributeValue), source: 'resource_attribute' }
         }
     }
-    // Built-in convention fallback only — the configured-key pass already ran above,
-    // so isSessionIdKey is deliberately called without configuredKeys here.
+    // Built-in convention fallback only — the configured-key pass already ran above, so
+    // isConventionKey is deliberately called without the configured keys here.
     for (const [key, value] of Object.entries(attributes || {})) {
-        if (isSessionIdKey(key) && value) {
+        if (isConventionKey(key) && value) {
             return { key, value: String(value), source: 'attribute' }
         }
     }
     for (const [key, value] of Object.entries(resourceAttributes || {})) {
-        if (isSessionIdKey(key) && value) {
+        if (isConventionKey(key) && value) {
             return { key, value: String(value), source: 'resource_attribute' }
         }
     }
     return null
+}
+
+export function getSessionIdWithKey(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined,
+    configuredKeys?: string[]
+): LogIdentityMatch | null {
+    return getIdentityMatch(attributes, resourceAttributes, configuredKeys, (key) => isSessionIdKey(key))
+}
+
+/** The distinct-id counterpart of `getSessionIdWithKey`, resolved the same way. */
+export function getDistinctIdWithKey(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined,
+    configuredKeys?: string[]
+): LogIdentityMatch | null {
+    return getIdentityMatch(attributes, resourceAttributes, configuredKeys, (key) => isDistinctIdKey(key))
 }
 
 export function getSessionIdFromLogAttributes(
@@ -219,48 +237,20 @@ export function buildDateRangeAround(timestamp: string, windowMinutes: number): 
     }
 }
 
-// Builds logs viewer filters scoped to one session, for other products surfacing logs
-// (error tracking, session replay). Filters (OR across keys, exact match) on the team's
-// configured session ID keys plus the SESSION_ID_KEYS conventions, deduped, configured
-// first — the same breadth `getSessionIdWithKey` resolves, so a team whose stored key their
-// pipeline never emits still matches. Literal keys only: an exact filter can't express the
-// dot-suffix variants `matchesKey` allows. A timestamp scopes the date range to ±30 minutes
-// so old sessions aren't hidden by the default range.
-export function buildLogsSessionFilters(
+// Builds the viewer scope for one session, for other products surfacing logs (error tracking,
+// session replay). The session id goes to the server as a scope rather than a filter group: it
+// has to match across every configured and conventional key in both attribute maps, and the
+// query runner reads a filter group's inner group as an AND of its leaves, so a group could only
+// ever express "every key holds this id at once". A timestamp scopes the date range to ±30
+// minutes so old sessions aren't hidden by the default range.
+export function buildLogsSessionScope(
     sessionId: string,
-    configuredKeys?: string[],
     timestamp?: string
-): Partial<LogsViewerFilters> {
-    const keys = Array.from(new Set([...(configuredKeys ?? []), ...SESSION_ID_KEYS]))
-    const filters: Partial<LogsViewerFilters> = {
-        filterGroup: {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.Or,
-                    // Each key is queried in both maps, because getSessionIdWithKey renders the
-                    // session link off attributes or resource_attributes. Person scoping resolves
-                    // distinct ids across both maps for the same reason.
-                    values: keys.flatMap((key) => [
-                        {
-                            key,
-                            value: [sessionId],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogAttribute,
-                        },
-                        {
-                            key,
-                            value: [sessionId],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogResourceAttribute,
-                        },
-                    ]),
-                },
-            ],
-        },
+): { sessionId: string; initialFilters?: Partial<LogsViewerFilters> } {
+    return {
+        sessionId,
+        initialFilters: timestamp
+            ? { dateRange: buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES) }
+            : undefined,
     }
-    if (timestamp) {
-        filters.dateRange = buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES)
-    }
-    return filters
 }

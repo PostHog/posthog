@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -157,6 +158,12 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
+
+async function gaugeValueForQueue(queue: string): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : null
+}
 
 describe('Cyclotron V2', () => {
     jest.setTimeout(3000)
@@ -2489,6 +2496,24 @@ describe('Cyclotron V2', () => {
             }
         )
 
+        it('measureQueueDepths reports 0 for a queue that drains', async () => {
+            // GROUP BY returns no row for an empty queue. Without the zero write the gauge
+            // keeps the last depth, and a depth alert then fires on an idle queue.
+            const jobId = uuidv7()
+            await insertRawJob({ id: jobId, queue_name: 'queue-drains', status: 'available' })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            const before = await janitor.runOnce()
+            expect(before.depths.get('queue-drains')).toBe(1)
+            expect(await gaugeValueForQueue('queue-drains')).toBe(1)
+
+            await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [jobId])
+            await janitor.runOnce()
+            await janitor.stop()
+
+            expect(await gaugeValueForQueue('queue-drains')).toBe(0)
+        })
+
         it('measureQueueDepths returns correct counts per queue', async () => {
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
@@ -2509,6 +2534,34 @@ describe('Cyclotron V2', () => {
 
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
+        })
+
+        it('sweeps expired conversion watchers and keeps live ones', async () => {
+            // The sweep is the only thing that removes a watcher that never converts. If a refactor
+            // drops it from runOnce the table grows without bound and nothing else fails, so assert
+            // the delete happens on a real row.
+            const insertWatcher = async (id: string, expiresAt: Date): Promise<void> => {
+                await assertPool.query(
+                    `INSERT INTO conversion_watchers
+                     (id, team_id, function_id, run_id, distinct_id, goal, expires_at)
+                     VALUES ($1, 1, $2, $1, $3, $4, $5)`,
+                    [id, uuidv7(), `sweep-${id}`, JSON.stringify({ events: [] }), expiresAt]
+                )
+            }
+            const expired = uuidv7()
+            const live = uuidv7()
+            await insertWatcher(expired, new Date(Date.now() - 60_000))
+            await insertWatcher(live, new Date(Date.now() + 3_600_000))
+
+            const janitor = createJanitor()
+            await janitor.runOnce()
+
+            const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
+                [expired, live],
+            ])
+            expect(remaining.rows.map((r) => r.id)).toEqual([live])
+
+            await janitor.stop()
         })
     })
 })

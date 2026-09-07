@@ -329,19 +329,10 @@ export function TrendsBarChart({
         [isAggregated, goalLines, series]
     )
 
-    const indexByResult = useMemo(() => {
-        const m = new Map<IndexedTrendResult, number>()
-        ;(indexedResults ?? []).forEach((r: IndexedTrendResult, i: number) => m.set(r, i))
-        return m
-    }, [indexedResults])
-
     // Anomaly markers must read the same axis their series is scaled against.
     const getYAxisId = useCallback(
-        (r: IndexedTrendResult) => {
-            const idx = indexByResult.get(r) ?? 0
-            return applyMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-        },
-        [indexByResult, applyMultipleYAxes]
+        (r: IndexedTrendResult) => series.find((s) => s.key === String(r.id))?.yAxisId ?? DEFAULT_Y_AXIS_ID,
+        [series]
     )
 
     const onPointClick = useCallback(

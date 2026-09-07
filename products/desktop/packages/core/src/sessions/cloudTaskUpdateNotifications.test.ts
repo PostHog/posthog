@@ -93,7 +93,7 @@ function snapshotUpdate(
   };
 }
 
-function createHarness(isTaskAuthor = true) {
+function createHarness(isTaskAuthor = true, initialPrompt?: string) {
   const sessions: Record<string, AgentSession> = {};
   const store = {
     getSessions: () => sessions,
@@ -135,7 +135,19 @@ function createHarness(isTaskAuthor = true) {
       if (session) session.pendingPermissions = permissions;
     },
     clearTailOptimisticItems: vi.fn(),
-    appendOptimisticItem: vi.fn(),
+    appendOptimisticItem: vi.fn(
+      (
+        taskRunId: string,
+        item: Parameters<
+          SessionServiceDeps["store"]["appendOptimisticItem"]
+        >[1],
+      ) => {
+        sessions[taskRunId].optimisticItems.push({
+          ...item,
+          id: "optimistic-test",
+        });
+      },
+    ),
     replaceOptimisticWithEvent: vi.fn(),
     clearMessageQueue: vi.fn(),
   };
@@ -220,12 +232,14 @@ function createHarness(isTaskAuthor = true) {
   } as unknown as SessionServiceDeps;
 
   const service = new SessionService(deps);
+  if (initialPrompt) service.rememberInitialCloudPrompt(TASK_ID, initialPrompt);
   service.watchCloudTask(TASK_ID, RUN_ID, "https://us.posthog.com", 1);
   if (!onUpdate) throw new Error("watchCloudTask did not subscribe");
   const session = sessions[RUN_ID];
   if (session) session.isTaskAuthor = isTaskAuthor;
 
   return {
+    session,
     sendUpdate: (update: CloudTaskUpdatePayload) => onUpdate?.(update),
     notifyPromptComplete,
     notifyPermissionRequest,
@@ -235,6 +249,43 @@ function createHarness(isTaskAuthor = true) {
 }
 
 describe("cloud task update notifications", () => {
+  it.each([
+    "Check the build",
+    'Check the build\n\n<channel_context channel="example">Project notes.</channel_context>',
+  ])("seeds a new run's prompt before any setup logs arrive: %s", (prompt) => {
+    const harness = createHarness(true, prompt);
+
+    expect(harness.session.events).toEqual([]);
+    expect(harness.session.optimisticItems).toEqual([
+      expect.objectContaining({ content: prompt, pinToTop: true }),
+    ]);
+    harness.sendUpdate(
+      logsUpdate(
+        [
+          {
+            type: "notification",
+            notification: {
+              method: "_posthog/progress",
+              params: {
+                step: "sandbox",
+                status: "running",
+                label: "Setting up sandbox",
+              },
+            },
+          },
+        ],
+        1,
+      ),
+    );
+    expect(harness.session.optimisticItems).toEqual([
+      expect.objectContaining({ content: prompt, pinToTop: true }),
+    ]);
+  });
+
+  it("does not seed a reopened run before its history is known", () => {
+    expect(createHarness().session.optimisticItems).toEqual([]);
+  });
+
   it("does not notify a non-owner watching the task", () => {
     const harness = createHarness(false);
 

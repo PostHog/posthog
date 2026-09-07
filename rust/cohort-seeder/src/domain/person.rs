@@ -453,6 +453,7 @@ mod tests {
     use proptest::prelude::*;
     use serde_json::json;
 
+    use super::super::backoff::AttemptCount;
     use super::super::chunk::BandSpec;
     use super::super::ids::{ChunkId, SChunkMs};
     use super::*;
@@ -775,6 +776,7 @@ mod tests {
             band: BandSpec::new(0, 1).unwrap(),
             s_chunk: SChunkMs(CLAIM_STAMP_MS),
             person_range,
+            attempt: AttemptCount::from_row(1),
         }
     }
 

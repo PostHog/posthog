@@ -1,0 +1,1 @@
+{"$agent_turn":"3.0","$ai_total_cost_usd":"1.5","$is_identified":"true","$mcp_listed_tool_names":["search"],"$exception_list":[{"type":"TypeError"}],"Account":{"client_id":"abc"},"huge":"18446744073709551616","max_uint":18446744073709551615,"dupe":"kept","$feature_flags":{"beta":"control"}}

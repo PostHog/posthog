@@ -22,6 +22,7 @@ from products.signals.backend.features.discovery import (
     DiscoveredFeatureSummary,
     FeatureDiscoveryActiveWorkSource,
     FeatureDiscoveryCandidate,
+    FeatureDiscoveryCheckpoint,
     FeatureDiscoveryContinuation,
     FeatureDiscoveryExploration,
     FeatureDiscoveryOutputError,
@@ -39,6 +40,12 @@ from products.signals.backend.temporal.feature_discovery import (
 )
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.tasks.backend.models import Task, TaskRun
+
+
+@pytest.fixture(autouse=True)
+def enable_features():
+    with patch("products.signals.backend.temporal.feature_discovery.self_driving_features_enabled", return_value=True):
+        yield
 
 
 def _exploration(candidate_titles: list[str] | None = None) -> FeatureDiscoveryExploration:
@@ -392,6 +399,8 @@ async def test_feature_discovery_activity_links_the_agent_task_from_async_contex
         focus: str,
         context: CustomPromptSandboxContext,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
+        checkpoint: FeatureDiscoveryCheckpoint | None = None,
+        on_progress: Callable[[FeatureDiscoveryCheckpoint], Awaitable[None]] | None = None,
     ) -> FeatureDiscoveryResult:
         assert on_task_run_created is not None
         await on_task_run_created(task_run)
@@ -476,9 +485,14 @@ async def test_feature_discovery_cleanup_preserves_the_specific_activity_failure
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_feature_discovery_activity_does_not_retry_invalid_agent_output(ateam: Team) -> None:
+@pytest.mark.parametrize("retryable", [False, True])
+async def test_feature_discovery_activity_records_only_terminal_failure(ateam: Team, retryable: bool) -> None:
     run = await database_sync_to_async(_create_discovery_run)(ateam)
-    output_error = FeatureDiscoveryOutputError("Agent returned invalid feature document")
+    output_error = (
+        RuntimeError("Transport unavailable")
+        if retryable
+        else FeatureDiscoveryOutputError("Agent returned invalid feature document")
+    )
 
     with (
         patch(
@@ -494,7 +508,7 @@ async def test_feature_discovery_activity_does_not_retry_invalid_agent_output(at
             new=AsyncMock(side_effect=output_error),
         ),
         patch("products.signals.backend.temporal.feature_discovery.Heartbeater"),
-        pytest.raises(ApplicationError, match="Agent returned invalid feature document") as error,
+        pytest.raises(RuntimeError if retryable else ApplicationError) as error,
     ):
         await run_feature_discovery_activity(
             FeatureDiscoveryWorkflowInput(
@@ -507,6 +521,11 @@ async def test_feature_discovery_activity_does_not_retry_invalid_agent_output(at
         )
 
     saved_run = await database_sync_to_async(_load_discovery_run)(ateam.id, str(run.id))
+    if retryable:
+        assert saved_run.status == FeatureDiscoveryRun.Status.RUNNING
+        assert not saved_run.error
+        return
+    assert isinstance(error.value, ApplicationError)
     assert error.value.non_retryable is True
     assert saved_run.status == FeatureDiscoveryRun.Status.FAILED
     assert saved_run.error == "Feature discovery failed. Check the repository connection and try again."
@@ -567,3 +586,36 @@ class TestPersistDiscoveredFeatures(APIBaseTest):
         run.refresh_from_db()
         assert run.status == FeatureDiscoveryRun.Status.COMPLETED
         assert run.discovered_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_uses_saved_documents_without_documenting_them_again() -> None:
+    exploration = _exploration()
+    feature = _feature()
+    checkpoint = FeatureDiscoveryCheckpoint(
+        exploration=exploration, features=[feature], documented_candidate_titles=[feature.title]
+    )
+    session = MagicMock()
+    session.send_followup_raw = AsyncMock(
+        return_value=json.dumps(
+            {"has_more": False, "next_candidate_title": None, "reason": "All candidates documented"}
+        )
+    )
+    session.end = AsyncMock()
+    progress = AsyncMock()
+    with patch(
+        "products.signals.backend.features.discovery.MultiTurnSession.start_raw",
+        new=AsyncMock(return_value=(session, exploration.model_dump_json())),
+    ) as start:
+        result = await run_multi_turn_feature_discovery(
+            repository="PostHog/posthog",
+            focus="",
+            context=CustomPromptSandboxContext(team_id=1, user_id=1, repository="PostHog/posthog"),
+            checkpoint=checkpoint,
+            on_progress=progress,
+        )
+    assert result.features == [feature]
+    assert session.send_followup_raw.await_count == 1
+    assert "<checkpoint>" in start.call_args.kwargs["prompt"]
+    assert progress.await_args is not None
+    assert progress.await_args.args[0].features == [feature]

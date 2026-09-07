@@ -29,7 +29,7 @@ MAX_EMBEDDABLE_REPORT_TOKENS = 8000
 
 
 def embedding_token_count(text: str) -> int:
-    return len(get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL).encode(text))
+    return len(get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL).encode_ordinary(text))
 
 
 def summary_embedding_error(summary: str) -> str | None:
@@ -56,8 +56,8 @@ def truncate_summary_to_embeddable(title: str | None, summary: str, *, report_id
     Returns `summary` unchanged when already within the cap.
     """
     encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
-    title_tokens = len(encoding.encode(title)) if title else 0
-    summary_tokens = encoding.encode(summary)
+    title_tokens = len(encoding.encode_ordinary(title)) if title else 0
+    summary_tokens = encoding.encode_ordinary(summary)
     budget = MAX_EMBEDDABLE_REPORT_TOKENS - title_tokens
     if len(summary_tokens) <= budget:
         return summary

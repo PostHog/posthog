@@ -1,6 +1,6 @@
 # Self-driving features
 
-> Status: **Draft** · Owner: Oliver Browne · Last updated: 2026-09-03
+> Status: **Draft** · Owner: Oliver Browne · Last updated: 2026-09-07
 
 ## Summary
 
@@ -51,7 +51,7 @@ The agent:
 3. shallow-clones a related repository only when an in-scope feature cannot be understood without it;
 4. emits one structured feature document with a living overview, current status, user journey, implementation boundaries, in-flight work, measurement and health, and next steps;
 5. decides whether another distinct feature remains in scope;
-6. repeats the document and continuation turns until no feature remains or the safety cap is reached.
+6. repeats the document and continuation turns until no distinct in-scope feature remains.
 
 Discovery separates features by user goal, lifecycle, success measures, and ownership needs rather than by source-tree layout.
 Shared files do not collapse distinct workflows into one feature, while internal mechanisms do not become standalone features merely because they have separate modules.
@@ -67,7 +67,8 @@ It then creates all reports in one transaction, marks them `staged`, and links t
 Activity retries see a completed run and return without creating duplicates.
 Each run persists its current state and a user-safe error message.
 Failures also retain bounded diagnostic details on the run without exposing them through the feature API.
-The main discovery activity records failures directly, and the workflow cleanup activity provides a second attempt after retries are exhausted.
+Each completed feature document is checkpointed in Postgres. A retry resumes from that ledger in a new sandbox session.
+Retryable failures keep the run running; only invalid output or exhausted retries mark it failed.
 
 ### Planning agent
 
@@ -89,11 +90,15 @@ Planning must establish:
 
 The planning agent reads outstanding questions before proposing work.
 It creates a `question` artefact whenever intended functionality is uncertain, supplies concise suggested answers, asks the user in the live conversation, and updates the same artefact when answered.
-The user finishes planning only after the report has a title, summary, repository selection, owners, and priority, and every question affecting the first implementation increment is resolved.
+The user finishes planning only after the report has a title, summary, repository selection, owners, and priority, and every agent-authored question is resolved.
+The backend readiness endpoint is authoritative for both the UI and implementation launch.
 
 ### Feature owner scout
 
-Finishing planning creates a deterministic `signals-scout-feature-*` skill and enables its scout config.
+Finishing planning creates a deterministic `signals-scout-feature-<full-report-uuid>` skill and enables its scout config.
+The complete UUID keeps batch promotions distinct. Repeating Finish planning repairs legacy short-name owners and disables their old configs.
+Manual implementation runs use the authenticated caller; scheduled runs use the owner config creator, who must still have project access.
+Editable suggested reviewers never choose the execution identity. Implementation tasks exclude personal connector injection.
 The platform owns the scout's core instructions.
 Feature-specific steering lives in the newest owner scout playbook note.
 
@@ -118,10 +123,11 @@ There is no separate deployed status.
 The feature endpoints live under `/api/projects/{team_id}/signals/features/`:
 
 - `POST /`: create the feature report and planning conversation;
-- `GET /`: list feature reports, with staged features first;
+- `GET /`: paginate feature reports; `stage=live` and `stage=staged` provide independent lists;
 - `POST /discover/`: start guided repository discovery;
 - `GET /discovery_runs/`: list recent discovery runs and their progress;
 - `POST /{report_id}/start_planning/`: start a fresh planning session without changing feature lifecycle;
+- `GET /{report_id}/planning_readiness/`: read missing requirements and planning completion;
 - `POST /{report_id}/finish_planning/`: complete initial planning and activate ownership;
 - `POST /{report_id}/start_implementation/`: manually start one guarded implementation pass.
 
@@ -153,4 +159,8 @@ Finishing initial planning promotes a discovered or new feature, activates its o
 - The first implementation kickoff is best effort; the owner scout retries on its next activation.
 - Monitoring quality depends on the planning agent recording queryable success metrics and required instrumentation.
 - Discovery can inspect related repositories only when the connected GitHub installation can read them.
-- One discovery run stages at most 30 features.
+- Discovery has no fixed feature-count cap. Its activity has a six-hour timeout and two attempts. Checkpoints survive failed attempts.
+- The `self-driving-features` organization flag gates the UI, feature APIs, discovery execution, and owner scouts. It defaults off.
+- Disabling the flag blocks new launches; it does not cancel already running Tasks.
+
+See [internal testing](../../../../docs/internal/self-driving-features.md) for the rollout and walkthrough.

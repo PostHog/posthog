@@ -1,6 +1,7 @@
 import json
 import math
 import uuid
+import datetime
 from dataclasses import dataclass
 from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
@@ -30,7 +31,6 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.embedding_worker import generate_embedding
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
@@ -39,14 +39,12 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
-from posthog.utils import relative_date_parse
 
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
-from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
+from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
@@ -69,10 +67,17 @@ from products.replay_vision.backend.scanning import RetryOutcome, retry_observat
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
-    RANK_OVERFETCH_FACTOR,
     ObservationSearchFilters,
-    fetch_ranked_observations,
-    rank_observations,
+    ObservationSearchResult,
+    parse_date_bound,
+    query_vector_for,
+    search_observations,
+)
+from products.replay_vision.backend.search_suggestions import (
+    MAX_SUGGESTED_QUERIES,
+    merge_suggestions,
+    scope_sources,
+    stamp_search_viewed,
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
@@ -318,22 +323,6 @@ class ClassifierStatsSerializer(serializers.Serializer):
     total_with_tags = serializers.IntegerField(help_text="Succeeded observations that emitted at least one tag.")
 
 
-class FacetCountSerializer(serializers.Serializer):
-    term = serializers.CharField(help_text="The facet value as emitted by the summarizer (lowercased).")
-    count = serializers.IntegerField(help_text="Number of succeeded observations that emitted this value.")
-
-
-class SummarizerStatsSerializer(serializers.Serializer):
-    friction_ranked = FacetCountSerializer(many=True, help_text="Top friction points by emission count.")
-    keyword_ranked = FacetCountSerializer(many=True, help_text="Top keywords by emission count.")
-    total_with_facets = serializers.IntegerField(
-        help_text="Succeeded observations that emitted at least one friction point or keyword."
-    )
-    total_with_friction = serializers.IntegerField(
-        help_text="Succeeded observations that reported at least one friction point."
-    )
-
-
 class ScorerSummarySerializer(serializers.Serializer):
     min = serializers.FloatField(help_text="Minimum observed score.")
     p25 = serializers.FloatField(help_text="25th-percentile score.")
@@ -458,10 +447,6 @@ class ObservationStatsSerializer(serializers.Serializer):
     scorer = ScorerStatsSerializer(
         allow_null=True,
         help_text="Scorer-type aggregates; null when the scanner is not a scorer.",
-    )
-    summarizer = SummarizerStatsSerializer(
-        allow_null=True,
-        help_text="Summarizer-type facet aggregates; null when the scanner is not a summarizer.",
     )
 
 
@@ -660,16 +645,18 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_date_from(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        return queryset.filter(created_at__gte=relative_date_parse(value, self._timezone_info))
+        return queryset.filter(created_at__gte=self._date_bound(value, end_of_range=False))
 
     def _filter_date_to(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        parsed = relative_date_parse(value, self._timezone_info)
-        # Date-only values include the whole day; relative values stay exact.
-        if not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
-            parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
-        return queryset.filter(created_at__lte=parsed)
+        return queryset.filter(created_at__lte=self._date_bound(value, end_of_range=True))
+
+    def _date_bound(self, value: str, *, end_of_range: bool) -> datetime.datetime:
+        try:
+            return parse_date_bound(value, self._timezone_info, end_of_range=end_of_range)
+        except ValueError as e:
+            raise ValidationError(str(e))
 
     def _scored(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         # min_score and max_score can arrive together, and re-annotating the same alias raises.
@@ -1095,6 +1082,14 @@ class ReplayObservationViewSet(
         return Response(ReplayObservationLabelSerializer(label).data)
 
 
+def _validate_date_bound(value: str) -> str:
+    try:
+        parse_date_bound(value, None, end_of_range=False)
+    except ValueError as e:
+        raise serializers.ValidationError(str(e))
+    return value
+
+
 class ObservationSearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(
         max_length=2000,
@@ -1119,6 +1114,20 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     max_score = serializers.FloatField(
         required=False, help_text="Keep only scorer observations with a score at or below this value."
     )
+    date_from = serializers.CharField(
+        required=False,
+        help_text=(
+            "Only observations analyzed at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
+            "values without an explicit offset are interpreted in the project's timezone."
+        ),
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text=(
+            "Only observations analyzed at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
+            "date-only values include the whole day, interpreted in the project's timezone."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1126,6 +1135,12 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
         default=DEFAULT_SEARCH_LIMIT,
         help_text=f"Maximum number of results (default {DEFAULT_SEARCH_LIMIT}, at most {MAX_SEARCH_LIMIT}).",
     )
+
+    def validate_date_from(self, value: str) -> str:
+        return _validate_date_bound(value)
+
+    def validate_date_to(self, value: str) -> str:
+        return _validate_date_bound(value)
 
     def validate_verdict(self, value: str) -> str:
         # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a silent empty result.
@@ -1177,6 +1192,21 @@ class ObservationSearchResponseSerializer(serializers.Serializer):
     )
 
 
+class SearchSuggestionsQuerySerializer(serializers.Serializer):
+    scanner_id = serializers.UUIDField(
+        required=False,
+        help_text="Scope to a single scanner's observations. Defaults to every scanner you can read.",
+    )
+
+
+class SearchSuggestionsResponseSerializer(serializers.Serializer):
+    queries = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=f"Up to {MAX_SUGGESTED_QUERIES} example searches naming themes in recent observations. Empty "
+        "until a scheduled refresh has run for a scanner someone viewed.",
+    )
+
+
 def _csv_values(raw: str | None) -> list[str] | None:
     return split_csv(raw) or None if raw else None
 
@@ -1211,20 +1241,18 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # targeting included), then gate each row against the experiment in its own snapshot so a
         # retargeted scanner can't surface historical rows the caller can't access.
         readable_scanner_ids = readable_observation_scanner_ids(self.user_access_control, self.team_id)
-        queryset = hydrate_for_serialization(
-            accessible_observations(
-                self.user_access_control,
-                self.team_id,
-                queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids),
-            )
-        ).order_by("-created_at", "id")
-        # A bare list would scan the whole team's observation history; the replay page always has a session.
+        queryset = queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
+        # Scope to the session before the experiment gate runs: the replay page always has a session, so
+        # filtering session_id first keeps the access lookup off the team's whole observation history.
+        # A bare list would scan that history.
         if self.action == "list":
             session_id = self.request.query_params.get("session_id")
             if not session_id:
                 raise ValidationError("The `session_id` query parameter is required.")
             queryset = queryset.filter(session_id=session_id)
-        return queryset
+        return hydrate_for_serialization(
+            accessible_observations(self.user_access_control, self.team_id, queryset)
+        ).order_by("-created_at", "id")
 
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]
@@ -1257,13 +1285,12 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # Gate before the embedding call so an opted-out org gets an actionable 400, not an opaque failure.
         if not is_ai_data_processing_approved(self.team.id):
             raise ValidationError(
-                "Your organization needs to allow AI analysis before you can search Replay Vision observations."
+                "AI data processing is turned off for your organization. Turn it on in organization settings "
+                "to search Replay Vision observations.",
+                code=AI_CONSENT_REQUIRED_CODE,
             )
         try:
-            # Short timeout: this sync call pins a request thread, and search users don't wait long.
-            embedding_response = generate_embedding(
-                self.team, validated["q"], model=OBSERVATION_EMBEDDING_MODEL.value, timeout=10.0
-            )
+            query_vector = query_vector_for(self.team, validated["q"])
         except (requests.ConnectionError, requests.Timeout):
             # The embedding worker is unreachable or slow, so the caller can retry. A rejected request
             # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
@@ -1274,37 +1301,58 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             tags=_csv_values(validated.get("tags")),
             min_score=validated.get("min_score"),
             max_score=validated.get("max_score"),
+            date_from=validated.get("date_from"),
+            date_to=validated.get("date_to"),
+            timezone_info=self.team.timezone_info,
         )
-        limit = validated["limit"]
-        # Over-fetch, then slice back down after hydration drops rows (see RANK_OVERFETCH_FACTOR).
-        rank_limit = limit * RANK_OVERFETCH_FACTOR
-        matches = rank_observations(
+        response = search_observations(
             self.team,
             cast(User, request.user),
+            self.user_access_control,
             scanner_ids,
-            embedding_response.embedding,
-            rank_limit,
+            query_vector,
+            validated["limit"],
             filters,
         )
-        match_by_id = {match.observation_id: match for match in matches}
-        observations = fetch_ranked_observations(
-            self.team_id, scanner_ids, [match.observation_id for match in matches], self.user_access_control
-        )
-        # ClickHouse filling its limit means it may hold further matches it never ranked.
-        truncated = len(matches) >= rank_limit or len(observations) > limit
-        return self._search_response(
-            [
-                {
-                    "observation": obs,
-                    "distance": match_by_id[str(obs.id)].distance,
-                    "matched_content": match_by_id[str(obs.id)].matched_content,
-                }
-                for obs in observations[:limit]
-            ],
-            truncated=truncated,
-        )
+        return self._search_response(response.results, truncated=response.truncated)
 
-    def _search_response(self, results: list[dict[str, Any]], truncated: bool = False) -> Response:
+    @extend_schema(
+        parameters=[SearchSuggestionsQuerySerializer],
+        responses={200: SearchSuggestionsResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="search_suggestions",
+        throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
+    )
+    def search_suggestions(self, request: Request, **kwargs: Any) -> Response:
+        """Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
+        scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect."""
+        params = SearchSuggestionsQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        queries = merge_suggestions([stored for _, stored in scope_sources(self.team_id, scanner_ids)])
+        return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
+
+    @extend_schema(request=SearchSuggestionsQuerySerializer, responses={204: None})
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="search_viewed",
+        throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
+    )
+    def search_viewed(self, request: Request, **kwargs: Any) -> Response:
+        """Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
+        refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read."""
+        params = SearchSuggestionsQuerySerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        # The same rows that a view shows are the ones it marks as wanted.
+        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in scope_sources(self.team_id, scanner_ids)])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
         serializer = ObservationSearchResponseSerializer(
             {"results": results, "truncated": truncated}, context=self.get_serializer_context()
         )

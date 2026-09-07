@@ -39,3 +39,11 @@ export function useActiveSession(): ActiveSession {
   }
   return { taskId, channelId };
 }
+
+const NO_SESSION: ActiveSession = { taskId: undefined, channelId: undefined };
+
+export function useTabSession(): ActiveSession {
+  const params = useParams({ strict: false });
+  const session = useActiveSession();
+  return params.feedId ? NO_SESSION : session;
+}

@@ -25,7 +25,6 @@ SCHEDULE_MATERIALIZATION = (
 # about the provider mechanism, not about anything specific to engineering analytics.
 KIND = DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
 
-SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
@@ -115,18 +114,14 @@ class TestManagedViewSetProviders(BaseTest):
 
         self.assertEqual(first_ids, second_ids)
 
-    def test_provisioning_a_new_team_never_mints_v1_schedules(self):
+    def test_provisioning_a_new_team_puts_every_view_on_tier_schedules(self):
         # Managed viewsets are how most new teams first materialize anything (a provider makes
-        # several views at once), and their DAG is brand new — so without a birth-on-v2 path every
-        # view here gets its own v1 per-query schedule. Views after the first must follow the
+        # several views at once), and their DAG is brand new. Views after the first must follow the
         # bootstrap too, even though its tier schedules are only created after commit.
         views = [_fake_view(name=f"provided_view_{i}") for i in range(3)]
         with (
             patch.dict(_expected_views_providers, clear=True),
             patch(GET_V2_DAG_IDS, return_value=set()),
-            patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
-            patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
-            patch(f"{RECONCILE}.schedule_exists", return_value=False),
             patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             patch(f"{RECONCILE}.sync_connect"),
             patch(f"{RECONCILE}.async_connect", new=AsyncMock(return_value=_no_schedules())),
@@ -138,7 +133,6 @@ class TestManagedViewSetProviders(BaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 viewset.sync_views()
 
-        sync_wf.assert_not_called()
         assert create.call_count > 0
         assert all(is_tier_schedule_id(call.kwargs["id"]) for call in create.call_args_list)
         assert [v.sync_frequency_interval for v in self._views(viewset)] == [None, None, None]

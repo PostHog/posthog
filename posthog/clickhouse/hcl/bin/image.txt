@@ -1,1 +1,1 @@
-ghcr.io/posthog/chschema:sha-81cef08
+ghcr.io/posthog/chschema:sha-89109e5

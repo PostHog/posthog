@@ -14,6 +14,7 @@ stay kind-agnostic.
 
 import abc
 import dataclasses
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Optional
 
@@ -32,7 +33,7 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.team import Team
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -373,7 +374,9 @@ class EndpointQueryStrategy(abc.ABC):
         """
 
     @abc.abstractmethod
-    def transform_materialized_response(self, response_data: dict, saved_query: "DataWarehouseSavedQuery") -> None:
+    def transform_materialized_response(
+        self, response_data: dict, saved_query: "DataWarehouseSavedQuery", materialized_at: datetime | None
+    ) -> None:
         """Re-shape a materialized read into the inline response format."""
 
     @abc.abstractmethod
@@ -511,7 +514,9 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
 
         return select_query, original_limit
 
-    def transform_materialized_response(self, response_data: dict, saved_query: "DataWarehouseSavedQuery") -> None:
+    def transform_materialized_response(
+        self, response_data: dict, saved_query: "DataWarehouseSavedQuery", materialized_at: datetime | None
+    ) -> None:
         """HogQL materialized rows are flat and returned as-is — no re-shaping needed."""
         return None
 
@@ -691,7 +696,9 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
                         add_where_condition(select_query, condition)
         return None
 
-    def transform_materialized_response(self, response_data: dict, saved_query: "DataWarehouseSavedQuery") -> None:
+    def transform_materialized_response(
+        self, response_data: dict, saved_query: "DataWarehouseSavedQuery", materialized_at: datetime | None
+    ) -> None:
         """Re-shape flat materialized rows into the inline insight response format.
 
         Raises MaterializedSeriesMismatchError on series drift (query edited after
@@ -703,7 +710,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
             response_data,
             self.query,
             self.team,
-            now=saved_query.last_run_at,
+            now=materialized_at,
         )
 
     def clean_response_sentinels(self, response_data: dict) -> None:

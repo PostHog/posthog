@@ -13,6 +13,8 @@ export interface TaskFeed {
 
 interface TaskFeedsState {
   feeds: TaskFeed[];
+  hasHydrated: boolean;
+  setHasHydrated: (hydrated: boolean) => void;
   addFeed: (input: {
     name: string;
     query: string;
@@ -28,6 +30,8 @@ export const useTaskFeedsStore = create<TaskFeedsState>()(
   persist(
     (set) => ({
       feeds: [],
+      hasHydrated: false,
+      setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
       addFeed: ({ name, query, projectId, ownerId }) => {
         const feed: TaskFeed = {
           id: crypto.randomUUID(),
@@ -64,6 +68,25 @@ export const useTaskFeedsStore = create<TaskFeedsState>()(
     {
       name: "task-feeds-storage",
       storage: electronStorage,
+      partialize: ({ feeds }) => ({ feeds }),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          useTaskFeedsStore.getState().setHasHydrated(true);
+        } else {
+          state?.setHasHydrated(true);
+        }
+      },
     },
   ),
 );
+
+export function ownedProjectFeeds(
+  feeds: readonly TaskFeed[],
+  projectId: number | null,
+  ownerId: string | undefined,
+): TaskFeed[] {
+  if (projectId === null || ownerId === undefined) return [];
+  return feeds.filter(
+    (feed) => feed.projectId === projectId && feed.ownerId === ownerId,
+  );
+}

@@ -67,7 +67,7 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
+    GEMINI_3_8_FLASH = "gemini-3.8-flash", "Gemini 3.8 Flash"
 
 
 def scanner_model_choices() -> list[tuple[str, str | Promise]]:
@@ -249,6 +249,28 @@ class ReplayScanner(UUIDModel):
         blank=True,
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
     )
+    estimate_attempted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
+    )
+
+    search_suggestions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
+    )
+    search_suggestions_watermark = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="created_at of the newest observation the suggestions were drawn from.",
+    )
+    search_suggestions_generated_at = models.DateTimeField(null=True, blank=True)
+    search_last_viewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+    )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
     # until billing syncs a real one. See quota.current_period_bounds.
@@ -355,6 +377,7 @@ class ReplayScanner(UUIDModel):
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
+        "estimate_attempted_at",
         "last_swept_at",
         "last_seen_session_id",
         "deep_swept_through",
@@ -368,6 +391,10 @@ class ReplayScanner(UUIDModel):
         "admission_budget_refreshed_at",
         "admission_budget_period_start",
         "admission_credits_since_refresh",
+        "search_suggestions",
+        "search_suggestions_watermark",
+        "search_suggestions_generated_at",
+        "search_last_viewed_at",
     )
 
     def save(self, *args, **kwargs) -> None:
@@ -400,8 +427,10 @@ class ReplayScanner(UUIDModel):
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
                     if changed & self._ESTIMATE_FIELDS:
+                        # A config edit must not wait out a backoff the old config earned.
                         self.estimated_at = None
-                        extra_fields.append("estimated_at")
+                        self.estimate_attempted_at = None
+                        extra_fields.extend(["estimated_at", "estimate_attempted_at"])
                     if track_enabled and not old.enabled and self.enabled:
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()

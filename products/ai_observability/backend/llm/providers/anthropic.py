@@ -268,7 +268,7 @@ class AnthropicAdapter:
         # Handle cache control for supported models
         system_prompt: list[TextBlockParam] = []
         if model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_CACHE_CONTROL:
-            system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": {"type": "ephemeral"}})]  # ty: ignore[missing-typed-dict-key]
+            system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": {"type": "ephemeral"}})]
             formatted_messages = self._prepare_messages_with_cache_control(messages)
         else:
             system_prompt = [TextBlockParam(text=system, type="text")]

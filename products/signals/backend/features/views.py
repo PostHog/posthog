@@ -3,7 +3,7 @@ from typing import cast
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import exceptions, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -16,7 +16,8 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models import User
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.features.queries import fetch_feature_report_ids, fetch_feature_stages
+from products.signals.backend.features.access import self_driving_features_enabled
+from products.signals.backend.features.queries import feature_reports_queryset
 from products.signals.backend.features.serializers import (
     InboxFeatureCreatedSerializer,
     InboxFeatureCreateSerializer,
@@ -25,14 +26,17 @@ from products.signals.backend.features.serializers import (
     InboxFeatureDiscoveryRunSerializer,
     InboxFeatureErrorSerializer,
     InboxFeatureImplementationStartedSerializer,
+    InboxFeatureListQuerySerializer,
     InboxFeaturePlanningFinishedSerializer,
     InboxFeaturePlanningNotReadySerializer,
+    InboxFeaturePlanningReadinessSerializer,
     InboxFeatureReportSerializer,
 )
 from products.signals.backend.features.service import (
     FeatureDiscoveryStartError,
     FeaturePlanningNotReadyError,
     create_feature,
+    feature_planning_readiness,
     finish_feature_planning,
     start_feature_discovery,
     start_feature_planning_session,
@@ -48,6 +52,8 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "task"
+    scope_object_read_actions = ["list", "discovery_runs", "planning_readiness"]
+    scope_object_write_actions = ["create", "discover", "start_planning", "finish_planning", "start_implementation"]
     serializer_class = InboxFeatureReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -55,34 +61,19 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # An empty queryset satisfies the mixin without exposing unscoped reports.
     queryset = SignalReport.objects.none()
 
-    @extend_schema(responses=InboxFeatureReportSerializer(many=True))
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        super().initial(request, *args, **kwargs)
+        if not self_driving_features_enabled(self.team):
+            raise exceptions.NotFound()
+
+    @extend_schema(parameters=[InboxFeatureListQuerySerializer], responses=InboxFeatureReportSerializer(many=True))
     def list(self, request: Request, *args, **kwargs) -> Response:
-        marker_ids = fetch_feature_report_ids(self.team.id)
-
-        reports: list[SignalReport] = []
-        feature_stages = fetch_feature_stages(self.team.id, marker_ids)
-        if marker_ids:
-            ordered_ids = [
-                *(report_id for report_id in marker_ids if feature_stages[report_id].value == "staged"),
-                *(report_id for report_id in marker_ids if feature_stages[report_id].value == "planning"),
-                *(report_id for report_id in marker_ids if feature_stages[report_id].value == "managed"),
-            ]
-            reports_by_id = {
-                str(report.id): report
-                for report in SignalReport.objects.filter(team=self.team, id__in=ordered_ids).exclude(
-                    status=SignalReport.Status.DELETED
-                )
-            }
-            reports = [reports_by_id[report_id] for report_id in ordered_ids if report_id in reports_by_id]
-
+        query = InboxFeatureListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        reports = feature_reports_queryset(self.team.id, stage=query.validated_data.get("stage"))
         page = self.paginate_queryset(reports)
-        serializer_context = {**self.get_serializer_context(), "feature_stages": feature_stages}
-        if page is not None:
-            serializer = InboxFeatureReportSerializer(page, many=True, context=serializer_context)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = InboxFeatureReportSerializer(reports, many=True, context=serializer_context)
-        return Response(serializer.data)
+        serializer = self.get_serializer(page if page is not None else reports, many=True)
+        return self.get_paginated_response(serializer.data) if page is not None else Response(serializer.data)
 
     @validated_request(
         request_serializer=InboxFeatureCreateSerializer,
@@ -190,7 +181,10 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         try:
             started = start_implementation_for_report(
-                team=self.team, report_id=str(report.id), triggered_by=f"user:{request.user.id}"
+                team=self.team,
+                report_id=str(report.id),
+                triggered_by=f"user:{request.user.id}",
+                acting_user=cast(User, request.user),
             )
         except InvalidScoutReportError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -284,3 +278,12 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             ).data
         )
+
+    @extend_schema(responses=InboxFeaturePlanningReadinessSerializer)
+    @action(detail=True, methods=["get"], url_path="planning_readiness")
+    def planning_readiness(self, request: Request, *args, **kwargs) -> Response:
+        report = get_object_or_404(
+            SignalReport.objects.filter(team=self.team).exclude(status=SignalReport.Status.DELETED), id=kwargs["pk"]
+        )
+        readiness = feature_planning_readiness(team_id=self.team.id, report=report)
+        return Response(InboxFeaturePlanningReadinessSerializer(readiness).data)

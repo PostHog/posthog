@@ -10,7 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
 import { SignalScoutRunSummary } from './types'
@@ -43,7 +43,7 @@ function signalTask(overrides: Partial<Task> = {}): Task {
         title: 'Crash on login',
         description: '',
         origin_product: OriginProduct.SIGNAL_REPORT,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: null,
         github_integration: null,
         signal_report: 'report-1',
@@ -181,6 +181,25 @@ describe('inboxSceneLogic routing', () => {
         })
         expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
         expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
+    it.each([true, false])('keeps feature detail and list navigation under redesign=%p', (redesign) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SELF_DRIVING_FEATURES], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
+            [FEATURE_FLAGS.SELF_DRIVING_FEATURES]: true,
+        })
+        logic = inboxSceneLogic()
+        logic.mount()
+        router.actions.push(urls.inboxReport('features', 'feature-1'))
+        expect(logic.values.activeTab).toBe('features')
+        expect(logic.values.selectedReportId).toBe('feature-1')
+        logic.actions.setSelectedReportId(null)
+        expect(router.values.location.pathname.endsWith(urls.inbox('features'))).toBe(true)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
+            [FEATURE_FLAGS.SELF_DRIVING_FEATURES]: false,
+        })
+        expect(logic.values.activeTab).not.toBe('features')
     })
 
     function mountBeforeFlagsResolve(persistedRedesign: boolean): void {

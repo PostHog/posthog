@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  createLocalRuntimeMcpServers,
   createPiRpcClient,
   createRuntimeMcpServers,
   type PiRpcClient,
@@ -62,7 +63,10 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
         this.mcpServerSource.getMcpRuntimeConfiguration(),
         this.mountContextWiki(projectId),
       ]);
-    const runtimeMcpServers = createRuntimeMcpServers(mcpConfiguration.servers);
+    const runtimeMcpServers = {
+      ...createRuntimeMcpServers(mcpConfiguration.servers),
+      ...createLocalRuntimeMcpServers(input.taskContext.cwd),
+    };
     const taskContext: TaskContext = {
       projectId,
       apiHost: access.apiHost,

@@ -13,6 +13,10 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import {
+    clearPendingVerificationEmail,
+    setPendingVerificationEmail,
+} from 'scenes/authentication/shared/verificationCode'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
@@ -495,6 +499,8 @@ export const signupLogic = kea<signupLogicType>([
             },
             submit: async (payload, breakpoint) => {
                 breakpoint()
+                // A new signup attempt must not inherit the address a previous attempt stored
+                clearPendingVerificationEmail()
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
@@ -528,6 +534,12 @@ export const signupLogic = kea<signupLogicType>([
                         posthog.capture('signup completed with passkey')
                     }
 
+                    // The verify page has no session yet, so store the address for its copy,
+                    // keyed by the user uuid from the redirect path
+                    const verifyUuid = res.redirect_url?.match(/\/verify_email\/([^/?#]+)/)?.[1]
+                    if (verifyUuid && signupData.email) {
+                        setPendingVerificationEmail(verifyUuid, signupData.email)
+                    }
                     // it's ok to trust the url sent from the server
                     // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
                     location.href = res.redirect_url || '/'

@@ -1,1 +1,1 @@
-0002_remove_session_summary_models
+0003_drop_exception_event_ids_gin_index

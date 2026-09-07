@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
+from products.batch_exports.backend.api.batch_export import INVALID_HOST_MESSAGE
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
@@ -77,6 +78,7 @@ def test_creating_postgres_batch_export_using_integration(client: HttpClient, te
         "127.0.0.1",
         "10.0.0.1",
         "192.168.1.1",
+        "postgres://alice:hunter2@db.example.com/app",
     ],
 )
 def test_creating_postgres_batch_export_validates_integration_host(
@@ -110,7 +112,9 @@ def test_creating_postgres_batch_export_validates_integration_host(
         response = create_batch_export(client, team.pk, batch_export_data)
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert f"Invalid host: '{host}'" in response.json()["detail"]
+    assert response.json()["detail"] == INVALID_HOST_MESSAGE
+    assert host not in response.content.decode()
+    assert "hunter2" not in response.content.decode()
 
 
 def test_creating_postgres_batch_export_without_integration_is_rejected(

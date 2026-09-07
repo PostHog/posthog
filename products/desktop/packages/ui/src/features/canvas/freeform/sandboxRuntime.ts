@@ -7,6 +7,10 @@ import {
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
+import {
   commentActionAnchorRect,
   installSelectionSettleGate,
 } from "@posthog/ui/features/sessions/components/selectionCommentAction";
@@ -670,7 +674,19 @@ export function buildSandboxDocument(
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
-<script type="importmap">${importMap}</script>
+<script>
+  // The map is assembled here rather than baked into the HTML because
+  // "@posthog/canvas-sdk" is platform-provided rather than CDN-pinned, and the
+  // blob holding it only exists inside this document. Keep this ahead of the
+  // bootstrap module: a map added after module loading starts is ignored.
+  var canvasImportMap = ${importMap};
+  canvasImportMap.imports[${JSON.stringify(CANVAS_SDK_SPECIFIER)}] =
+    URL.createObjectURL(new Blob([${JSON.stringify(CANVAS_SDK_MODULE_SOURCE)}], { type: "text/javascript" }));
+  var canvasImportMapTag = document.createElement("script");
+  canvasImportMapTag.type = "importmap";
+  canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);
+  document.head.appendChild(canvasImportMapTag);
+</script>
 ${tailwind}
 ${reset}
 ${FREEFORM_QUILL_CSS_URLS.map(

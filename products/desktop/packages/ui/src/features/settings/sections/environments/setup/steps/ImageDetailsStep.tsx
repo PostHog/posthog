@@ -1,17 +1,17 @@
 import {
   type EnvironmentSetupPlan,
-  stepError,
-  withImageName,
   withRepositories,
 } from "@posthog/core/settings/environmentSetup";
-import { Checkbox, Input, Label, Text } from "@posthog/quill";
+import { Checkbox, Label, Text } from "@posthog/quill";
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";
+import { ImageNameField } from "@posthog/ui/features/settings/sections/environments/setup/steps/ImageNameField";
 import { useId } from "react";
 
 interface ImageDetailsStepProps {
   plan: EnvironmentSetupPlan;
   onChange: (plan: EnvironmentSetupPlan) => void;
+  error: string | null;
 }
 
 /**
@@ -19,46 +19,27 @@ interface ImageDetailsStepProps {
  * No environment is created here. An image is reused by any environment that
  * picks it as its base.
  */
-export function ImageDetailsStep({ plan, onChange }: ImageDetailsStepProps) {
-  const nameId = useId();
-  const errorId = useId();
+export function ImageDetailsStep({
+  plan,
+  onChange,
+  error,
+}: ImageDetailsStepProps) {
   const privateId = useId();
-  const error = stepError(plan, "image");
 
   return (
     <StepBody
       title="What is this image for?"
       description="A sandbox image with your tools already installed; any environment can start from it"
     >
-      <div className="flex flex-col gap-2">
-        <Label htmlFor={nameId} className="font-medium text-[12.5px]">
-          Name
-        </Label>
-        <Input
-          id={nameId}
-          className="h-8 max-w-[320px] text-[12.5px]"
-          value={plan.imageName}
-          placeholder="e.g. Playwright + Node 22"
-          data-attr="image-setup-name"
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          onChange={(event) =>
-            onChange(withImageName(plan, event.target.value))
-          }
+      <div className="flex max-w-[520px] flex-col gap-2">
+        <ImageNameField
+          plan={plan}
+          onChange={onChange}
+          error={error}
+          label="Name"
+          dataAttr="image-setup-name"
+          randomNameDataAttr="image-setup-random-name"
         />
-        {error ? (
-          <Text
-            id={errorId}
-            role="alert"
-            className="text-(--red-11) text-[11.5px]"
-          >
-            {error}
-          </Text>
-        ) : (
-          <Text className="text-(--gray-10) text-[11.5px]">
-            Shown wherever an environment picks its base image.
-          </Text>
-        )}
       </div>
 
       <div className="flex flex-col gap-2 border-(--gray-4) border-t border-dashed pt-4">

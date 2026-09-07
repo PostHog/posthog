@@ -67,6 +67,25 @@ graphics code owns a canvas element, or a mostly static page can mount one inter
 This is a judgment call, not a persisted mode — ask the user only when the choice changes a
 user-visible requirement you cannot infer.
 
+## Images
+
+Use public media library URLs for images in a canvas. Call `posthog:media-images-list` with
+`purpose="canvas"` first and reuse a suitable image when one already exists.
+
+To add a local image:
+
+1. Call `posthog:media-image-upload-start` with the file name and `purpose="canvas"`.
+2. From a shell, POST the file to the returned `upload_url` as multipart form data. Include every
+   returned `form_fields` entry and put the file part last.
+3. Call `posthog:media-image-upload-complete` with the returned id and use its permanent `url` as
+   the image `src`.
+4. Add the URL's exact origin to `project.capabilities.network.origins`. Canvas validation checks
+   this declaration, and the published artifact uses it in its Content Security Policy.
+
+Canvas media URLs are public and do not require authentication. Never upload secrets, credentials,
+customer data, or sensitive screenshots. Images must be under 4 MB and decode as PNG, JPEG, GIF,
+WebP, AVIF, or BMP. Never base64-encode image bytes into a tool call.
+
 ## Common request patterns
 
 Use these as routing examples, not fixed templates:
@@ -150,7 +169,8 @@ That field is the only valid link to a canvas — never construct one yourself; 
   relative TypeScript, TSX, JavaScript, JSON, SVG, CSS, and admitted asset files from the project.
 - Self-contained module workers may be imported with `./worker.ts?worker`. A worker must not import
   another local module.
-- Binary assets belong in the project's `assets` map as base64 content with an admitted content type.
-  PNG, JPEG, GIF, WebP, AVIF, WOFF/WOFF2, WebAssembly, and generic octet-stream assets are supported.
+- Use the public media library flow above for images. Other binary assets belong in the project's
+  `assets` map as base64 content with an admitted content type. WOFF/WOFF2, WebAssembly, and generic
+  octet-stream assets are supported.
 - Keep the platform dependency map exactly as returned. Do not add npm packages; local relative
   imports are project files, while bare imports remain limited to the platform-pinned set.

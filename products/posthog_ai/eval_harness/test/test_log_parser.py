@@ -437,12 +437,12 @@ class TestLogParserModels(unittest.TestCase):
             is_exec_unwrapped=False,
         )
         with self.assertRaises(Exception):
-            call.name = "y"  # type: ignore[misc]
+            call.name = "y"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
     def test_skill_call_is_frozen(self):
         call = SkillCall(name="x", call_id="c", output="", is_error=False, position=0)
         with self.assertRaises(Exception):
-            call.name = "y"  # type: ignore[misc]
+            call.name = "y"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 class TestNormalizeToolName(unittest.TestCase):

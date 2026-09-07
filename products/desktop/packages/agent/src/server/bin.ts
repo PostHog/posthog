@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "../posthog-exec-permission";
 import { AgentServer } from "./agent-server";
+import { launcherToProcessMs } from "./boot-phases";
 import { PiAgentServer } from "./pi-agent-server";
 import {
   claudeCodeConfigSchema,
@@ -38,6 +39,11 @@ const envSchema = z.object({
     .regex(/^\d+$/, "POSTHOG_PROJECT_ID must be a numeric string")
     .transform((val) => parseInt(val, 10)),
   POSTHOG_AGENT_RUNTIME: z.enum(["acp", "pi"]).optional(),
+  POSTHOG_AGENT_LAUNCH_STARTED_AT_MS: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .optional(),
   POSTHOG_SANDBOX_ID: z.string().min(1).optional(),
   POSTHOG_CODE_RUNTIME_ADAPTER: z.enum(["claude", "codex"]).optional(),
   POSTHOG_CODE_MODEL: z.string().optional(),
@@ -181,6 +187,7 @@ program
     }
 
     const env = envResult.data;
+    delete process.env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS;
 
     // The telemetry token is only ever consumed here (into the server config);
     // drop it from the process environment so tool subprocesses spawned by the
@@ -263,6 +270,9 @@ program
       taskId: options.taskId,
       runId: options.runId,
       sandboxId: env.POSTHOG_SANDBOX_ID,
+      launcherToProcessMs: launcherToProcessMs(
+        env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS,
+      ),
       createPr,
       autoPublish,
       mcpServers,

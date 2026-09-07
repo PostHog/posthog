@@ -54,7 +54,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
@@ -1092,6 +1092,25 @@ const SAVED_INSIGHTS_COPY = {
         title: 'You have no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
+}
+
+export function SavedInsightsErrorState({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div
+            data-attr="saved-insights-error-state"
+            className="flex flex-col items-center justify-center gap-2 text-center"
+        >
+            <IconErrorOutline className="text-4xl shrink-0 text-danger" />
+            <h2 className="mb-0">Couldn't load insights</h2>
+            <p className="empty-state__description">
+                Something went wrong loading your insights. They are safe. Try again, and if the problem continues
+                contact support.
+            </p>
+            <LemonButton type="primary" size="small" icon={<IconRefresh />} onClick={onRetry}>
+                Try again
+            </LemonButton>
+        </div>
+    )
 }
 
 export function SavedInsightsEmptyState({

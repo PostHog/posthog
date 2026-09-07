@@ -45,6 +45,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.schema_enums import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
 
@@ -135,6 +136,22 @@ def get_hogql_metadata(
                 direct_dialect: HogQLDialect = (
                     direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
                 )
+                if source and direct_dialect == "trino":
+                    from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
+                        find_unsupported_pure_trino_features,
+                    )
+
+                    # Execution rejects these regardless of Django expansion, so surface the
+                    # same error at edit time.
+                    find_unsupported_pure_trino_features(hogql_ast)
+                    # Direct queries cannot join PostHog person tables, so the team's
+                    # person-on-events mode has no effect; print with the one mode the Trino
+                    # dialect accepts. A direct database exposes no event or person properties,
+                    # so property restrictions cannot apply either.
+                    context.modifiers = context.modifiers.model_copy(
+                        update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+                    )
+                    context.restricted_properties = set()
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,

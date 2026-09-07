@@ -71,6 +71,9 @@ export function signalCardSourceLine(signal: {
   ) {
     return "Session replay · Session analysis cluster";
   }
+  if (source_product === "replay_vision" && source_type === "scanner_finding") {
+    return "Replay Vision · Scanner finding";
+  }
   if (source_product === "llm_analytics" && source_type === "evaluation") {
     return "AI observability · Evaluation";
   }

@@ -12,7 +12,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
-import { isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
+import { columnExpression, isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -202,12 +202,19 @@ export function VirtualizedLogsList({
 
     const { customColumnAliases } = useValues(logsViewerDataLogic({ id }))
 
-    // Server aliases are keyed by the expression that produced them, so map each custom column
-    // to its alias by expression. This stays correct when columns are reordered without a re-fetch.
-    const aliasById = useMemo(() => {
-        const customConfigs = columnConfigs.filter((config) => config.type === 'custom' && !!config.expression?.trim())
-        return new Map(customConfigs.map((config) => [config.id, customColumnAliases?.[config.expression!.trim()]]))
-    }, [columnConfigs, customColumnAliases])
+    // Server aliases are keyed by the expression that produced them, so map each server-computed
+    // column to its alias by expression. This stays correct when columns are reordered without a
+    // re-fetch.
+    const aliasById = useMemo(
+        () =>
+            new Map(
+                columnConfigs.flatMap((config) => {
+                    const expression = columnExpression(config)
+                    return expression ? [[config.id, customColumnAliases?.[expression]] as const] : []
+                })
+            ),
+        [columnConfigs, customColumnAliases]
+    )
 
     // Columns memoized on structural deps only — per-row state (selection,
     // expansion, prettify) is read from kea inside cell components. Everything after the

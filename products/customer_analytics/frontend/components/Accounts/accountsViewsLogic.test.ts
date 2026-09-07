@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import type { AccountsTableQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -71,6 +72,42 @@ describe('accountsViewsLogic', () => {
             })
     })
 
+    it('holds the first accounts fetch until the persisted view is applied', async () => {
+        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] } } })
+        localStorage.setItem(
+            `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+            JSON.stringify('view-1')
+        )
+        mountAll()
+
+        expect(accountsLogic.values.awaitingSavedView).toBe(true)
+        expect(accountsLogic.values.accountsQuerySource).toBeNull()
+        expect(accountsLogic.values.metricsQuery).toBeNull()
+
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'applyView']).toFinishAllListeners()
+
+        expect(accountsLogic.values.awaitingSavedView).toBe(false)
+        expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
+        expect(accountsLogic.values.searchQuery).toEqual('acme')
+    })
+
+    it('opens the gate when loading views fails, so the list still fetches', async () => {
+        useMocks({ get: { '/api/environments/:team_id/column_configurations/': () => [500, {}] } })
+        localStorage.setItem(
+            `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+            JSON.stringify('view-1')
+        )
+        silenceKeaLoadersErrors()
+        try {
+            mountAll()
+            expect(accountsLogic.values.awaitingSavedView).toBe(true)
+            await expectLogic(logic).toDispatchActions(['loadViewsFailure'])
+            expect(accountsLogic.values.awaitingSavedView).toBe(false)
+        } finally {
+            resumeKeaLoadersErrors()
+        }
+    })
+
     it('applyView hydrates columns, filters, sort, and tiles', async () => {
         useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
         mountAll()
@@ -78,7 +115,7 @@ describe('accountsViewsLogic', () => {
             filters: {
                 search: 'acme',
                 tags: ['enterprise'],
-                unassigned: false,
+                assignmentStatus: 'assigned',
                 assignedTo: [1, 2, 3],
                 tileFilter: {
                     tileId: 't1',
@@ -96,7 +133,7 @@ describe('accountsViewsLogic', () => {
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
         expect(accountsLogic.values.searchQuery).toEqual('acme')
         expect(accountsLogic.values.tagsFilter).toEqual(['enterprise'])
-        expect(accountsLogic.values.allRolesUnassigned).toBe(false)
+        expect(accountsLogic.values.assignmentStatus).toBe('assigned')
         expect(accountsLogic.values.assignedToFilter).toEqual([1, 2, 3])
         expect(accountsLogic.values.sortOrder).toEqual({ column: 'csm', direction: 'desc' })
         expect(accountsOverviewTilesLogic.values.tiles).toEqual([
@@ -135,6 +172,29 @@ describe('accountsViewsLogic', () => {
             { kind: 'tags', tagNames: ['enterprise'] },
             { kind: 'assigned_to', userIds: [1, 2] },
         ])
+    })
+
+    it('applies a legacy saved view (no assignment field) as assigned-only', async () => {
+        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+        // A view saved before the status field existed must not silently broaden to all.
+        await expectLogic(logic, () =>
+            logic.actions.applyView(buildView({ columns: ['name'], filters: { search: 'acme' } }))
+        ).toFinishAllListeners()
+
+        expect(accountsLogic.values.assignmentStatus).toBe('assigned')
+        const source = accountsLogic.values.accountsQuerySource as AccountsTableQuery
+        expect(source.filters).toContainEqual({ kind: 'assigned' })
+    })
+
+    it('keeps column widths when the selected view changes', async () => {
+        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+
+        logic.actions.setColumnWidth('name', 320)
+        logic.actions.setCurrentViewId('view-1')
+
+        await expectLogic(logic).toMatchValues({ columnWidths: { name: 320 } })
     })
 
     it('isDirty flips when live state diverges from the applied view and clears on re-apply', async () => {

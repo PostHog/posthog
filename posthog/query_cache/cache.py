@@ -7,6 +7,7 @@ from django.conf import settings
 import structlog
 
 from posthog.cache_utils import OrjsonJsonSerializer
+from posthog.clickhouse.query_tagging import AccessMethod
 from posthog.query_cache.failures import Budget, FailureKind, QueryFailureCache, QueryFailureRecord
 from posthog.query_cache.freshness_index import remove_last_refresh, update_target_age
 from posthog.query_cache.metrics import count_cache_write_data
@@ -33,6 +34,24 @@ class CacheLookup:
     failure: Optional[QueryFailureRecord] = None
 
 
+# Session logins carry no access_method tag, and sharing tokens render shared links: both are a
+# person in a browser and keep the full TTL. Every other tag is code calling the API.
+EXTENDED_TTL_ACCESS_METHODS: frozenset[AccessMethod | None] = frozenset({None, AccessMethod.SHARING_TOKEN})
+
+
+def retention_ttl(*, insight_id: Optional[int], dashboard_id: Optional[int], access_method: Optional[str]) -> int:
+    """TTL in seconds for one cache entry write.
+
+    Entries that belong to an insight or dashboard keep the full TTL whoever wrote them: every
+    insight surface defaults to cache-only reads (posthog/hogql_queries/refresh_policy.py), so
+    those entries are served at any age. Other programmatic writes get a short TTL, because no
+    read path treats a result older than a day as fresh.
+    """
+    if insight_id is None and dashboard_id is None and access_method not in EXTENDED_TTL_ACCESS_METHODS:
+        return settings.CACHED_RESULTS_PROGRAMMATIC_TTL
+    return settings.CACHED_RESULTS_TTL
+
+
 class QueryCache:
     """Facade over query result cache storage: blob store, wire format, per-team size limits,
     the freshness index, and the failure circuit breaker. Code outside posthog/query_cache
@@ -45,11 +64,13 @@ class QueryCache:
         cache_key: str,
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
+        ttl: Optional[int] = None,
     ) -> None:
         self.team_id = team_id
         self.cache_key = cache_key
         self.insight_id = insight_id
         self.dashboard_id = dashboard_id
+        self.ttl = ttl if ttl is not None else settings.CACHED_RESULTS_TTL
 
     def lookup(self, *, include_failure: bool = False) -> CacheLookup:
         # The failure read is opt-in so callers that never consult the breaker (and the
@@ -89,7 +110,7 @@ class QueryCache:
         try:
             storage_bytes = encode_inline_value(fresh_response_serialized)
             tracker = TeamCacheSizeTracker(self.team_id)
-            tracker.set(self.cache_key, storage_bytes, settings.CACHED_RESULTS_TTL)
+            tracker.set(self.cache_key, storage_bytes, self.ttl)
             # The S3 upload runs on a background thread after the inline write: the fresh
             # result is already cached, so the requester never waits on S3, and a failed or
             # skipped upload leaves the valid inline entry in place. The swap only lands while
@@ -100,9 +121,7 @@ class QueryCache:
                 cache_key=self.cache_key,
                 inline_value=storage_bytes,
                 last_refresh=_last_refresh_iso(response),
-                swap=lambda pointer: tracker.replace_value(
-                    self.cache_key, pointer, settings.CACHED_RESULTS_TTL, expected=storage_bytes
-                ),
+                swap=lambda pointer: tracker.replace_value(self.cache_key, pointer, self.ttl, expected=storage_bytes),
             )
         except Exception:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)

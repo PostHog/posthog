@@ -116,6 +116,16 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         return {
             "401 Client Error": "Authentication failed. Check your Convex deploy key.",
             "403 Client Error": "Access denied. Check your Convex deploy key.",
+            # A sync only calls list_snapshot / document_deltas, and Convex answers those with a 404
+            # when the table schema discovery listed is gone at read time (deleted on the source, or a
+            # component table that isn't served by streaming export). The next scheduled run reissues
+            # the identical request, so every retry replays the same 404. Cloudflare surfaces transient
+            # edge problems as the 52x/530 family instead (retried in `_CONVEX_RETRY`), so a 404 is
+            # never a transient blip that this could disable a sync over.
+            "404 Client Error": (
+                "PostHog couldn't find this table in your Convex deployment. It was likely deleted, so "
+                "turn off syncing for this table, then re-enable the sync."
+            ),
             "StreamingExportNotEnabled": "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
             # Match a stable substring of the raised message, not the `InvalidWindowError` class name:
             # the non-retryable check compares against `str(exception)`, which contains the message

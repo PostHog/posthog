@@ -85,8 +85,7 @@ export function SidebarNavSection({
 
   // Active flags are pure functions of the current view — mirror what
   // useSidebarData derives, without pulling in its task-loading.
-  const isHomeActive =
-    view.type === "task-input" || view.type === "task-pending";
+  const isHomeActive = view.type === "task-input";
   const isActivityActive = view.type === "activity";
   const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";

@@ -17,6 +17,7 @@ import {
   Plugs,
   Robot,
   SlackLogo,
+  Sparkle,
   Terminal,
   TrafficSignal,
   TreeStructure,
@@ -84,6 +85,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
   {
     label: "Code",
     items: [
+      { id: "task-agent-defaults", icon: <Sparkle size={16} /> },
       { id: "workspaces", icon: <Folder size={16} /> },
       { id: "worktrees", icon: <TreeStructure size={16} /> },
       { id: "environments", icon: <Cube size={16} /> },

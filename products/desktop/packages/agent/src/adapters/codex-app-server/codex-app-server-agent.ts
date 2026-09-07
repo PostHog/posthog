@@ -113,6 +113,66 @@ const POLICY_ERROR_MESSAGE =
   "This request was blocked by a safety policy. Revise the request and try again.";
 const GENERIC_FATAL_ERROR_MESSAGE =
   "The agent stopped before completing this request. Please try again.";
+/** Keeps a verbose upstream payload out of the chat bubble and the run's error field. */
+const MAX_FATAL_CAUSE_LENGTH = 400;
+
+/**
+ * Frame an unclassified fatal error for the reader, keeping the upstream cause.
+ *
+ * Without the cause every unclassified failure reads the same, so a burst of them
+ * cannot be told apart in the run's error field or in analytics.
+ */
+function describeFatalError(upstream: string): string {
+  const cause = upstream.trim();
+  if (!cause) return GENERIC_FATAL_ERROR_MESSAGE;
+  const shown =
+    cause.length > MAX_FATAL_CAUSE_LENGTH
+      ? `${cause.slice(0, MAX_FATAL_CAUSE_LENGTH)}...`
+      : cause;
+  return `The agent stopped before completing this request: ${shown}`;
+}
+
+type ApprovalRequestDetail = {
+  itemId?: string;
+  command?: string;
+  changes?: AppServerItem["changes"];
+  availableDecisions?: unknown[];
+  reason?: string | null;
+  grantRoot?: string | null;
+  networkApprovalContext?: unknown;
+  additionalPermissions?: unknown;
+  proposedNetworkPolicyAmendments?: unknown[] | null;
+};
+
+export function shouldAutoAcceptLocalApproval(input: {
+  environment?: "local" | "cloud";
+  mode: string;
+  sandboxPolicy?: CodexSandboxPolicy;
+  method: string;
+  detail: ApprovalRequestDetail;
+  hasMcpToolCall: boolean;
+}): boolean {
+  if (
+    input.environment !== "local" ||
+    input.mode !== "auto" ||
+    input.sandboxPolicy?.type !== "workspaceWrite" ||
+    input.hasMcpToolCall ||
+    input.detail.reason
+  ) {
+    return false;
+  }
+  if (input.method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL) {
+    return !input.detail.grantRoot;
+  }
+  if (input.method !== APP_SERVER_REQUESTS.COMMAND_APPROVAL) {
+    return false;
+  }
+  return (
+    input.detail.networkApprovalContext == null &&
+    input.detail.additionalPermissions == null &&
+    !input.detail.proposedNetworkPolicyAmendments?.length
+  );
+}
 
 type AppServerSessionMeta = {
   // The host sends either a plain string or the Claude-style `{ append }` form.
@@ -244,6 +304,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private jsonSchema?: Record<string, unknown>;
   /** Final assistant message text for the in-flight turn (structured output). */
   private lastAgentMessage = "";
+  /**
+   * Newest upstream error for the in-flight turn, retried ones included, bound to
+   * its turn id so a steer that rotates the id cannot borrow the wrong cause.
+   */
+  private lastTurnError?: { turnId?: string; message: string };
   /** True between a contextCompaction item's start and its boundary (dedupes the boundary). */
   private compactionActive = false;
   /** Maps the host's taskRunId to this session, replayed for cloud notifications. */
@@ -1118,6 +1183,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Start one codex turn and await its completion. */
   private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
     this.lastAgentMessage = "";
+    this.lastTurnError = undefined;
     this.resetUsage();
     this.planProposal = undefined;
     this.streamedPlanToolCallId = undefined;
@@ -1619,8 +1685,15 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
     if (method === APP_SERVER_NOTIFICATIONS.TURN_COMPLETED) {
       this.commandOutputs.clear();
-      const turn = (params as { turn?: { id?: string; status?: string } })
-        ?.turn;
+      const turn = (
+        params as {
+          turn?: {
+            id?: string;
+            status?: string;
+            error?: { message?: unknown };
+          };
+        }
+      )?.turn;
       const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
       if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
@@ -1639,9 +1712,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;
       if (turn?.status === "failed") {
+        // codex reports the terminal cause on the completion itself. Prefer it
+        // over the last retry message, which can be stale or never arrived.
+        const terminalCause =
+          typeof turn.error?.message === "string" ? turn.error.message : "";
         this.deferFailedTurnFinalization(
           turn?.id,
           this.turns.currentGeneration,
+          terminalCause,
         );
         return;
       }
@@ -1663,20 +1741,30 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
 
     if (method === APP_SERVER_NOTIFICATIONS.ERROR) {
-      // A non-retried fatal error: resolve the turn so prompt() returns rather than hangs.
+      // Every error carries a cause worth keeping. A non-retried one also resolves
+      // the turn, so prompt() returns rather than hangs.
       const { willRetry, turnId, error } = (params ?? {}) as {
         willRetry?: boolean;
         turnId?: string;
         error?: { message?: unknown; codexErrorInfo?: unknown };
       };
+      if (turnId && turnId !== this.turns.activeTurnId) {
+        return;
+      }
+      const message = typeof error?.message === "string" ? error.message : "";
+      // Keep the newest cause even while codex retries: when the retries run out the
+      // turn dies through `turn/completed`, which carries no error text of its own.
+      // Bind it to the turn so a later steered turn cannot inherit this cause.
+      if (message) {
+        this.lastTurnError = {
+          turnId: turnId ?? this.turns.activeTurnId,
+          message,
+        };
+      }
       if (willRetry === false) {
-        if (turnId && turnId !== this.turns.activeTurnId) {
-          return;
-        }
         this.logger.warn("codex app-server fatal error notification", {
           params,
         });
-        const message = typeof error?.message === "string" ? error.message : "";
         const codexErrorInfo =
           typeof error?.codexErrorInfo === "string"
             ? error.codexErrorInfo
@@ -1711,10 +1799,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           void this.refuseTurnWithMessage(policyErrorMessage);
           return;
         }
+        // ChatGPT's own usage limit, not a PostHog gateway denial — show the
+        // account's real reason (it already includes a reset time) instead
+        // of the generic fallback below.
+        if (codexErrorInfo === "usageLimitExceeded" && message) {
+          void this.refuseTurnWithMessage(message);
+          return;
+        }
         void this.failTurn(
           new RequestError(
             ACP_INTERNAL_ERROR_CODE,
-            GENERIC_FATAL_ERROR_MESSAGE,
+            describeFatalError(message),
           ),
         );
       }
@@ -2050,6 +2145,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private deferFailedTurnFinalization(
     turnId: string | undefined,
     generation: number,
+    terminalCause: string,
   ): void {
     setTimeout(() => {
       if (generation !== this.turns.currentGeneration) return;
@@ -2061,7 +2157,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         return;
       }
       if (!this.turns.isPending) return;
-      this.refuseTurnWithMessage(GENERIC_FATAL_ERROR_MESSAGE);
+      const saved = this.lastTurnError;
+      // A saved cause bound to a different turn (e.g. a retry before a steer
+      // rotated the id) is not this turn's cause; ignore it.
+      const mismatched =
+        saved?.turnId !== undefined &&
+        turnId !== undefined &&
+        saved.turnId !== turnId;
+      const savedCause = saved && !mismatched ? saved.message : "";
+      this.refuseTurnWithMessage(
+        describeFatalError(terminalCause || savedCause),
+      );
     }, 250);
   }
 
@@ -2212,12 +2318,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       return { decision: "decline" };
     }
     const isFileChange = method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL;
-    const detail = params as {
-      itemId?: string;
-      command?: string;
-      changes?: AppServerItem["changes"];
-      availableDecisions?: unknown[];
-    };
+    const detail = params as ApprovalRequestDetail;
     // codex lists the decisions valid for this prompt. An "approve and remember"
     // decision is echoed back verbatim: either the string "acceptForSession" or the
     // acceptWithExecpolicyAmendment object carrying the proposed allowlist amendment.
@@ -2247,6 +2348,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // Codex has no MCP-specific approval; a known MCP call surfaces the real server/tool/args
     // so the host renders the proper MCP permission (incl. PostHog `exec` unwrapping).
     const mcp = this.mcp.byItemId(detail.itemId);
+    if (
+      shouldAutoAcceptLocalApproval({
+        environment: this.environment,
+        mode: this.config.mode,
+        sandboxPolicy: this.sandboxPolicyForTurn(),
+        method,
+        detail,
+        hasMcpToolCall: Boolean(mcp),
+      })
+    ) {
+      return { decision: "accept" };
+    }
     if (mcp && this.shouldAutoAcceptMcpToolCall(mcp)) {
       return { decision: "accept" };
     }

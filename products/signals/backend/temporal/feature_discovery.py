@@ -11,13 +11,16 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.agent_runtime import STEP_FEATURE_DISCOVERY, resolve_agent_runtime
+from products.signals.backend.features.access import self_driving_features_enabled
 from products.signals.backend.features.discovery import (
+    FeatureDiscoveryCheckpoint,
     FeatureDiscoveryOutputError,
     persist_discovered_features,
     run_multi_turn_feature_discovery,
@@ -86,6 +89,12 @@ def _mark_discovery_failed(team_id: int, run_id: str, failure_details: str) -> N
     )
 
 
+def _save_discovery_checkpoint(team_id: int, run_id: str, checkpoint: FeatureDiscoveryCheckpoint) -> None:
+    FeatureDiscoveryRun.objects.for_team(team_id).filter(id=run_id).update(
+        checkpoint=checkpoint.model_dump(mode="json"), updated_at=timezone.now()
+    )
+
+
 @temporalio.workflow.defn(name="feature-discovery")
 class FeatureDiscoveryWorkflow:
     @staticmethod
@@ -134,6 +143,9 @@ async def run_feature_discovery_activity(input: FeatureDiscoveryWorkflowInput) -
 
     await database_sync_to_async(_mark_discovery_running, thread_sensitive=False)(input.team_id, input.run_id)
     try:
+        team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=input.team_id)
+        if not await database_sync_to_async(self_driving_features_enabled, thread_sensitive=False)(team):
+            raise FeatureDiscoveryOutputError("Self-driving features are not enabled for this project")
         async with Heartbeater():
             sandbox_env_id = await database_sync_to_async(
                 get_or_create_signals_sandbox_env,
@@ -162,6 +174,10 @@ async def run_feature_discovery_activity(input: FeatureDiscoveryWorkflowInput) -
                 focus=input.focus,
                 context=context,
                 on_task_run_created=lambda task_run: _link_discovery_task(input, task_run),
+                checkpoint=FeatureDiscoveryCheckpoint.model_validate(run.checkpoint) if run.checkpoint else None,
+                on_progress=lambda checkpoint: database_sync_to_async(
+                    _save_discovery_checkpoint, thread_sensitive=False
+                )(input.team_id, input.run_id, checkpoint),
             )
             discovered_count = await database_sync_to_async(persist_discovered_features, thread_sensitive=True)(
                 run_id=input.run_id,
@@ -178,11 +194,10 @@ async def run_feature_discovery_activity(input: FeatureDiscoveryWorkflowInput) -
         return discovered_count
     except Exception as error:
         try:
-            await database_sync_to_async(_mark_discovery_failed, thread_sensitive=False)(
-                input.team_id,
-                input.run_id,
-                str(error),
-            )
+            if isinstance(error, FeatureDiscoveryOutputError):
+                await database_sync_to_async(_mark_discovery_failed, thread_sensitive=False)(
+                    input.team_id, input.run_id, str(error)
+                )
         except Exception:
             logger.exception(
                 "feature discovery failure state persistence failed",
