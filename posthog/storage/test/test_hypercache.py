@@ -1356,7 +1356,7 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
 
         hc = self._make_hypercache(token_based=False)
         hc.cache_client = Mock()
-        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
+        hc.cache_client.delete_many.side_effect = ConnectionError("Redis unavailable")
 
         with pytest.raises(ConnectionError):
             hc.clear_cache(42)
