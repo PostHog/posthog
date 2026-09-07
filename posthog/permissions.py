@@ -42,7 +42,7 @@ from posthog.organization_access import (
     organization_access_revocation,
     organization_access_revocation_message,
 )
-from posthog.organization_caching import get_cached_organization_membership
+from posthog.organization_caching import get_cached_organization, get_cached_organization_membership
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
@@ -981,10 +981,27 @@ class ActiveOrganizationPermission(BasePermission):
             return True
         if isinstance(object, Organization):
             return self._admits(request, object)
-        organization = getattr(object, "organization", None)
-        if isinstance(organization, Organization):
-            return self._admits(request, organization)
-        return True
+
+        organization = self._object_organization(object)
+        return True if organization is None else self._admits(request, organization)
+
+    @staticmethod
+    def _object_organization(object) -> Optional[Organization]:
+        """The object's organization, without fetching a row the queryset already loaded.
+
+        Uses the loaded foreign key when the viewset selected it, and otherwise reads the
+        organization by id through the access cache. Touching `object.organization` directly
+        would fetch the row on every detail request for a model the viewset did not
+        `select_related`.
+        """
+        cached_fk = getattr(object, "_state", None)
+        if cached_fk is not None:
+            organization = cached_fk.fields_cache.get("organization")
+            if isinstance(organization, Organization):
+                return organization
+
+        organization_id = getattr(object, "organization_id", None)
+        return None if organization_id is None else get_cached_organization(organization_id)
 
     def _is_exempt(self, request, view) -> bool:
         # An anonymous request is `IsAuthenticated`'s to deny, and it has no membership to read.
@@ -1010,14 +1027,17 @@ class ActiveOrganizationPermission(BasePermission):
         if revocation is None:
             return True
 
-        # The detailed message names the organization's revoked state and the operator's reason,
-        # so only a member of that organization may read it. The standard chain denies a non-member
-        # earlier, but a `dangerously_get_permissions` chain can omit the membership permission and
-        # still resolve an organization the URL names, which would disclose the reason to a caller
-        # from anywhere. The membership read is cached and only runs on a denial.
-        if get_cached_organization_membership(organization.id, cast(User, request.user)) is None:
-            self.message = "You do not have access to this organization."
-            return False
+        # This boundary caps a revoked organization's own usage, so it has nothing to say about a
+        # caller who does not belong to that organization — the view's own permissions govern that
+        # read. Denying here would break a deliberate cross-organization read, a global plugin
+        # owned by a revoked organization, and would tell any caller who can name an organization
+        # id whether that organization has been revoked.
+        #
+        # A principal authenticated by a team or project token is no `User` row and has no
+        # membership to find, but it is bound to this organization's team, so it stays capped.
+        user = request.user
+        if isinstance(user, User) and get_cached_organization_membership(organization.id, user) is None:
+            return True
 
         self.message = organization_access_revocation_message(revocation, organization)
         return False

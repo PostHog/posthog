@@ -170,17 +170,24 @@ class TestDeactivatedOrganizationAPIAccess(APIBaseTest):
 
         assert self._token_request("get", self._flags_path(healthy_team.id)).status_code == 200
 
-    def test_a_non_member_is_not_told_why_another_organization_was_revoked(self) -> None:
-        # The plugin viewset omits the membership permission so that global plugins stay readable,
-        # so a caller from any organization reaches this check with a victim organization the URL
-        # names. The denial must not carry the operator's reason across that boundary.
-        victim = Organization.objects.create(name="victim org", is_active=False, is_not_active_reason=UNPAID)
+    def test_another_organizations_revocation_is_not_observable_to_a_non_member(self) -> None:
+        # This gate caps a revoked organization's own usage, so a caller from outside it must get
+        # the same answer either way. The plugin viewset omits the membership permission so global
+        # plugins stay readable across organizations, which is what would make a denial here both
+        # observable and a break of that cross-organization read.
+        victim = Organization.objects.create(name="victim org")
         plugin = Plugin.objects.create(organization=victim, name="global plugin", is_global=True)
+        path = f"/api/organizations/{victim.id}/plugins/{plugin.id}/"
 
-        response = self._token_request("get", f"/api/organizations/{victim.id}/plugins/{plugin.id}/")
+        healthy = self._token_request("get", path)
 
-        assert response.status_code == 403
-        assert UNPAID not in response.content.decode()
+        victim.is_active = False
+        victim.is_not_active_reason = UNPAID
+        victim.save()
+        revoked = self._token_request("get", path)
+
+        assert revoked.status_code == healthy.status_code
+        assert UNPAID not in revoked.content.decode()
 
     def test_reactivation_restores_token_access(self) -> None:
         self._deactivate()
