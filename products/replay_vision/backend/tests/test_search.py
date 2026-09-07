@@ -1,8 +1,12 @@
 import json
 import uuid
+from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,7 +17,13 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.replay_vision.backend.embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
-from products.replay_vision.backend.search import ObservationSearchFilters, fetch_ranked_observations, rank_observations
+from products.replay_vision.backend.search import (
+    ObservationSearchFilters,
+    fetch_ranked_observations,
+    parse_date_bound,
+    query_vector_for,
+    rank_observations,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
 
@@ -39,6 +49,20 @@ class TestObservationFiltersTagClause:
         assert "arrayMap" in clauses[0]
         # The clause carries no inlined tag value. It lives only in the parameterized placeholder, verbatim.
         assert placeholders["tags"].value == tags
+
+
+class TestParseDateBound:
+    @parameterized.expand([("relative", "-7d"), ("iso_date", "2026-09-01"), ("iso_datetime", "2026-09-01T10:00:00Z")])
+    def test_accepts_iso_and_relative(self, _name: str, value: str) -> None:
+        assert parse_date_bound(value, None, end_of_range=False).year == 2026
+
+    def test_date_only_upper_bound_covers_the_whole_day(self) -> None:
+        assert parse_date_bound("2026-09-01", None, end_of_range=True).hour == 23
+
+    @parameterized.expand([("prose", "last week"), ("empty", ""), ("noise", "banana")])
+    def test_rejects_text_that_would_otherwise_become_now(self, _name: str, value: str) -> None:
+        with pytest.raises(ValueError):
+            parse_date_bound(value, None, end_of_range=False)
 
 
 # Runs the ranking SQL against real ClickHouse. Everything else mocks `execute_hogql_query`.
@@ -90,7 +114,9 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
             [
                 row("intent", best, "user wanted to check out", vector(1.0, 0.0)),
                 row("outcome", best, "gave up at the payment step", vector(0.0, 1.0)),
-                row("reasoning", other, "x" * 400, vector(0.6, 0.8)),
+                row("reasoning", other, "x" * 2000, vector(0.6, 0.8)),
+                # Opposite direction: past the distance ceiling, so never a match however few rows exist.
+                row("reasoning", str(uuid.uuid4()), "unrelated", vector(-1.0, 0.0)),
             ]
         )
 
@@ -102,7 +128,7 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         # `best` has two renderings and the hit carries the closest one's text.
         self.assertEqual(matches[0].matched_content, "user wanted to check out")
         self.assertAlmostEqual(matches[0].distance, 0.0, places=5)
-        self.assertEqual(len(matches[1].matched_content), 300)
+        self.assertEqual(len(matches[1].matched_content), 1500)
 
     def test_every_filter_clause_compiles_and_applies_inside_the_candidate_subquery(self) -> None:
         scanner_id = str(uuid.uuid4())
@@ -141,10 +167,28 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
             [scanner_id],
             embedding,
             10,
-            ObservationSearchFilters.from_raw(verdict=["yes"], tags=["abandoned cart"], min_score=1.0, max_score=3.0),
+            ObservationSearchFilters.from_raw(
+                verdict=["yes"],
+                tags=["abandoned cart"],
+                min_score=1.0,
+                max_score=3.0,
+                date_from=(now - timedelta(minutes=1)).isoformat(),
+                date_to=(now + timedelta(minutes=1)).isoformat(),
+            ),
         )
 
         self.assertEqual([m.observation_id for m in matches], [kept])
+
+        # The same rows fall outside a window that ends before they were embedded.
+        stale = rank_observations(
+            self.team,
+            self.user,
+            [scanner_id],
+            embedding,
+            10,
+            ObservationSearchFilters.from_raw(None, None, None, None, date_to=(now - timedelta(minutes=1)).isoformat()),
+        )
+        self.assertEqual(stale, [])
 
 
 class TestFetchRankedObservations(APIBaseTest):
@@ -187,3 +231,17 @@ class TestFetchRankedObservations(APIBaseTest):
         with self.assertNumQueries(0):
             # Annotated by `hydrate_for_serialization`, so it is not on the declared row type.
             self.assertEqual([row.scanner_origin for row in rows], [origin] * 2)  # type: ignore[attr-defined]
+
+
+class TestQueryVectorCache(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_same_text_embeds_once_and_different_text_embeds_again(self, mock_embed: MagicMock) -> None:
+        mock_embed.return_value = MagicMock(embedding=[0.1, 0.2])
+        self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
+        self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
+        query_vector_for(self.team, "happy users")
+        self.assertEqual(mock_embed.call_count, 2)

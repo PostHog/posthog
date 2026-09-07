@@ -10,7 +10,6 @@ anywhere in this module is False to True, and teams a human touched are never mo
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Count
 
 import structlog
 
@@ -18,8 +17,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
 
 logger = structlog.get_logger(__name__)
 
@@ -43,7 +43,15 @@ HARD_FAILURES_THRESHOLD = 5
 # build window chunking can handle them.
 BUILD_CAP_EXCLUSION_BYTES = int(2.5 * 10**12)
 
+# Enrollment adds one nightly build per running metric. A team past this cap is creating
+# experiments programmatically and not concluding them, so enrollment would spend builds on
+# results nobody reads while its individual reads stay cheap. The criterion re-evaluates
+# every run, unlike a manual disable, so a team that concludes its experiments becomes
+# enrollable again.
+BUILD_LOAD_EXCLUSION_METRICS = 500
+
 EXCLUSION_BUILD_BYTE_CAP = "build_byte_cap"
+EXCLUSION_BUILD_LOAD_CAP = "build_load_cap"
 
 ENROLLMENT_MODE_ENROLL = "enroll"
 
@@ -108,6 +116,8 @@ class EnrollmentCandidate:
 class ExcludedTeam:
     stats: TeamDirectScanStats
     reason: str
+    # Only set for build-load exclusions; byte-cap exclusions happen before load is fetched.
+    running_metrics: int | None = None
 
 
 @frozen
@@ -169,27 +179,40 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
 
 
 def running_experiment_load(team_ids: list[int]) -> dict[int, TeamRunningLoad]:
-    """Per team: running experiment count and metric count across them.
+    """Per team: running experiment count and scheduled metric count across them.
 
-    Counts inline, secondary, and saved metrics — the same set nightly recalculation
-    resolves — so the projected build load matches what enrollment would actually run.
+    Mirrors iter_metric_dicts (inline primary + secondary + saved-metric links, filtered by
+    the shared is_scheduled_metric predicate) so the projected build load matches what
+    nightly recalculation would actually schedule. Counts in two bulk queries instead of
+    calling iter_metric_dicts per experiment, so a team running thousands of experiments
+    cannot amplify the census into thousands of saved-metric queries.
     """
     load: dict[int, TeamRunningLoad] = {}
+    team_by_experiment: dict[int, int] = {}
     experiments = (
         Experiment.objects.filter(team_id__in=team_ids, start_date__isnull=False, end_date__isnull=True)
         .exclude(deleted=True)
-        .annotate(saved_metric_count=Count("experimenttosavedmetric"))
-        .values_list("team_id", "metrics", "metrics_secondary", "saved_metric_count")
+        .values_list("id", "team_id", "metrics", "metrics_secondary")
     )
-    for team_id, metrics, metrics_secondary, saved_metric_count in experiments:
+    for experiment_id, team_id, metrics, metrics_secondary in experiments:
+        team_by_experiment[experiment_id] = team_id
+        inline = sum(1 for metric in (metrics or []) + (metrics_secondary or []) if is_scheduled_metric(metric))
         current = load.get(team_id, TeamRunningLoad(running_experiments=0, running_metrics=0))
         load[team_id] = TeamRunningLoad(
             running_experiments=current.running_experiments + 1,
-            running_metrics=current.running_metrics
-            + len(metrics or [])
-            + len(metrics_secondary or [])
-            + saved_metric_count,
+            running_metrics=current.running_metrics + inline,
         )
+    saved_links = ExperimentToSavedMetric.objects.filter(experiment_id__in=team_by_experiment).values_list(
+        "experiment_id", "saved_metric__query"
+    )
+    for experiment_id, saved_query in saved_links:
+        if is_scheduled_metric(saved_query):
+            team_id = team_by_experiment[experiment_id]
+            current = load[team_id]
+            load[team_id] = TeamRunningLoad(
+                running_experiments=current.running_experiments,
+                running_metrics=current.running_metrics + 1,
+            )
     return load
 
 
@@ -208,19 +231,30 @@ def build_census_report(stats: list[TeamDirectScanStats], window_days: int) -> E
 
     load = running_experiment_load([team_stats.team_id for team_stats, _ in qualified])
     no_load = TeamRunningLoad(running_experiments=0, running_metrics=0)
-    candidates = tuple(
-        EnrollmentCandidate(
-            stats=team_stats,
-            reasons=reasons,
-            running_experiments=load.get(team_stats.team_id, no_load).running_experiments,
-            running_metrics=load.get(team_stats.team_id, no_load).running_metrics,
+    candidates = []
+    for team_stats, reasons in sorted(qualified, key=lambda pair: -pair[0].total_read_bytes):
+        team_load = load.get(team_stats.team_id, no_load)
+        if team_load.running_metrics > BUILD_LOAD_EXCLUSION_METRICS:
+            excluded.append(
+                ExcludedTeam(
+                    stats=team_stats,
+                    reason=EXCLUSION_BUILD_LOAD_CAP,
+                    running_metrics=team_load.running_metrics,
+                )
+            )
+            continue
+        candidates.append(
+            EnrollmentCandidate(
+                stats=team_stats,
+                reasons=reasons,
+                running_experiments=team_load.running_experiments,
+                running_metrics=team_load.running_metrics,
+            )
         )
-        for team_stats, reasons in sorted(qualified, key=lambda pair: -pair[0].total_read_bytes)
-    )
     return EnrollmentCensusReport(
         window_days=window_days,
         evaluated_teams=len(stats),
-        candidates=candidates,
+        candidates=tuple(candidates),
         excluded=tuple(excluded),
     )
 
@@ -316,6 +350,7 @@ def run_enrollment_census_sync(window_days: int = CENSUS_WINDOW_DAYS) -> Enrollm
             reason=excluded_team.reason,
             max_read_bytes=excluded_team.stats.max_read_bytes,
             total_read_bytes=excluded_team.stats.total_read_bytes,
+            running_metrics=excluded_team.running_metrics,
         )
     enrolled: list[int] = []
     if settings.EXPERIMENT_PRECOMPUTE_ENROLLMENT_MODE == ENROLLMENT_MODE_ENROLL:
