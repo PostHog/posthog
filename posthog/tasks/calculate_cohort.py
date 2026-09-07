@@ -37,14 +37,25 @@ from products.cohorts.backend.backfill.runs import (
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, ImportResolution
+from products.cohorts.backend.models.population import UNRESOLVED_COHORT_POPULATION_STATUSES, CohortPopulationSource
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
+    count_cohort_members,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
     save_recovery_bookkeeping,
     sort_cohorts_topologically,
 )
+from products.cohorts.backend.population.admission import (
+    admit_feature_flag_population,
+    admit_list_population,
+    admit_query_or_filters_population,
+    durable_population_enabled_for,
+)
+from products.cohorts.backend.population.dispatch import dispatch_ready_operations
+from products.cohorts.backend.population.observe import publish_population_gauges
+from products.cohorts.backend.population.runner import run_operation
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
 
 COHORT_RECALCULATION_MAX_RETRIES = 6
@@ -164,13 +175,14 @@ def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
 
 def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     """
-    Static cohorts that are stuck in is_calculating state.
-    These are never picked up by the normal reset_stuck_cohorts because they are excluded.
-    A static cohort is stuck if:
-    - is_calculating=True AND (last_calculation is null AND created > 1 hour ago)
-      (initial population never completed)
-    - OR is_calculating=True AND last_calculation > 1 hour ago
-      (re-population never completed)
+    Static cohorts stuck in is_calculating with no population operation to recover them.
+
+    Operations carry their own recovery — the dispatcher re-drives a lost worker, an elapsed
+    backoff, or a publish that never landed, whatever the cohort's source. This queryset is what
+    remains: cohorts populated before durable operations existed, or in a team where durable
+    admission is off, whose task died without clearing the flag. It keeps the old source filter,
+    because those cohorts genuinely have nothing to replay unless their query or criteria can be
+    re-evaluated.
     """
     one_hour_ago = timezone.now() - relativedelta(hours=1)
     return (
@@ -184,6 +196,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
             | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
         )
+        .exclude(population_operations__status__in=UNRESOLVED_COHORT_POPULATION_STATUSES)
         .filter(
             # Only fetch cohorts that have a retriggerable population source
             # (HogQL query or filter criteria). Excludes CSV-upload cohorts
@@ -600,9 +613,17 @@ def calculate_cohort_from_list(
     if team_id is None:
         team_id = cohort.team_id
 
-    import_resolution = ImportResolution()
     if id_type not in ("distinct_id", "person_id", "email"):
         raise ValueError(f"Unsupported id_type: {id_type}")
+
+    if durable_population_enabled_for(team_id):
+        # A message queued before this deploy still carries its identifiers inline. Persist them
+        # and run the durable operation, so an interruption from here on is resumable rather than
+        # taking the rest of the list with it.
+        admit_list_population(cohort=cohort, team_id=team_id, identifiers=items, id_type=id_type, dispatch=True)
+        return
+
+    import_resolution = ImportResolution()
 
     # raise_on_error surfaces a batch insert failure instead of swallowing it, so a transient
     # capacity blip propagates and triggers the backed-off retry above. Retries are safe: the
@@ -681,6 +702,12 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         query=cohort.query,
     )
 
+    if durable_population_enabled_for(team_id):
+        admit_query_or_filters_population(
+            cohort=cohort, team_id=team_id, source=CohortPopulationSource.QUERY, dispatch=True
+        )
+        return
+
     processing_error = None
     try:
         cohort.is_calculating = True
@@ -700,6 +727,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         # PG sync is already resumable: _insert_users_list_with_batching checks
         # existing_person_ids each batch and skips people already in the cohort.
         insert_cohort_people_into_pg(cohort, team_id=team_id)
+        cohort.count = count_cohort_members(team_id=team_id, cohort_id=cohort.pk, consistency="strong")
         logger.info(
             "insert_cohort_from_query_pg_complete",
             cohort_id=cohort_id,
@@ -758,6 +786,12 @@ def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) ->
         filters=cohort.filters,
     )
 
+    if durable_population_enabled_for(team_id):
+        admit_query_or_filters_population(
+            cohort=cohort, team_id=team_id, source=CohortPopulationSource.FILTERS, dispatch=True
+        )
+        return
+
     processing_error = None
     try:
         cohort.is_calculating = True
@@ -771,6 +805,7 @@ def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) ->
         )
 
         insert_cohort_people_into_pg(cohort, team_id=team_id)
+        cohort.count = count_cohort_members(team_id=team_id, cohort_id=cohort.pk, consistency="strong")
         logger.info(
             "insert_cohort_from_filters_pg_complete",
             cohort_id=cohort_id,
@@ -810,11 +845,20 @@ def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) ->
 @shared_task(
     ignore_result=True,
     max_retries=0,
-    queue=CeleryQueue.LONG_RUNNING.value,
     soft_time_limit=4 * 60 * 60,
+    queue=CeleryQueue.LONG_RUNNING.value,
 )
 def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
     from posthog.api.cohort import get_cohort_actors_for_feature_flag
+
+    if durable_population_enabled_for(team_id):
+        admit_feature_flag_population(
+            cohort=Cohort.objects.get(pk=cohort_id, team_id=team_id),
+            team_id=team_id,
+            flag_key=flag_key,
+            dispatch=True,
+        )
+        return
 
     # batchsize is also the per-page `limit` sent to the flags service, which evaluates a
     # page sequentially under a 120s request timeout. The service's hard cap is 10_000, but
@@ -1096,6 +1140,47 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
             error=str(error),
         )
         raise
+
+
+@shared_task(
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=1200,
+    time_limit=1260,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    # Every failure inside a work unit is already recorded on the operation, with its own backoff
+    # and its own budget. A Celery retry on top would run a second attempt against a schedule the
+    # operation did not choose, so recovery stays entirely with the dispatcher.
+)
+@skip_team_scope_audit
+def run_cohort_population_operation(operation_id: str) -> None:
+    """Drive one static cohort population operation forward.
+
+    Safe to deliver twice: a second worker fails to claim the operation and returns without
+    touching it.
+    """
+    if run_operation(operation_id):
+        run_cohort_population_operation.delay(operation_id)
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def dispatch_cohort_population_operations() -> None:
+    """Give a worker to every operation waiting for one, and reap input past its retention."""
+    result = dispatch_ready_operations()
+    if result.dispatched or result.reaped_inputs:
+        logger.info(
+            "cohort_population_dispatch_pass",
+            missed_dispatch=result.missed_dispatch,
+            retry_due=result.retry_due,
+            lost_worker=result.lost_worker,
+            reaped_inputs=result.reaped_inputs,
+        )
+
+
+@shared_task(ignore_result=True)
+def publish_cohort_population_gauges() -> None:
+    publish_population_gauges()
 
 
 @shared_task(ignore_result=True)

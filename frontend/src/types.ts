@@ -82,6 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { CohortPopulationSummaryApi } from 'products/cohorts/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
@@ -1888,6 +1889,15 @@ export type AnyCohortCriteriaType = CohortCriteriaType | EmptyCohortCriteriaType
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
+/** The cohort's current or most recent static population run. Null on list responses. */
+export type CohortPopulationType = CohortPopulationSummaryApi
+
+export type CohortPopulationStatus = CohortPopulationType['status']
+
+export type CohortPopulationSource = CohortPopulationType['source']
+
+export type CohortPopulationRecoveryAction = CohortPopulationType['available_actions'][number]
+
 export interface CohortType {
     count?: number
     description?: string
@@ -1905,6 +1915,8 @@ export interface CohortType {
     last_import_total_count?: number | null
     /** How many of those IDs matched no person, and so were left out of the cohort. */
     last_import_unmatched_count?: number | null
+    /** Kept apart from the import counts above, which only ever describe a run that finished. */
+    population?: CohortPopulationType | null
     is_static?: boolean
     name?: string
     csv?: File

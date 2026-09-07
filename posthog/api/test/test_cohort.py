@@ -7185,7 +7185,8 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.create(team=self.team, name="ch-error", is_static=True)
 
         with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", side_effect=RuntimeError("CH down")):
-            cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
+            with self.assertRaisesRegex(RuntimeError, "CH down"):
+                cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
 
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)

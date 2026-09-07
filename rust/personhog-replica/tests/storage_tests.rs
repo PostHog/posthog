@@ -351,11 +351,14 @@ async fn test_insert_cohort_members_idempotent(
             .expect("seed prior members");
     }
 
-    let inserted = ctx
-        .storage
-        .insert_cohort_members(cohort_id, &person_ids, Some(1))
-        .await
-        .expect("insert cohort members");
+    let repeated_ids = person_ids.repeat(2);
+    let (first, retry) = tokio::join!(
+        ctx.storage
+            .insert_cohort_members(cohort_id, &repeated_ids, Some(1)),
+        ctx.storage
+            .insert_cohort_members(cohort_id, &repeated_ids, Some(1)),
+    );
+    let inserted = first.expect("first insert") + retry.expect("overlapping retry");
 
     // Only the not-yet-present members are inserted; NOT EXISTS skips the rest.
     assert_eq!(inserted, expected_inserted);

@@ -20,6 +20,13 @@ from .cohort import (
     CohortType,
     get_or_create_internal_test_users_cohort,
 )
+from .population import (
+    CohortPopulationOperation,
+    CohortPopulationPhase,
+    CohortPopulationRecoveryAction,
+    CohortPopulationSource,
+    CohortPopulationStatus,
+)
 
 __all__ = [
     "DEFAULT_COHORT_INSERT_BATCH_SIZE",
@@ -37,6 +44,11 @@ __all__ = [
     "CohortManager",
     "CohortOrEmpty",
     "CohortPeople",
+    "CohortPopulationOperation",
+    "CohortPopulationPhase",
+    "CohortPopulationRecoveryAction",
+    "CohortPopulationSource",
+    "CohortPopulationStatus",
     "CohortType",
     "get_or_create_internal_test_users_cohort",
 ]

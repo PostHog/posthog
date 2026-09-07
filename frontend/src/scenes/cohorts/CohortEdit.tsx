@@ -42,6 +42,7 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
 
+import { CohortPopulationBanner } from 'products/cohorts/frontend/CohortPopulationBanner'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
@@ -122,6 +123,12 @@ function UnmatchedImportBanner({ cohort }: { cohort: CohortType }): JSX.Element 
     const unmatched = cohort.last_import_unmatched_count
     const total = cohort.last_import_total_count
     if (!unmatched || !total) {
+        return null
+    }
+    // These counts describe the last import that finished. While a newer run is going or has
+    // failed, CohortPopulationBanner is describing that run, and two banners both saying "the last
+    // import" would read as one.
+    if (cohort.population && cohort.population.status !== 'completed') {
         return null
     }
 
@@ -545,7 +552,8 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                 </div>
                             </SceneSection>
                             {!isNewCohort && (
-                                <div aria-live="polite">
+                                <div aria-live="polite" className="flex flex-col gap-y-2">
+                                    <CohortPopulationBanner cohort={cohort} />
                                     <UnmatchedImportBanner cohort={cohort} />
                                 </div>
                             )}
@@ -618,6 +626,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         <LemonField name="csv" data-attr="cohort-csv">
                                             {({ onChange }) => (
                                                 <LemonFileInput
+                                                    disabledReason={
+                                                        cohort.population &&
+                                                        !['completed', 'abandoned'].includes(cohort.population.status)
+                                                            ? 'Finish or stop the current population before editing membership.'
+                                                            : undefined
+                                                    }
                                                     accept=".csv"
                                                     multiple={false}
                                                     value={cohort.csv ? [cohort.csv] : []}
@@ -696,6 +710,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     className="w-fit mt-4"
                                                     type="primary"
                                                     onClick={showAddPersonToCohortModal}
+                                                    disabledReason={
+                                                        cohort.population &&
+                                                        !['completed', 'abandoned'].includes(cohort.population.status)
+                                                            ? 'Finish or stop the current population before editing membership.'
+                                                            : undefined
+                                                    }
                                                     data-attr="cohort-add-users-modal-open"
                                                 >
                                                     Add Users

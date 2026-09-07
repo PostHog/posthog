@@ -31,7 +31,7 @@ from rest_framework.response import Response
 from posthog.hogql.database.database import Database
 
 from posthog import redis
-from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
+from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
@@ -55,6 +55,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
+from products.cohorts.backend.population.flag_pages import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -7493,7 +7494,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @freeze_time("2021-01-01")
     @snapshot_clickhouse_queries
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_creating_static_cohort(self, mock_batch_evaluate):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -9037,7 +9038,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Metrics are process-global, so tests assert deltas against a before-value.
         return REGISTRY.get_sample_value(name, labels or None) or 0.0
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_deleted_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
         self._create_flag(deleted=True)
         cohort = self._create_static_cohort()
@@ -9049,7 +9050,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # don't even try inserting anything, because invalid flag, so None instead of 0
         self.assertEqual(cohort.count, None)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_inactive_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
         self._create_flag(active=False)
         cohort = self._create_static_cohort()
@@ -9060,7 +9061,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, None)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_group_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
         self._create_flag(
             filters={
@@ -9077,7 +9078,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, None)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_non_existing_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
         cohort = self._create_static_cohort()
 
@@ -9105,7 +9106,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("missing_flag", None),
         ]
     )
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_guard_paths_clear_is_calculating(self, _name, flag_kwargs, mock_batch_evaluate):
         # The enqueue site sets is_calculating=True before dispatching, so every guard
         # exit must clear it rather than leave the cohort stuck. Each branch has its own
@@ -9123,7 +9124,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_matched_persons_are_added_to_cohort(self, mock_batch_evaluate):
         self._create_flag()
         p1 = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
@@ -9163,7 +9164,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_flag_matching_nobody_finalizes_empty_cohort(self, mock_batch_evaluate):
         self._create_flag()
         cohort = self._create_static_cohort()
@@ -9180,7 +9181,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_cursor_loop_advances_and_terminates(self, mock_batch_evaluate):
         self._create_flag()
         TeamFeatureFlagsConfig.objects.filter(team=self.team).update(property_matching_version=2)
@@ -9212,7 +9213,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 3)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_non_advancing_cursor_fails_instead_of_looping(self, mock_batch_evaluate):
         self._create_flag()
         cohort = self._create_static_cohort()
@@ -9231,8 +9232,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
         self.assertEqual(history.error, get_friendly_error_message(CohortErrorCode.UNKNOWN))
 
-    @patch("posthog.api.cohort.time.sleep")
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.time.sleep")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_transient_errors_retry_then_succeed(self, mock_batch_evaluate, mock_sleep):
         self._create_flag()
         person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
@@ -9254,8 +9255,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cohort.count, 1)
         self.assertEqual(cohort.errors_calculating, 0)
 
-    @patch("posthog.api.cohort.time.sleep")
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.time.sleep")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_persistent_errors_exhaust_retries_and_propagate(self, mock_batch_evaluate, mock_sleep):
         self._create_flag()
         cohort = self._create_static_cohort()
@@ -9292,8 +9293,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ),
         ]
     )
-    @patch("posthog.api.cohort.time.sleep")
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.time.sleep")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_pinned_input_conflict_is_not_retried_and_surfaces_user_facing_error(
         self, _name, conflict, mock_batch_evaluate, mock_sleep
     ):
@@ -9319,8 +9320,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
         )
 
-    @patch("posthog.api.cohort.time.sleep")
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.time.sleep")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_client_errors_are_not_retried(self, mock_batch_evaluate, mock_sleep):
         self._create_flag()
         cohort = self._create_static_cohort()
@@ -9335,8 +9336,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(mock_batch_evaluate.call_count, 1)
         mock_sleep.assert_not_called()
 
-    @patch("posthog.api.cohort.time.sleep")
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.time.sleep")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_server_errors_are_retried(self, mock_batch_evaluate, mock_sleep):
         self._create_flag()
         cohort = self._create_static_cohort()
@@ -9358,7 +9359,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         history = CohortCalculationHistory.objects.get(cohort=cohort)
         self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_rerun_after_failure_is_idempotent(self, mock_batch_evaluate):
         # Re-running after a failure (e.g. the user triggers cohort generation again)
         # re-inserts the same UUIDs; inserts dedupe on (cohort_id, person_id) so the
@@ -9379,7 +9380,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_per_person_eval_errors_do_not_fail_the_run(self, mock_batch_evaluate):
         self._create_flag()
         person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
@@ -9394,7 +9395,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cohort.count, 1)
         self.assertEqual(cohort.errors_calculating, 0)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_insert_batching_flushes_mid_run(self, mock_batch_evaluate):
         # With batchsize=2 and 2 matches on the first of two pages, the buffer flushes
         # mid-run and the final flush still completes the cohort.
@@ -9421,7 +9422,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 3)
 
-    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    @patch("products.cohorts.backend.population.flag_pages.batch_evaluate_flag_for_team")
     def test_insert_failure_is_recorded_as_failure_not_success(self, mock_batch_evaluate):
         # A DB/ClickHouse failure while inserting matched persons must surface as a failed
         # generation (the insert runs with raise_on_error=True), not be swallowed and

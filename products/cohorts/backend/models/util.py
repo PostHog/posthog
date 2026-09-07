@@ -80,6 +80,7 @@ class CohortErrorCode(StrEnum):
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
+    INPUT_UNAVAILABLE = "input_unavailable"
     UNKNOWN = "unknown"
 
 
@@ -98,6 +99,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+    CohortErrorCode.INPUT_UNAVAILABLE: "The people list for this import is no longer stored, so it can't be resumed. Upload the file again to finish it.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
@@ -1137,6 +1139,7 @@ def insert_actors_into_cohort_by_query(
     context: HogQLContext,
     *,
     team_id: int,
+    execution_timeout: int | None = None,
 ):
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     sync_execute(
@@ -1148,15 +1151,16 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
+        settings={"max_execution_time": execution_timeout} if execution_timeout is not None else None,
     )
 
 
-def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team, execution_timeout: int | None = None):
     # SECURITY-SENSITIVE: background population from the cohort's saved source query, with no
     # acting user - the query was run by its author when they created the cohort from it.
     context = HogQLContext(enable_select_queries=True, team_id=team.id, bypass_warehouse_access_control=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
-    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id, execution_timeout=execution_timeout)
 
 
 def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
@@ -1171,9 +1175,11 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
 
 
-def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
+def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team, execution_timeout: int | None = None):
     query, params, context = build_static_cohort_filters_query(cohort, team=team)
-    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
+    insert_actors_into_cohort_by_query(
+        cohort, query, params, context, team_id=team.id, execution_timeout=execution_timeout
+    )
 
 
 def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
@@ -1205,7 +1211,9 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     batch_iterator = CursorBatchIterator(
         fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
     )
-    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
+    cohort._insert_users_list_with_batching(
+        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True, finalize=False
+    )
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────
@@ -1335,6 +1343,7 @@ def insert_cohort_members(
 
     Routes through personhog. Returns the number of newly inserted rows
     (duplicates are skipped).
+
     """
     from posthog.personhog_client.client import personhog_call
 
@@ -1348,7 +1357,7 @@ def insert_cohort_members(
 
     return personhog_call(
         "insert_cohort_members",
-        lambda: _insert_cohort_members_via_personhog(cohort_id, person_ids, version),
+        lambda: _insert_cohort_members_via_personhog(cohort_id, list(dict.fromkeys(person_ids)), version),
     )
 
 

@@ -7,14 +7,20 @@ from collections.abc import Iterator
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
+from django.db import transaction
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils import timezone
 
-import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from prometheus_client import Counter, Histogram
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
+from prometheus_client import Counter
 from pydantic import (
     BaseModel,
     Field,
@@ -22,7 +28,7 @@ from pydantic import (
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -39,11 +45,7 @@ from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.flags_service import (
-    FlagVersionConflictError,
-    PropertyMatchingVersionConflictError,
-    batch_evaluate_flag_for_team,
-)
+from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
@@ -85,6 +87,7 @@ from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
@@ -97,6 +100,14 @@ from products.cohorts.backend.models.cohort import (
     Group,
 )
 from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
+from products.cohorts.backend.models.population import (
+    UNRESOLVED_COHORT_POPULATION_STATUSES,
+    CohortPopulationOperation,
+    CohortPopulationPhase,
+    CohortPopulationRecoveryAction,
+    CohortPopulationSource,
+    CohortPopulationStatus,
+)
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     cohort_filters_have_values,
@@ -105,6 +116,22 @@ from products.cohorts.backend.models.util import (
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
+from products.cohorts.backend.population import operation as population_lifecycle
+from products.cohorts.backend.population.admission import (
+    admit_feature_flag_population,
+    admit_list_population,
+    admit_query_or_filters_population,
+    durable_population_enabled_for,
+)
+from products.cohorts.backend.population.flag_pages import (
+    COHORT_FLAG_GENERATION_COMPLETED_COUNTER,
+    COHORT_FLAG_GENERATION_DURATION_SECONDS,
+    COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER,
+    batch_evaluate_flag_page_with_retries,
+)
+from products.cohorts.backend.population.input_store import input_is_readable
+from products.cohorts.backend.population.progress import PopulationProgress
+from products.cohorts.backend.population.runner import dispatch_operation, run_operation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
@@ -634,6 +661,150 @@ class CSVConfig:
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
 
 
+class CohortPopulationProgressSerializer(serializers.Serializer):
+    identifiers_total = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many identifiers this run was given. Null for a run whose members come from a query, criteria, or a feature flag.",
+    )
+    identifiers_written = serializers.IntegerField(
+        help_text="How many of those identifiers have been written to both stores so far."
+    )
+    matched = serializers.IntegerField(help_text="Identifiers written so far that matched a person in this project.")
+    unmatched = serializers.IntegerField(
+        help_text="Identifiers written so far that matched nobody, and so added no one to the cohort."
+    )
+
+
+class CohortPopulationSummarySerializer(serializers.Serializer):
+    """Read-only view of the cohort's current or most recent population run."""
+
+    id = serializers.UUIDField(help_text="Identifies the run, for the retry and abandon endpoints.")
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=CohortPopulationSource.choices, help_text="Where this run's members come from."
+    )
+    status = serializers.ChoiceField(choices=CohortPopulationStatus.choices)
+    phase = serializers.ChoiceField(choices=CohortPopulationPhase.choices, help_text="What the run is doing now.")
+    progress = CohortPopulationProgressSerializer()
+    error_code = serializers.CharField(
+        allow_blank=True, help_text="Bounded reason the last attempt failed. Empty while the run is healthy."
+    )
+    error_message = serializers.CharField(
+        allow_null=True, help_text="The error, in words a person can act on. Null while the run is healthy."
+    )
+    attempts = serializers.IntegerField(help_text="Attempts spent so far.")
+    max_attempts = serializers.IntegerField(help_text="Attempts this run is allowed before it stops retrying.")
+    next_attempt_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the next automatic attempt starts. Null when none is scheduled."
+    )
+    input_expires_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the identifiers this run can resume from stop being kept."
+    )
+    input_available = serializers.BooleanField(
+        help_text="Whether a retry could still resume from the stored identifiers."
+    )
+    available_actions = serializers.ListField(
+        child=serializers.ChoiceField(choices=CohortPopulationRecoveryAction.choices),
+        help_text="What can be done about this run right now.",
+    )
+    created_at = serializers.DateTimeField()
+    finished_at = serializers.DateTimeField(allow_null=True)
+
+
+def build_population_summary(operation: CohortPopulationOperation) -> dict[str, Any]:
+    progress = PopulationProgress.from_json(operation.progress)
+    manifest = operation.input_manifest or {}
+    input_available = population_lifecycle.input_looks_available(operation)
+
+    actions: list[str] = []
+    if operation.status == CohortPopulationStatus.FAILED:
+        if input_available and operation.error_code not in (
+            CohortErrorCode.FLAG_CHANGED,
+            CohortErrorCode.VALIDATION_ERROR,
+        ):
+            actions.append(CohortPopulationRecoveryAction.RETRY)
+        elif not input_available and operation.source == CohortPopulationSource.LIST:
+            actions.append(CohortPopulationRecoveryAction.REUPLOAD)
+    if operation.status in UNRESOLVED_COHORT_POPULATION_STATUSES and operation.abandon_requested_at is None:
+        actions.append(CohortPopulationRecoveryAction.ABANDON)
+
+    return {
+        "id": operation.pk,
+        "source": operation.source,
+        "status": operation.status,
+        "phase": operation.phase,
+        "progress": {
+            "identifiers_total": manifest.get("total") if operation.source == CohortPopulationSource.LIST else None,
+            "identifiers_written": progress.matched + progress.unmatched,
+            "matched": progress.matched,
+            "unmatched": progress.unmatched,
+        },
+        "error_code": operation.error_code,
+        "error_message": get_friendly_error_message(operation.error_code or None),
+        "attempts": operation.attempts,
+        "max_attempts": operation.max_attempts,
+        "next_attempt_at": operation.next_attempt_at,
+        "input_expires_at": operation.input_expires_at,
+        "input_available": input_available,
+        "available_actions": actions,
+        "created_at": operation.created_at,
+        "finished_at": operation.finished_at,
+    }
+
+
+class CohortPopulationInProgress(APIException):
+    """Membership edits are paused while a population run is unresolved.
+
+    Accepting one would race the run: the run replays chunks it has already written, so an
+    addition or a removal made underneath it can be silently rewritten or left half applied.
+    """
+
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "population_in_progress"
+    default_detail = "This cohort is still being populated. Wait for it to finish, or abandon the run, then try again."
+
+    def __init__(self, operation: CohortPopulationOperation) -> None:
+        super().__init__()
+        # `extra` is what the error renderer passes through untouched, so the client gets the run
+        # it has to act on rather than only being told there is one.
+        self.extra = {"population": build_population_summary(operation)}
+
+
+class CohortPopulationAddFailed(APIException):
+    """A synchronous add did not finish. The run it left behind is what recovers it."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "population_failed"
+    default_detail = "Adding these people didn't finish. Check the cohort's population status for recovery options."
+
+    def __init__(self, operation: CohortPopulationOperation) -> None:
+        super().__init__()
+        self.extra = {"population": build_population_summary(operation)}
+
+
+class CohortPopulationRetryRejected(APIException):
+    """The requested recovery does not apply to this run."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "population_not_retryable"
+
+    def __init__(self, operation: CohortPopulationOperation, detail: str) -> None:
+        super().__init__(detail)
+        self.extra = {"population": build_population_summary(operation)}
+
+
+def raise_if_population_unresolved(cohort_id: int) -> None:
+    operation = population_lifecycle.unresolved_operation_for(cohort_id)
+    if operation is not None:
+        raise CohortPopulationInProgress(operation)
+
+
+def _validate_population_uuids(person_ids: list[str]) -> list[str]:
+    try:
+        return list(dict.fromkeys(str(uuid.UUID(value)) for value in person_ids))
+    except (ValueError, TypeError, AttributeError):
+        raise ValidationError("person_ids must contain valid UUIDs")
+
+
 class CohortMinimalSerializer(serializers.ModelSerializer):
     """Minimal serializer for cohort references (e.g., person cohorts endpoint)."""
 
@@ -695,6 +866,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
     last_error_message = serializers.SerializerMethodField()
+    population = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
@@ -718,6 +890,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "count",
             "last_import_total_count",
             "last_import_unmatched_count",
+            "population",
             "is_static",
             "cohort_type",
             "condition_type",
@@ -740,6 +913,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "count",
             "last_import_total_count",
             "last_import_unmatched_count",
+            "population",
             "experiment_set",
             "condition_type",
         ]
@@ -759,6 +933,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # read neither, so drop them and skip the extra queries there.
             for field_name in ("query", "groups", "last_error_message", "experiment_set"):
                 self.fields.pop(field_name, None)
+
+    @extend_schema_field(CohortPopulationSummarySerializer(allow_null=True))
+    def get_population(self, cohort: Cohort) -> Optional[dict[str, Any]]:
+        """The cohort's current or most recent static population run.
+
+        Null on list responses. Reading it costs a query per cohort, and nothing in a list of
+        cohorts shows population state — the cohort page fetches the cohort on its own.
+        """
+        if self.context.get("is_list_request") or not cohort.is_static or not isinstance(cohort.pk, int):
+            return None
+        operation = population_lifecycle.latest_operation_for(cohort.pk)
+        return build_population_summary(operation) if operation is not None else None
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
         # Prefer the annotated last_error_code when available
@@ -825,25 +1011,80 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         )
 
         request = self.context["request"]
+        team_id = self.context["team_id"]
+        durable = durable_population_enabled_for(team_id)
+
         if request.FILES.get("csv") or person_ids:
             if person_ids:
-                uuids = validate_person_uuids_exist(self.context["team_id"], person_ids)
-                cohort.insert_users_list_by_uuid(uuids, team_id=self.context["team_id"])
+                uuids = (
+                    _validate_population_uuids(person_ids)
+                    if durable
+                    else validate_person_uuids_exist(team_id, person_ids)
+                )
+                self._populate_from_uuid_list(cohort, uuids, team_id=team_id, durable=durable)
             if request.FILES.get("csv"):
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif context.get("from_feature_flag_key"):
-            insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
+            if durable:
+                admit_feature_flag_population(
+                    cohort=cohort,
+                    team_id=team_id,
+                    flag_key=context["from_feature_flag_key"],
+                    created_by_id=request.user.pk,
+                )
+            else:
+                insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], team_id)
         elif validated_data.get("query"):
-            insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+            if durable:
+                admit_query_or_filters_population(
+                    cohort=cohort,
+                    team_id=team_id,
+                    source=CohortPopulationSource.QUERY,
+                    created_by_id=request.user.pk,
+                )
+            else:
+                insert_cohort_from_query.delay(cohort.pk, team_id)
         elif cohort_filters_have_values(validated_data.get("filters")):
-            insert_cohort_from_filters.delay(cohort.pk, self.context["team_id"])
+            if durable:
+                admit_query_or_filters_population(
+                    cohort=cohort,
+                    team_id=team_id,
+                    source=CohortPopulationSource.FILTERS,
+                    created_by_id=request.user.pk,
+                )
+            else:
+                insert_cohort_from_filters.delay(cohort.pk, team_id)
         elif person_ids is not None:
             # Empty list explicitly provided (e.g. MCP creating an empty static cohort to add persons later)
-            cohort.insert_users_list_by_uuid([], team_id=self.context["team_id"])
+            self._populate_from_uuid_list(cohort, [], team_id=team_id, durable=durable)
         else:
             raise ValidationError(
                 "Invalid source for static cohort. Requires criteria, a csv, feature flag, existing cohort or query."
             )
+
+    def _populate_from_uuid_list(self, cohort: Cohort, uuids: list[str], *, team_id: int, durable: bool) -> None:
+        """Write a caller-supplied list of person UUIDs, synchronously either way.
+
+        A caller that passes person ids gets its answer once the write is done, so this runs the
+        operation inline rather than dispatching it. Durable mode changes what survives a failure,
+        not when the caller hears about it.
+        """
+        if not durable:
+            cohort.insert_users_list_by_uuid(uuids, team_id=team_id)
+            return
+
+        operation = admit_list_population(
+            cohort=cohort,
+            team_id=team_id,
+            identifiers=uuids,
+            id_type="person_id",
+            created_by_id=self.context["request"].user.pk,
+            dispatch=False,
+        )
+        run_operation(operation.pk, max_work_units=50)
+        operation.refresh_from_db()
+        if operation.status != CohortPopulationStatus.COMPLETED:
+            raise CohortPopulationAddFailed(operation)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -1002,17 +1243,36 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if not ids:
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
-        logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
+        team_id = self.context["team_id"]
+        logger.warning(
+            "cohort_csv_upload_received", cohort_id=cohort.pk, team_id=team_id, id_type=id_type, identifiers=len(ids)
+        )
+
+        if durable_population_enabled_for(team_id):
+            admit_list_population(
+                cohort=cohort,
+                team_id=team_id,
+                identifiers=ids,
+                id_type=id_type,
+                created_by_id=self.context["request"].user.pk,
+            )
+            return
+
         calculate_cohort_from_list.delay(
             cohort.pk,
             ids,
-            team_id=self.context["team_id"],
+            team_id=team_id,
             id_type=id_type,
             email_property_key=email_property_key,
         )
 
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
         """Centralized error handling with consistent exception capture"""
+
+        if isinstance(e, (population_lifecycle.CohortPopulationConflict, ObjectStorageError)) or (
+            isinstance(e, APIException) and not isinstance(e, ValidationError)
+        ):
+            raise e
 
         # Reset calculating flag on error
         cohort.is_calculating = False
@@ -1045,8 +1305,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
         # Set calculating flag immediately so UI shows loading state
-        cohort.is_calculating = True
-        cohort.save(update_fields=["is_calculating"])
+        if not durable_population_enabled_for(self.context["team_id"]):
+            cohort.is_calculating = True
+            cohort.save(update_fields=["is_calculating"])
 
         try:
             first_row, reader = self._parse_csv_file(file)
@@ -1324,8 +1585,31 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     code="behavioral_cohort_found",
                 )
 
+    @transaction.atomic
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        if cohort.is_static:
+            # Serialize source/deletion changes with admission, including requests loaded before it.
+            cohort.refresh_from_db(from_queryset=Cohort.objects.select_for_update().filter(team_id=cohort.team_id))
+        active_population = population_lifecycle.unresolved_operation_for(cohort.pk) if cohort.is_static else None
+        if active_population is not None:
+            source_fields = {
+                key: getattr(cohort, key) for key in ("query", "groups", "is_static", "deleted", "cohort_type")
+            }
+            source_fields["filters"] = _coerce_stored_filter_values(
+                cohort.filters or {"properties": cohort.properties.to_dict()}
+            )
+            if request.FILES.get("csv") or any(
+                key in validated_data and validated_data[key] != value for key, value in source_fields.items()
+            ):
+                raise CohortPopulationInProgress(active_population)
+            # A full save could overwrite population progress read before this metadata edit.
+            for key in ("name", "description"):
+                if key in validated_data:
+                    setattr(cohort, key, validated_data[key])
+            cohort.save(update_fields=["name", "description"])
+            cohort.refresh_from_db()
+            return cohort
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
         filters_changed = "filters" in validated_data and validated_data.get("filters") != _coerce_stored_filter_values(
             cohort.filters
@@ -1467,7 +1751,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 # You can't update a static cohort using the trend/stickiness thing
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
             elif cohort.is_static and validated_data.get("query"):
-                insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+                if durable_population_enabled_for(self.context["team_id"]):
+                    admit_query_or_filters_population(
+                        cohort=cohort,
+                        team_id=self.context["team_id"],
+                        source=CohortPopulationSource.QUERY,
+                        created_by_id=request.user.pk,
+                    )
+                else:
+                    insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
             elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
 
@@ -1683,6 +1975,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     serializer_class = CohortSerializer
     scope_object = "cohort"
 
+    def handle_exception(self, exc):
+        if isinstance(exc, population_lifecycle.CohortPopulationConflict):
+            exc = CohortPopulationInProgress(exc.operation)
+        elif isinstance(exc, ObjectStorageError):
+            exc = APIException(
+                "The people list could not be saved. Please try again.", code="population_storage_unavailable"
+            )
+            exc.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return super().handle_exception(exc)
+
     def _is_basic_list_request(self) -> bool:
         # `?basic=true` on the list endpoint: trimmed payload + deferred columns.
         # Single source of truth for both the queryset and serializer paths so they
@@ -1692,6 +1994,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["basic_cohort_list"] = self._is_basic_list_request()
+        context["is_list_request"] = self.action == "list"
         return context
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> tuple[QuerySet, bool]:
@@ -1931,10 +2234,33 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_ids cannot be empty")
         if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
             raise ValidationError("List size exceeds limit")
-        uuids = validate_person_uuids_exist(self.team_id, person_ids)
+        raise_if_population_unresolved(cohort.pk)
+        uuids = (
+            _validate_population_uuids(person_ids)
+            if durable_population_enabled_for(self.team_id)
+            else validate_person_uuids_exist(self.team_id, person_ids)
+        )
         if len(uuids) == 0:
             raise ValidationError("No valid users to add to cohort")
-        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
+
+        if durable_population_enabled_for(self.team_id):
+            operation = admit_list_population(
+                cohort=cohort,
+                team_id=self.team_id,
+                identifiers=uuids,
+                id_type="person_id",
+                created_by_id=request.user.pk,
+                dispatch=False,
+            )
+            run_operation(operation.pk, max_work_units=50)
+            operation.refresh_from_db()
+            if operation.status != CohortPopulationStatus.COMPLETED:
+                raise CohortPopulationAddFailed(operation)
+            if PopulationProgress.from_json(operation.progress).matched == 0:
+                raise ValidationError("No valid users to add to cohort")
+        else:
+            cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
+
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
@@ -1949,10 +2275,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     @extend_schema(request=RemovePersonRequestSerializer)
     @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
+    @transaction.atomic
     def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
+        Cohort.objects.select_for_update().get(pk=cohort.pk, team_id=self.team_id)
         if not cohort.is_static:
             raise ValidationError("Can only remove users from static cohorts")
+        raise_if_population_unresolved(cohort.pk)
         person_id = request.data.get("person_id", None)
         if not person_id:
             raise ValidationError("person_id is required")
@@ -1987,6 +2316,76 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             detail=Detail(changes=[Change(type="Cohort", action="changed")]),
         )
         return Response({"success": True}, status=200)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: CohortPopulationSummarySerializer,
+            404: OpenApiResponse(description="This cohort has no population run to retry."),
+            409: OpenApiResponse(description="The run is not in a state that can be retried."),
+        },
+        description=(
+            "Start a failed population run again. It resumes from where it stopped: identifiers "
+            "already written are not written twice, and a materialized query is not evaluated again."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["cohort:write"])
+    def retry_population(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        operation = population_lifecycle.latest_operation_for(cohort.pk)
+        if operation is None:
+            raise NotFound("This cohort has no population run.")
+        if operation.status != CohortPopulationStatus.FAILED:
+            raise CohortPopulationRetryRejected(operation, "Only a failed run can be retried.")
+        if CohortPopulationRecoveryAction.RETRY not in build_population_summary(operation)["available_actions"]:
+            raise CohortPopulationRetryRejected(operation, "This run cannot be resumed. Stop it before starting again.")
+        if operation.phase == CohortPopulationPhase.WRITING_MEMBERSHIP and not input_is_readable(
+            operation.input_manifest, start=PopulationProgress.from_json(operation.progress).chunk_index
+        ):
+            CohortPopulationOperation.objects.unscoped().filter(
+                pk=operation.pk, status=CohortPopulationStatus.FAILED
+            ).update(error_code=CohortErrorCode.INPUT_UNAVAILABLE)
+            operation.refresh_from_db()
+            raise CohortPopulationRetryRejected(
+                operation, "The people list for this import is no longer stored. Upload it again to finish it."
+            )
+
+        try:
+            population_lifecycle.reopen_for_retry(operation, requested_by_id=request.user.pk)
+        except ValueError:
+            operation.refresh_from_db()
+            raise CohortPopulationRetryRejected(
+                operation, "The saved input has expired. Stop this run and upload the list again."
+            )
+        operation.refresh_from_db()
+        dispatch_operation(operation.pk)
+        return Response(CohortPopulationSummarySerializer(build_population_summary(operation)).data, status=200)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: CohortPopulationSummarySerializer,
+            404: OpenApiResponse(description="This cohort has no population run to abandon."),
+            409: OpenApiResponse(description="The run has already finished."),
+        },
+        description=(
+            "Stop an unfinished population run. Whatever it already wrote stays in the cohort, and "
+            "the run is recorded as incomplete rather than successful."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["cohort:write"])
+    def abandon_population(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        operation = population_lifecycle.unresolved_operation_for(cohort.pk)
+        if operation is None:
+            raise NotFound("This cohort has no unfinished population run.")
+
+        population_lifecycle.request_abandon(operation)
+        # The runner does the stopping, so an attempt holding the lease settles first rather than
+        # having its writes cut off mid-batch.
+        dispatch_operation(operation.pk)
+        operation.refresh_from_db()
+        return Response(CohortPopulationSummarySerializer(build_population_summary(operation)).data, status=200)
 
     @extend_schema(operation_id="cohorts_all_activity_retrieve")
     @action(
@@ -2179,84 +2578,6 @@ def will_create_loops(cohort: Cohort) -> bool:
     return dfs_loop_helper(cohort, set(), set())
 
 
-# Number of attempts per page when calling the batch evaluation endpoint, including the
-# first try. Only transient failures (connection errors, timeouts, 5xx) are retried.
-BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS = 3
-BATCH_FLAG_EVALUATION_RETRY_BACKOFF_SECONDS = 2.0
-
-COHORT_FLAG_GENERATION_COMPLETED_COUNTER = Counter(
-    "cohort_flag_generation_completed_total",
-    "Cohort generations from a feature flag that finished, by outcome",
-    ["outcome"],  # "success" or a CohortErrorCode value ("flag_changed", "unknown")
-)
-
-COHORT_FLAG_GENERATION_DURATION_SECONDS = Histogram(
-    "cohort_flag_generation_duration_seconds",
-    "Duration of cohort generation from a feature flag in seconds",
-    ["outcome"],
-    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200, 14400],
-)
-
-COHORT_FLAG_GENERATION_PAGE_RETRIES_COUNTER = Counter(
-    "cohort_flag_generation_page_retries_total",
-    "Transient batch flag evaluation page failures that were retried against the flags service",
-)
-
-COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER = Counter(
-    "cohort_flag_generation_eval_errors_total",
-    "Per-person evaluation errors reported by the flags service during cohort generation",
-)
-
-
-def _batch_evaluate_flag_page_with_retries(
-    *,
-    team_id: int,
-    project_id: int,
-    flag_key: str,
-    expected_version: int,
-    expected_property_matching_version: int,
-    cursor: int,
-    limit: int,
-) -> dict[str, Any]:
-    last_error: Exception | None = None
-    for attempt in range(BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS):
-        if attempt > 0:
-            COHORT_FLAG_GENERATION_PAGE_RETRIES_COUNTER.inc()
-            time.sleep(BATCH_FLAG_EVALUATION_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
-        try:
-            return batch_evaluate_flag_for_team(
-                team_id=team_id,
-                project_id=project_id,
-                flag_key=flag_key,
-                expected_version=expected_version,
-                expected_property_matching_version=expected_property_matching_version,
-                cursor=cursor,
-                limit=limit,
-            )
-        except (FlagVersionConflictError, PropertyMatchingVersionConflictError):
-            # Permanent: the pinned evaluation inputs changed; retrying the same page cannot help.
-            raise
-        except requests.RequestException as err:
-            if (
-                isinstance(err, requests.HTTPError)
-                and err.response is not None
-                and 400 <= err.response.status_code < 500
-            ):
-                # Permanent client errors (bad request, missing flag, auth misconfiguration).
-                raise
-            last_error = err
-            logger.warning(
-                "cohort_from_feature_flag_page_retry",
-                team_id=team_id,
-                flag_key=flag_key,
-                cursor=cursor,
-                attempt=attempt + 1,
-                error=str(err),
-            )
-    assert last_error is not None
-    raise last_error
-
-
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000) -> None:
     """
     Populate a static cohort with the persons matched by a feature flag.
@@ -2301,7 +2622,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         uuids_to_add_to_cohort: list[str] = []
         cursor = 0
         while True:
-            page = _batch_evaluate_flag_page_with_retries(
+            page = batch_evaluate_flag_page_with_retries(
                 team_id=team_id,
                 project_id=project_id,
                 flag_key=feature_flag.key,
@@ -2318,7 +2639,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
             if len(uuids_to_add_to_cohort) >= batchsize:
                 cohort.insert_users_list_by_uuid(
-                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
+                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True, finalize=False
                 )
                 uuids_to_add_to_cohort = []
 

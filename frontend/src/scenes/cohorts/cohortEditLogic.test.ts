@@ -29,7 +29,9 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import * as cohortApi from 'products/cohorts/frontend/generated/api'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type { CohortPopulationSummaryApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
@@ -172,6 +174,59 @@ describe('cohortEditLogic', () => {
     })
 
     describe('calculation polling', () => {
+        const population: CohortPopulationSummaryApi = {
+            id: '00000000-0000-0000-0000-000000000001',
+            source: 'list',
+            status: 'running',
+            phase: 'writing_membership',
+            progress: { identifiers_total: 100, identifiers_written: 50, matched: 40, unmatched: 10 },
+            error_code: '',
+            error_message: null,
+            attempts: 0,
+            max_attempts: 6,
+            next_attempt_at: null,
+            input_expires_at: null,
+            input_available: true,
+            available_actions: ['abandon'],
+            created_at: '2026-09-07T10:00:00Z',
+            finished_at: null,
+        }
+
+        it('updates active population progress while preserving unsaved metadata', async () => {
+            await initCohortLogic({ id: 1 })
+            logic.actions.setCohort({
+                ...logic.values.cohort,
+                name: 'Unsaved name',
+                description: 'Unsaved description',
+            })
+            await expectLogic(logic, () =>
+                logic.actions.checkIfFinishedCalculating({
+                    ...mockCohort,
+                    is_static: true,
+                    is_calculating: true,
+                    population,
+                })
+            ).toMatchValues({
+                cohort: partial({ name: 'Unsaved name', description: 'Unsaved description', population }),
+            })
+            logic.unmount()
+        })
+
+        it('submits one recovery when the retry action is dispatched twice', async () => {
+            await initCohortLogic({ id: 1 })
+            let finish!: (value: CohortPopulationSummaryApi) => void
+            const pending = new Promise<CohortPopulationSummaryApi>((resolve) => {
+                finish = resolve
+            })
+            const retry = jest.spyOn(cohortApi, 'cohortsRetryPopulationCreate').mockReturnValue(pending)
+            logic.actions.retryPopulation()
+            logic.actions.retryPopulation()
+            expect(retry).toHaveBeenCalledTimes(1)
+            await expectLogic(logic, () => finish(population)).toFinishAllListeners()
+            retry.mockRestore()
+            logic.unmount()
+        })
+
         it('refreshes import counts when calculation finishes', async () => {
             await initCohortLogic({ id: 1 })
 

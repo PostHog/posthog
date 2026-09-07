@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)\n        SELECT DISTINCT pid, $1::bigint, $3::integer\n        FROM UNNEST($2::bigint[]) AS t(pid)\n        WHERE NOT EXISTS (\n            SELECT 1 FROM posthog_cohortpeople cp\n            WHERE cp.person_id = pid AND cp.cohort_id = $1::bigint\n        )\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "267688d4b6ec0832ee24b14eabaf747c79ce465590c2a12bae6a58f0dc2f2a7d"
+}

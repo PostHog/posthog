@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
+use sqlx::Acquire;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 
@@ -12,10 +13,7 @@ use crate::storage::error::StorageResult;
 use crate::storage::traits::CohortStorage;
 use crate::storage::types::CohortMembership;
 
-/// Insert one bounded chunk of cohort members. NOT EXISTS makes re-running the same
-/// person_ids (e.g. on retry) idempotent without a unique index; the bare ON CONFLICT DO
-/// NOTHING is a forward-safeguard — if a unique (cohort_id, person_id) constraint is later
-/// added, a concurrent same-key insert is skipped cleanly instead of erroring.
+/// Serialize the existence check because the membership pair has no unique constraint.
 async fn insert_cohort_members_chunk(
     pool: &sqlx::PgPool,
     cohort_id: i64,
@@ -23,10 +21,16 @@ async fn insert_cohort_members_chunk(
     version: Option<i32>,
 ) -> StorageResult<i64> {
     let mut conn = PostgresStorage::acquire_timed(pool, "bulk_primary").await?;
+    let mut tx = conn.begin().await?;
+    // Use a separate statement so the insert gets a fresh snapshot after waiting for the lock.
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(cohort_id)
+        .execute(&mut *tx)
+        .await?;
     let result = sqlx::query!(
         r#"
         INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
-        SELECT pid, $1::bigint, $3
+        SELECT DISTINCT pid, $1::bigint, $3::integer
         FROM UNNEST($2::bigint[]) AS t(pid)
         WHERE NOT EXISTS (
             SELECT 1 FROM posthog_cohortpeople cp
@@ -38,8 +42,9 @@ async fn insert_cohort_members_chunk(
         person_ids,
         version,
     )
-    .execute(&mut *conn)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(result.rows_affected() as i64)
 }
 

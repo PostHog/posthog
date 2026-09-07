@@ -62,3 +62,12 @@ def is_cohort_backfill_trigger_team(team_id: int) -> bool:
         # allowlist cannot: a set-but-empty value means no teams, not every team.
         return False
     return _team_in_allowlist(settings.COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST, team_id)
+
+
+def is_durable_cohort_population_team(team_id: int) -> bool:
+    """Whether new static cohort population in ``team_id`` is admitted as a durable operation."""
+    if not settings.COHORT_POPULATION_DURABLE_ADMISSION_TEAM_ALLOWLIST.strip():
+        # Fail closed on empty, like the backfill trigger allowlist: nothing outside Python reads
+        # this setting, so a set-but-empty value means no teams rather than every team.
+        return False
+    return _team_in_allowlist(settings.COHORT_POPULATION_DURABLE_ADMISSION_TEAM_ALLOWLIST, team_id)

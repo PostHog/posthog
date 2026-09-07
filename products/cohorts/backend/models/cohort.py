@@ -6,7 +6,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union, cast
 from uuid import UUID
 
-from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
@@ -16,7 +15,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
-from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -824,6 +822,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         team_id: int,
         raise_on_error: bool = False,
         import_resolution: ImportResolution | None = None,
+        finalize: bool = True,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -854,6 +853,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             team_id=team_id,
             raise_on_error=raise_on_error,
             insert_batch=insert_batch,
+            finalize=finalize,
         )
 
     def insert_users_list_by_id_uuid_pairs_skip_validation(
@@ -980,6 +980,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: int,
         raise_on_error: bool = False,
+        finalize: bool = True,
         insert_batch: Callable[[list[Any]], None] | None = None,
     ) -> int:
         """
@@ -1011,53 +1012,32 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 current_batch_index = batch_index
                 insert_batch(batch)
 
-        except SoftTimeLimitExceeded as err:
-            # Let a Celery soft-time-limit interruption propagate so the task's time limit
-            # actually bounds the run. Swallowing it here (as the broad except below would)
-            # leaves the caller's loop running past the limit, since Celery raises it once.
-            # Record it as a processing error so the finally marks the run as failed
-            # rather than a successful calculation.
-            processing_error = err
-            raise
         except Exception as err:
             processing_error = err
-            # When the caller owns terminal-state finalization (raise_on_error), surface
-            # the failure instead of swallowing it, so a partial insert can't be recorded
-            # as success. The finally block below skips its own error save in this mode.
-            if settings.DEBUG or raise_on_error:
-                raise
-            capture_exception(
-                err,
-                additional_properties={
-                    "cohort_id": self.id,
-                    "team_id": team_id,
-                    "batch_index": current_batch_index,
-                },
-            )
+            raise
         finally:
-            # Always update the count and cohort state, even if processing failed
-            try:
-                count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="strong")
-                self.count = count
-            except Exception as count_err:
-                # If count calculation fails, log the error but don't override the processing error.
-                # Leave existing count unchanged - it's better than None.
-                logger.exception(
-                    "Failed to calculate static cohort size",
-                    cohort_id=self.id,
-                    team_id=team_id,
-                )
-                capture_exception(
-                    count_err,
-                    additional_properties={"cohort_id": self.id, "team_id": team_id},
-                )
-
-            # In raise_on_error mode the caller finalizes cohort state on failure, so skip
-            # the error save here to avoid double-counting errors_calculating. The success
-            # path (processing_error is None) still finalizes state as usual.
-            if not (raise_on_error and processing_error is not None):
-                self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
-
+            if finalize and not (raise_on_error and processing_error is not None):
+                try:
+                    self.count = count_cohort_members(cohort_id=self.id, team_id=team_id, consistency="strong")
+                except Exception:
+                    if processing_error is None:
+                        raise
+                    logger.exception("cohort_population_secondary_count_failed", cohort_id=self.id, team_id=team_id)
+                self.is_calculating = False
+                if processing_error is None:
+                    self.last_calculation = timezone.now()
+                    self.errors_calculating = 0
+                    fields = ["is_calculating", "last_calculation", "errors_calculating", "count"]
+                else:
+                    self.last_error_at = timezone.now()
+                    self.errors_calculating = F("errors_calculating") + 1
+                    fields = ["is_calculating", "last_error_at", "errors_calculating", "count"]
+                try:
+                    self.save(update_fields=fields)
+                except Exception:
+                    if processing_error is None:
+                        raise
+                    logger.exception("cohort_population_secondary_save_failed", cohort_id=self.id, team_id=team_id)
         return current_batch_index + 1
 
     def _insert_batch_via_personhog(

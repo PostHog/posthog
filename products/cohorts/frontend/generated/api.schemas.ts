@@ -275,6 +275,144 @@ export interface UserBasicApi {
 }
 
 /**
+ * * `list` - List
+ * * `query` - Query
+ * * `filters` - Filters
+ * * `feature_flag` - Feature flag
+ * * `reconcile` - Reconcile
+ */
+export type CohortPopulationSourceEnumApi =
+    (typeof CohortPopulationSourceEnumApi)[keyof typeof CohortPopulationSourceEnumApi]
+
+export const CohortPopulationSourceEnumApi = {
+    List: 'list',
+    Query: 'query',
+    Filters: 'filters',
+    FeatureFlag: 'feature_flag',
+    Reconcile: 'reconcile',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `retry_scheduled` - Retry scheduled
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `abandoned` - Abandoned
+ */
+export type CohortPopulationStatusEnumApi =
+    (typeof CohortPopulationStatusEnumApi)[keyof typeof CohortPopulationStatusEnumApi]
+
+export const CohortPopulationStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    RetryScheduled: 'retry_scheduled',
+    Completed: 'completed',
+    Failed: 'failed',
+    Abandoned: 'abandoned',
+} as const
+
+/**
+ * * `materializing_source` - Materializing source
+ * * `writing_membership` - Writing membership
+ * * `synchronizing` - Synchronizing
+ * * `finalizing` - Finalizing
+ * * `done` - Done
+ */
+export type CohortPopulationPhaseEnumApi =
+    (typeof CohortPopulationPhaseEnumApi)[keyof typeof CohortPopulationPhaseEnumApi]
+
+export const CohortPopulationPhaseEnumApi = {
+    MaterializingSource: 'materializing_source',
+    WritingMembership: 'writing_membership',
+    Synchronizing: 'synchronizing',
+    Finalizing: 'finalizing',
+    Done: 'done',
+} as const
+
+export interface CohortPopulationProgressApi {
+    /**
+     * How many identifiers this run was given. Null for a run whose members come from a query, criteria, or a feature flag.
+     * @nullable
+     */
+    identifiers_total: number | null
+    /** How many of those identifiers have been written to both stores so far. */
+    identifiers_written: number
+    /** Identifiers written so far that matched a person in this project. */
+    matched: number
+    /** Identifiers written so far that matched nobody, and so added no one to the cohort. */
+    unmatched: number
+}
+
+/**
+ * * `retry` - Retry
+ * * `abandon` - Abandon
+ * * `reupload` - Re-upload
+ */
+export type CohortPopulationRecoveryActionEnumApi =
+    (typeof CohortPopulationRecoveryActionEnumApi)[keyof typeof CohortPopulationRecoveryActionEnumApi]
+
+export const CohortPopulationRecoveryActionEnumApi = {
+    Retry: 'retry',
+    Abandon: 'abandon',
+    Reupload: 'reupload',
+} as const
+
+/**
+ * Read-only view of the cohort's current or most recent population run.
+ */
+export interface CohortPopulationSummaryApi {
+    /** Identifies the run, for the retry and abandon endpoints. */
+    id: string
+    /** Where this run's members come from.
+     *
+     * * `list` - List
+     * * `query` - Query
+     * * `filters` - Filters
+     * * `feature_flag` - Feature flag
+     * * `reconcile` - Reconcile */
+    source: CohortPopulationSourceEnumApi
+    status: CohortPopulationStatusEnumApi
+    /** What the run is doing now.
+     *
+     * * `materializing_source` - Materializing source
+     * * `writing_membership` - Writing membership
+     * * `synchronizing` - Synchronizing
+     * * `finalizing` - Finalizing
+     * * `done` - Done */
+    phase: CohortPopulationPhaseEnumApi
+    progress: CohortPopulationProgressApi
+    /** Bounded reason the last attempt failed. Empty while the run is healthy. */
+    error_code: string
+    /**
+     * The error, in words a person can act on. Null while the run is healthy.
+     * @nullable
+     */
+    error_message: string | null
+    /** Attempts spent so far. */
+    attempts: number
+    /** Attempts this run is allowed before it stops retrying. */
+    max_attempts: number
+    /**
+     * When the next automatic attempt starts. Null when none is scheduled.
+     * @nullable
+     */
+    next_attempt_at: string | null
+    /**
+     * When the identifiers this run can resume from stop being kept.
+     * @nullable
+     */
+    input_expires_at: string | null
+    /** Whether a retry could still resume from the stored identifiers. */
+    input_available: boolean
+    /** What can be done about this run right now. */
+    available_actions: CohortPopulationRecoveryActionEnumApi[]
+    created_at: string
+    /** @nullable */
+    finished_at: string | null
+}
+
+/**
  * * `static` - static
  * * `person_property` - person_property
  * * `behavioral` - behavioral
@@ -349,6 +487,7 @@ export interface CohortApi {
      * @nullable
      */
     readonly last_import_unmatched_count: number | null
+    readonly population: CohortPopulationSummaryApi | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
      *
@@ -416,6 +555,7 @@ export interface PatchedCohortApi {
      * @nullable
      */
     readonly last_import_unmatched_count?: number | null
+    readonly population?: CohortPopulationSummaryApi | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
      *

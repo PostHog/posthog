@@ -94,3 +94,25 @@ BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS: int = get_from_env(
 COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE: bool = get_from_env(
     "COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE", True, type_cast=str_to_bool
 )
+
+COHORT_POPULATION_FAILED_INPUT_RETENTION_DAYS: int = get_from_env(
+    "COHORT_POPULATION_FAILED_INPUT_RETENTION_DAYS", 30, type_cast=int
+)
+COHORT_POPULATION_COMPLETED_INPUT_RETENTION_HOURS: int = get_from_env(
+    "COHORT_POPULATION_COMPLETED_INPUT_RETENTION_HOURS", 24, type_cast=int
+)
+# Whether new static cohort population goes through durable operations. Off, the API and the Celery
+# entrypoints keep their old behavior, so the schema and the workers can ship before any team's
+# admission changes. Turning it off again leaves operations already created recoverable — the
+# dispatcher and the runner never read this.
+COHORT_POPULATION_DURABLE_ADMISSION_TEAM_ALLOWLIST: str = os.getenv(
+    "COHORT_POPULATION_DURABLE_ADMISSION_TEAM_ALLOWLIST", "none"
+)
+# Ceiling on one dispatcher pass, so a backlog cannot turn a two-minute beat into an unbounded scan.
+COHORT_POPULATION_MAX_DISPATCHES_PER_PASS: int = get_from_env(
+    "COHORT_POPULATION_MAX_DISPATCHES_PER_PASS", 200, type_cast=int
+)
+# How long one work unit may hold an operation before the dispatcher treats the worker as lost.
+# Longer than the slowest single unit (a ClickHouse source materialization), short enough that a
+# killed pod does not park the cohort for an hour.
+COHORT_POPULATION_LEASE_SECONDS: int = get_from_env("COHORT_POPULATION_LEASE_SECONDS", 1800, type_cast=int)

@@ -546,6 +546,202 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('static population status', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        const populatingCohort = (cohortId: number, population: Record<string, unknown>): Record<string, unknown> => ({
+            ...mockCohort,
+            id: cohortId,
+            name: 'Uploaded people',
+            is_static: true,
+            last_import_total_count: null,
+            last_import_unmatched_count: null,
+            population: {
+                id: 'op-1',
+                source: 'list',
+                phase: 'writing_membership',
+                progress: { identifiers_total: 2000, identifiers_written: 1000, matched: 900, unmatched: 100 },
+                error_code: '',
+                error_message: null,
+                attempts: 0,
+                max_attempts: 6,
+                next_attempt_at: null,
+                input_expires_at: null,
+                input_available: true,
+                available_actions: [],
+                created_at: '2026-09-07T10:00:00Z',
+                finished_at: null,
+                ...population,
+            },
+        })
+
+        it('reports progress and offers a stop while people are being added', async () => {
+            const cohortId = 20
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: populatingCohort(cohortId, {
+                        status: 'running',
+                        available_actions: ['abandon'],
+                    }),
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText(/Adding people from people you added/)).toBeInTheDocument()
+            expect(screen.getByText(/1,000 of 2,000 processed so far/)).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="cohort-population-abandon"]')).toBeInTheDocument()
+        })
+
+        it('says a run will try again rather than reporting it as failed', async () => {
+            const cohortId = 21
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: populatingCohort(cohortId, {
+                        status: 'retry_scheduled',
+                        error_message: 'The system was busy.',
+                        attempts: 2,
+                        available_actions: ['abandon'],
+                    }),
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText('Adding people hit a problem, and will try again')).toBeInTheDocument()
+            expect(screen.getByText(/Attempt 2 of 6/)).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="cohort-population-retry"]')).not.toBeInTheDocument()
+        })
+
+        it('offers a retry on a terminal failure that can still resume', async () => {
+            const cohortId = 22
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: populatingCohort(cohortId, {
+                        status: 'failed',
+                        error_message: 'The system was busy.',
+                        attempts: 6,
+                        available_actions: ['retry'],
+                    }),
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText("Couldn't finish adding people to this cohort")).toBeInTheDocument()
+            expect(screen.getByText(/Trying again picks up where it stopped/)).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="cohort-population-retry"]')).toBeInTheDocument()
+        })
+
+        it('asks for the file again when the stored list is gone, and never offers a retry', async () => {
+            const cohortId = 23
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: populatingCohort(cohortId, {
+                        status: 'failed',
+                        error_message: 'The people list for this import is no longer stored.',
+                        input_available: false,
+                        available_actions: ['reupload', 'abandon'],
+                    }),
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText(/Stop this run before uploading again/)).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="cohort-population-abandon"]')).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="cohort-population-retry"]')).not.toBeInTheDocument()
+        })
+
+        it('says the cohort is incomplete after a stopped run', async () => {
+            const cohortId = 24
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: populatingCohort(cohortId, {
+                        status: 'abandoned',
+                    }),
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText('Population stopped before completion')).toBeInTheDocument()
+        })
+
+        it('stays hidden once the run completed', async () => {
+            const cohortId = 25
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: populatingCohort(cohortId, {
+                        status: 'completed',
+                    }),
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText('Uploaded people')
+            expect(screen.queryByText(/Adding people from/)).not.toBeInTheDocument()
+        })
+
+        it('does not show last-import statistics as the result of a failed later upload', async () => {
+            const cohortId = 26
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...populatingCohort(cohortId, { status: 'failed', available_actions: ['retry'] }),
+                        last_import_total_count: 7,
+                        last_import_unmatched_count: 2,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText("Couldn't finish adding people to this cohort")).toBeInTheDocument()
+            expect(screen.getByText(/1,000 of 2,000 processed so far/)).toBeInTheDocument()
+            expect(screen.queryByText(/2 of 7 IDs weren't added/)).not.toBeInTheDocument()
+        })
+
+        it('disables the retry button while the request is in flight', async () => {
+            const cohortId = 27
+            let releaseRetry: (value: unknown) => void = () => {}
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: populatingCohort(cohortId, {
+                        status: 'failed',
+                        available_actions: ['retry'],
+                    }),
+                },
+                post: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/retry_population/`]: async () => {
+                        await new Promise((resolve) => {
+                            releaseRetry = resolve
+                        })
+                        return [200, { status: 'pending' }]
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            // LemonBanner renders its action once per breakpoint, and React replaces the nodes on
+            // re-render, so re-query rather than holding a reference.
+            const retryButtons = (): HTMLButtonElement[] =>
+                Array.from(document.querySelectorAll('[data-attr="cohort-population-retry"]'))
+
+            await screen.findByText("Couldn't finish adding people to this cohort")
+            await userEvent.click(retryButtons()[0])
+
+            await waitFor(() =>
+                expect(retryButtons().every((button) => button.getAttribute('aria-disabled') === 'true')).toBe(true)
+            )
+            releaseRetry(undefined)
+        })
+    })
+
     describe('criteria row type switching', () => {
         afterEach(() => {
             cleanup()

@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 import grpc
 from parameterized import parameterized
 
-from posthog.personhog_client.interceptor import RetryInterceptor, _MutableClientCallDetails
+from posthog.personhog_client.interceptor import MetricsInterceptor, RetryInterceptor, _MutableClientCallDetails
+
+
+def _successful_call():
+    call = MagicMock(spec=grpc.Future)
+    call.result.return_value = "ok"
+    return call
 
 
 def _make_call_details(
@@ -36,7 +44,7 @@ def _make_transient_then_ok(fail_count: int, status_code: grpc.StatusCode):
         calls.append(1)
         if len(calls) <= fail_count:
             raise _make_rpc_error(status_code)
-        return "ok"
+        return _successful_call()
 
     return continuation, calls
 
@@ -57,9 +65,10 @@ class TestRetryInterceptorBehavior:
         interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
 
-        result = interceptor.intercept_unary_unary(lambda d, r: "ok", details, request=b"")
+        call = _successful_call()
+        result = interceptor.intercept_unary_unary(lambda d, r: call, details, request=b"")
 
-        assert result == "ok"
+        assert result is call
 
     @parameterized.expand(
         [
@@ -77,7 +86,7 @@ class TestRetryInterceptorBehavior:
 
         result = interceptor.intercept_unary_unary(continuation, details, request=b"")
 
-        assert result == "ok"
+        assert result.result() == "ok"
         assert len(calls) == 2
         assert mock_sleep.call_count == 1
 
@@ -176,7 +185,67 @@ class TestRetryInterceptorMetrics:
         interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
 
-        interceptor.intercept_unary_unary(lambda d, r: "ok", details, request=b"")
+        interceptor.intercept_unary_unary(lambda d, r: _successful_call(), details, request=b"")
 
         mock_retries.labels.return_value.inc.assert_not_called()
         mock_terminal.labels.return_value.inc.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "method,code,failures,expected_attempts",
+    [
+        ("InsertCohortMembers", grpc.StatusCode.UNAVAILABLE, 1, 2),
+        ("GetPersonsByUuids", grpc.StatusCode.UNKNOWN, 1, 2),
+        ("CountCohortMembers", grpc.StatusCode.DEADLINE_EXCEEDED, 1, 2),
+        ("InsertCohortMembers", grpc.StatusCode.ABORTED, 2, 2),
+        ("InsertCohortMembers", grpc.StatusCode.PERMISSION_DENIED, 1, 1),
+        ("SplitPerson", grpc.StatusCode.UNAVAILABLE, 1, 1),
+    ],
+)
+def test_retries_real_grpc_outcomes(method, code, failures, expected_attempts):
+    attempts = 0
+
+    def handle(request, context):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= failures:
+            context.abort(code, "Synthetic failure")
+        context.set_trailing_metadata((("result", "complete"),))
+        return request
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        server = grpc.server(executor)
+        server.add_generic_rpc_handlers(
+            (
+                grpc.method_handlers_generic_handler(
+                    "test.Population", {method: grpc.unary_unary_rpc_method_handler(handle)}
+                ),
+            )
+        )
+        port = server.add_insecure_port("127.0.0.1:0")
+        server.start()
+        try:
+            with (
+                grpc.insecure_channel(f"127.0.0.1:{port}") as base,
+                patch("posthog.personhog_client.interceptor.time.sleep"),
+                patch("posthog.personhog_client.interceptor.PERSONHOG_RETRIES_TOTAL") as retries,
+                patch("posthog.personhog_client.interceptor.PERSONHOG_TERMINAL_ERRORS_TOTAL") as terminal,
+            ):
+                channel = grpc.intercept_channel(
+                    base, RetryInterceptor("test-client"), MetricsInterceptor("test-client")
+                )
+                rpc = channel.unary_unary(f"/test.Population/{method}")
+                if failures < expected_attempts:
+                    response, call = rpc.with_call(b"members", timeout=5)
+                    assert response == b"members"
+                    assert ("result", "complete") in call.trailing_metadata()
+                    terminal.labels.return_value.inc.assert_not_called()
+                else:
+                    with pytest.raises(grpc.RpcError) as error:
+                        rpc(b"members", timeout=5)
+                    assert error.value.code() == code
+                    terminal.labels.return_value.inc.assert_called_once()
+                assert attempts == expected_attempts
+                assert retries.labels.return_value.inc.call_count == expected_attempts - 1
+        finally:
+            server.stop(0).wait()

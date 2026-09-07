@@ -158,6 +158,21 @@ _RETRYABLE_CODES = frozenset(
     }
 )
 
+_RETRYABLE_METHODS = frozenset(
+    {
+        "GetPerson",
+        "GetPersons",
+        "GetPersonByUuid",
+        "GetPersonsByUuids",
+        "GetPersonByDistinctId",
+        "GetPersonsByDistinctIdsInTeam",
+        "CheckCohortMembership",
+        "CountCohortMembers",
+        "ListCohortMemberIds",
+        "InsertCohortMembers",
+    }
+)
+
 
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     """Retries transient gRPC errors with jittered backoff.
@@ -191,11 +206,14 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
 
         while True:
             try:
-                return continuation(client_call_details, request)
+                call = continuation(client_call_details, request)
+                # gRPC continuations return failed call objects instead of raising them.
+                call.result()
+                return call
             except grpc.RpcError as exc:
                 code = exc.code()
                 error_type = _grpc_error_type(code) if code else "Unknown"
-                retryable = code in _RETRYABLE_CODES if code else False
+                retryable = method in _RETRYABLE_METHODS and code in _RETRYABLE_CODES
 
                 if not retryable or attempt == self._max_retries:
                     PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(

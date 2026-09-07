@@ -1593,6 +1593,39 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.28
   '''
+  SELECT "cohort_population_operations"."id",
+         "cohort_population_operations"."team_id",
+         "cohort_population_operations"."cohort_id",
+         "cohort_population_operations"."created_by_id",
+         "cohort_population_operations"."source",
+         "cohort_population_operations"."source_config",
+         "cohort_population_operations"."phase",
+         "cohort_population_operations"."status",
+         "cohort_population_operations"."input_manifest",
+         "cohort_population_operations"."input_expires_at",
+         "cohort_population_operations"."input_deleted_at",
+         "cohort_population_operations"."progress",
+         "cohort_population_operations"."attempts",
+         "cohort_population_operations"."max_attempts",
+         "cohort_population_operations"."next_attempt_at",
+         "cohort_population_operations"."claim_token",
+         "cohort_population_operations"."claimed_by",
+         "cohort_population_operations"."claimed_at",
+         "cohort_population_operations"."lease_expires_at",
+         "cohort_population_operations"."dispatched_at",
+         "cohort_population_operations"."abandon_requested_at",
+         "cohort_population_operations"."error_code",
+         "cohort_population_operations"."created_at",
+         "cohort_population_operations"."updated_at",
+         "cohort_population_operations"."finished_at"
+  FROM "cohort_population_operations"
+  WHERE "cohort_population_operations"."cohort_id" = 99999
+  ORDER BY "cohort_population_operations"."created_at" DESC
+  LIMIT 1
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.29
+  '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
          "posthog_experiment"."description",
@@ -1633,17 +1666,6 @@
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.29
-  '''
-  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
-  SELECT person_id
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND person_id IN ['00000000-0000-4000-8000-000000000000']
-  GROUP BY person_id
-  '''
-# ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
   '''
   SELECT "posthog_project"."updated_at",
@@ -1659,6 +1681,17 @@
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.30
+  '''
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.31
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id

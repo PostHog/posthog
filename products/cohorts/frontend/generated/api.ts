@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CohortApi,
     CohortPersonsResponseApi,
+    CohortPopulationSummaryApi,
     CohortUsedInResponseApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
@@ -234,6 +235,24 @@ export const cohortsDestroy = async (projectId: string, id: number, options?: Re
     })
 }
 
+export const getCohortsAbandonPopulationCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/abandon_population/`
+}
+
+/**
+ * Stop an unfinished population run. Whatever it already wrote stays in the cohort, and the run is recorded as incomplete rather than successful.
+ */
+export const cohortsAbandonPopulationCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<CohortPopulationSummaryApi> => {
+    return apiMutator<CohortPopulationSummaryApi>(getCohortsAbandonPopulationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getCohortsActivityRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
@@ -321,6 +340,24 @@ export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedRemovePersonRequestApi),
+    })
+}
+
+export const getCohortsRetryPopulationCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/retry_population/`
+}
+
+/**
+ * Start a failed population run again. It resumes from where it stopped: identifiers already written are not written twice, and a materialized query is not evaluated again.
+ */
+export const cohortsRetryPopulationCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<CohortPopulationSummaryApi> => {
+    return apiMutator<CohortPopulationSummaryApi>(getCohortsRetryPopulationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
