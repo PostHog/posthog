@@ -71,10 +71,7 @@ def deactivate_stale_materializations() -> None:
     twenty_four_hours_ago = now - timedelta(hours=24)
     stale_threshold = now - timedelta(days=STALE_THRESHOLD_DAYS)
 
-    # Any finished run proves the schedule is still firing, which is what this gate asks. Testing
-    # for success instead would exempt the versions most worth reverting, because a run that fails
-    # costs the same compute as one that succeeds. A still-running job does not count, because
-    # reverting soft-deletes the saved query under a live workflow.
+    # A still-running job does not count: reverting soft-deletes the saved query under a live workflow.
     recent_job = DataModelingJob.objects.filter(
         saved_query_id=OuterRef("saved_query_id"),
         last_run_at__gte=twenty_four_hours_ago,
