@@ -15,6 +15,33 @@ It is unrelated to `posthog.rate_limit`, which throttles _inbound_ DRF requests 
 All three lanes are **domain-generic** and domain-free; each third-party API is an incarnation under its own subpackage (`github/`, `logodev/`, `firecrawl/`), supplying a budget policy, a metric set + parser, and a transport subclass.
 Adding a new outbound API is another `<domain>/` folder, not a change to the mechanisms.
 
+## Non-goals
+
+This section records what egress does not do.
+Each item below was a real proposal, so read the reason before you reopen one.
+
+**Egress does not store response data.**
+The limiter does cache control state about a budget: an installation's observed core limit, and its interactive-demand marker.
+Both are a few bytes per scope and self-expiring, so their footprint does not grow with traffic.
+A response body is the opposite, because its footprint tracks request volume.
+Storing bodies therefore needs a size budget, an eviction policy, and a Redis of its own.
+`CACHES["default"]` is not that Redis: it also serves flags, org access, and cohort dependencies, so a body store there competes with the request path.
+Cache what a caller needs in that caller's own cache, where the data is already smaller and better shaped than the raw response.
+`posthog/models/integration_repository_cache.py` is the pattern to copy. It keeps the derived file tree and revalidates with a cheap SHA check.
+
+**Egress does not hide an API's response semantics from callers.**
+A transport that replays a `304` as a `200`, or an error as an empty result, leaves the caller unable to act on what the API said.
+The rate-limit path shows the shape to follow: a 403 with an exhausted window becomes a typed `GitHubRateLimitError` carrying `retry_after`, and the caller decides what to do with it.
+"No call site changes" is not a reason to break this. If a caller has to know that nothing changed, change the caller.
+
+**Egress does not decide what a caller should request.**
+A caller that fetches data it does not need is a product bug, and the limiter only makes that bug cheaper to survive.
+Fix the request pattern first, then measure what is left.
+
+**Egress does not retry.**
+The transport classifies the response and returns it.
+Retry and backoff belong to the caller, which knows whether a repeat is safe and how long it can wait.
+
 ## Rate limiting
 
 ### Using it
