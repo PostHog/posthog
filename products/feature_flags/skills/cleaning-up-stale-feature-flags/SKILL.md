@@ -104,9 +104,11 @@ Summarize the surviving candidates for the user: key, why it's stale, when it wa
 
 Classify each selected flag from the `rollout` object in the status response — do not re-derive it from `filters` by hand:
 
-- **Fully rolled out boolean**: `effectively_full_rollout: true`, `is_multivariate: false`, and `max_rollout_percentage` is 100.
+- **Fully rolled out boolean**: `effectively_full_rollout: true`, `is_multivariate: false`,
+  `has_targeting_conditions: false`, and `max_rollout_percentage` is 100.
   The retained path is the enabled behavior.
-- **Fully rolled out multivariate**: `effectively_full_rollout: true` and `is_multivariate: true`.
+- **Fully rolled out multivariate**: `effectively_full_rollout: true`, `is_multivariate: true`,
+  and `has_targeting_conditions: false`.
   The retained path is the winning variant.
   Take its key from the definition, in this order: the first fully rolled out release condition's
   `variant` override when it names a variant that exists, and only otherwise the variant at 100% rollout.
@@ -117,7 +119,11 @@ Classify each selected flag from the `rollout` object in the status response —
 - **Effectively off**: `max_rollout_percentage` is 0, or it is null because the flag has no release conditions.
   A flag with no release conditions reports `effectively_full_rollout: true`, but it evaluates to false for every user.
   The retained path is the disabled/control behavior.
-- **Partial or ambiguous**: everything else — partial percentages, property-targeted conditions you cannot resolve, or conflicting signals.
+- **Partial or ambiguous**: everything else: partial percentages, `has_targeting_conditions: true`, or conflicting signals.
+  A targeted condition is not part of the full-rollout verdict.
+  `effectively_full_rollout` and the winning variant are computed only from conditions with no property filters,
+  while evaluation resolves the first condition that matches.
+  So a targeted condition with a `variant` override serves its segment a path the summary never names.
   Do not edit code for these. Explain what decision the user has to make, and stop.
 
 Re-read the flag immediately before editing code, so a rollout changed since assessment never picks the wrong branch.
