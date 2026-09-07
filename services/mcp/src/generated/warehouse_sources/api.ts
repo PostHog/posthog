@@ -172,6 +172,12 @@ export const ExternalDataSchemasPartialUpdateBody = () => zod
             .describe(
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
+        backfill_on_sync_type_change: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Set to `true` alongside a switch to `webhook` sync to backfill the rows that changed between the last sync and the moment the webhook is registered. Without it the webhook only delivers changes from registration onward, so that window stays missing from the table. The backfill reads from the current cursor when the schema has one, and rebuilds the whole table when it does not. Billed per synced row.'
+            ),
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
@@ -313,6 +319,12 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = () => zod
             .nullish()
             .describe(
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+            ),
+        backfill_on_sync_type_change: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Set to `true` alongside a switch to `webhook` sync to backfill the rows that changed between the last sync and the moment the webhook is registered. Without it the webhook only delivers changes from registration onward, so that window stays missing from the table. The backfill reads from the current cursor when the schema has one, and rebuilds the whole table when it does not. Billed per synced row.'
             ),
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')

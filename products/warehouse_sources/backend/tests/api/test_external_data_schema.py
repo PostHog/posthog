@@ -1539,6 +1539,132 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("incremental_field_last_value") == 1000
             assert schema.sync_type_config.get("incremental_field_earliest_value") == 500
 
+    def _stripe_schema_switching_to_webhook(self, sync_type_config: dict) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        return ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config=sync_type_config,
+            initial_sync_complete=True,
+            table=DataWarehouseTable.objects.create(team=self.team),
+        )
+
+    @staticmethod
+    def _webhook_switch_mocks() -> tuple[mock.Mock, tuple]:
+        # One recorder for both side effects, so a test can assert the order they ran in.
+        recorder = mock.Mock()
+        recorder.register.return_value = WebhookHogFunctionCreateResult(
+            hog_function_id=str(uuid.uuid4()),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=True,
+        )
+        return recorder, (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
+                recorder.trigger,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                recorder.register,
+            ),
+            mock.patch.object(StripeSource, "create_webhook", return_value=WebhookCreationResult(success=True)),
+            mock.patch.object(
+                StripeSource,
+                "get_schemas",
+                return_value=[
+                    SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True)
+                ],
+            ),
+        )
+
+    def test_webhook_switch_backfill_runs_from_the_cursor(self):
+        # The webhook only delivers changes made after registration, so the rows that changed since
+        # the last sync need a catch-up run. The stored cursor bounds it, so no rebuild is needed.
+        schema = self._stripe_schema_switching_to_webhook(
+            {
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "incremental_field_last_value": 1000,
+            }
+        )
+        recorder, patches = self._webhook_switch_mocks()
+
+        with contextlib.ExitStack() as stack:
+            for patcher in patches:
+                stack.enter_context(patcher)
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "backfill_on_sync_type_change": True},
+            )
+
+        assert response.status_code == 200, response.content
+        # Registration first: a run that starts before the consumer exists leaves the same gap.
+        assert [call[0] for call in recorder.mock_calls] == ["register", "trigger"]
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+        assert schema.sync_type_config.get("reset_pipeline") is None
+        assert schema.sync_type_config.get("incremental_field_last_value") == 1000
+
+    def test_webhook_switch_backfill_rebuilds_when_there_is_no_cursor(self):
+        # With no cursor there is nothing to read forward from, so the whole table is rebuilt.
+        schema = self._stripe_schema_switching_to_webhook({})
+        recorder, patches = self._webhook_switch_mocks()
+
+        with contextlib.ExitStack() as stack:
+            for patcher in patches:
+                stack.enter_context(patcher)
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "backfill_on_sync_type_change": True},
+            )
+
+        assert response.status_code == 200, response.content
+        recorder.trigger.assert_called_once()
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("reset_pipeline") is True
+
+    def test_webhook_switch_backfill_rejected_over_the_billing_limit(self):
+        schema = self._stripe_schema_switching_to_webhook(
+            {
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "incremental_field_last_value": 1000,
+            }
+        )
+        recorder, patches = self._webhook_switch_mocks()
+
+        with contextlib.ExitStack() as stack:
+            for patcher in patches:
+                stack.enter_context(patcher)
+            stack.enter_context(
+                mock.patch(
+                    "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+                    return_value=True,
+                )
+            )
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "backfill_on_sync_type_change": True},
+            )
+
+        assert response.status_code == 400
+        assert "billing limit" in str(response.json()).lower()
+        recorder.trigger.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

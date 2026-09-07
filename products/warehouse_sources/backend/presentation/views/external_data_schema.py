@@ -371,6 +371,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Applied on the next sync — not retroactive to already-synced rows."
         ),
     )
+    backfill_on_sync_type_change = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text=(
+            "Set to `true` alongside a switch to `webhook` sync to backfill the rows that changed "
+            "between the last sync and the moment the webhook is registered. Without it the webhook "
+            "only delivers changes from registration onward, so that window stays missing from the "
+            "table. The backfill reads from the current cursor when the schema has one, and rebuilds "
+            "the whole table when it does not. Billed per synced row."
+        ),
+    )
     api_version = serializers.CharField(
         required=False,
         allow_null=True,
@@ -437,6 +448,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "api_version",
             "api_version_deprecation",
             "user_access_level",
+            "backfill_on_sync_type_change",
         ]
 
         read_only_fields = [
@@ -682,6 +694,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
+
+        # Request-only flag: pop it so the model save below never sees it.
+        backfill_on_sync_type_change = validated_data.pop("backfill_on_sync_type_change", False)
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
@@ -1035,6 +1050,30 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
 
+        # A switch to webhook only registers the consumer, which then delivers changes from
+        # registration onward. Rows that changed since the last batch sync stay missing, and the
+        # table reads as healthy while it is wrong. One catch-up run closes that gap, opt-in because
+        # a sync bills per row. The cursor the previous sync type left behind bounds the read; with
+        # no cursor the only catch-up is a rebuild of the whole table. Re-reading rows is safe
+        # either way, since webhook drains merge on the primary key.
+        trigger_catch_up = False
+        if (
+            backfill_on_sync_type_change
+            and sync_type == ExternalDataSchema.SyncType.WEBHOOK
+            and instance.sync_type != ExternalDataSchema.SyncType.WEBHOOK
+            and instance.initial_sync_complete
+            and (should_sync if should_sync is not None else instance.should_sync)
+        ):
+            if is_any_external_data_schema_paused(instance.team_id):
+                raise ValidationError(
+                    "Monthly sync limit reached. Please increase your billing limit before switching "
+                    "to webhook sync with a backfill."
+                )
+            if instance.incremental_field and instance.incremental_field_last_value is not None:
+                trigger_catch_up = True
+            else:
+                trigger_refresh = True
+
         if source.is_direct_query:
             direct_engine_adapter = get_direct_query_engine(source.direct_engine)
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
@@ -1131,11 +1170,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             self._run_temporal_side_effect(update_schedule)
 
-        if trigger_refresh:
-            self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
-
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
+
+        # Registration runs before the sync: a run that starts while the consumer is still missing
+        # reopens the same gap for every row that changes before registration completes.
+        if trigger_refresh or trigger_catch_up:
+            self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
 
         # Sync CDC extraction schedule after any CDC schema change
         if is_cdc:
