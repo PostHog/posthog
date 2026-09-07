@@ -436,6 +436,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         run_type: str = RunType.STORYBOOK,
         run_status: str = RunStatus.COMPLETED,
         result: str = SnapshotResult.UNCHANGED,
+        diff_metadata: dict | None = None,
     ) -> RunSnapshot:
         """Create one Run + one RunSnapshot directly, with full control over result and status."""
         artifact, _ = artifact_store.get_or_create_artifact(
@@ -475,6 +476,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             current_artifact=artifact,
             baseline_artifact=baseline_artifact,
             result=result,
+            diff_metadata=diff_metadata if diff_metadata is not None else {},
         )
 
     def _history_url(self, identifier: str, run_type: str = RunType.STORYBOOK) -> str:
@@ -510,6 +512,25 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self._seed_history_row(
             sha="ddd0000", branch="master", content_hash="hash-jitter", baseline_content_hash="base-2"
         )
+        # Absorbed shift on master: baseline stays at base-2, but the rows
+        # moved, and that trace only lives in history — must be an entry.
+        self._seed_history_row(
+            sha="ddd0001",
+            branch="master",
+            content_hash="hash-shift",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 3.2,
+                    "bands": [{"y": 20, "rows": 1, "kind": "inserted"}],
+                }
+            },
+        )
 
         # PR-branch run — filtered out by branch.
         self._seed_history_row(
@@ -539,12 +560,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         body = response.json()
         results = body["results"]
         # Two baseline transitions: aaa1111 (inception, base-1) and bbb1111
-        # (transition to base-2). aaa2222 collapses into aaa1111's period;
-        # ddd0000 collapses into bbb1111's.
-        self.assertEqual(body["count"], 2)
+        # (transition to base-2), plus the absorbed shift ddd0001. aaa2222
+        # collapses into aaa1111's period; ddd0000 collapses into bbb1111's.
+        self.assertEqual(body["count"], 3)
         # Output is newest-first.
-        self.assertEqual(results[0]["commit_sha"], "bbb1111")
-        self.assertEqual(results[1]["commit_sha"], "aaa1111")
+        self.assertEqual([entry["commit_sha"] for entry in results], ["ddd0001", "bbb1111", "aaa1111"])
+        self.assertEqual(results[0]["row_shift"]["inserted_rows"], 1)
+        self.assertIsNone(results[1]["row_shift"])
         for entry in results:
             self.assertIn("snapshot_id", entry)
             self.assertIn("review_state", entry)

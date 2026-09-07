@@ -15,6 +15,7 @@ WITH ordered AS (
     SELECT rs.id,
            rs.baseline_artifact_id,
            LAG(rs.baseline_artifact_id) OVER (ORDER BY r.created_at) AS prev_baseline_id,
+           rs.diff_metadata,
            r.created_at
     FROM visual_review_runsnapshot rs
     JOIN visual_review_run r ON r.id = rs.run_id
@@ -27,6 +28,7 @@ WITH ordered AS (
 SELECT id
 FROM ordered
 WHERE prev_baseline_id IS DISTINCT FROM baseline_artifact_id
+   OR jsonb_typeof(diff_metadata -> 'row_shift') = 'object'
 ORDER BY created_at DESC
 """
 
@@ -37,7 +39,9 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
     Returns one entry per *baseline transition* — every time the committed
     `.snapshots.yml` baseline actually moved. LAG-on-`baseline_artifact_id`
     (over ASC ordering) keeps the FIRST run of each baseline period, so the
-    user sees the inception event plus every change since.
+    user sees the inception event plus every change since. A run whose rows
+    shifted is an entry too, even when the baseline stayed put: an absorbed
+    shift leaves no baseline change behind, and this is where its trace shows.
 
     Why LAG on `baseline_artifact_id` and not `current_artifact_id`:
       - `current_artifact_id` is the bytes captured by THIS run. Pixel jitter
