@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -52,10 +52,12 @@ describe('HomepageAiInput', () => {
                 '/api/organizations/:id/request_ai_access/': () => [200, { success: true }],
             },
         })
-        setUpOrganization(OrganizationMembershipLevel.Admin)
     })
 
+    afterEach(cleanup)
+
     it('approves AI data processing and swaps in the composer when the button is clicked', async () => {
+        setUpOrganization(OrganizationMembershipLevel.Admin)
         const container = renderInput()
 
         fireEvent.click(screen.getByText(APPROVE_LABEL))
