@@ -1317,19 +1317,28 @@ class LazyComputationExecutor:
         The expires_at < now() guard means only rows whose data would already be
         past its ClickHouse TTL can be failed; a live INSERT finishing afterwards
         overwrites FAILED with READY, so at worst a takeover costs one duplicate
-        build. No pubsub publish: an expired row has no waiters.
+        build. The publish wakes waiters that subscribed to the row before it
+        expired, so they rescan now instead of at their next poll timeout.
         """
-        updated = PreaggregationJob.objects.filter(
+        blocker = PreaggregationJob.objects.filter(
             team=team,
             query_hash=query_hash,
             time_range_start=range_start,
             time_range_end=range_end,
             status=PreaggregationJob.Status.PENDING,
             expires_at__lt=django_timezone.now(),
+        ).first()
+        if blocker is None:
+            return False
+        updated = PreaggregationJob.objects.filter(
+            id=blocker.id,
+            status=PreaggregationJob.Status.PENDING,
         ).update(
             status=PreaggregationJob.Status.FAILED,
             error="Expired while pending (owning executor never finished)",
         )
+        if updated > 0:
+            publish_job_completion(blocker.id, "failed")
         return updated > 0
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
