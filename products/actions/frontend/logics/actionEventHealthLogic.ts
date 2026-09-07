@@ -6,7 +6,7 @@ import { isDefinitionStale } from 'lib/utils/definitions'
 
 import { EventDefinition } from '~/types'
 
-/** Why an action step matches nothing, or is about to. */
+/** Why an action match group matches nothing new, or is about to stop. */
 export type EventHealthIssue = { status: 'stale'; lastSeenAt: string } | { status: 'missing' }
 
 /** Definitions found, keyed by event name. A name that resolved to nothing maps to `null`. */

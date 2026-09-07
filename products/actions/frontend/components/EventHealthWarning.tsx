@@ -12,20 +12,20 @@ function issueExplanation(issue: EventHealthIssue): JSX.Element {
     if (issue.status === 'stale') {
         return (
             <>
-                PostHog last saw this event <b>{dayjs(issue.lastSeenAt).fromNow()}</b>. This action matches nothing new
-                until the event arrives again, so insights that use it stay empty.
+                PostHog last saw this event <b>{dayjs(issue.lastSeenAt).fromNow()}</b>. This match group matches nothing
+                newer than that, so recent results can be incomplete.
             </>
         )
     }
     return (
         <>
             PostHog has no definition for this event. Either it was never sent, or someone deleted the definition in
-            data management. This action matches nothing until the event arrives.
+            data management. This match group matches nothing new.
         </>
     )
 }
 
-/** Warns that the event a step points at stopped arriving, so the action quietly matches nothing. */
+/** Warns that the event a match group points at stopped arriving, so the group quietly matches nothing new. */
 export function EventHealthWarning({ event }: { event?: string | null }): JSX.Element | null {
     const { eventHealthIssues } = useValues(actionEventHealthLogic)
     const { requestEventNames } = useActions(actionEventHealthLogic)

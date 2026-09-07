@@ -12,7 +12,7 @@ const meta: Meta<typeof EventHealthWarning> = {
         docs: {
             description: {
                 component:
-                    'Warns that the event an action step points at stopped arriving, so the action quietly matches nothing. Shown on the actions list next to the step it affects, and in the step editor. Nothing renders while the event definition is still loading, or when the event is healthy.',
+                    'Warns that the event an action match group points at stopped arriving, so the group quietly matches nothing new. Steps are OR-ed, so the rest of the action keeps matching. Shown on the actions list next to the group it affects, and in the step editor. Nothing renders while the event definition is still loading, or when the event is healthy.',
             },
         },
     },
