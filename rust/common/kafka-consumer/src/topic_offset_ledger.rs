@@ -19,6 +19,8 @@ const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
 const STALE_SLICES: &str = "kafka_consumer_ledger_stale_slices_total";
 /// Contract violations in the ledger's accounting; must stay at zero.
 const ERRORS: &str = "kafka_consumer_ledger_errors_total";
+/// Offsets a frontier commit walked over that Kafka never delivered.
+const GAP_OFFSETS: &str = "kafka_consumer_ledger_gap_offsets_total";
 
 /// A partition of a named topic, the key for everything the ledger tracks.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -197,14 +199,15 @@ impl TopicOffsetLedger {
     /// of its window. The drained offsets leave the window, so the gauges
     /// follow them down.
     pub fn take_frontier(&self, topic_partition: &TopicPartition) -> Option<Offset> {
-        let (offset, held) = {
+        let (taken, held) = {
             let mut partitions = self.partitions.lock().unwrap();
             let ledger = partitions.get_mut(topic_partition)?;
             let taken = ledger.take_frontier()?;
-            (taken.offset, ledger.held())
+            (taken, ledger.held())
         };
         publish_held(topic_partition, held);
-        Some(offset)
+        count_gap_offsets(topic_partition, taken.gap_offset_count);
+        Some(taken.offset)
     }
 
     /// What the partition's window still holds; nothing without a ledger.
@@ -269,6 +272,15 @@ fn publish_held(topic_partition: &TopicPartition, held: Held) {
         "partition" => partition
     )
     .set(held.charge.bytes as f64);
+}
+
+fn count_gap_offsets(topic_partition: &TopicPartition, gap_offset_count: usize) {
+    if gap_offset_count == 0 {
+        return;
+    }
+    let (topic, partition) = labels(topic_partition);
+    counter!(GAP_OFFSETS, "topic" => topic, "partition" => partition)
+        .increment(gap_offset_count as u64);
 }
 
 /// Count one charge or settlement the ledger rejected. A stale slice is
