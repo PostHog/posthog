@@ -86630,6 +86630,17 @@ export namespace Schemas {
          * @nullable
          */
       channel_id: string | null;
+      /** Who created the containing task, when the match has one. */
+      created_by: TaskUserBasicInfo | null;
+      /**
+         * What created the containing task, for example 'slack'.
+         * @nullable
+         */
+      origin_product: string | null;
+      /** Status of the containing task's most recent run. */
+      latest_run: TaskRunSummary | null;
+      /** When the matched resource last changed. */
+      updated_at: string;
       /** Resource-specific navigation metadata. */
       metadata: unknown;
     }

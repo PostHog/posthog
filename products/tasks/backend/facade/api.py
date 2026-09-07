@@ -5495,6 +5495,38 @@ def _mixed_search_page(documents: Iterable[TaskSearchDocument], page_size: int) 
     return (page + overflow)[:page_size]
 
 
+def _search_latest_run_summary(run: TaskRun | None) -> contracts.TaskLatestRunSummaryDTO | None:
+    """The run state a search row needs to draw the task's icon."""
+    if run is None:
+        return None
+    interactive = (run.state or {}).get("mode") == "interactive"
+    return contracts.TaskLatestRunSummaryDTO(
+        id=run.id,
+        status=run.status,
+        environment=run.environment,
+        mode="interactive" if interactive else "background",
+    )
+
+
+def _search_result_payload(document: TaskSearchDocument, latest_runs: dict[Any, TaskRun]) -> dict:
+    """One search row, with the fields a client needs to draw it without a second request."""
+    task = document.task if document.task_id else None
+    return {
+        "id": str(document.id),
+        "kind": document.kind,
+        "title": document.title,
+        "subtitle": document.subtitle,
+        "task_id": str(document.task_id) if document.task_id else None,
+        "task_run_id": str(document.task_run_id) if document.task_run_id else None,
+        "channel_id": str(document.channel_id) if document.channel_id else None,
+        "created_by": _user_basic_info(task.created_by if task else None),
+        "origin_product": task.origin_product if task else None,
+        "latest_run": _search_latest_run_summary(latest_runs.get(document.task_id) if document.task_id else None),
+        "updated_at": document.updated_at,
+        "metadata": document.metadata,
+    }
+
+
 def search_tasks(
     team_id: int,
     user_id: int | None,
@@ -5528,6 +5560,7 @@ def search_tasks(
     page_size = min(limit, 50)
     candidates = (
         TaskSearchDocument.objects.for_team(team_id)
+        .select_related("task__created_by")
         .filter(visibility)
         .filter(matches)
         .annotate(
@@ -5548,19 +5581,8 @@ def search_tasks(
         ]
     )
     documents = _mixed_search_page(candidates, page_size)
-    return [
-        {
-            "id": str(document.id),
-            "kind": document.kind,
-            "title": document.title,
-            "subtitle": document.subtitle,
-            "task_id": str(document.task_id) if document.task_id else None,
-            "task_run_id": str(document.task_run_id) if document.task_run_id else None,
-            "channel_id": str(document.channel_id) if document.channel_id else None,
-            "metadata": document.metadata,
-        }
-        for document in documents
-    ]
+    latest_runs = _latest_runs_by_task_id((document.task_id for document in documents if document.task_id), team_id)
+    return [_search_result_payload(document, latest_runs) for document in documents]
 
 
 def inaccessible_repositories_via_integration(team_id: int, integration_id: int, repositories: list[str]) -> list[str]:

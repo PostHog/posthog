@@ -54,6 +54,35 @@ class TestTaskSearchIndex(TransactionTestCase):
         self.assertEqual(artifact_result["kind"], TaskSearchDocument.Kind.ARTIFACT)
         self.assertEqual(artifact_result["task_id"], str(task.id))
 
+    def test_answers_a_task_match_with_the_row_context_a_client_draws(self):
+        task = self.make_task(title="Trim the export queue")
+        Task.objects.filter(id=task.id).update(origin_product=Task.OriginProduct.SLACK)
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+
+        result = search_tasks(self.team.id, self.user.id, "export queue")[0]
+
+        self.assertEqual(result["created_by"].email, self.user.email)
+        self.assertEqual(result["origin_product"], Task.OriginProduct.SLACK)
+        self.assertEqual(result["latest_run"].id, run.id)
+        self.assertEqual(result["latest_run"].status, TaskRun.Status.IN_PROGRESS)
+        self.assertEqual(result["latest_run"].environment, TaskRun.Environment.CLOUD)
+        self.assertIsNotNone(result["updated_at"])
+
+    def test_a_space_match_carries_no_task_context(self):
+        Channel.objects.create(team=self.team, name="export-lab", created_by=self.user)
+
+        result = search_tasks(self.team.id, self.user.id, "export-lab")[0]
+
+        self.assertEqual(result["kind"], TaskSearchDocument.Kind.CHANNEL)
+        self.assertIsNone(result["created_by"])
+        self.assertIsNone(result["origin_product"])
+        self.assertIsNone(result["latest_run"])
+
     def test_short_queries_only_match_exact_identifiers(self):
         task = self.make_task(title="A common title")
         run = TaskRun.objects.create(
