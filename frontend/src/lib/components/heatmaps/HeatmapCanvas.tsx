@@ -6,10 +6,12 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapAreaPoint } from 'lib/components/heatmaps/types'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
+import { pluralize } from 'lib/utils/strings'
 
 import { HeatmapEventsPanel } from './HeatmapEventsPanel'
+import { HeatmapLoadingInfo } from './HeatmapLoadingInfo'
 import { ScrollDepthCanvas } from './ScrollDepthCanvas'
-import { useMousePosition } from './useMousePosition'
+import { MousePosition, useMousePosition } from './useMousePosition'
 import { useScrollSync } from './useScrollSync'
 
 // Radius in pixels to search for nearby heatmap elements when clicking
@@ -21,6 +23,19 @@ const TOOLTIP_FLIP_THRESHOLD_PX = 160
 const HEATMAP_CONFIG = {
     minOpacity: 0,
     maxOpacity: 0.8,
+}
+
+const INFO_BOX_CLASSES = 'border rounded bg-surface-primary shadow-md font-semibold'
+
+function heatmapValueAt(
+    heatmapJs: HeatmapJS<'value', 'x', 'y'> | undefined,
+    position: MousePosition
+): number | undefined {
+    try {
+        return heatmapJs?.getValueAt(position)
+    } catch {
+        return undefined
+    }
 }
 
 function HeatmapMouseInfo({
@@ -35,21 +50,11 @@ function HeatmapMouseInfo({
     onHasValue?: (hasValue: boolean) => void
 }): JSX.Element | null {
     const shiftPressed = useShiftKeyPressed()
-    const { heatmapTooltipLabel, rawHeatmapLoading, heatmapTooltipSuppressed } = useValues(
-        heatmapDataLogic({ context })
-    )
+    const { heatmapTooltipNoun, rawHeatmapLoading, heatmapTooltipSuppressed } = useValues(heatmapDataLogic({ context }))
 
     const containerMousePosition = useMousePosition(containerRef?.current)
     const viewportMousePosition = useMousePosition()
-    let value: number | undefined
-    try {
-        value = heatmapJsRef.current?.getValueAt(containerMousePosition)
-    } catch {
-        // heatmap.js throws reading its canvas if it was created while the container had
-        // zero height (IndexSizeError in Chromium, raw NS_ERROR_FAILURE in Firefox);
-        // this runs on every mouse move, so swallow rather than crash the scene
-        value = undefined
-    }
+    const value = containerMousePosition ? heatmapValueAt(heatmapJsRef.current, containerMousePosition) : undefined
 
     const hasValue = !!(containerMousePosition && (value || shiftPressed)) && !heatmapTooltipSuppressed
 
@@ -57,7 +62,7 @@ function HeatmapMouseInfo({
         onHasValue?.(hasValue)
     }, [hasValue, onHasValue])
 
-    if (!hasValue) {
+    if (!hasValue || !viewportMousePosition) {
         return null
     }
 
@@ -73,8 +78,8 @@ function HeatmapMouseInfo({
                 right: flipLeft ? window.innerWidth - viewportMousePosition.x + TOOLTIP_OFFSET_PX : undefined,
             }}
         >
-            <div className="border rounded bg-surface-primary shadow-md p-2 whitespace-nowrap font-semibold">
-                {rawHeatmapLoading ? 'Loading…' : `${value ?? 0} ${heatmapTooltipLabel}`}
+            <div className={cn(INFO_BOX_CLASSES, 'p-2 whitespace-nowrap')}>
+                {rawHeatmapLoading ? 'Loading…' : pluralize(value ?? 0, heatmapTooltipNoun)}
             </div>
         </div>
     )
@@ -219,12 +224,15 @@ export function HeatmapCanvas({
 
     if (heatmapFilters.type === 'scrolldepth') {
         return (
-            <ScrollDepthCanvas
-                key={`scrolldepth-${heatmapFilters.type}-${exportToken ? 'export' : `${widthOverride ?? windowWidth}x${windowHeight}`}`}
-                positioning={positioning}
-                context={context}
-                exportToken={exportToken}
-            />
+            <>
+                <ScrollDepthCanvas
+                    key={`scrolldepth-${heatmapFilters.type}-${exportToken ? 'export' : `${widthOverride ?? windowWidth}x${windowHeight}`}`}
+                    positioning={positioning}
+                    context={context}
+                    exportToken={exportToken}
+                />
+                <HeatmapLoadingInfo context={context} exportToken={exportToken} />
+            </>
         )
     }
 
@@ -283,6 +291,7 @@ export function HeatmapCanvas({
                 onHasValue={setHasValueUnderMouse}
             />
             <HeatmapEventsPanel context={context} exportToken={exportToken} />
+            <HeatmapLoadingInfo context={context} exportToken={exportToken} />
         </div>
     )
 }

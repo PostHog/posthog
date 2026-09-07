@@ -10,6 +10,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalScoutConfig
@@ -103,6 +104,32 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
         assert config.enabled is False
         assert config.emit is False
+
+    @parameterized.expand(
+        [
+            # The create form sends an empty list by default, so a repeat of someone else's scout
+            # would silently revoke its grant if an empty list skipped the gate.
+            ("empty_list_revokes", [], status.HTTP_403_FORBIDDEN),
+            ("resent_grant_is_not_a_change", ["dashboard:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_repeating_a_definition_may_not_change_the_grant_without_the_authors_claim(
+        self, _name: str, resent_scopes: list[str], expected: int
+    ) -> None:
+        payload = self._payload()
+        first = self.client.post(
+            self._url(), data={**payload, "config": {"write_scopes": ["dashboard:write"]}}, format="json"
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        self.client.force_login(User.objects.create_and_join(self.organization, "other@example.com", None))
+
+        response = self.client.post(
+            self._url(), data={**payload, "config": {"write_scopes": resent_scopes}}, format="json"
+        )
+
+        assert response.status_code == expected, response.json()
+        config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
+        assert config.write_scopes == ["dashboard:write"]
 
     def test_conflicting_definition_returns_409_without_changing_scout(self) -> None:
         payload = self._payload()

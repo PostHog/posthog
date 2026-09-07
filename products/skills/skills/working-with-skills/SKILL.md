@@ -58,6 +58,9 @@ Editing an existing skill?
   │    └─ Rename .......................... skill-file-rename
   └─ Wholesale bundle reset (rare!) ....... update(files=[...])  # replaces ALL files
 
+Renaming the skill itself?
+  └─► skill-rename                  (keeps versions, files, and owners)
+
 Want a fork as the starting point?
   └─► skill-duplicate               (then update the copy)
 

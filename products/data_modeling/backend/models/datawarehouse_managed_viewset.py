@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
@@ -102,7 +103,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         from posthog.hogql.database.database import Database
 
         # Internal managed-view construction (no user); bypass warehouse HogQL access control.
-        database = Database.create_for(self.team.pk, bypass_warehouse_access_control=True)
+        database = Database.create_for(
+            self.team.pk,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
         external_tables_by_view: dict[str, list] = {}
         for view in expected_views:
             temp_sq = DataWarehouseSavedQuery(
@@ -197,7 +202,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # creation entirely — no managed DAG is created for that kind.
         if saved_queries_to_schedule:
             managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-            dag_database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+            dag_database = Database.create_for(
+                team=self.team,
+                bypass_warehouse_access_control=True,
+                allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            )
             for saved_query in saved_queries_to_schedule:
                 try:
                     # reconcile once after both loops, not once per view
