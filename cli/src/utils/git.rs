@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
@@ -206,7 +207,7 @@ fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
             let line = line.trim();
             if line.starts_with("url = ") {
                 let url = line.trim_start_matches("url = ").trim();
-                let sanitized = strip_credentials(url);
+                let sanitized = strip_credentials(url)?;
                 let normalized = if sanitized.ends_with(".git") {
                     sanitized
                 } else {
@@ -223,29 +224,37 @@ fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
 /// Drops a userinfo component (`user[:pass]@`) from a URL's authority before it is stored
 /// anywhere. CI checkouts commonly write a remote URL with an embedded credential (e.g.
 /// `actions/checkout`'s `https://x-access-token:<token>@github.com/owner/repo.git`), and that
-/// credential must never reach release metadata. Non-URL forms (SSH's `git@host:owner/repo.git`)
-/// have no `://` authority and pass through unchanged.
-fn strip_credentials(url: &str) -> String {
-    let Some(scheme_end) = url.find("://") else {
-        return url.to_string();
-    };
-    let authority_start = scheme_end + 3;
-    let authority_end = url[authority_start..]
-        .find('/')
-        .map(|i| authority_start + i)
-        .unwrap_or(url.len());
+/// credential must never reach release metadata.
+///
+/// Returns `None` when a URL holds an `@` but does not parse. Userinfo must percent-encode
+/// `/`, `?` and `#`, so a URL that breaks that rule can hide a credential in a position no
+/// parser can identify. Such a URL is dropped instead of stored.
+fn strip_credentials(url: &str) -> Option<String> {
+    // SCP-like SSH remotes (`git@host:owner/repo.git`) have no `://` authority to parse, and
+    // the leading `git` is a fixed SSH username rather than a stored secret.
+    if !url.contains("://") {
+        return Some(url.to_string());
+    }
 
-    let authority = &url[authority_start..authority_end];
-    let Some(at_pos) = authority.rfind('@') else {
-        return url.to_string();
+    let Ok(mut parsed) = Url::parse(url) else {
+        return if url.contains('@') {
+            None
+        } else {
+            Some(url.to_string())
+        };
     };
 
-    format!(
-        "{}{}{}",
-        &url[..authority_start],
-        &authority[at_pos + 1..],
-        &url[authority_end..]
-    )
+    // Return the input untouched when it holds no credential, so the parser never reshapes a
+    // URL that this function does not need to change.
+    if parsed.username().is_empty() && parsed.password().is_none() {
+        return Some(url.to_string());
+    }
+
+    // Both setters fail only for a URL that cannot have an authority, such as `mailto:`. A URL
+    // that parsed with userinfo always has one.
+    parsed.set_username("").ok()?;
+    parsed.set_password(None).ok()?;
+    Some(parsed.to_string())
 }
 
 pub fn get_repo_name(git_dir: &Path) -> Option<String> {
@@ -258,7 +267,7 @@ pub fn get_repo_name(git_dir: &Path) -> Option<String> {
 
 fn get_repo_name_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
     // Try grab it from the configured remote, otherwise just use the directory name
-    for config_path in config_paths(&paths.git_dir, &paths.common_dir) {
+    'configs: for config_path in config_paths(&paths.git_dir, &paths.common_dir) {
         if !config_path.exists() {
             continue;
         }
@@ -271,11 +280,20 @@ fn get_repo_name_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
         for line in config_content.lines() {
             let line = line.trim();
             if line.starts_with("url = ") {
-                let url = line.trim_start_matches("url = ");
-                if let Some(repo_name) = url.split('/').next_back() {
+                let url = line.trim_start_matches("url = ").trim();
+                // A remote with no path puts the authority in the last segment, so the name
+                // is taken from the sanitized URL. Fall back to the directory name when the
+                // URL cannot be sanitized, rather than name the repository after a credential.
+                let Some(sanitized) = strip_credentials(url) else {
+                    break 'configs;
+                };
+                if let Some(repo_name) = sanitized.split('/').next_back() {
                     let clean_name = repo_name.trim_end_matches(".git");
-                    return Some(clean_name.to_string());
+                    if !clean_name.is_empty() {
+                        return Some(clean_name.to_string());
+                    }
                 }
+                break 'configs;
             }
         }
     }
@@ -415,65 +433,111 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strip_credentials_removes_github_actions_checkout_token() {
-        let url = "https://x-access-token:ghs_abc123def456@github.com/owner/repo.git";
-        assert_eq!(strip_credentials(url), "https://github.com/owner/repo.git");
+    fn strip_credentials_handles_remote_url_shapes() {
+        // `None` means the URL is refused, so no credential can reach release metadata.
+        let cases = [
+            (
+                "github actions checkout token",
+                "https://x-access-token:ghs_abc123def456@github.com/owner/repo.git",
+                Some("https://github.com/owner/repo.git"),
+            ),
+            (
+                "generic user and password",
+                "https://user:secret@host/owner/repo.git",
+                Some("https://host/owner/repo.git"),
+            ),
+            (
+                "token as the username",
+                "https://token@github.com/owner/repo.git",
+                Some("https://github.com/owner/repo.git"),
+            ),
+            (
+                "host and port are kept",
+                "https://user:secret@git.example.com:8443/owner/repo.git",
+                Some("https://git.example.com:8443/owner/repo.git"),
+            ),
+            (
+                "path and query survive the rewrite",
+                "https://x-access-token:ghs_abc@github.com/owner/repo.git?ref=main",
+                Some("https://github.com/owner/repo.git?ref=main"),
+            ),
+            (
+                "url without a credential is unchanged",
+                "https://github.com/owner/repo.git",
+                Some("https://github.com/owner/repo.git"),
+            ),
+            (
+                "scp-like ssh remote is unchanged, because `git` is a fixed ssh username",
+                "git@github.com:owner/repo.git",
+                Some("git@github.com:owner/repo.git"),
+            ),
+            (
+                "an `@` in the path is not a credential",
+                "https://github.com/owner/repo@v2.git",
+                Some("https://github.com/owner/repo@v2.git"),
+            ),
+            (
+                "ssh url with a credential",
+                "ssh://user:secret@host/owner/repo.git",
+                Some("ssh://host/owner/repo.git"),
+            ),
+            (
+                "git protocol url is unchanged",
+                "git://github.com/owner/repo.git",
+                Some("git://github.com/owner/repo.git"),
+            ),
+            (
+                "unencoded `/` in a password hides the credential, so the url is refused",
+                "https://user:ab/cd+ef=@github.com/owner/repo.git",
+                None,
+            ),
+        ];
+
+        for (name, url, expected) in cases {
+            assert_eq!(strip_credentials(url).as_deref(), expected, "case: {name}");
+        }
     }
 
-    #[test]
-    fn strip_credentials_removes_username_and_password() {
-        let url = "https://user:secret@host/owner/repo.git";
-        assert_eq!(strip_credentials(url), "https://host/owner/repo.git");
-    }
-
-    #[test]
-    fn strip_credentials_removes_username_only() {
-        let url = "https://token@github.com/owner/repo.git";
-        assert_eq!(strip_credentials(url), "https://github.com/owner/repo.git");
-    }
-
-    #[test]
-    fn strip_credentials_leaves_url_without_credential_unchanged() {
-        let url = "https://github.com/owner/repo.git";
-        assert_eq!(strip_credentials(url), url);
-    }
-
-    #[test]
-    fn strip_credentials_leaves_scp_like_ssh_url_unchanged() {
-        // No `://` authority, so there is nothing to strip; `git` here isn't a stored credential.
-        let url = "git@github.com:owner/repo.git";
-        assert_eq!(strip_credentials(url), url);
-    }
-
-    #[test]
-    fn strip_credentials_preserves_path_and_query_after_authority() {
-        let url = "https://x-access-token:ghs_abc@github.com/owner/repo.git?ref=main";
-        assert_eq!(
-            strip_credentials(url),
-            "https://github.com/owner/repo.git?ref=main"
-        );
-    }
-
-    #[test]
-    fn get_remote_url_from_paths_strips_credential_from_config() {
+    fn write_config(url: &str) -> (tempfile::TempDir, GitRepositoryPaths) {
         let dir = tempfile::tempdir().unwrap();
         let git_dir = dir.path().join(".git");
         fs::create_dir_all(&git_dir).unwrap();
         fs::write(
             git_dir.join("config"),
-            "[remote \"origin\"]\n\turl = https://x-access-token:ghs_abc123@github.com/owner/repo.git\n",
+            format!("[remote \"origin\"]\n\turl = {url}\n"),
         )
         .unwrap();
-
         let paths = GitRepositoryPaths {
             git_dir: git_dir.clone(),
             common_dir: git_dir,
             worktree_dir: dir.path().to_path_buf(),
         };
+        (dir, paths)
+    }
+
+    #[test]
+    fn get_remote_url_from_paths_strips_credential_from_config() {
+        let (_dir, paths) =
+            write_config("https://x-access-token:ghs_abc123@github.com/owner/repo.git");
 
         assert_eq!(
             get_remote_url_from_paths(&paths),
             Some("https://github.com/owner/repo.git".to_string())
         );
+    }
+
+    #[test]
+    fn get_repo_name_from_paths_never_returns_a_credential() {
+        let (_dir, paths) = write_config("https://user:ghp_abc123@github.com/owner/repo.git");
+        assert_eq!(get_repo_name_from_paths(&paths), Some("repo".to_string()));
+
+        // A remote with no path would otherwise name the repository after the authority.
+        let (dir, paths) = write_config("https://user:ghp_abc123@github.com");
+        let name = get_repo_name_from_paths(&paths).unwrap();
+        assert!(
+            !name.contains("ghp_abc123"),
+            "credential leaked into repo name: {name}"
+        );
+        assert_eq!(name, dir.path().file_name().unwrap().to_string_lossy());
     }
 }
