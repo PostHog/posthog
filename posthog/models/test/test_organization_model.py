@@ -501,8 +501,14 @@ class TestOrganization(BaseTest):
             self.assertEqual(data["limited_teams"], [])
             self.assertIsNone(data["redis_quota_limited_until"])
 
-    def test_is_active_change_invalidates_llm_gateway_quota_cache(self):
-        gateway_redis_url = "redis://llm-gateway-redis-org-active-test/"
+    @parameterized.expand(
+        [
+            ("deactivated", "is_active", False, None),
+            ("pending_deletion", "is_pending_deletion", True, ["is_pending_deletion"]),
+        ]
+    )
+    def test_a_revocation_invalidates_llm_gateway_quota_cache(self, name, field, value, update_fields):
+        gateway_redis_url = f"redis://llm-gateway-redis-org-{name}-test/"
         second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
         other_organization = Organization.objects.create(name="Other Org")
         other_team = other_organization.teams.create(name="Other Team", api_token="other_token")
@@ -523,8 +529,8 @@ class TestOrganization(BaseTest):
             gateway_redis.set(other_generation_key, 4)
 
             with self.captureOnCommitCallbacks(execute=True):
-                self.organization.is_active = False
-                self.organization.save()
+                setattr(self.organization, field, value)
+                self.organization.save(update_fields=update_fields)
 
             assert gateway_redis.mget(billing_keys) == [None] * len(billing_keys)
             assert gateway_redis.mget(generation_keys) == [b"1"] * len(generation_keys)

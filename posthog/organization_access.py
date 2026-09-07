@@ -47,6 +47,11 @@ REVOCATION_MESSAGES: dict[OrganizationAccessRevocation, str] = {
 }
 
 
+# The columns `organization_access_revocation` reads. A gate that watches for a revocation change
+# has to watch both of them, or a save of one column never reaches it.
+REVOCATION_FIELDS = ("is_active", "is_pending_deletion")
+
+
 def organization_access_revocation(organization: Organization) -> Optional[OrganizationAccessRevocation]:
     """The single read of whether an operator took an organization's access away.
 

@@ -24,6 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
+from posthog.organization_access import REVOCATION_FIELDS
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -227,8 +228,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
         ),
         max_length=200,
     )
-    # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
-    _is_active_changed: bool = False
+    # Transient flag set by the pre_save signal to communicate revocation changes to post_save.
+    _revocation_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -627,22 +628,22 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 
 
 @receiver(models.signals.pre_save, sender=Organization)
-def remember_organization_is_active_change(sender, instance: Organization, **kwargs):
-    instance._is_active_changed = False
+def remember_organization_revocation_change(sender, instance: Organization, **kwargs):
+    instance._revocation_changed = False
     if instance._state.adding:
         return
 
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "is_active" not in update_fields:
+    if update_fields is not None and all(field not in update_fields for field in REVOCATION_FIELDS):
         return
 
-    previous_is_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
-    instance._is_active_changed = previous_is_active != instance.is_active
+    previous = sender.objects.filter(pk=instance.pk).values_list(*REVOCATION_FIELDS).first()
+    instance._revocation_changed = previous != tuple(getattr(instance, field) for field in REVOCATION_FIELDS)
 
 
 @receiver(post_save, sender=Organization)
-def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
-    if created or not instance._is_active_changed:
+def invalidate_llm_gateway_quota_cache_on_revocation_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._revocation_changed:
         return
 
     organization_id = instance.pk
