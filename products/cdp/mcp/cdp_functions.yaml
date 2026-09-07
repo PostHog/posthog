@@ -210,8 +210,8 @@ tools:
         param_overrides:
             id:
                 description: >
-                    UUID of the function (destination, transformation, or site app). Find it with
-                    cdp-functions-list, which returns each function's id next to its name.
+                    UUID of the function (destination, transformation, or site app). Find it with cdp-functions-list,
+                    which returns each function's id next to its name.
                 aliases:
                     - function_id
                     - functionId
@@ -293,8 +293,8 @@ tools:
         param_overrides:
             id:
                 description: >
-                    UUID of the function (destination, transformation, or site app). Find it with
-                    cdp-functions-list, which returns each function's id next to its name.
+                    UUID of the function (destination, transformation, or site app). Find it with cdp-functions-list,
+                    which returns each function's id next to its name.
                 aliases:
                     - function_id
                     - functionId
@@ -446,8 +446,8 @@ tools:
         param_overrides:
             id:
                 description: >
-                    UUID of the function (destination, transformation, or site app). Find it with
-                    cdp-functions-list, which returns each function's id next to its name.
+                    UUID of the function (destination, transformation, or site app). Find it with cdp-functions-list,
+                    which returns each function's id next to its name.
                 aliases:
                     - function_id
                     - functionId
