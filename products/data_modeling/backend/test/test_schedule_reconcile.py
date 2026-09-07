@@ -6,6 +6,7 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -427,23 +428,27 @@ class TestMaybeReconcileDag(BaseTest):
         temporal.list_schedules = fake_list_schedules
         return temporal
 
-    def test_untiered_dag_is_left_alone(self):
-        # a legacy single-schedule DAG converts only via the conversion command; a mutation
-        # trigger must neither unschedule it nor create tiers next to live v1 schedules
+    @parameterized.expand([("on a legacy whole-DAG schedule", True), ("with no schedule at all", False)])
+    def test_untiered_dag_converts(self, _name, has_legacy_schedule):
         dag = self._dag_with_target()
+        legacy_id = str(dag.id)
+        existing = [legacy_id] if has_legacy_schedule else []
         with (
-            mock.patch(
-                f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
-            ),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing(existing))),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
-        create.assert_not_called()
+
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(legacy_id, M15))
         update.assert_not_called()
-        delete.assert_not_called()
+        if has_legacy_schedule:
+            self.assertEqual(delete.call_args.kwargs["schedule_id"], legacy_id)
+        else:
+            delete.assert_not_called()
 
     def test_tiered_dag_reconciles_after_commit(self):
         dag = self._dag_with_target()

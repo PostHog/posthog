@@ -102,13 +102,13 @@ def tiered_schedules_enabled(team: "Team") -> bool:
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
-    """Trigger hook for graph/target mutations: reconcile an already-tiered DAG, best-effort.
+    """Trigger hook for graph/target mutations: reconcile the DAG's schedules, best-effort.
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
-    commit — the user's write already succeeded. Only DAGs already converted to cadence
-    tiers are touched: `require_tiered` below leaves legacy single-schedule DAGs to the
-    reconcile_freshness_schedules command, so a stray mutation cannot unschedule an
-    unseeded DAG.
+    commit — the user's write already succeeded. Reconciles whether or not the DAG already
+    holds tiers, so a DAG left with no schedule (every view paused, then one re-enabled)
+    regains one. An unseeded DAG that still holds only legacy schedules is protected inside
+    `_apply_reconciliation`, which refuses to converge it to zero schedules.
     """
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
@@ -117,7 +117,7 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
     try:
         graph = build_frequency_graph(dag)
         _warn_on_invalid_targets(dag, graph)
-        reconcile_dag_schedules(dag, require_tiered=True, graph=graph)
+        reconcile_dag_schedules(dag, graph=graph)
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
