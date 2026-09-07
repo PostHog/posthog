@@ -23,16 +23,13 @@ export type InjectedBlockKind =
 
 export interface InjectedBlock {
   kind: InjectedBlockKind;
-  /** What the agent received, exactly as sent. */
   body: string;
-  /** Attributes on the opening tag, unescaped. */
   attrs: Record<string, string>;
 }
 
 export interface InjectedBlockSplit {
   /** One block per kind, in registry order. */
   blocks: InjectedBlock[];
-  /** The message with every block removed. */
   text: string;
 }
 
@@ -41,7 +38,6 @@ interface InjectedBlockSpec {
   pattern: RegExp;
   /** Keep the tags in `body`, so a reader sees the element the agent saw. */
   keepTags: boolean;
-  /** A match counts only when its inner text satisfies this. */
   guard?: (inner: string) => boolean;
 }
 

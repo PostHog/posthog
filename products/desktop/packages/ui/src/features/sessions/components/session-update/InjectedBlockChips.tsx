@@ -6,7 +6,6 @@ import { MentionChip } from "@posthog/ui/features/sessions/components/session-up
 interface InjectedBlockChipsProps {
   /** Already filtered through `useVisibleInjectedBlocks`. */
   blocks: InjectedBlock[];
-  /** Task the message belongs to. Without it no chip can open a tab. */
   taskId?: string | null;
 }
 

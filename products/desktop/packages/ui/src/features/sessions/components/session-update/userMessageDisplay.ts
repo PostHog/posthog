@@ -10,9 +10,7 @@ import { collapsePiSkillInvocation } from "./piSkillInvocation";
 
 export interface UserMessageParts {
   peerAgentMessage: PeerAgentMessage | null;
-  /** Everything folded into the message at send time, in registry order. */
   blocks: InjectedBlock[];
-  /** What the user wrote. */
   displayContent: string;
 }
 

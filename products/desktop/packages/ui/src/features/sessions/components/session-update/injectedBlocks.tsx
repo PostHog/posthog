@@ -19,7 +19,6 @@ import type {
 export interface InjectedBlockPresentation {
   icon: Icon;
   label: (block: InjectedBlock) => string;
-  /** Hover text on the chip, for a block whose label needs explaining. */
   tooltip?: string;
   /**
    * Show a chip naming the block where the message renders. A block with no
@@ -37,10 +36,6 @@ export interface InjectedBlockPresentation {
   };
 }
 
-// Every kind the parser in @posthog/core knows needs an entry here; the type
-// enforces it. This is the only place a block's label, icon and tab live, so
-// the chat bubble, the activity timeline, the split tab and the tab strip all
-// agree on what a block is called.
 export const INJECTED_BLOCK_PRESENTATION: Record<
   InjectedBlockKind,
   InjectedBlockPresentation
@@ -99,7 +94,6 @@ export const INJECTED_BLOCK_PRESENTATION: Record<
   },
 };
 
-/** The blocks a message surface shows chips for, given whether tabs can open. */
 export function visibleInjectedBlocks(
   blocks: InjectedBlock[],
   canOpenTabs: boolean,

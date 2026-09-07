@@ -30,8 +30,6 @@ export type TabData =
       type: "review";
     }
   | {
-      // A read-only snapshot of a block folded into a prompt at send time,
-      // shown exactly as the agent received it.
       type: "injected-block";
       block: InjectedBlock;
     }
