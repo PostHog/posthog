@@ -95836,7 +95836,7 @@ export namespace Schemas {
      */
     include_person?: boolean;
     /**
-     * The maximum number of results to return
+     * The maximum number of results to return. Capped at 1000: a larger value is reduced to the cap and the response carries an `X-PostHog-Warn` header.
      */
     limit?: number;
     /**
