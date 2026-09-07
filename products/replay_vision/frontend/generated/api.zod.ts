@@ -977,7 +977,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(visionScannersScoutsCreateBodyNameMax)
             .describe(
-                'Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.'
+                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
