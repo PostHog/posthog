@@ -54,7 +54,7 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     size_bytes = models.IntegerField(null=True, blank=True)
     # True from presigned upload start until the uploaded object is verified. A pending
     # row's bytes are unvetted, so it is never listed and never served.
-    pending = models.BooleanField(default=False)
+    pending = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         indexes = [
