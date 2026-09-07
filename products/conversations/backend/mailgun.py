@@ -3,7 +3,7 @@
 import hmac
 import time
 import hashlib
-from typing import Any
+from typing import Any, TypedDict
 
 import requests
 import structlog
@@ -17,6 +17,17 @@ MAILGUN_API_BASE = "https://api.mailgun.net/v3"
 WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS = 300  # 5 minutes
 
 MAILGUN_SEND_TIMEOUT = 30  # seconds
+
+
+class MailgunDnsRecord(TypedDict, total=False):
+    record_type: str
+    name: str
+    value: str
+    valid: str
+
+
+class MailgunDnsRecords(TypedDict, total=False):
+    sending_dns_records: list[MailgunDnsRecord]
 
 
 class MailgunError(Exception):
@@ -100,12 +111,12 @@ def _get_api_key() -> str:
     return key
 
 
-def _filter_sending_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _filter_sending_records(records: list[MailgunDnsRecord]) -> list[MailgunDnsRecord]:
     """Strip tracking CNAME records — we don't use open/click tracking."""
     return [r for r in records if r.get("record_type", "").upper() != "CNAME"]
 
 
-def add_domain(domain: str) -> dict[str, Any]:
+def add_domain(domain: str) -> MailgunDnsRecords:
     """Register a sending domain with Mailgun. Returns DNS records to configure."""
     resp = requests.post(
         f"{MAILGUN_API_BASE}/domains",
@@ -167,7 +178,7 @@ def get_domain(domain: str) -> dict[str, Any] | None:
     return domain_info
 
 
-def get_domain_dns_records(domain: str) -> dict[str, Any]:
+def get_domain_dns_records(domain: str) -> MailgunDnsRecords:
     """Fetch DNS records for an existing Mailgun domain."""
     resp = requests.get(
         f"{MAILGUN_API_BASE}/domains/{domain}",

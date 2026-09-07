@@ -5,7 +5,6 @@ import secrets
 from email.utils import formataddr, make_msgid
 from enum import StrEnum
 from hashlib import sha256
-from typing import Any
 
 from django.core import exceptions, mail
 from django.core.cache import cache
@@ -31,6 +30,7 @@ from posthog.models.user import User
 from posthog.rate_limit import EmailForwardingChallengeThrottle, EmailSendTestThrottle, EmailVerifyDomainThrottle
 
 from products.conversations.backend.mailgun import (
+    MailgunDnsRecords,
     MailgunDomainConflict,
     MailgunDomainNotRegistered,
     MailgunError,
@@ -242,7 +242,7 @@ def _release_domain_if_unused(team: Team, domain: str) -> None:
         logger.exception("email_connect_release_domain_failed", team_id=team.id, domain=domain)
 
 
-def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict[str, Any] | MailgunDomainReclaimBlocker:
+def _try_reclaim_stranded_domain(team: Team, domain: str) -> MailgunDnsRecords | MailgunDomainReclaimBlocker:
     """Recover a domain stranded in our Mailgun account with no support config referencing it.
 
     A connect that registered the domain but failed to persist a config, or a
@@ -525,7 +525,7 @@ class EmailConnectView(APIView):
             )
 
         sibling: EmailChannel | None = None
-        dns_records: dict = {}
+        dns_records: MailgunDnsRecords = {}
         if kind == EmailChannelKind.SUPPORT:
             # A shared provider domain can never pass DNS verification, so Mailgun would reject it
             # later with a message about the domain being claimed by someone else. Customer
