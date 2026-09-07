@@ -77,6 +77,7 @@ import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
+    type ScannerEditorStep,
     firstErroredScannerStep,
     scannerEditorSceneLogic,
     scannerStepUrl,
@@ -328,6 +329,7 @@ export interface replayScannerLogicValues {
     goalDraftLoading: boolean
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
+    hasSectionEditChanges: boolean
     hasUnsavedChanges: boolean
     isNew: boolean
     isScannerSubmitting: boolean
@@ -370,6 +372,7 @@ export interface replayScannerLogicValues {
     scannerTouched: boolean
     scannerTouches: Record<string, boolean>
     scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>
+    sectionEditSnapshot: ScannerFormValues | null
     showScannerErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
     tagSuggestions: TagSuggestionApi[]
@@ -406,6 +409,12 @@ export interface replayScannerLogicActions {
     }
     discardScannerDraft: () => {
         value: true
+    }
+    discardSectionEdits: () => {
+        value: true
+    }
+    editScannerSection: (step: ScannerEditorStep) => {
+        step: ScannerEditorStep
     }
     dismissTagSuggestions: () => {
         value: true
@@ -647,6 +656,9 @@ export interface replayScannerLogicActions {
     setScannerValues: (values: DeepPartial<ScannerFormValues>) => {
         values: DeepPartial<ScannerFormValues>
     }
+    setSectionEditSnapshot: (snapshot: ScannerFormValues | null) => {
+        snapshot: ScannerFormValues | null
+    }
     startFromTemplate: (templateKey: string | null) => {
         templateKey: string | null
     }
@@ -700,6 +712,7 @@ export interface replayScannerLogicMeta {
         isNew: (id: string) => boolean
         durationValidationError: (scanner: ScannerFormValues) => string | null
         hasUnsavedChanges: (scanner: ScannerFormValues, originalScanner: ScannerFormValues | null) => boolean
+        hasSectionEditChanges: (scanner: ScannerFormValues, sectionEditSnapshot: ScannerFormValues | null) => boolean
         hasObservationsInFlight: (observationStatsApi: ObservationStatsApi | null) => boolean
         hasActiveObservationFilters: (
             observationStatusFilter: ObservationStatusEnumApi[],
@@ -762,6 +775,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
         discardScannerDraft: true,
+        // The goal overview's per-section Edit: snapshots the config, then opens the step that edits it.
+        editScannerSection: (step: ScannerEditorStep) => ({ step }),
+        setSectionEditSnapshot: (snapshot: ScannerFormValues | null) => ({ snapshot }),
+        discardSectionEdits: true,
         setScannerDraftSavedAt: (savedAt: number | null) => ({ savedAt }),
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ScannerFormValues) => ({ scanner }),
@@ -1089,6 +1106,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 detachExperimentContext: () => null,
             },
         ],
+        // The config as it stood when a section was opened from the goal overview, so that section's
+        // edits can be thrown away on their own without discarding the whole drafted scanner.
+        sectionEditSnapshot: [
+            null as ScannerFormValues | null,
+            {
+                setSectionEditSnapshot: (_, { snapshot }) => snapshot,
+                startFromTemplate: () => null,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
+            },
+        ],
         originalScanner: [
             null as ScannerFormValues | null,
             {
@@ -1358,6 +1386,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 return !objectsEqual(omitStamps(scanner), omitStamps(original))
             },
         ],
+        // Whether the section opened from the goal overview holds edits worth throwing away.
+        hasSectionEditChanges: [
+            (s) => [s.scanner, s.sectionEditSnapshot],
+            (scanner: ReplayScanner | null, snapshot: ScannerFormValues | null): boolean => {
+                if (!scanner || !snapshot) {
+                    return false
+                }
+                return !objectsEqual(omitStamps(scanner), omitStamps(snapshot))
+            },
+        ],
         hasObservationsInFlight: [
             (s) => [s.observationStatsApi],
             (stats: ObservationStatsApi | null): boolean => (stats?.status_counts.in_flight ?? 0) > 0,
@@ -1539,7 +1577,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.setScannerDraftSavedAt(null)
                 return
             }
-            const savedAt = writeScannerDraft(teamId, values.scanner)
+            const savedAt = writeScannerDraft(teamId, values.scanner, values.sectionEditSnapshot)
             if (savedAt === null) {
                 // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
                 clearScannerDraft()
@@ -1657,6 +1695,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         if (draft) {
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
+                            // Reloading inside a section edit keeps its "Discard changes" working.
+                            actions.setSectionEditSnapshot(draft.sectionSnapshot)
                             // A draft made from an experiment prefill carries targeting the
                             // loadScannerSuccess above (a bare newScanner) didn't see.
                             actions.rebuildExperimentContext()
@@ -1906,6 +1946,26 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const base = newScanner(templateKey, teamLogic.values.currentTeam?.name)
                 const context = values.experimentContext
                 actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
+            },
+            editScannerSection: ({ step }) => {
+                // Snapshot before the step opens: every edit made there is measured against this,
+                // and discarding the section restores it.
+                actions.setSectionEditSnapshot(values.scanner)
+                persistDraft()
+                const { from: _from, ...params } = router.values.searchParams
+                router.actions.push(scannerStepUrlWithParams(step, props.id, { ...params, from: 'overview' }))
+            },
+            discardSectionEdits: () => {
+                const snapshot = values.sectionEditSnapshot
+                const { from: _from, ...params } = router.values.searchParams
+                if (snapshot) {
+                    actions.resetScanner(snapshot)
+                    actions.setSectionEditSnapshot(null)
+                    // The restored filter, model and dials change what the overview projects.
+                    actions.requestScannerEstimate()
+                    persistDraft()
+                }
+                router.actions.push(scannerStepUrlWithParams('overview', props.id, params))
             },
             discardScannerDraft: () => {
                 // Storage holds one draft, and it belongs to the new-scanner wizard.
