@@ -155,6 +155,65 @@ class TestExtractMessageText:
                 "duplicated\ndifferent",
             ),
             (
+                # Human messages carry a rich_text mirror of `text` whose flattening drops
+                # mentions and emoji — a near-duplicate that must not reach the agent prompt.
+                "rich_text_mirror_of_text_is_skipped",
+                {
+                    "text": "never seen it work anywhere :joy: cc <@UCLEO>",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {"type": "text", "text": "never seen it work anywhere "},
+                                        {"type": "emoji", "name": "joy"},
+                                        {"type": "text", "text": " cc "},
+                                        {"type": "user", "user_id": "UCLEO"},
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "never seen it work anywhere :joy: cc <@UCLEO>",
+            ),
+            (
+                "rich_text_still_flattened_when_text_empty",
+                {
+                    "text": "",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "bot content only in blocks"}],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "bot content only in blocks",
+            ),
+            (
+                "non_rich_text_blocks_kept_alongside_text",
+                {
+                    "text": "🔴 Alert firing",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {"type": "rich_text_section", "elements": [{"type": "text", "text": "🔴 Alert firing"}]}
+                            ],
+                        },
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "value 42 exceeded threshold 10"}},
+                    ],
+                },
+                "🔴 Alert firing\nvalue 42 exceeded threshold 10",
+            ),
+            (
                 "no_content_returns_empty",
                 {"text": "", "blocks": [], "attachments": []},
                 "",

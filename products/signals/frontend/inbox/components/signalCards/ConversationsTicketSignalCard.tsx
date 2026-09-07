@@ -1,12 +1,10 @@
 import { useState } from 'react'
 
-import { IconChevronRight, IconComment, IconGithub, IconImage, IconLetter } from '@posthog/icons'
+import { IconChevronRight, IconImage } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 import { urls } from 'scenes/urls'
 
@@ -28,63 +26,6 @@ export function isConversationsTicketExtra(
     }
     const extra = value as Record<string, unknown>
     return 'ticket_number' in extra && 'channel_source' in extra
-}
-
-/** Sentence-case a lower-case token, treating underscores as spaces (e.g. `on_hold` → "On hold"). */
-function humanizeToken(value: string): string {
-    const spaced = value.replace(/_/g, ' ')
-    return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
-/** Map a Conversations ticket status to a tag colour. */
-export function conversationsStatusTagType(s: string): LemonTagType {
-    switch (s) {
-        case 'resolved':
-            return 'success'
-        case 'new':
-            return 'primary'
-        case 'open':
-        case 'pending':
-        case 'on_hold':
-        default:
-            return 'default'
-    }
-}
-
-/** Human label for a Conversations ticket status (Sentence-cased, underscores humanized). */
-export function conversationsStatusLabel(s: string): string {
-    return humanizeToken(s)
-}
-
-/** Map a Conversations ticket priority to a tag colour. */
-export function conversationsPriorityTagType(p: string): LemonTagType {
-    switch (p) {
-        case 'high':
-            return 'danger'
-        case 'medium':
-            return 'warning'
-        case 'low':
-        default:
-            return 'default'
-    }
-}
-
-/** Map a channel source to its brand icon, or null when unrecognized. */
-export function conversationsChannelIcon(source: string): JSX.Element | null {
-    switch (source) {
-        case 'widget':
-            return <IconComment />
-        case 'email':
-            return <IconLetter />
-        case 'github':
-            return <IconGithub />
-        case 'slack':
-            return <IconSlack />
-        case 'teams':
-            return <IconMicrosoftTeams />
-        default:
-            return null
-    }
 }
 
 /** How many attachment thumbnails to show before pointing at the ticket for the rest. */
@@ -132,7 +73,6 @@ function TicketImageThumbnail({ image }: { image: ConversationsTicketImageApi })
 export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
     const extra = signal.extra as Record<string, unknown> & ConversationsTicketSignalExtraApi
-    const channelIcon = conversationsChannelIcon(extra.channel_source)
     // Attachment thumbnails are part of the redesign's evidence rail.
     const images = redesign && Array.isArray(extra.images) ? extra.images : []
     const ticketUrl = urls.supportTicketDetail(extra.ticket_number)
@@ -158,27 +98,8 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
                     )}
                 </ul>
             )}
-            <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary">
+            <div className="flex items-center gap-2 text-xs text-tertiary">
                 <span className="font-mono font-medium">#{extra.ticket_number}</span>
-                <LemonTag size="small" type={conversationsStatusTagType(extra.status)}>
-                    {conversationsStatusLabel(extra.status)}
-                </LemonTag>
-                {extra.priority && (
-                    <LemonTag size="small" type={conversationsPriorityTagType(extra.priority)}>
-                        {humanizeToken(extra.priority)}
-                    </LemonTag>
-                )}
-                <LemonTag size="small" type="muted">
-                    <span className="flex items-center gap-1">
-                        {channelIcon}
-                        <span>
-                            {extra.channel_source}
-                            {extra.channel_detail && ` · ${humanizeToken(extra.channel_detail)}`}
-                        </span>
-                    </span>
-                </LemonTag>
-            </div>
-            <div className="flex items-center mt-2">
                 <span className="flex-1" />
                 <Link to={ticketUrl} className="flex items-center gap-1 text-xs font-medium">
                     Open ticket

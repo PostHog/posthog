@@ -28,6 +28,7 @@ import { useEffect, useMemo } from "react";
  * unread badge clears in the sidebar's cut-over effect when a report is
  * clicked into.
  */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function ChannelReportsSection({
   view,
   activeReportId,

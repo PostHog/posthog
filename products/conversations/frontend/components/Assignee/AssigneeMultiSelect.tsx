@@ -6,7 +6,7 @@ import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/
 
 import { urls } from 'scenes/urls'
 
-import { clearFilterButtonProps } from '../clearFilterButtonProps'
+import { clearFilterButtonProps } from '../../clearFilterButtonProps'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
 import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES, toTicketAssignee } from './types'

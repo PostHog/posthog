@@ -107,12 +107,6 @@ class TestUntaggedFollowupInteractivity(TestCase):
             timeout=900,
         )
 
-        self._ff_patcher = patch(
-            "products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=True
-        )
-        self._ff_patcher.start()
-        self.addCleanup(self._ff_patcher.stop)
-
     def _click(self, action_id: str, slack_user_id: str) -> Any:
         payload = {
             "type": "block_actions",
@@ -184,21 +178,6 @@ class TestUntaggedFollowupInteractivity(TestCase):
         ):
             response = self._click(UNTAGGED_FOLLOWUP_ACTION_RUN, "U_SOMEONE_ELSE")
 
-        assert response.status_code == 200
-        mock_start.assert_not_called()
-
-    def test_flag_turned_off_between_prompt_and_click_dispatches_nothing(self, mock_slack_cls, mock_post):
-        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        self._ff_patcher.stop()
-
-        with (
-            patch("products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=False),
-            self._stub_slack_user_email(self.member_user.email),
-            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
-        ):
-            response = self._click(UNTAGGED_FOLLOWUP_ACTION_RUN, "U_BOB")
-
-        self._ff_patcher.start()
         assert response.status_code == 200
         mock_start.assert_not_called()
 

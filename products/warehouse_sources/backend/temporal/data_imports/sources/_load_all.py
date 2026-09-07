@@ -325,6 +325,7 @@ from .curve.source import CurveSource
 from .custom.source import CustomSource
 from .customer_io.source import CustomerIOSource
 from .customerly.source import CustomerlySource
+from .cybersource.source import CybersourceSource
 from .d2l_brightspace.source import D2lBrightspaceSource
 from .dagster_cloud.source import DagsterCloudSource
 from .databricks.source import DatabricksSource
@@ -343,6 +344,7 @@ from .deel.source import DeelSource
 from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
+from .demodesk.source import DemodeskSource
 from .deno_deploy.source import DenoDeploySource
 from .depot.source import DepotSource
 from .deputy.source import DeputySource
@@ -445,6 +447,7 @@ from .float_app.source import FloatAppSource
 from .flowlu.source import FlowluSource
 from .flutterwave.source import FlutterwaveSource
 from .fly_io.source import FlyIoSource
+from .folk.source import FolkSource
 from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
@@ -721,10 +724,12 @@ from .marketstack.source import MarketstackSource
 from .mastodon.source import MastodonSource
 from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
+from .medusa.source import MedusaSource
 from .meetup.source import MeetupSource
 from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
+from .membrain.source import MembrainSource
 from .mendeley.source import MendeleySource
 from .mention.source import MentionSource
 from .mercado_ads.source import MercadoAdsSource
@@ -969,6 +974,7 @@ from .raygun.source import RaygunSource
 from .razorpay.source import RazorpaySource
 from .rb2b.source import RB2BSource
 from .rd_station_marketing.source import RDStationMarketingSource
+from .recall_ai.source import RecallAISource
 from .recharge.source import RechargeSource
 from .recreation.source import RecreationSource
 from .recruitee.source import RecruiteeSource
@@ -999,6 +1005,7 @@ from .roark.source import RoarkSource
 from .rocket_chat.source import RocketChatSource
 from .rocket_matter.source import RocketMatterSource
 from .rocketlane.source import RocketlaneSource
+from .rokt_ads.source import RoktAdsSource
 from .rollbar.source import RollbarSource
 from .rootly.source import RootlySource
 from .rss.source import RssSource
@@ -1126,6 +1133,7 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
+from .strato.source import StratoSource
 from .strava.source import StravaSource
 from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
@@ -1164,6 +1172,7 @@ from .telnyx.source import TelnyxSource
 from .tempo.source import TempoSource
 from .temporalio.source import TemporalIOSource
 from .tenable_vulnerability_management.source import TenableVulnerabilityManagementSource
+from .tenjin.source import TenjinSource
 from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource

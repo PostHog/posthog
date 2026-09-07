@@ -268,6 +268,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
                 pending_user_message=prompt,
                 extra_run_state=extra_run_state,
                 inactivity_timeout_seconds=TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS,
+                internal=True,
             )
     except IntegrityError:
         claimed = find_existing_analysis_task(team_id=team.id, target_run_id=str(target_run.id))

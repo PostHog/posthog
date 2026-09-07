@@ -28,9 +28,15 @@ from products.mcp_store.backend.proxy import _build_sse_response
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
-        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Policy checks now flow through url_policy (check_mcp_url_policy);
+        # proxy.is_url_allowed still guards same-origin redirect targets.
+        for target in (
+            "products.mcp_store.backend.url_policy.is_url_allowed",
+            "products.mcp_store.backend.proxy.is_url_allowed",
+        ):
+            patcher = patch(target, return_value=(True, None))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _proxy_url(self, installation_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_server_installations/{installation_id}/proxy/"
@@ -504,7 +510,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.json()["error"] == "No credentials configured"
 
-    @patch("products.mcp_store.backend.proxy.is_url_allowed")
+    @patch("products.mcp_store.backend.url_policy.is_url_allowed")
     def test_proxy_rejects_ssrf_private_ips(self, mock_is_url_allowed):
         mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
         installation = self._create_installation(
@@ -541,9 +547,15 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     def setUp(self):
         super().setUp()
-        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Policy checks now flow through url_policy (check_mcp_url_policy);
+        # proxy.is_url_allowed still guards same-origin redirect targets.
+        for target in (
+            "products.mcp_store.backend.url_policy.is_url_allowed",
+            "products.mcp_store.backend.proxy.is_url_allowed",
+        ):
+            patcher = patch(target, return_value=(True, None))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _proxy_url(self, installation_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_server_installations/{installation_id}/proxy/"
@@ -853,9 +865,15 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     def setUp(self):
         super().setUp()
-        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Policy checks now flow through url_policy (check_mcp_url_policy);
+        # proxy.is_url_allowed still guards same-origin redirect targets.
+        for target in (
+            "products.mcp_store.backend.url_policy.is_url_allowed",
+            "products.mcp_store.backend.proxy.is_url_allowed",
+        ):
+            patcher = patch(target, return_value=(True, None))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _proxy_url(self, installation_id: str, team_id: int | None = None) -> str:
         tid = team_id if team_id is not None else self.team.id

@@ -177,6 +177,7 @@ export class HogFunctionHandler implements ActionHandler {
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
+                conversionWatchers: [],
             }
         }
 
@@ -206,6 +207,7 @@ export class HogFunctionHandler implements ActionHandler {
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
+                conversionWatchers: [],
             }
         }
 
