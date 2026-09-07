@@ -255,8 +255,21 @@ def _url_shape_error(raw_url: str) -> str | None:
     return None
 
 
-def _blocked_host_reason(host: str) -> str | None:
-    """Reason to reject a host on its name alone, or None when the name is acceptable.
+@frozen
+class BlockedName:
+    """Why a host name is blocked, and which internal pattern matched it.
+
+    The pattern rides alongside the reason rather than only inside it, so a log query can
+    group by it. Deriving it again at the log site would mean a second copy of the matching,
+    which is the shape that produced the fullwidth bypass.
+    """
+
+    reason: str
+    pattern: str | None = None
+
+
+def _blocked_host_name(host: str) -> BlockedName | None:
+    """Why to reject a host on its name alone, or None when the name is acceptable.
 
     These checks run before resolution, so they also catch a name that resolves to a public
     IP: split-horizon DNS, and a registered domain shaped like an internal one.
@@ -267,14 +280,14 @@ def _blocked_host_reason(host: str) -> str | None:
     """
     host = _canonicalize_host(host)
     if host in METADATA_HOSTS:
-        return "Local/metadata host"
+        return BlockedName(reason="Local/metadata host")
     if host in {"localhost", "127.0.0.1", "::1"}:
-        return "Local/Loopback host not allowed"
+        return BlockedName(reason="Local/Loopback host not allowed")
     for pattern in INTERNAL_DOMAIN_PATTERNS:
         if host.endswith(pattern):
-            return f"Internal domain pattern blocked: {pattern}"
+            return BlockedName(reason=f"Internal domain pattern blocked: {pattern}", pattern=pattern)
     if _is_internal_ip_literal(host):
-        return "Private IP address not allowed"
+        return BlockedName(reason="Private IP address not allowed")
     return None
 
 
@@ -415,11 +428,7 @@ def resolve_url_hosts_ips(raw_urls: Iterable[str]) -> dict[str, ResolvedIPs]:
         except Exception:
             continue
         # Skip what the validator will reject anyway. This shares the rule rather than restating it.
-        if (
-            parsed_url.scheme not in {"http", "https"}
-            or not parsed_url.netloc
-            or _blocked_host_reason(host) is not None
-        ):
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc or _blocked_host_name(host) is not None:
             continue
         hosts.add(host)
     return resolve_hosts_ips(hosts)
@@ -472,9 +481,9 @@ def _validate_url_with_ips(
         return _blocked(shape_reason, **_url_log_fields(raw_url))
     u = urlparse.urlparse(raw_url)
     host = _canonicalize_host(u.hostname or "")
-    name_reason = _blocked_host_reason(host)
-    if name_reason is not None:
-        return _blocked(name_reason, host=host)
+    blocked_name = _blocked_host_name(host)
+    if blocked_name is not None:
+        return _blocked(blocked_name.reason, host=host, pattern=blocked_name.pattern)
 
     ips = resolve_host_ips(host) if resolved_ips_by_host is None else resolved_ips_by_host.get(host, empty)
     if not ips:
@@ -509,10 +518,10 @@ def validate_external_url(url: str) -> None:
 
     # The URL could come from untyped config, so check its type first
     if not isinstance(url, str):
-        raise ValueError("URL must be a string")
+        raise ShapeError("URL must be a string")
     shape_reason = _url_shape_error(url)
     if shape_reason is not None:
-        raise ValueError(shape_reason)
+        raise ShapeError(shape_reason)
 
     if _dev_bypass_enabled() or _test_bypass_enabled():
         return
@@ -522,11 +531,12 @@ def validate_external_url(url: str) -> None:
         raise ValueError(reason or "URL is not allowed")
 
 
-class HostShapeError(ValueError):
-    """The value cannot be a host, judged from its form alone before any lookup.
+class ShapeError(ValueError):
+    """The value cannot be a host or a URL, judged from its form alone before any lookup.
 
     Separate from the other reasons because it is safe to report in detail: nothing about our
-    network went into the decision, and the user has something they can fix.
+    network went into the decision, and the user has something they can fix. Everything else a
+    validator raises has to stay behind one neutral message.
     """
 
 
@@ -548,18 +558,18 @@ def validate_external_host(host: str) -> None:
 
     # The host could come from untyped config, so check its type first
     if not isinstance(host, str):
-        raise HostShapeError("Host must be a string")
+        raise ShapeError("Host must be a string")
     shape_reason = _host_shape_error(host)
     if shape_reason is not None:
-        raise HostShapeError(shape_reason)
+        raise ShapeError(shape_reason)
     host = _canonicalize_host(host)
 
     if _dev_bypass_enabled() or _test_bypass_enabled():
         return
 
-    name_reason = _blocked_host_reason(host)
-    if name_reason is not None:
-        raise ValueError(name_reason)
+    blocked_name = _blocked_host_name(host)
+    if blocked_name is not None:
+        raise ValueError(blocked_name.reason)
 
     # Return the same error message in both cases, to avoid exposing details of our internal
     # network.

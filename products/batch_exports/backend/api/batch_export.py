@@ -44,7 +44,7 @@ from posthog.models.integration import (
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
-    HostShapeError,
+    ShapeError,
     validate_external_host,
 )
 from posthog.temporal.common.client import sync_connect
@@ -1623,7 +1623,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if host is not None:
                 try:
                     validate_external_host(host)
-                except HostShapeError:
+                except ShapeError:
                     raise serializers.ValidationError(INVALID_HOST_MESSAGE)
                 except ValueError:
                     raise serializers.ValidationError(UNREACHABLE_HOST_MESSAGE)
