@@ -3,8 +3,17 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   CheckCircleIcon,
+  PlayIcon,
   TagIcon,
 } from "@phosphor-icons/react";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
 import type { Signal, SignalFindingContent } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
@@ -603,7 +612,7 @@ function SessionProblemSignalCard({
       <CollapsibleBody body={signal.content} />
 
       {extra.session_id && (
-        <SessionRecordingVideo
+        <SessionRecordingPreview
           exportedAssetId={extra.exported_asset_id}
           sessionId={extra.session_id}
           seekSeconds={
@@ -686,7 +695,33 @@ function RecordingPlayerLink({ url, label }: { url: string; label: string }) {
   );
 }
 
-function SessionRecordingVideo({
+const RECORDING_ROW_CLASS =
+  "group mt-2 flex w-full items-center gap-3 rounded-(--radius-3) border border-(--gray-5) bg-(--gray-2) px-3 py-2.5 text-left no-underline transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)";
+
+function RecordingRowLabel({
+  title,
+  detail,
+}: {
+  title: string;
+  detail: string;
+}) {
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="block font-medium text-[13px] text-gray-12">
+        {title}
+      </span>
+      <span className="block truncate text-[12px] text-gray-10">{detail}</span>
+    </span>
+  );
+}
+
+/**
+ * The recording affordance on an evidence card: a row that opens the captured
+ * clip in a modal player, seeked to the moment the finding describes. The clip
+ * downloads only once that modal opens, so a report full of evidence costs one
+ * cheap lookup per card rather than one mp4 per card.
+ */
+function SessionRecordingPreview({
   exportedAssetId,
   sessionId,
   seekSeconds,
@@ -696,71 +731,145 @@ function SessionRecordingVideo({
   seekSeconds?: number | null;
 }) {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const hasFiredPlayRef = useRef(false);
   const interaction = useSignalInteraction();
-  const videoQuery = useAuthenticatedQuery<string | null>(
-    ["export-video", projectId, exportedAssetId, sessionId],
+  const [open, setOpen] = useState(false);
+
+  const assetQuery = useAuthenticatedQuery<number | null>(
+    ["recording-export-asset", projectId, exportedAssetId, sessionId],
     async (client) => {
       if (!projectId) return null;
-      let assetId: number | null = exportedAssetId ?? null;
-      // If no asset ID in the signal, look up the export by session_id
-      if (assetId == null) {
-        assetId = await client.findExportBySessionRecordingId(
-          projectId,
-          sessionId,
-        );
-        if (assetId == null) return null;
-      }
-      return client.getExportContentUrl(projectId, assetId);
+      if (exportedAssetId != null) return exportedAssetId;
+      return await client.findExportBySessionRecordingId(projectId, sessionId);
     },
     { enabled: !!projectId, staleTime: Infinity },
+  );
+  const assetId = assetQuery.data ?? null;
+
+  const clipQuery = useAuthenticatedQuery<string | null>(
+    ["recording-export-content", projectId, assetId],
+    async (client) => {
+      if (!projectId || assetId == null) return null;
+      return await client.getExportContentUrl(projectId, assetId);
+    },
+    { enabled: open && !!projectId && assetId != null, staleTime: Infinity },
   );
 
   const playerUrl = sessionRecordingUrl(sessionId, {
     secondsOffsetFromStart: seekSeconds,
   });
+  const startLabel = seekSeconds != null ? colonOffset(seekSeconds) : null;
 
-  if (videoQuery.isError || videoQuery.data === null) {
-    return playerUrl ? (
-      <RecordingPlayerLink url={playerUrl} label="Watch the recording" />
-    ) : null;
-  }
-  if (videoQuery.isLoading || videoQuery.data === undefined) {
+  // No clip was exported for this session, so the web player is the only route
+  // to the recording.
+  if (assetQuery.isError || (assetQuery.isFetched && assetId == null)) {
+    if (!playerUrl) return null;
     return (
-      <>
-        <Box
-          mt="2"
-          className="flex h-24 items-center justify-center rounded bg-gray-3 text-[12px] text-gray-9"
-        >
-          Loading recording…
-        </Box>
-        {playerUrl && (
-          <RecordingPlayerLink url={playerUrl} label="Watch the recording" />
-        )}
-      </>
+      <a
+        href={playerUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={RECORDING_ROW_CLASS}
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--gray-4) text-gray-11 transition-colors group-hover:bg-(--gray-5)">
+          <PlayIcon size={15} weight="fill" className="translate-x-[1px]" />
+        </span>
+        <RecordingRowLabel
+          title="Watch the recording"
+          detail={
+            startLabel
+              ? `Opens in PostHog at ${startLabel}`
+              : "Opens in PostHog"
+          }
+        />
+        <ArrowSquareOutIcon
+          size={13}
+          className="shrink-0 text-gray-9 transition-colors group-hover:text-gray-11"
+        />
+      </a>
     );
   }
 
+  const clipUnavailable = clipQuery.isError || clipQuery.data === null;
+  const clipPending = !clipUnavailable && clipQuery.data == null;
+
   return (
-    <Box mt="2" className="overflow-hidden rounded">
-      <video
-        ref={videoRef}
-        src={videoQuery.data}
-        controls
-        muted
-        preload="metadata"
-        className="max-h-[300px] w-full rounded"
-        onPlay={() => {
-          if (hasFiredPlayRef.current) return;
-          hasFiredPlayRef.current = true;
-          interaction?.onInteraction({ type: "play_session_recording" });
-        }}
-      />
-      {playerUrl && (
-        <RecordingPlayerLink url={playerUrl} label="Open full recording" />
-      )}
-    </Box>
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`${RECORDING_ROW_CLASS} cursor-pointer`}
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--accent-9) text-white shadow-sm transition-transform duration-150 group-hover:scale-105">
+          <PlayIcon size={15} weight="fill" className="translate-x-[1px]" />
+        </span>
+        <RecordingRowLabel
+          title="Watch the recording"
+          detail={
+            startLabel
+              ? `Plays from ${startLabel}`
+              : "Plays the captured moment"
+          }
+        />
+        <CaretRightIcon
+          size={13}
+          className="shrink-0 text-gray-9 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-gray-11"
+        />
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="wide">
+          <DialogHeader>
+            <DialogTitle>Session recording</DialogTitle>
+            <DialogDescription>
+              {startLabel
+                ? `The captured clip, from ${startLabel} in the session.`
+                : "The captured clip from this session."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="overflow-hidden rounded-(--radius-2) bg-black">
+              {clipUnavailable ? (
+                <div className="flex aspect-video items-center justify-center px-6 text-center text-[13px] text-gray-10">
+                  This clip is no longer available.
+                </div>
+              ) : clipPending ? (
+                <div className="flex aspect-video items-center justify-center text-[13px] text-gray-10">
+                  Loading the recording…
+                </div>
+              ) : (
+                <video
+                  src={clipQuery.data ?? undefined}
+                  controls
+                  autoPlay
+                  muted
+                  playsInline
+                  className="aspect-video w-full"
+                  onLoadedMetadata={(event) => {
+                    const video = event.currentTarget;
+                    // Exported clips sometimes already start at the moment, so
+                    // only seek when the clip actually runs past it.
+                    if (seekSeconds != null && video.duration > seekSeconds) {
+                      video.currentTime = seekSeconds;
+                    }
+                  }}
+                  onPlay={() => {
+                    if (hasFiredPlayRef.current) return;
+                    hasFiredPlayRef.current = true;
+                    interaction?.onInteraction({
+                      type: "play_session_recording",
+                    });
+                  }}
+                />
+              )}
+            </div>
+          </DialogBody>
+          {playerUrl && (
+            <RecordingPlayerLink url={playerUrl} label="Open in PostHog" />
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -788,7 +897,7 @@ function ScannerFindingSignalCard({
       <CollapsibleBody body={signal.content} />
 
       {extra.session_id && (
-        <SessionRecordingVideo
+        <SessionRecordingPreview
           exportedAssetId={extra.exported_asset_id}
           sessionId={extra.session_id}
           seekSeconds={extra.start_time}
