@@ -24,10 +24,11 @@ tools:
             idempotent: false
         title: Create a channel
         description: >
-            Create a channel. The default `channel_type` is public. Public names use lowercase letters and hyphens.
-            If a public channel has that name, return it. Use channel-list to find an existing channel's ID.
-            Set `channel_type` to "private" to create a private channel with the requester and the users in `member_ids`.
-            Users in `member_ids` must have project access. Private channels always get a new ID, so a retry creates another channel.
+            Create a channel. The default `channel_type` is public. Public names use lowercase letters and hyphens. If a
+            public channel has that name, return it. Use channel-list to find an existing channel's ID. Set
+            `channel_type` to "private" to create a private channel with the requester and the users in `member_ids`.
+            Users in `member_ids` must have project access. Private channels always get a new ID, so a retry creates
+            another channel.
     channel-instructions-retrieve:
         operation: task_channels_instructions_retrieve
         enabled: true
@@ -79,10 +80,10 @@ tools:
             idempotent: true
         title: List channels
         description: >
-            List channels the requester can access: public channels, their personal #me channel, and private channels they belong to.
-            Use a channel ID to create or list canvases or read instructions. Private channels can have the same name, so identify them by ID.
-            Send `limit` and `offset` to get a page with `count`, `next`, `previous`, and `results`.
-            Without `limit`, the response is an array of all accessible channels.
+            List channels the requester can access: public channels, their personal #me channel, and private channels
+            they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have
+            the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `next`,
+            `previous`, and `results`. Without `limit`, the response is an array of all accessible channels.
     channel-retrieve:
         operation: task_channels_retrieve
         enabled: true
