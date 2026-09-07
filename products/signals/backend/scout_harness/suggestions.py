@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParse
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
+from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -62,9 +63,9 @@ SUGGESTIONS_ACTIVITY_SLACK_S = 60
 MAX_SUGGESTIONS_PER_BATCH = 5
 MIN_SUGGESTIONS_PER_BATCH = 3
 MAX_DRAFT_BODY_CHARS = 20_000
-# Mirrors `SignalScoutCreateSerializer.description`: a longer one stores fine but fails the
-# create it is supposed to be ready for.
-MAX_DESCRIPTION_CHARS = 4_096
+# Read from `SignalScoutCreateSerializer.description` rather than restated: a longer one stores
+# fine but fails the create it is supposed to be ready for.
+MAX_DESCRIPTION_CHARS = SPEC_DESCRIPTION_MAX_LENGTH
 
 # Resolves a suggestion run to the `signals_scout_suggestions` gateway product.
 SUGGESTIONS_AI_STAGE = "scout_suggestions"
@@ -160,6 +161,10 @@ class SuggestionSettings:
     eligibility_tier: int = 1
     engagement_window_days: int = 30
     refresh_days: int = 7
+    # A batch the fleet has moved past is re-picked on this shorter window instead. `stale` is the
+    # steady state — turning one scout on flips it — so a full refresh window would leave most
+    # projects reading their batch under a stale note for a week.
+    stale_refresh_days: int = 1
     max_children_per_tick: int = 10
     team_allowlist: frozenset[int] = frozenset()
     team_blocklist: frozenset[int] = frozenset()
@@ -191,6 +196,7 @@ def parse_suggestion_settings(payload: dict[str, Any] | None) -> SuggestionSetti
         eligibility_tier=_int_in(payload, "eligibility_tier", 1, low=0, high=4),
         engagement_window_days=_int_in(payload, "engagement_window_days", 30, low=1, high=365),
         refresh_days=_int_in(payload, "refresh_days", 7, low=1, high=90),
+        stale_refresh_days=_int_in(payload, "stale_refresh_days", 1, low=1, high=90),
         max_children_per_tick=_int_in(payload, "max_children_per_tick", 10, low=0, high=500),
         team_allowlist=_team_id_set(payload, "team_allowlist"),
         team_blocklist=_team_id_set(payload, "team_blocklist"),
@@ -388,10 +394,11 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
     state_by_team = {
         row.team_id: row
         for row in SignalScoutSuggestionSet.all_teams.only(
-            "team_id", "last_requested_at", "consecutive_failures", "last_completed_at"
+            "team_id", "status", "last_requested_at", "consecutive_failures", "last_completed_at"
         )
     }
     refresh_s = settings.refresh_days * 86400
+    stale_refresh_s = settings.stale_refresh_days * 86400
     cooldown = timedelta(hours=settings.failure_cooldown_hours)
     candidates: list[_Candidate] = []
     for team_id, tier in tiers.items():
@@ -400,9 +407,17 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
             never_generated, overdue_s = True, float("inf")
         else:
             never_generated = False
-            overdue_s = (now - state.last_requested_at).total_seconds() - _wait_s(
-                state.consecutive_failures, settings, refresh_s=refresh_s
-            )
+            wait_s = _wait_s(state.consecutive_failures, settings, refresh_s=refresh_s)
+            # A stale batch is due on the shorter window, and so is a failed one, since a failure
+            # on a stale row replaces its status and would otherwise push the retry out to the full
+            # window. Both only while the project is picking up batches at all — pulling a
+            # repeatedly failing one forward would undo the breaker.
+            if (
+                state.status in (SignalScoutSuggestionSet.Status.STALE, SignalScoutSuggestionSet.Status.FAILED)
+                and state.consecutive_failures < settings.failure_breaker_threshold
+            ):
+                wait_s = min(wait_s, stale_refresh_s)
+            overdue_s = (now - state.last_requested_at).total_seconds() - wait_s
             if overdue_s < 0:
                 continue
         # The cooldown runs from the last attempt, not `updated_at`: a dismissal on the prior
@@ -690,6 +705,21 @@ def visible_items(
     ]
 
 
+def find_suggestion(team_id: int, suggestion_id: str) -> dict[str, Any] | None:
+    """One stored suggestion by id, or None when the batch never held it or has compacted it away.
+
+    Unlike `visible_items` this keeps dismissed and created records, so a caller acting on an id it
+    was handed a moment ago still resolves it after a concurrent dismiss.
+    """
+    row = SignalScoutSuggestionSet.objects.for_team(team_id, canonical=True).first()
+    if row is None:
+        return None
+    for record in row.items or []:
+        if isinstance(record, dict) and record.get("id") == suggestion_id and not _is_tombstone(record):
+            return record
+    return None
+
+
 def _update_item(team_id: int, suggestion_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
     with transaction.atomic():
         row = _lock_row(team_id, create=False)
@@ -752,6 +782,7 @@ __all__ = [
     "canonical_team_ids",
     "dismiss_suggestion",
     "enabled_skill_names",
+    "find_suggestion",
     "fleet_context",
     "mark_generation_failed",
     "mark_stale_if_fleet_changed",

@@ -21,7 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
-from posthog.temporal.oauth import scout_scope_posture
+from posthog.temporal.oauth import scout_mcp_scopes, scout_scope_posture
 
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
@@ -692,8 +692,9 @@ async def _spawn_and_run(
         # A scout that opted into the report channel gets `signals_scout_reports` instead —
         # the same posture plus `signal_scout_report:write` — so the MCP server exposes the
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
-        # sees them.
-        posthog_mcp_scopes=scope_posture,
+        # sees them. Dispatched as the preset string unless this scout holds a grant, so a scout
+        # without one never depends on the sandbox worker reading the posture dict.
+        posthog_mcp_scopes=scout_mcp_scopes(scope_posture),
         github_read_access=True,
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves

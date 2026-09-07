@@ -47,9 +47,9 @@ PRs from unconnected repositories are allowed. Their state is `unknown`, they ar
 
 GitHub webhook matching is scoped by the teams associated with the installation, then matched by normalized repository and PR number. A matching merge or close transitions every unresolved report attached to that PR.
 
-Internal implementation tasks claim their report when they start. When a PR-bearing task run records a PR, the signals receiver copies it into the assignment without requiring the task to call the public claim API. Existing task-backed PRs remain readable as a compatibility fallback when an assignment has no PR; assignment data always wins.
+Internal implementation tasks claim their report when they start. When a PR-bearing task run records a PR, the signals receiver copies it into the assignment without requiring the task to call the public claim API. Existing task-backed PRs remain a compatibility fallback for reads, PR actions, dismissal, and webhook handling when an assignment has no PR; a non-empty assignment PR always wins. See [PR lifecycle](../../docs/internal/signals-pr-lifecycle.md).
 
-Resolving a report never requires a PR. Manual resolution keeps the existing behavior: `fixed_outside_posthog` describes a fix without a PR, and `pr_merged` describes a merged PR that did not resolve the report automatically. A direct resolve or suppression closes an attached open PR only when the current assignment actor is `task` or `system` and PostHog can access it. PRs owned by users or external agents are not modified.
+Resolving a report never requires a PR. Manual resolution keeps the existing behavior: `fixed_outside_posthog` describes a fix without a PR, and `pr_merged` describes a merged PR that did not resolve the report automatically. A direct resolve or suppression closes an attached open PR only when its assignment actor is `task` or `system`, or the PR comes from the task-backed fallback, and PostHog can access it. Explicit PRs owned by users or external agents are not modified. A PR stays open while another unfinished report uses it through either source.
 
 ## Derived work state
 

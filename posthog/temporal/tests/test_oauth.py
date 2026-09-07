@@ -34,6 +34,7 @@ from posthog.temporal.oauth import (
     create_wizard_oauth_access_token_for_user,
     has_write_scopes,
     resolve_scopes,
+    scout_mcp_scopes,
     scout_scope_posture,
 )
 
@@ -141,6 +142,24 @@ class TestResolveScopes(SimpleTestCase):
         result = resolve_scopes(scout_scope_posture("signals_scout", ["dashboard:write"]))
         assert set(result) == set(resolve_scopes("signals_scout")) | {"dashboard:write"}
         assert "insight:write" not in result
+
+    @parameterized.expand(
+        [
+            ("without_a_grant_sends_the_preset_string", [], "signals_scout_reports"),
+            (
+                "with_a_grant_sends_the_posture",
+                ["dashboard:write"],
+                {"preset": "signals_scout_reports", "extra_write_scopes": ["dashboard:write"]},
+            ),
+        ]
+    )
+    def test_scout_mcp_scopes_sends_the_dict_only_when_a_grant_needs_it(
+        self, _name: str, grant: list[str], expected: PosthogMcpScopes
+    ) -> None:
+        # The posture dict is a newer wire shape than the preset string. A sandbox worker that
+        # predates it decodes the dict as `list[str]` and mints a token from its keys, so a run
+        # dispatched as a dict when the string would do loses every scout tool on a lagging worker.
+        assert scout_mcp_scopes(scout_scope_posture("signals_scout_reports", grant)) == expected
 
     @parameterized.expand([(preset,) for preset in SCOUT_SCOPE_PRESETS])
     def test_scout_posture_without_a_grant_matches_the_plain_preset(self, preset: ScoutScopePreset) -> None:

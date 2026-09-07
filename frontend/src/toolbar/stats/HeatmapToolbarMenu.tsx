@@ -17,7 +17,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/stats/heatmapCaptureLogic'
-import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
 
@@ -83,7 +83,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref, autoWildcardEnabled, wildcardHrefTooSpecific, wildcardHrefEndsWithSlash } =
         useValues(currentPageLogic)
     const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
-    const areaFilterFlagEnabled = useToolbarFeatureFlag('toolbar-heatmap-area-filter')
 
     const { captureResultLoading, isAuthenticated, captureProgress } = useValues(heatmapCaptureLogic)
     const { saveToPostHog } = useActions(heatmapCaptureLogic)
@@ -106,11 +105,14 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         processingProgress,
         areaSelectionActive,
         heatmapAreaFilter,
+        loadingAllElementStats,
+        loadAllPagesLoaded,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
         patchHeatmapFilters,
-        loadMoreElementStats,
+        startLoadingAllElementStats,
+        stopLoadingAllElementStats,
         setMatchLinksByHref,
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
@@ -189,27 +191,25 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
-                    {areaFilterFlagEnabled ? (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconTarget />}
-                            active={areaSelectionActive}
-                            data-attr="heatmap-area-filter-toggle"
-                            onClick={() => (areaSelectionActive ? cancelAreaSelection() : startAreaSelection())}
-                            tooltip={
-                                <>
-                                    Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
-                                    content. Click this, then hover the page and click an area. Press <kbd>↑</kbd> to
-                                    grow the selection to a bigger container, <kbd>↓</kbd> to shrink it, and{' '}
-                                    <kbd>Esc</kbd> to cancel. Heatmap points on fixed or sticky elements are only
-                                    included when the chosen area is itself fixed or sticky.
-                                </>
-                            }
-                        >
-                            {areaSelectionActive ? 'Click an area of the page…' : 'Filter to area'}
-                        </LemonButton>
-                    ) : null}
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconTarget />}
+                        active={areaSelectionActive}
+                        data-attr="heatmap-area-filter-toggle"
+                        onClick={() => (areaSelectionActive ? cancelAreaSelection() : startAreaSelection())}
+                        tooltip={
+                            <>
+                                Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
+                                content. Click this, then hover the page and click an area. Press <kbd>↑</kbd> to grow
+                                the selection to a bigger container, <kbd>↓</kbd> to shrink it, and <kbd>Esc</kbd> to
+                                cancel. Heatmap points on fixed or sticky elements are only included when the chosen
+                                area is itself fixed or sticky.
+                            </>
+                        }
+                    >
+                        {areaSelectionActive ? 'Click an area of the page…' : 'Filter to area'}
+                    </LemonButton>
                 </div>
                 {heatmapAreaFilter && !areaSelectionActive ? (
                     <div className="flex flex-row items-center gap-2 py-2 border-b">
@@ -307,16 +307,34 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             </p>
                             <div className="flex items-center gap-2">
                                 <LemonButton
-                                    icon={<IconSync />}
+                                    icon={loadingAllElementStats ? <Spinner textColored /> : <IconSync />}
                                     type="secondary"
                                     size="small"
-                                    onClick={loadMoreElementStats}
-                                    loading={elementStatsLoading}
+                                    active={loadingAllElementStats}
+                                    onClick={() => {
+                                        if (loadingAllElementStats) {
+                                            stopLoadingAllElementStats()
+                                            toolbarPosthogJS.capture('toolbar heatmap load all stopped', {
+                                                pages_loaded: loadAllPagesLoaded,
+                                                element_count: loadedElementStatsCount,
+                                            })
+                                            return
+                                        }
+                                        startLoadingAllElementStats()
+                                        toolbarPosthogJS.capture('toolbar heatmap load all started')
+                                    }}
+                                    // a loading button is disabled, and the run needs to stay stoppable
+                                    loading={elementStatsLoading && !loadingAllElementStats}
+                                    tooltip={
+                                        loadingAllElementStats
+                                            ? 'Stop after the page being loaded now. What loaded so far stays on the heatmap.'
+                                            : 'Loads page after page of click data. A long date range or a busy site can take a while, and can need more than one run.'
+                                    }
                                     disabledReason={
                                         canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                                     }
                                 >
-                                    Load more
+                                    {loadingAllElementStats ? 'Stop loading' : 'Load all'}
                                 </LemonButton>
                                 <Tooltip
                                     title={

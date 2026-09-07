@@ -305,6 +305,20 @@ def scout_scope_posture(
     }
 
 
+def scout_mcp_scopes(posture: ScoutScopePosture) -> PosthogMcpScopes:
+    """The value to dispatch a scout run with: the plain preset unless the posture adds a grant.
+
+    The preset string and a posture with no extras resolve to the same token, so the string loses
+    nothing. It is also the shape every worker version reads the same way. The dict is newer, and
+    a worker that predates it decodes the dict as `list[str]` and mints a token from its keys, so
+    the run loses every scout tool. Sending the dict only when a grant needs it keeps a worker
+    that lags one deploy behind from taking the whole fleet down with it.
+    """
+    if not posture["extra_write_scopes"]:
+        return posture["preset"]
+    return posture
+
+
 def _grantable_write_scopes(raw: object) -> list[str]:
     """Intersect a stored grant with the allowlist, tolerating any shape JSON can hold.
 

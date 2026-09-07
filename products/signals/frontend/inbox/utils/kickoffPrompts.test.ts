@@ -30,6 +30,26 @@ describe('kickoffPrompts', () => {
         expect(prompt).toContain('Put the fix behind a flag.')
     })
 
+    it('tells the agent how to leave the report state', () => {
+        const prompt = buildCreatePrReportPrompt(makeReport({ status: SignalReportStatus.READY }))
+        expect(prompt).toContain('open a PR')
+        expect(prompt).toContain('inbox-reports-set-state')
+        expect(prompt).toContain('fixed_outside_posthog')
+        expect(prompt).toContain('suppressed')
+        // Suppressing leaves the claim standing, so the run has to drop it itself.
+        expect(prompt).toContain('then release your claim')
+        // The claim is taken once, at task creation, so a rerun starts unclaimed.
+        expect(prompt).toContain('claim it again first')
+        // Resolving through the state API closes the report's open PR, so the run must not report
+        // the PR it just opened as a resolution.
+        expect(prompt).toContain('Do NOT set the state to resolved because you opened a PR')
+    })
+
+    it('keeps the user feedback after the state instructions', () => {
+        const prompt = buildCreatePrReportPrompt(makeReport({ status: SignalReportStatus.READY }), 'check the retries')
+        expect(prompt.indexOf('inbox-reports-set-state')).toBeLessThan(prompt.indexOf('check the retries'))
+    })
+
     describe('buildDiscussReportPrompt', () => {
         const url = 'https://app.posthog.com/project/1/inbox/report-1'
 
@@ -43,6 +63,13 @@ describe('kickoffPrompts', () => {
                 )
                 expect(prompt).toContain('carry the action out')
                 expect(prompt).toContain(url)
+                expect(prompt).toContain('inbox-reports-set-state')
+                // A discussion run can open a PR too, so it carries the Create PR prompt's guard: a
+                // resolve through the state API closes the report's open PR.
+                expect(prompt).toContain('would close the PR you just opened')
+                // The state API has no ownership precondition, so the prompt is the only thing keeping
+                // a discussion run from ending work another run holds.
+                expect(prompt).toContain('leave its state alone when somebody else holds it')
             }
         )
 
@@ -61,6 +88,8 @@ describe('kickoffPrompts', () => {
             const prompt = buildDiscussReportPrompt(makeReport({ status }), url, 'Carry out the recommendation')
             expect(prompt).toContain('Answer this question')
             expect(prompt).not.toContain('carry the action out')
+            // An answer-only run changes nothing about the report, so it is never told to touch the state.
+            expect(prompt).not.toContain('inbox-reports-set-state')
         })
 
         it.each([

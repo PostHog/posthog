@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -1627,6 +1627,27 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert row.expires_at is None
+        assert row.content == "v"
+
+    @parameterized.expand(
+        [
+            # The agent writes the expiry from a clock it can only guess at, so it often omits the
+            # UTC offset or gives the date alone. Both read as a valid instant in the project's
+            # timezone. Each used to be refused at the client boundary, which cost the whole write.
+            ("no_offset", "2035-10-05T09:30:00", datetime(2035, 10, 5, 9, 30, tzinfo=UTC)),
+            ("bare_date", "2035-10-05", datetime(2035, 10, 5, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_remember_honors_an_expiry_that_names_no_offset(
+        self, _name: str, expires_at: str, expected: datetime
+    ) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").expires_at == expected
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -1843,8 +1864,6 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             # Same reasoning for the pipeline family: it is an allowlist, not a free-form prefix,
             # so a stage that reads no notes cannot be addressed.
             ("unknown_pipeline_audience", {"content": "note", "skill_name": "pipeline:implementation"}),
-            # A note born expired would never be seen by anyone.
-            ("past_expiry", {"content": "note", "expires_at": "2020-01-01T00:00:00Z"}),
             ("blank_content", {"content": "   ", "skill_name": ""}),
         ]
     )
@@ -1852,6 +1871,25 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         response = self.client.post(self._list_url(), data=body, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            # A note born expired would never be seen by anyone, so the expiry goes and the note
+            # stays. Same stance for a value no clock can read.
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "next Friday"),
+        ]
+    )
+    def test_create_drops_invalid_expiry_without_losing_the_note(self, _name: str, expires_at: str) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "watch checkout", "expires_at": expires_at},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        note = SignalScoutNote.objects.get(team=self.team)
+        assert note.expires_at is None
+        assert note.content == "watch checkout"
 
     def test_notes_do_not_leak_across_teams(self) -> None:
         # Cross-team rows go through `all_teams`: the fail-closed `objects` manager is pinned

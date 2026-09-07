@@ -949,7 +949,15 @@ type ScoutActionType =
   | "close_settings"
   | "open_findings"
   | "filter_findings"
-  | "sort_findings";
+  | "sort_findings"
+  | "run_now"
+  | "open_new_agent"
+  | "accept_suggestion"
+  | "draft_suggestion"
+  | "dismiss_suggestion"
+  | "filter_origin"
+  | "search_agents"
+  | "switch_detail_tab";
 
 /**
  * How the fleet materialization that preceded this view ended. Without it an

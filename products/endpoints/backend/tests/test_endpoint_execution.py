@@ -2473,6 +2473,42 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
         self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
 
+    def test_materialized_response_transform_receives_the_job_materialization_time(self):
+        from products.endpoints.backend.logic.strategies import HogQLEndpointStrategy
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
+        )
+        saved_query = endpoint.versions.first().saved_query
+        saved_query.sync_frequency_interval = None
+        saved_query.last_run_at = None
+        saved_query.status = None
+        saved_query.save()
+        materialized_at = timezone.now() - timedelta(minutes=5)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=materialized_at,
+        )
+
+        flat_response = Response({"results": [[1]], "columns": ["n"]})
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=flat_response),
+            mock.patch.object(
+                HogQLEndpointStrategy, "transform_materialized_response", autospec=True
+            ) as mock_transform,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_transform.assert_called_once()
+        _strategy, _data, _saved_query, passed_at = mock_transform.call_args.args
+        self.assertEqual(passed_at, materialized_at)
+
     @parameterized.expand(
         [
             ("refresh_starts", None),
