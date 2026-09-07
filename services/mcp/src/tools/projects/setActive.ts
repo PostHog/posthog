@@ -31,8 +31,8 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     // Reconcile the active org to the project's parent org. Without this the cached `orgId`
     // keeps pointing at the previously active org, so after switching to a project in a
     // different organization the active-environment banner and every org-scoped tool
-    // silently disagree with the active project — the agent reads the wrong org's data with
-    // no error to flag it.
+    // silently disagree with the active project. The agent then reads the wrong org's data
+    // with no error to flag it.
     let org: CachedOrg | undefined
     const projectOrgId = project?.organization
     if (projectOrgId) {
@@ -42,7 +42,7 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         // project-scoped keys) and the org caching stay in one place.
         org = await context.stateManager.getCachedOrFetchOrg()
     } else {
-        // Project fetch failed — fall back to whatever org is cached so the banner still renders.
+        // Project fetch failed. Fall back to whatever org is cached so the banner still renders.
         const cachedOrgId = (await context.cache.get('orgId')) ?? 'unknown'
         org = (await context.cache.get(`cachedOrg:${cachedOrgId}` as const)) as CachedOrg | undefined
     }

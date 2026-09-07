@@ -60,7 +60,7 @@ async function reconcileActiveProjectForOrg(context: Context, orgId: string): Pr
         return selected
     }
 
-    // The org has no accessible projects — clear the stale pointer rather than leave a
+    // The org has no accessible projects, so clear the stale pointer rather than leave a
     // project from the previous org active.
     await context.cache.delete('projectId')
     return undefined
