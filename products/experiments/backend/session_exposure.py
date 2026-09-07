@@ -55,6 +55,11 @@ class SessionExposure:
 
     team: Team
     experiment: Experiment
+    # The flag key with any soft-delete tombstone stripped, matching the key historical events
+    # carry. A flag cleaned up after its experiment stopped is renamed to `<key>:deleted:<id>`, and
+    # resolving conditions on that renamed key would match no session. Carried so `condition` and
+    # the stamped fallback agree with the population query, which strips it the same way.
+    flag_key: str
     # What this experiment's default exposure resolves to under the $experiment_exposure rollout.
     # Carried rather than re-resolved so every clause in one response agrees on the event, even if
     # the flag flips mid-request.
@@ -107,7 +112,7 @@ class SessionExposure:
             *build_exposure_event_conditions(
                 self.experiment.exposure_criteria,
                 self.team,
-                self.experiment.feature_flag.key,
+                self.flag_key,
                 default_exposure_event=self.default_exposure_event,
             ),
             variant_condition,
@@ -122,7 +127,10 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
     the same bounded `EventProperty` read as the exposure event's, so one query settles both which
     metrics a session can show and whether the exposure event can match a session at all.
     """
-    flag_key = experiment.feature_flag.key
+    # Strip any soft-delete tombstone: a flag cleaned up after its experiment stopped is renamed to
+    # `<key>:deleted:<id>`, but historical events still carry the original key, so conditions and the
+    # stamped fallback must resolve against it, the same key the population query uses.
+    flag_key = experiment.feature_flag.key_without_tombstone()
     default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
     exposure_event, variant_property = get_exposure_event_and_property(
         flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
@@ -138,6 +146,7 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
     return SessionExposure(
         team=team,
         experiment=experiment,
+        flag_key=flag_key,
         default_exposure_event=default_exposure_event,
         exposure_event=exposure_event,
         variant_property=f"$feature/{flag_key}" if used_fallback else variant_property,

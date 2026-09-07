@@ -1229,7 +1229,11 @@ def team_api_test_factory():
                     {"key": "$raw_user_agent", "pattern": "192.0.2.0/24", "matcher": "cidr"},
                     False,
                 ),
-                ("unsupported property", {"key": "$referrer", "pattern": "acme", "matcher": "contains"}, False),
+                (
+                    "unsupported property",
+                    {"key": "$some_other_property", "pattern": "acme", "matcher": "contains"},
+                    False,
+                ),
             ]
         )
         def test_modifiers_customBotDefinitions_validation(
