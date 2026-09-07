@@ -21817,6 +21817,11 @@ export namespace Schemas {
       /** The query results, for an executable metric. Null for a markdown metric. */
       results: unknown;
       /**
+         * Names of the result columns, in the order of the values in each positional result row. Null when the results are already labeled, or the query kind returns no column names.
+         * @nullable
+         */
+      columns: string[] | null;
+      /**
          * The compiled HogQL, when available.
          * @nullable
          */
