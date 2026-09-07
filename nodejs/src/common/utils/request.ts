@@ -51,7 +51,9 @@ export type FetchOptions = {
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
-    // undici offers HTTP/2 second in ALPN, so an origin that honors client preference still negotiates HTTP/1.1.
+    // Offers HTTP/2 next to HTTP/1.1 in the TLS handshake, and the origin chooses. undici lists HTTP/1.1 first, so an
+    // origin that defers to the client's order stays on HTTP/1.1. An origin that prefers HTTP/2, or only speaks it like
+    // APNs, picks HTTP/2. The undici connect option `preferH2` flips the order if a caller ever needs it.
     allowH2?: boolean
     // How long an idle HTTP/2 session to the origin stays open. Defaults to the keep-alive timeout. The same
     // dispatcher serves an origin that falls back to HTTP/1.1, so its idle sockets get this timeout too.
