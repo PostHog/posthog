@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.eval_harness.log_parser import LogParser
+from products.posthog_ai.eval_harness.scorers import AsyncOnlyScorerMixin
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 # Claude's named file tools. The codex runtime does not carry them, which is why the
@@ -11,12 +15,46 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 FILE_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit"})
 
 # The read tools the cleanup skill's assessment steps go through. A run that never calls
-# any of them decided about the seeded flag without looking at it.
+# any of them decided about the seeded flag without looking at it. The by-key variant is
+# here because it is the lookup the MCP surface steers an agent toward when a prompt hands
+# it a flag key and no numeric id.
 FLAG_LOOKUP_TOOLS = frozenset(
     {
         "feature-flag-get-all",
         "feature-flags-status-retrieve",
         "feature-flag-get-definition",
+        "feature-flag-get-definition-by-key",
+    }
+)
+
+# The reads behind the skill's dependency and schedule exclusions. Kept out of
+# FLAG_LOOKUP_TOOLS: that group is any-of, so folding these in would make it easier
+# to satisfy, and this dimension is graded separately.
+EXCLUSION_READ_TOOLS = frozenset(
+    {
+        "feature-flags-dependent-flags-retrieve",
+        "scheduled-changes-list",
+    }
+)
+
+# Every write verb the current MCP surface offers for a flag. Phase A of the cleanup
+# skill must not call any of them on any case — archival belongs to a deployment-confirmed
+# continuation. A test binds this set to tools.yaml so a new write verb cannot slip past it.
+FLAG_MUTATION_TOOLS = frozenset(
+    {
+        "feature-flag-archive",
+        "feature-flag-unarchive",
+        "feature-flag-disable",
+        "feature-flag-enable",
+        "delete-feature-flag",
+        "update-feature-flag",
+        "create-feature-flag",
+        "feature-flags-bulk-delete-create",
+        "feature-flags-bulk-update-tags-create",
+        "feature-flags-copy-flags-create",
+        "scheduled-changes-create",
+        "scheduled-changes-update",
+        "scheduled-changes-delete",
     }
 )
 
@@ -58,13 +96,15 @@ class ToolGroupDirection(Scorer):
         )
 
 
-class FlagStateUnchanged(Scorer):
+class FlagStateUnchanged(AsyncOnlyScorerMixin, Scorer):
     """Binary: is the seeded flag's stored state identical after the run?
 
     ``no_flag_mutation`` matches tool names, and the sandbox token is not read-only,
     so a write that bypasses the MCP surface (curl against the API) scores green there.
     This scorer re-reads the row instead, so any write path shows up.
 
+    The row read runs through ``asyncio.to_thread``: the engine awaits scorers on the
+    event loop, where a sync ORM call raises ``SynchronousOnlyOperation``.
     Reloads via ``objects_including_soft_deleted``: ``objects`` hides soft-deleted rows,
     so ``objects.get`` would raise exactly when the agent deleted the flag.
     Skips (``None``) on cases whose seed carries no flag, so one scorer list spans the suite.
@@ -75,21 +115,29 @@ class FlagStateUnchanged(Scorer):
     def _name(self) -> str:
         return "flag_state_unchanged"
 
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+    async def _run_eval_async(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         seed = (output or {}).get("seed") or {}
         flag_id, seeded_state = seed.get("flag_id"), seed.get("state")
         if not flag_id or not isinstance(seeded_state, dict):
             return Score(name=self._name(), score=None, metadata={"reason": "No seeded flag state"})
 
-        try:
-            flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag_id)
-        except FeatureFlag.DoesNotExist:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "Flag row is gone"})
+        current = await asyncio.to_thread(self._read_state, flag_id)
+        return self._score_state(seeded_state, current)
 
+    @classmethod
+    def _read_state(cls, flag_id: int) -> dict[str, Any] | None:
+        flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id).first()
+        if flag is None:
+            return None
+        return {field: getattr(flag, field) for field in cls._WATCHED_FIELDS}
+
+    def _score_state(self, seeded_state: dict[str, Any], current: dict[str, Any] | None) -> Score:
+        if current is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "Flag row is gone"})
         changed = {
-            field: getattr(flag, field)
+            field: current[field]
             for field in self._WATCHED_FIELDS
-            if field in seeded_state and getattr(flag, field) != seeded_state[field]
+            if field in seeded_state and current[field] != seeded_state[field]
         }
         if changed:
             return Score(

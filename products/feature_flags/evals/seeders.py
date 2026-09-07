@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.evals.scorers import FlagStateUnchanged
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 STALE_FULL_ROLLOUT_FLAG_KEY = "sunset-widget-rollout"
@@ -38,17 +39,6 @@ def guard_claude_runtime(context: CustomPromptSandboxContext) -> dict[str, Any]:
     return {}
 
 
-def _flag_state(flag: FeatureFlag) -> dict[str, Any]:
-    """The snapshot ``FlagStateUnchanged`` compares the row against after the run."""
-    return {
-        "key": flag.key,
-        "active": flag.active,
-        "deleted": flag.deleted,
-        "archived": flag.archived,
-        "filters": flag.filters,
-    }
-
-
 def _backdate_updated_at(flag: FeatureFlag) -> None:
     """Age the flag's ``updated_at``, which ``auto_now`` pins to the moment of creation.
 
@@ -72,7 +62,12 @@ def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[st
         filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
     )
     _backdate_updated_at(flag)
-    return {"flag_id": flag.id, "flag_key": flag.key, "rollout": "full", "state": _flag_state(flag)}
+    return {
+        "flag_id": flag.id,
+        "flag_key": flag.key,
+        "rollout": "full",
+        "state": FlagStateUnchanged._read_state(flag.id),
+    }
 
 
 def seed_stale_partial_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -89,4 +84,9 @@ def seed_stale_partial_rollout_flag(context: CustomPromptSandboxContext) -> dict
         filters={"groups": [{"properties": [], "rollout_percentage": 40}]},
     )
     _backdate_updated_at(flag)
-    return {"flag_id": flag.id, "flag_key": flag.key, "rollout": "partial", "state": _flag_state(flag)}
+    return {
+        "flag_id": flag.id,
+        "flag_key": flag.key,
+        "rollout": "partial",
+        "state": FlagStateUnchanged._read_state(flag.id),
+    }

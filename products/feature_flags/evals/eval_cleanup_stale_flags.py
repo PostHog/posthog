@@ -1,38 +1,16 @@
 """Phase A evals for the ``cleaning-up-stale-feature-flags`` skill.
 
-Four cases grade the parts of the repository-cleanup workflow the sandbox can measure
-deterministically. The sandbox always clones ``posthog/hedgebox``, and seeders cannot
-write files into it, so retained-path correctness (does the diff keep the right branch)
-is not coverable here without depending on specific flag-key usages in an external repo
-that can drift. What is coverable, with invented flag keys seeded into the case team:
+Four sandboxed cases: a generic cleanup ask, an unrelated task that mentions a flag
+in passing (the skill must stay quiet, and the agent must still edit a file — the
+stale-premise guard borrowed from ``eval_instrument_flags``), a direct removal ask
+for a key with no repository references, and the same ask for a 40%-rollout flag.
 
-* ``cleanup_request_executes`` — a generic "clean up our stale flags" ask. The skill must
-  load, the agent must look the seeded flag up in PostHog, and because the seeded key
-  appears nowhere in hedgebox, a correct run ends with no code edits and no flag mutation.
-* ``unrelated_task_stays_quiet`` — an ordinary edit task that mentions a flag in passing.
-  The skill must not load, no flag read tool may be called, and the agent must still edit
-  a file (the stale-premise guard borrowed from ``eval_instrument_flags``).
-* ``no_references_is_noop`` — a direct "remove this flag from the repo" ask for a key with
-  zero references. Graded: skill load, flag lookup, no edits, no mutation. The "report the
-  no-op, open no empty PR" half of the rule is not graded; no scorer reads branch, commit,
-  or PR state.
-* ``partial_flag_lookup_shape`` — a direct removal ask for a 40%-rollout flag. Graded the
-  same way as ``no_references_is_noop``: the scorers cannot tell a partial-rule refusal
-  from a no-references no-op, because hedgebox has no flag call sites either way. So the
-  name says what it grades, which is the partial-rollout shape through the lookup. It does
-  not verify the step-3 refusal. It can still fail differently from the no-references case,
-  because a partial flag is the shape most likely to draw a speculative edit or a mutation.
-
-Every case shares ``NoToolCall`` over the flag write verbs — Phase A of the skill never
-mutates a flag, whatever else happens. ``NoToolCall`` only matches tool names, and the
-sandbox token is not scoped read-only (the harness builds one full-access context for
-every suite), so ``FlagStateUnchanged`` re-reads the seeded row after the run: a write
-that bypasses the MCP surface still fails the case. Direction over a tool group is graded by
-``scorers.ToolGroupDirection``, which reads ``expected[<name>][<key>]`` the way
-``SkillTriggered`` reads ``should_load``: one instance over Claude's file-edit tools
-(``should_edit``) and one over the flag read tools (``should_look_up``), so one scorer
-list spans positive and negative cases without half the scorecard self-skipping, and a
-run that loads the skill and then never contacts PostHog fails the positive cases.
+What the suite cannot grade: the sandbox always clones ``posthog/hedgebox`` and
+seeders cannot write files into it, so retained-path correctness (does a diff keep
+the right branch) and the "report the no-op, open no empty PR" rule are ungraded.
+No scorer reads repo files, branches, or PR state, and the two key-named cases
+cannot be told apart by refusal reason. What each case does grade is its ``expected``
+dict below; the scorer mechanics live in the ``scorers.py`` docstrings.
 
 All scorers are deterministic — no LLM judge — so the suite is cheap to rerun while
 iterating on the skill text. ``SandboxedPrivateEval`` runs without a Braintrust key.
@@ -48,8 +26,10 @@ To run:
 from __future__ import annotations
 
 from products.feature_flags.evals.scorers import (
+    EXCLUSION_READ_TOOLS,
     FILE_EDIT_TOOLS,
     FLAG_LOOKUP_TOOLS,
+    FLAG_MUTATION_TOOLS,
     FlagStateUnchanged,
     ToolGroupDirection,
 )
@@ -70,27 +50,16 @@ SKILL_NAME = "cleaning-up-stale-feature-flags"
 TRIGGER_SCORER_NAME = "cleanup_skill_triggered"
 EDIT_SCORER_NAME = "code_edit_direction"
 LOOKUP_SCORER_NAME = "flag_lookup_direction"
+EXCLUSION_SCORER_NAME = "exclusion_check_direction"
 
-# Every write verb the current MCP surface offers for a flag. Phase A of the skill must
-# not call any of them on any case — archival belongs to a deployment-confirmed
-# continuation, and nothing in these prompts confirms a deployment.
-FLAG_MUTATION_TOOLS = frozenset(
-    {
-        "feature-flag-archive",
-        "feature-flag-unarchive",
-        "feature-flag-disable",
-        "feature-flag-enable",
-        "delete-feature-flag",
-        "update-feature-flag",
-        "create-feature-flag",
-        "feature-flags-bulk-delete-create",
-        "feature-flags-bulk-update-tags-create",
-        "feature-flags-copy-flags-create",
-        "scheduled-changes-create",
-        "scheduled-changes-update",
-        "scheduled-changes-delete",
-    }
-)
+# Shared by the three positive cases; declared once so a direction changed in one
+# case but not the others has to be a visible, deliberate edit.
+_POSITIVE_EXPECTED = {
+    TRIGGER_SCORER_NAME: {"should_load": True},
+    EDIT_SCORER_NAME: {"should_edit": False},
+    LOOKUP_SCORER_NAME: {"should_look_up": True},
+    EXCLUSION_SCORER_NAME: {"should_check_exclusions": True},
+}
 
 
 async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
@@ -99,11 +68,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             name="cleanup_request_executes",
             prompt="Clean up our stale feature flags.",
             setup=seed_stale_full_rollout_flag,
-            expected={
-                TRIGGER_SCORER_NAME: {"should_load": True},
-                EDIT_SCORER_NAME: {"should_edit": False},
-                LOOKUP_SCORER_NAME: {"should_look_up": True},
-            },
+            expected=_POSITIVE_EXPECTED,
             metadata={"trigger": "positive", "skill": SKILL_NAME},
         ),
         SandboxedEvalCase(
@@ -118,6 +83,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
                 TRIGGER_SCORER_NAME: {"should_load": False},
                 EDIT_SCORER_NAME: {"should_edit": True},
                 LOOKUP_SCORER_NAME: {"should_look_up": False},
+                EXCLUSION_SCORER_NAME: {"should_check_exclusions": False},
             },
             metadata={"trigger": "negative", "skill": SKILL_NAME},
         ),
@@ -128,11 +94,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
                 "stale. Remove it from this repository."
             ),
             setup=seed_stale_full_rollout_flag,
-            expected={
-                TRIGGER_SCORER_NAME: {"should_load": True},
-                EDIT_SCORER_NAME: {"should_edit": False},
-                LOOKUP_SCORER_NAME: {"should_look_up": True},
-            },
+            expected=_POSITIVE_EXPECTED,
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
         ),
         SandboxedEvalCase(
@@ -142,11 +104,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
                 "repository and clean up its code."
             ),
             setup=seed_stale_partial_rollout_flag,
-            expected={
-                TRIGGER_SCORER_NAME: {"should_load": True},
-                EDIT_SCORER_NAME: {"should_edit": False},
-                LOOKUP_SCORER_NAME: {"should_look_up": True},
-            },
+            expected=_POSITIVE_EXPECTED,
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "partial"},
         ),
     ]
@@ -160,6 +118,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             FlagStateUnchanged(),
             ToolGroupDirection(FILE_EDIT_TOOLS, name=EDIT_SCORER_NAME, key="should_edit"),
             ToolGroupDirection(FLAG_LOOKUP_TOOLS, name=LOOKUP_SCORER_NAME, key="should_look_up"),
+            ToolGroupDirection(EXCLUSION_READ_TOOLS, name=EXCLUSION_SCORER_NAME, key="should_check_exclusions"),
         ],
         ctx=ctx,
     )

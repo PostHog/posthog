@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
-
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.feature_flags.backend.flag_status import filter_stale_flags
+from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_stale_flags
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.evals.scorers import FlagStateUnchanged
 from products.feature_flags.evals.seeders import seed_stale_full_rollout_flag, seed_stale_partial_rollout_flag
-
-if TYPE_CHECKING:
-    from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 SEEDERS = [
     ("full_rollout", seed_stale_full_rollout_flag),
@@ -21,12 +17,7 @@ SEEDERS = [
 
 
 def _context(team_id: int, user_id: int, runtime_adapter: str | None = "claude") -> CustomPromptSandboxContext:
-    # The seeders read only these three fields; a namespace stands in for the real
-    # sandbox context here.
-    return cast(
-        "CustomPromptSandboxContext",
-        SimpleNamespace(team_id=team_id, user_id=user_id, runtime_adapter=runtime_adapter),
-    )
+    return CustomPromptSandboxContext(team_id=team_id, user_id=user_id, runtime_adapter=runtime_adapter)
 
 
 class TestFeatureFlagEvalSeeders(BaseTest):
@@ -55,17 +46,32 @@ class TestFeatureFlagEvalSeeders(BaseTest):
     def test_seed_carries_the_state_snapshot_the_unchanged_scorer_compares(self, _name, seeder) -> None:
         # FlagStateUnchanged skips silently when the seed has no "state", so a seeder
         # that drops the snapshot would turn the mutation check off across the suite.
+        # The snapshot itself comes from the scorer's own reader, so only its presence
+        # and field coverage need pinning here.
+        seeded = seeder(_context(self.team.id, self.user.id))
+
+        assert set(seeded["state"]) == set(FlagStateUnchanged._WATCHED_FIELDS)
+
+    @parameterized.expand(
+        [
+            ("full_rollout", seed_stale_full_rollout_flag, True, 100),
+            ("partial_rollout", seed_stale_partial_rollout_flag, False, 40),
+        ]
+    )
+    def test_seeded_flag_reports_the_rollout_shape_the_skill_classifies_from(
+        self, _name, seeder, effectively_full: bool, max_percentage: int
+    ) -> None:
+        # The stale checks above pass the partial flag on last_called_at alone, so the
+        # 40% rollout could silently drift to 100% and turn its case into a copy of the
+        # full-rollout one. The rollout summary is what step 3 classifies from.
         seeded = seeder(_context(self.team.id, self.user.id))
 
         flag = FeatureFlag.objects.get(pk=seeded["flag_id"])
+        summary = FeatureFlagStatusChecker().get_rollout_summary(flag)
 
-        assert seeded["state"] == {
-            "key": flag.key,
-            "active": flag.active,
-            "deleted": flag.deleted,
-            "archived": flag.archived,
-            "filters": flag.filters,
-        }
+        assert summary.effectively_full_rollout is effectively_full
+        assert summary.max_rollout_percentage == max_percentage
+        assert summary.has_targeting_conditions is False
 
     @parameterized.expand(SEEDERS)
     def test_seeder_refuses_the_codex_runtime(self, _name, seeder) -> None:

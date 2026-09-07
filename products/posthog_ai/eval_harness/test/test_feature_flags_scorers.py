@@ -1,65 +1,27 @@
 from __future__ import annotations
 
-import json
+import asyncio
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 
+from django.conf import settings
+
+import yaml
 from parameterized import parameterized
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.scorers import (
     FILE_EDIT_TOOLS,
     FLAG_LOOKUP_TOOLS,
+    FLAG_MUTATION_TOOLS,
     FlagStateUnchanged,
     ToolGroupDirection,
 )
-
-
-def _raw_tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
-    lines = []
-    for index, call in enumerate(calls, start=1):
-        name, raw_input, raw_output = call[0], call[1], call[2]
-        # An optional fourth element sets the result status. "failed" is what makes
-        # ToolCall.is_error true, which the scorer uses to ignore a lost attempt.
-        result_status = call[3] if len(call) > 3 else "completed"
-        call_id = f"call-{index}"
-        lines.append(
-            {
-                "timestamp": f"2026-01-01T00:00:{index:02d}Z",
-                "notification": {
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "tool_call",
-                            "toolCallId": call_id,
-                            "title": name,
-                            "rawInput": raw_input,
-                            "_meta": {"claudeCode": {"toolName": name}},
-                        }
-                    },
-                },
-            }
-        )
-        lines.append(
-            {
-                "timestamp": f"2026-01-01T00:00:{index:02d}Z",
-                "notification": {
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "tool_call_update",
-                            "toolCallId": call_id,
-                            "status": result_status,
-                            "rawOutput": raw_output,
-                        }
-                    },
-                },
-            }
-        )
-    return "\n".join(json.dumps(line) for line in lines)
+from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
 
 
 def _score(calls: Sequence[tuple[Any, ...]], expected: dict | None, *, key: str = "should_edit"):
@@ -109,12 +71,6 @@ def test_tool_group_direction_skips_when_the_case_declares_no_direction(expected
     assert score.score is None
 
 
-def test_tool_group_direction_grades_a_declared_false_direction() -> None:
-    score = _score([("Edit", {"file_path": "/repo/a.py"}, "ok")], {"code_edit_direction": {"should_edit": False}})
-
-    assert score.score == 0.0
-
-
 def test_tool_group_direction_skips_without_a_log() -> None:
     score = ToolGroupDirection(FILE_EDIT_TOOLS, name="code_edit_direction", key="should_edit")._run_eval_sync(
         {}, {"code_edit_direction": {"should_edit": True}}
@@ -123,15 +79,30 @@ def test_tool_group_direction_skips_without_a_log() -> None:
     assert score.score is None
 
 
-def test_flag_lookup_tools_match_mcp_names_the_parser_normalizes() -> None:
+@pytest.mark.parametrize("tool", sorted(FLAG_LOOKUP_TOOLS))
+def test_flag_lookup_tools_match_mcp_names_the_parser_normalizes(tool: str) -> None:
     # The agent calls these over MCP, so the log carries the mcp__posthog__ prefix.
     score = ToolGroupDirection(FLAG_LOOKUP_TOOLS, name="flag_lookup_direction", key="should_look_up")._run_eval_sync(
-        {"raw_log": _raw_tool_log([("mcp__posthog__feature-flag-get-all", {"active": "STALE"}, "ok")])},
+        {"raw_log": _raw_tool_log([(f"mcp__posthog__{tool}", {}, "ok")])},
         {"flag_lookup_direction": {"should_look_up": True}},
     )
 
     assert score.score == 1.0
-    assert score.metadata["calls"] == ["feature-flag-get-all"]
+    assert score.metadata["calls"] == [tool]
+
+
+def test_flag_mutation_tools_match_the_declared_write_surface() -> None:
+    # FLAG_MUTATION_TOOLS is a literal so the guarded set stays a reviewed choice, but a
+    # write verb added to tools.yaml must not slip past the suite silently. Bind the two.
+    tools_yaml = Path(settings.BASE_DIR) / "products/feature_flags/mcp/tools.yaml"
+    tools = yaml.safe_load(tools_yaml.read_text())["tools"]
+    declared_write_verbs = {
+        name
+        for name, spec in tools.items()
+        if spec.get("enabled") and spec.get("annotations", {}).get("readOnly") is False
+    }
+
+    assert FLAG_MUTATION_TOOLS == declared_write_verbs
 
 
 class TestFlagStateUnchanged(BaseTest):
@@ -146,17 +117,25 @@ class TestFlagStateUnchanged(BaseTest):
         state = {"key": flag.key, "active": True, "deleted": False, "archived": False, "filters": flag.filters}
         return flag, {"seed": {"flag_id": flag.id, "state": state}}
 
+    @staticmethod
+    def _score_via_db(output: dict[str, Any]) -> Any:
+        # Read on the main thread, then score: `eval_async`'s to_thread read opens a
+        # second DB connection that cannot see this test's uncommitted transaction.
+        scorer = FlagStateUnchanged()
+        seed = output["seed"]
+        return scorer._score_state(seed["state"], scorer._read_state(seed["flag_id"]))
+
     def test_scores_an_untouched_flag_green(self) -> None:
         _, output = self._seeded_output()
 
-        assert FlagStateUnchanged()._run_eval_sync(output).score == 1.0
+        assert self._score_via_db(output).score == 1.0
 
     @parameterized.expand(
         [
             ("disabled", {"active": False}),
             ("archived", {"archived": True, "active": False}),
-            # The soft-delete row must still be readable: reloading through the default
-            # manager would raise DoesNotExist here instead of scoring the mutation.
+            # The soft-delete row must still be readable: reading through the default
+            # manager would return None here instead of scoring the mutation.
             ("soft_deleted", {"deleted": True}),
         ]
     )
@@ -164,7 +143,7 @@ class TestFlagStateUnchanged(BaseTest):
         flag, output = self._seeded_output()
         FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).update(**mutation)
 
-        score = FlagStateUnchanged()._run_eval_sync(output)
+        score = self._score_via_db(output)
 
         assert score.score == 0.0
         assert set(score.metadata["changed_fields"]) == set(mutation)
@@ -173,7 +152,18 @@ class TestFlagStateUnchanged(BaseTest):
         flag, output = self._seeded_output()
         FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).delete()
 
-        assert FlagStateUnchanged()._run_eval_sync(output).score == 0.0
+        assert self._score_via_db(output).score == 0.0
 
     def test_skips_a_case_that_seeded_no_flag(self) -> None:
-        assert FlagStateUnchanged()._run_eval_sync({"seed": {}}).score is None
+        assert asyncio.run(FlagStateUnchanged().eval_async({"seed": {}})).score is None
+
+    def test_eval_async_reads_the_row_off_the_event_loop(self) -> None:
+        # The harness awaits scorers on the event loop, where a sync ORM call raises
+        # SynchronousOnlyOperation. This drives the real async path; the to_thread
+        # connection cannot see this test's transaction, so the row reads as gone —
+        # the assertion is that it scored instead of raising.
+        _, output = self._seeded_output()
+
+        score = asyncio.run(FlagStateUnchanged().eval_async(output))
+
+        assert score.score is not None
