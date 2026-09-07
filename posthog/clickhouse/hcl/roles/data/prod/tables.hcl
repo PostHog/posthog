@@ -315,4 +315,14 @@ database "posthog" {
       keys       = ["team_id", "distinct_id"]
     }
   }
+
+  # Both prod clusters dropped the person and group property columns from the flag
+  # evaluation tables. dev and the local node still carry them.
+  patch_table "flag_evaluations" {
+    drop_columns = ["group0_properties", "group1_properties", "group2_properties", "group3_properties", "group4_properties", "person_properties"]
+  }
+
+  patch_table "sharded_flag_evaluations" {
+    drop_columns = ["group0_properties", "group1_properties", "group2_properties", "group3_properties", "group4_properties", "person_properties"]
+  }
 }

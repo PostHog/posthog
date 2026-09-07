@@ -994,8 +994,7 @@ CREATE TABLE posthog.sharded_events (
   INDEX minmax_$ai_prompt_name `mat_$ai_prompt_name` TYPE minmax GRANULARITY 1,
   INDEX bloom_filter_$ai_experiment_id `mat_$ai_experiment_id` TYPE bloom_filter GRANULARITY 1,
   INDEX minmax_$ai_experiment_id `mat_$ai_experiment_id` TYPE minmax GRANULARITY 1,
-  INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1,
-  INDEX bloom_filter_$session_id nullIf(nullIf(`$session_id`, ''), 'null') TYPE bloom_filter GRANULARITY 1
+  INDEX minmax_$session_id_uuid `$session_id_uuid` TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', _timestamp) ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) SAMPLE BY cityHash64(distinct_id) SETTINGS index_granularity = 8192, replicated_fetches_min_part_level = 1, replicated_fetches_min_part_level_timeout_seconds = 300;
 CREATE TABLE posthog.sharded_events_codec_test (
   uuid UUID,

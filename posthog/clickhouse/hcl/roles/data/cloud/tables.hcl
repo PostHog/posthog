@@ -33,6 +33,8 @@ database "posthog" {
   }
 
   table "billing_usage_records" {
+    # The local node reads this through the aux cluster; a cloud data node holds
+    # its own copy. One name, two objects.
     override = true
     column "schema_version" {
       type = "UInt8"

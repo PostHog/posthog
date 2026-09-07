@@ -65,16 +65,6 @@ exclude {
     "sharded_events_part_breaker",
     "sharded_events_part_breaker_*",
 
-    # --- dropped from the cloud clusters 2026-09-04, awaiting a dump refresh ---
-    # Scratch tables that were replicated to every node and so read as schema. They
-    # are gone now; remove these five entries once a dump no longer carries them.
-    "dani_test_insertion",
-    "dani_test_insertion_*",
-    "test_table",
-    "test_persons_batch_export",
-    "test_persons_batch_export_*",
-    "test2_persons_batch_export_*",
-
     # --- infra-created, never by a migration ---
     # Iceberg readers over the logs archive bucket. The bucket is per environment
     # and named in the DDL, so declaring these would put one environment's storage

@@ -3978,4 +3978,9 @@ SQL
       remote_table    = "events_dead_letter_queue"
     }
   }
+
+  # dev dropped this index; both prod clusters still carry it.
+  patch_table "sharded_events" {
+    drop_indexes = ["bloom_filter_$session_id"]
+  }
 }
