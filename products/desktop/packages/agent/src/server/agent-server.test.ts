@@ -796,6 +796,7 @@ describe("AgentServer HTTP Mode", () => {
           payload: JwtPayload,
           stopReason: string,
           errorMessage?: string,
+          options?: { errorCategory?: string },
         ): Promise<void>;
       };
       testServer.eventStreamSender = {
@@ -824,6 +825,7 @@ describe("AgentServer HTTP Mode", () => {
         },
         "error",
         "boom",
+        { errorCategory: "agent_error" },
       );
 
       expect(order).toEqual(["enqueue", "update", "stop"]);
@@ -841,7 +843,7 @@ describe("AgentServer HTTP Mode", () => {
         "run-1",
         {
           status: "failed",
-          error_message: "boom",
+          error_message: "agent_error: boom",
         },
       );
     });
@@ -903,7 +905,7 @@ describe("AgentServer HTTP Mode", () => {
           mode: "interactive",
         },
         "error",
-        "upstream_provider_failure: unexpected status 503",
+        "unexpected status 503",
         { errorCategory: "upstream_provider_failure" },
       );
 
@@ -914,9 +916,77 @@ describe("AgentServer HTTP Mode", () => {
       const notification = JSON.parse(rawLine);
       expect(notification.method).toBe("_posthog/error");
       expect(notification.params).toMatchObject({
-        message: "upstream_provider_failure: unexpected status 503",
+        message: "unexpected status 503",
         errorCategory: "upstream_provider_failure",
       });
+    });
+
+    it("does not write an old failure into a replacement session", async () => {
+      const appendRawLine = vi.fn();
+      const flush = vi.fn(async () => {});
+      const shutdown = vi.fn(async () => {});
+      const testServer = new AgentServer({
+        port,
+        jwtPublicKey: TEST_PUBLIC_KEY,
+        repositoryPath: repo.path,
+        apiUrl: "http://localhost:8000",
+        apiKey: "test-api-key",
+        projectId: 1,
+        mode: "interactive",
+        taskId: "test-task-id",
+        runId: "test-run-id",
+      }) as unknown as {
+        eventStreamSender: {
+          enqueue: ReturnType<typeof vi.fn>;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        session: unknown;
+        signalTaskComplete(
+          payload: JwtPayload,
+          stopReason: string,
+          errorMessage?: string,
+          options?: { errorCategory?: string },
+        ): Promise<void>;
+      };
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
+      testServer.session = {
+        payload: { run_id: "run-2" },
+        logWriter: { appendRawLine, flush },
+        telemetry: { shutdown },
+      };
+
+      await testServer.signalTaskComplete(
+        {
+          run_id: "run-1",
+          task_id: "task-1",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "distinct-id",
+          mode: "interactive",
+        },
+        "error",
+        "unexpected status 503",
+        { errorCategory: "upstream_provider_failure" },
+      );
+
+      expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
+      expect(testServer.eventStreamSender.stop).not.toHaveBeenCalled();
+      expect(appendRawLine).not.toHaveBeenCalled();
+      expect(flush).not.toHaveBeenCalled();
+      expect(shutdown).not.toHaveBeenCalled();
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        {
+          status: "failed",
+          error_message: "upstream_provider_failure: unexpected status 503",
+        },
+      );
     });
 
     it("still stops event ingest when terminal failure status update fails", async () => {
@@ -1472,8 +1542,8 @@ describe("AgentServer HTTP Mode", () => {
           notification: expect.objectContaining({
             method: "_posthog/error",
             params: expect.objectContaining({
-              message: cause,
-              error: cause,
+              message: "unexpected status 403",
+              error: "unexpected status 403",
               errorCategory: "agent_error",
             }),
           }),
@@ -1482,7 +1552,10 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
         "task-1",
         "run-1",
-        expect.objectContaining({ status: "failed", error_message: cause }),
+        expect.objectContaining({
+          status: "failed",
+          error_message: "agent_error: unexpected status 403",
+        }),
       );
     });
 

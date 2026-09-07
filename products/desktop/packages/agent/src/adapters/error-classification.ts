@@ -79,6 +79,22 @@ export function classifyAgentError(
   return "agent_error";
 }
 
+export function sanitizeAgentErrorCause(
+  result: string,
+  classification: AgentErrorClassification,
+): string {
+  const text = result.trim();
+  const codexStatus = text.match(/^unexpected status\s+(\d{3})\b/i);
+  if (codexStatus) {
+    return `unexpected status ${codexStatus[1]}`;
+  }
+  const apiStatus = text.match(/^API Error:\s*(\d{3})\b/i);
+  if (apiStatus) {
+    return `API Error: ${apiStatus[1]}`;
+  }
+  return classification === "upstream_provider_failure" ? classification : text;
+}
+
 /**
  * Hard API rejection: the prompt exceeds the model's context window
  * (Anthropic phrasing, or the LLM gateway's HTTP 413). Retrying the same

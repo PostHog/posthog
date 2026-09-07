@@ -2748,7 +2748,7 @@ describe("CodexAppServerAgent", () => {
     // agent error. Without the classification the host skips its bounded turn
     // retry and the run dies.
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
-    const { client } = makeFakeClient();
+    const { client, extNotifications } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
       processOptions: { binaryPath: "/x/codex" },
       rpcFactory: stub.factory,
@@ -2779,8 +2779,13 @@ describe("CodexAppServerAgent", () => {
     );
     expect((err as RequestError).data).toEqual({
       classification: "upstream_provider_failure",
-      result: "unexpected status 503 Service Unavailable: retry",
+      result: "unexpected status 503",
     });
+    expect(
+      extNotifications.filter(
+        (notification) => notification.method === "_posthog/turn_complete",
+      ),
+    ).toHaveLength(0);
   });
 
   it("rejects the prompt when the fatal error is a gateway billing denial", async () => {

@@ -60,7 +60,10 @@ import {
   emptyBaseline,
   estimateTokens,
 } from "../claude/context-breakdown";
-import { classifyAgentError } from "../error-classification";
+import {
+  classifyAgentError,
+  sanitizeAgentErrorCause,
+} from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
@@ -113,14 +116,13 @@ const POLICY_ERROR_MESSAGE =
   "This request was blocked by a safety policy. Revise the request and try again.";
 const GENERIC_FATAL_ERROR_MESSAGE =
   "The agent stopped before completing this request. Please try again.";
-/** Keeps a verbose upstream payload out of the chat bubble and the run's error field. */
+/** Keeps an excessively long upstream payload out of the chat bubble. */
 const MAX_FATAL_CAUSE_LENGTH = 400;
 
 /**
  * Frame an unclassified fatal error for the reader, keeping the upstream cause.
  *
- * Without the cause every unclassified failure reads the same, so a burst of them
- * cannot be told apart in the run's error field or in analytics.
+ * Without the cause every unclassified failure looks the same to the user.
  */
 function describeFatalError(upstream: string): string {
   const cause = upstream.trim();
@@ -1806,17 +1808,15 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           void this.refuseTurnWithMessage(message);
           return;
         }
-        // Keep the app-server's cause in the display, and carry its
-        // classification as error data so the host can tell a transient
-        // upstream cut from a fatal agent error and fire its bounded turn
-        // retry. Build the error directly rather than via `internalError`,
-        // which would prepend "Internal error: " to the sentence the client
-        // renders.
+        // The client displays the full cause. The error data keeps only the
+        // fields that can enter wider diagnostic sinks.
+        const classification = classifyAgentError(message);
         void this.failTurn(
           new RequestError(-32603, describeFatalError(message), {
-            classification: classifyAgentError(message),
-            result: message,
+            classification,
+            result: sanitizeAgentErrorCause(message, classification),
           }),
+          classification !== "upstream_provider_failure",
         );
       }
     }
@@ -2134,7 +2134,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     });
   }
 
-  private async failTurn(error: Error): Promise<void> {
+  private async failTurn(error: Error, emitTurnComplete = true): Promise<void> {
     this.turns.markInterrupted();
     const pending = this.turns.claim();
     if (!pending) return;
@@ -2144,7 +2144,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
     const usage = this.usage.perTurnUsage();
     pending.reject(error);
-    void this.emitTurnCompleteSignal("refusal", usage);
+    if (emitTurnComplete) {
+      void this.emitTurnCompleteSignal("refusal", usage);
+    }
     void this.emitUsageBreakdown(this.usage.contextTokens());
   }
 

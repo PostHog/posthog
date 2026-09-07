@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyAgentError,
   isPromptTooLongError,
+  sanitizeAgentErrorCause,
 } from "./error-classification";
 
 describe("classifyAgentError", () => {
@@ -63,6 +64,34 @@ describe("classifyAgentError", () => {
     [undefined, "agent_error"],
   ] as const)("classifies %j as %s", (message, expected) => {
     expect(classifyAgentError(message)).toBe(expected);
+  });
+});
+
+describe("sanitizeAgentErrorCause", () => {
+  it.each([
+    [
+      "unexpected status 503 Service Unavailable: private provider body",
+      "upstream_provider_failure",
+      "unexpected status 503",
+    ],
+    [
+      "unexpected status 403 Forbidden: private provider body",
+      "agent_error",
+      "unexpected status 403",
+    ],
+    [
+      "API Error: 529 private provider body",
+      "upstream_provider_failure",
+      "API Error: 529",
+    ],
+    [
+      "provider request failed without a status",
+      "upstream_provider_failure",
+      "upstream_provider_failure",
+    ],
+    ["agent process exited", "agent_error", "agent process exited"],
+  ] as const)("sanitizes %j as %j", (message, classification, expected) => {
+    expect(sanitizeAgentErrorCause(message, classification)).toBe(expected);
   });
 });
 

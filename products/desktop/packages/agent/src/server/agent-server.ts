@@ -70,6 +70,7 @@ import {
   type AgentErrorClassification,
   classifyAgentError,
   isPromptTooLongError,
+  sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
 import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
@@ -2180,10 +2181,12 @@ export class AgentServer {
     // Prefer the structured `data` carried on RequestError if present.
     const parsed = errorWithClassificationSchema.safeParse(error);
     if (parsed.success) {
-      // `message` is the generic text the SDK builds at the ACP boundary. The
-      // adapter puts the app-server's real cause on `data.result`, so the
-      // diagnostic path (terminal event + task-run update) reports that.
-      const cause = parsed.data.data.result || message;
+      // The adapter puts a safe diagnostic cause on `data.result` because the
+      // ACP message contains text for the live client.
+      const cause = sanitizeAgentErrorCause(
+        parsed.data.data.result || message,
+        parsed.data.data.classification,
+      );
       return {
         classification: parsed.data.data.classification,
         message,
@@ -2342,9 +2345,7 @@ export class AgentServer {
       return "retryable_followup";
     }
 
-    // The live client already saw `displayMessage` via broadcastTurnFailure;
-    // the terminal event and task-run update carry the real cause so a failed
-    // run is diagnosable by its actual error, not the generic wrapper.
+    // Keep the live-client message separate from the safe diagnostic cause.
     await this.signalTaskComplete(payload, "error", cause || displayMessage, {
       errorCategory: classification,
     });
@@ -4576,24 +4577,27 @@ ${commonInstructions}
     errorMessage?: string,
     options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
-    // Enqueue the terminal error event before the final flush. `message` and
-    // `errorCategory` are the `_posthog/error` contract the Django log drain
-    // parses to report the real cause of a failed run, and it reads that event
-    // from the S3 log. So the event has to be written to the log before the
-    // flush that ships it to S3 — not only onto the live stream and OTel.
-    if (stopReason === "error") {
+    const currentSession = this.session;
+    const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
+    const terminalErrorMessage = errorMessage ?? "Agent error";
+    const persistedErrorMessage = options?.errorCategory
+      ? `${options.errorCategory}: ${errorMessage ?? "Agent error"}`
+      : terminalErrorMessage;
+    // The Django drain reads this contract from the S3 log. Enqueue it before
+    // the flush so the drain can report the safe classified cause.
+    if (stopReason === "error" && (!currentSession || sessionMatchesRun)) {
       this.enqueueTaskTerminalEvent(POSTHOG_NOTIFICATIONS.ERROR, {
         source: "agent_server",
         stopReason,
-        message: errorMessage ?? "Agent error",
-        error: errorMessage ?? "Agent error",
+        message: terminalErrorMessage,
+        error: terminalErrorMessage,
         errorCategory: options?.errorCategory,
       });
     }
 
-    if (this.session?.payload.run_id === payload.run_id) {
+    if (sessionMatchesRun) {
       try {
-        await this.session.logWriter.flush(payload.run_id, {
+        await currentSession.logWriter.flush(payload.run_id, {
           coalesce: true,
         });
       } catch (error) {
@@ -4617,19 +4621,23 @@ ${commonInstructions}
     try {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
-        error_message: errorMessage ?? "Agent error",
+        error_message: persistedErrorMessage,
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {
       this.logger.error("Failed to signal task completion", error);
     } finally {
-      await this.emitRtkSavings();
-      await this.eventStreamSender?.stop();
+      if (!currentSession || sessionMatchesRun) {
+        await this.emitRtkSavings();
+        await this.eventStreamSender?.stop();
+      }
       // The run is terminal and the sandbox is torn down right after — and
       // teardown kills this exec'd process without SIGTERM, so this is the
       // last chance to end the root span and drain the OTel queues. The
       // error mirror was appended above, so the root span exports as ERROR.
-      await this.session?.telemetry?.shutdown().catch(() => {});
+      if (sessionMatchesRun) {
+        await currentSession.telemetry?.shutdown().catch(() => {});
+      }
     }
   }
 
