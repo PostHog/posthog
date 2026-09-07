@@ -64,6 +64,23 @@ describe("handleResultMessage error text", () => {
         ?.madeProgress,
     ).toBe(true);
   });
+
+  it("keeps tool progress on an execution error", () => {
+    const message = {
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["API Error: 500 something broke"],
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(error).toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        madeProgress: true,
+      }),
+    });
+  });
 });
 
 describe("stripMarkerTags", () => {

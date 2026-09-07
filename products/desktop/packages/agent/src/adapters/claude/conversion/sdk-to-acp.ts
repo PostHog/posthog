@@ -961,11 +961,13 @@ export function handleResultMessage(
         return { shouldStop: true, stopReason: "max_tokens", usage };
       }
       if (message.is_error) {
+        const result = message.errors.join(", ") || message.subtype;
+        const classification = classifyAgentError(result);
         return {
           shouldStop: true,
           error: RequestError.internalError(
-            undefined,
-            message.errors.join(", ") || message.subtype,
+            { classification, result, madeProgress },
+            result,
           ),
           usage,
         };

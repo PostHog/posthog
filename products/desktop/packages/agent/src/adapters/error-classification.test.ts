@@ -131,6 +131,12 @@ describe("sanitizeAgentErrorCause", () => {
   ] as const)("sanitizes %j as %j", (message, classification, expected) => {
     expect(sanitizeAgentErrorCause(message, classification)).toBe(expected);
   });
+
+  it("limits an unclassified cause before persistence", () => {
+    const cause = "private response content ".repeat(100);
+
+    expect(sanitizeAgentErrorCause(cause, "agent_error")).toHaveLength(400);
+  });
 });
 
 describe("isPromptTooLongError", () => {

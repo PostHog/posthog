@@ -18,7 +18,7 @@ import {
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { Task, TaskRun } from "../types";
-import { AgentServer } from "./agent-server";
+import { AgentServer, UPSTREAM_PROVIDER_FAILURE_MESSAGE } from "./agent-server";
 
 interface TestableAgentServer {
   posthogAPI: PostHogAPIClient;
@@ -1031,7 +1031,7 @@ describe("Question relay", () => {
         "test-run-id",
         {
           status: "failed",
-          error_message: "upstream_connection_error: upstream_connection_error",
+          error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
         },
       );
     });

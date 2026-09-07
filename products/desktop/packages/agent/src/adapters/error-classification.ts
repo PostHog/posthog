@@ -114,7 +114,7 @@ export function sanitizeAgentErrorCause(
   ) {
     return classification;
   }
-  return text;
+  return text.slice(0, 400);
 }
 
 /**

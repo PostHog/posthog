@@ -151,6 +151,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_provider_failure",
   "content_block_rejection",
   "turn_ended_without_response",
+  "subscription_usage_limit",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -2477,8 +2478,13 @@ export class AgentServer {
       return "retryable_followup";
     }
 
-    // Keep the live-client message separate from the safe diagnostic cause.
-    await this.signalTaskComplete(payload, "error", cause || displayMessage, {
+    // Keep the live-client message separate from a bounded diagnostic cause.
+    // Upstream failures need the same actionable retry guidance in persisted
+    // task state and Slack notifications.
+    const persistedMessage = isUpstreamFailure
+      ? displayMessage
+      : cause || displayMessage;
+    await this.signalTaskComplete(payload, "error", persistedMessage, {
       errorCategory: classification,
     });
     return "terminal";

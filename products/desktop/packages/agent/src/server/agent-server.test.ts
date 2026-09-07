@@ -46,6 +46,7 @@ import {
   isTurnCompleteNotification,
   PREWARMED_RESUME_IDLE_CAPABILITY,
   SSE_KEEPALIVE_INTERVAL_MS,
+  UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
@@ -1774,7 +1775,7 @@ describe("AgentServer HTTP Mode", () => {
         "run-1",
         expect.objectContaining({
           status: "failed",
-          error_message: "upstream_provider_failure: API Error: 503",
+          error_message: `upstream_provider_failure: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
         }),
       );
     });
@@ -2209,6 +2210,36 @@ describe("AgentServer HTTP Mode", () => {
         }),
       ).rejects.toThrow("boom");
       expect(prompt).toHaveBeenCalledTimes(1);
+    });
+
+    it("records usage from a subscription usage-limit error", async () => {
+      const prompt = vi.fn().mockRejectedValue(
+        new RequestError(-32603, "Usage limit reached", {
+          classification: "subscription_usage_limit",
+          usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+        }),
+      );
+      const testServer = createRetryTestServer(prompt);
+
+      await expect(
+        testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        }),
+      ).rejects.toThrow("Usage limit reached");
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          state: {
+            token_usage: expect.objectContaining({
+              input_tokens: 20,
+              output_tokens: 10,
+              total_tokens: 30,
+            }),
+          },
+        }),
+      );
     });
 
     it("stops continuing once the bounded retry budget is exhausted", async () => {
