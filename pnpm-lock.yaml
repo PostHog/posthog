@@ -97,8 +97,8 @@ catalogs:
       specifier: ^0.57.0
       version: 0.57.0
     posthog-js:
-      specifier: ^1.427.2
-      version: 1.427.2
+      specifier: ^1.428.1
+      version: 1.428.1
     query-selector-shadow-dom:
       specifier: ^1.0.0
       version: 1.0.1
@@ -418,7 +418,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -449,7 +449,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -850,7 +850,7 @@ importers:
         version: link:../packages/quill/packages/components
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.10.6(@types/react@18.3.27)(posthog-js@1.427.2(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.10.6(@types/react@18.3.27)(posthog-js@1.428.1(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1162,7 +1162,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       query-selector-shadow-dom:
         specifier: 'catalog:'
         version: 1.0.1
@@ -2347,7 +2347,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2414,7 +2414,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2478,7 +2478,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2635,7 +2635,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2812,7 +2812,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2908,7 +2908,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2950,7 +2950,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3139,7 +3139,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3346,7 +3346,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3451,7 +3451,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3599,7 +3599,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3765,7 +3765,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3951,7 +3951,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4000,7 +4000,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4099,7 +4099,7 @@ importers:
         version: 0.55.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4154,7 +4154,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4219,7 +4219,7 @@ importers:
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4304,7 +4304,7 @@ importers:
         version: 4.7.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4447,7 +4447,7 @@ importers:
         version: 2.1.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4514,7 +4514,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.427.2(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.428.1(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4532,7 +4532,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4605,7 +4605,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4742,7 +4742,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4785,7 +4785,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4807,7 +4807,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.427.2(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.428.1(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4825,7 +4825,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4878,7 +4878,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       query-selector-shadow-dom:
         specifier: 'catalog:'
         version: 1.0.1
@@ -4909,7 +4909,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4973,7 +4973,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+        version: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -5058,7 +5058,7 @@ importers:
         version: 6.0.3
       vite-tsconfig-paths:
         specifier: ^5.1.4
-        version: 5.1.4(typescript@6.0.3)(vite@7.3.5(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+        version: 5.1.4(typescript@6.0.3)(vite@8.1.3(@types/node@22.18.8)(esbuild@0.25.12)(jiti@2.6.1)(less@4.2.2)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
       vitest:
         specifier: ^3.2.4
         version: 3.2.6(@types/node@22.18.8)(happy-dom@20.9.0)(jiti@2.6.1)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.14.6(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
@@ -5104,7 +5104,7 @@ importers:
         version: 6.0.3
       vite-tsconfig-paths:
         specifier: ^5.1.4
-        version: 5.1.4(typescript@6.0.3)(vite@8.1.3(@types/node@22.18.8)(esbuild@0.25.12)(jiti@2.6.1)(less@4.2.2)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+        version: 5.1.4(typescript@6.0.3)(vite@7.3.5(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
       vitest:
         specifier: ^3.2.4
         version: 3.2.6(@types/node@22.18.8)(happy-dom@20.9.0)(jiti@2.6.1)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.14.6(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
@@ -10403,14 +10403,11 @@ packages:
       react:
         optional: true
 
-  '@posthog/browser-common@0.7.2':
-    resolution: {integrity: sha512-ukDmETXy6fTBE4ZpaO8ccscrNz5SvTaUnhQ0Ze2JX/oYILa89rrNwqUH7lDAuhFKa+NY6EoJ9kZMuOvuu4WwLQ==}
+  '@posthog/browser-common@0.8.1':
+    resolution: {integrity: sha512-lbkGamYjj9BgBZjM8wtFrpXeOWux0OjdpjjxCEjVko1y5HRUcisfx0s74v/VmGy9jia9kynN/Q7kvqY4+Zc4aQ==}
 
   '@posthog/core@1.50.0':
     resolution: {integrity: sha512-25SnQycZbqqLodQs+GaDPGDC1oxT8+XOSGlyhiS2rtdVON9Opg2hmfJ/fpFNgMBL7YDi0rpvJiR/fudy96W4pA==}
-
-  '@posthog/core@1.50.5':
-    resolution: {integrity: sha512-afEchuShDaVIoxAIj76kDZQ1DhfesDmgfVp+mtTzsA3wlc8DF5uoz8YjuTjnxOicWkpP5HCDqYidK/1kT125Cg==}
 
   '@posthog/core@1.50.6':
     resolution: {integrity: sha512-Lno7WoIk5QI/HvlkW+ajfrE/DKTrKoA5pULB/HK6Om/ShGGUAJfOpOn22yWBtBvZ6R+bhAEsWXtzcc8QwNF8gQ==}
@@ -10481,9 +10478,6 @@ packages:
 
   '@posthog/types@1.407.1':
     resolution: {integrity: sha512-WhbkXPC2rgylXqmxHqv70ffI3k+KxyR6s7DBIfr5NvIqHkxp6v0pk31D/jbz0DNVbzwkLjyll2pxr4FNbJiYzg==}
-
-  '@posthog/types@1.409.0':
-    resolution: {integrity: sha512-239umoaZVb2GBaXeEyJpwFvjhrrChJH8NHCwiao23EBSu3NA6EN0MTMoaHSmMEf4yjiXEFFoYJA6FjJAXF5HGA==}
 
   '@posthog/types@1.409.1':
     resolution: {integrity: sha512-lA2sSGQUdVknSQl93uN9eUXDwkCMjAuthq24GONGHzMWwVygsKNHlWCnlJsVv2giDokj2p1NopO4zsE2S7gYjA==}
@@ -20036,8 +20030,8 @@ packages:
   posthog-js-lite@4.12.0:
     resolution: {integrity: sha512-cLwiv5y8ZU1VeRnpfHuAYZuss0xyxfo+LhseLMdTzgY/Mjf41tVXC6p/ssinttSb9Q3jcJQS26LrbCVb6r5xzw==}
 
-  posthog-js@1.427.2:
-    resolution: {integrity: sha512-/jRg3ChHuxcHTTJ/xb+IbpXLYxiBKIWdjrsNNqY1tAwjnFoijmz58i4mIR4A2P5MWx+4R7LlpK9vQfBr8v292g==}
+  posthog-js@1.428.1:
+    resolution: {integrity: sha512-lFdg5f7aB/3SB4vqLUHvRisJKflhduVpc/y6WGxNtc3HSHBXFFLvxiNoPJG9kqCqWHKlwczIKplFHr8H1I3L1w==}
     peerDependencies:
       '@types/react': 18.3.27
       react: 18.3.1
@@ -29974,18 +29968,14 @@ snapshots:
     optionalDependencies:
       react: 18.3.1
 
-  '@posthog/browser-common@0.7.2':
+  '@posthog/browser-common@0.8.1':
     dependencies:
-      '@posthog/core': 1.50.5
-      '@posthog/types': 1.409.0
+      '@posthog/core': 1.51.0
+      '@posthog/types': 1.409.1
 
   '@posthog/core@1.50.0':
     dependencies:
       '@posthog/types': 1.407.1
-
-  '@posthog/core@1.50.5':
-    dependencies:
-      '@posthog/types': 1.409.0
 
   '@posthog/core@1.50.6':
     dependencies:
@@ -30030,16 +30020,16 @@ snapshots:
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
 
-  '@posthog/react@1.10.6(@types/react@18.3.27)(posthog-js@1.427.2(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
+  '@posthog/react@1.10.6(@types/react@18.3.27)(posthog-js@1.428.1(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
     dependencies:
-      posthog-js: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+      posthog-js: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.427.2(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.428.1(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
     dependencies:
-      posthog-js: 1.427.2(@types/react@18.3.27)(react@18.3.1)
+      posthog-js: 1.428.1(@types/react@18.3.27)(react@18.3.1)
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -30047,8 +30037,6 @@ snapshots:
   '@posthog/siphash@1.1.1': {}
 
   '@posthog/types@1.407.1': {}
-
-  '@posthog/types@1.409.0': {}
 
   '@posthog/types@1.409.1': {}
 
@@ -42258,11 +42246,11 @@ snapshots:
     dependencies:
       '@posthog/core': 1.51.0
 
-  posthog-js@1.427.2(@types/react@18.3.27)(react@18.3.1):
+  posthog-js@1.428.1(@types/react@18.3.27)(react@18.3.1):
     dependencies:
-      '@posthog/browser-common': 0.7.2
-      '@posthog/core': 1.50.5
-      '@posthog/types': 1.409.0
+      '@posthog/browser-common': 0.8.1
+      '@posthog/core': 1.51.0
+      '@posthog/types': 1.409.1
       core-js: 3.49.0
       dompurify: 3.4.13
       fflate: 0.4.8
