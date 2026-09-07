@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { login2FALogic } from 'scenes/authentication/login-2fa/login2FALogic'
 import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { passwordResetLogic } from 'scenes/authentication/password-reset/passwordResetLogic'
 import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -40,6 +41,7 @@ describe('loginTelemetryLogic', () => {
             post: {
                 '/api/login/precheck': precheckHandler,
                 '/api/login': () => [401, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                '/api/reset/': () => [200, { success: true }],
             },
         })
         initKeaTests()
@@ -91,6 +93,17 @@ describe('loginTelemetryLogic', () => {
         twoFA.unmount()
 
         expect(capturedProperties('login failed')).toMatchObject({ step: '2fa', error_code: '2fa_invalid' })
+    })
+
+    it('reports a requested reset email', async () => {
+        const reset = passwordResetLogic()
+        reset.mount()
+        reset.actions.setRequestPasswordResetValue('email', 'user@example.com')
+        reset.actions.submitRequestPasswordReset()
+        await expectLogic(reset).toDispatchActions(['submitRequestPasswordResetSuccess']).toFinishAllListeners()
+        reset.unmount()
+
+        expect(captureCount('password reset requested')).toBe(1)
     })
 
     // An error raised while the auth scenes are gone — a failed passkey re-authentication inside the
