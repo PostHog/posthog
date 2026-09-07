@@ -1,10 +1,20 @@
+import '@testing-library/jest-dom'
+
+import { render, screen } from '@testing-library/react'
+
 import type {
     AIReportQueryDiagnosticApi,
     SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { isPartialDelivery, queryFailureReason, queryStatusLabel } from './SubscriptionAiReportDelivery'
+import {
+    ExpandedDeliveryRow,
+    isPartialDelivery,
+    queryFailureReason,
+    queryStatusLabel,
+} from './SubscriptionAiReportDelivery'
+import { MOCK_SUBSCRIPTION_DELIVERIES } from './subscriptionStoryFixtures'
 
 const diagnostic = (ok: boolean): AIReportQueryDiagnosticApi => ({
     description: 'q',
@@ -64,5 +74,17 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         ])('%s', (_name, ok, human_readable_error, expected) => {
             expect(queryFailureReason({ ok, human_readable_error })).toBe(expected)
         })
+    })
+
+    it('labels captured query diagnostics without implying they were newly generated', () => {
+        const row = MOCK_SUBSCRIPTION_DELIVERIES.find((delivery) => delivery.id === 'del-ai-report')
+        if (!row) {
+            throw new Error('Missing AI report delivery fixture')
+        }
+
+        render(<ExpandedDeliveryRow row={row} />)
+
+        expect(screen.getByText('Queries')).toBeInTheDocument()
+        expect(screen.queryByText('Generated queries')).not.toBeInTheDocument()
     })
 })

@@ -433,9 +433,7 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
             ) : null}
             {diagnostics.length > 0 ? (
                 <div className="flex flex-col gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                        Generated queries
-                    </div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Queries</div>
                     <GeneratedQueries diagnostics={diagnostics} />
                 </div>
             ) : null}

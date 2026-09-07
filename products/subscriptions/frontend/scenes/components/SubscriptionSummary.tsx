@@ -5,11 +5,15 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import type { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
-import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import {
+    SubscriptionResourceTypeEnumApi,
+    type SubscriptionApi,
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { subscriptionDestination } from './subscriptionDestination'
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
+import { SubscriptionQueryPlanStatus } from './SubscriptionQueryPlanStatus'
 import { subscriptionResourceLabel, subscriptionResourceViewUrl } from './SubscriptionsTable'
 
 export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Element {
@@ -80,6 +84,14 @@ export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Elem
                         <TZLabel time={sub.created_at} />
                     </dd>
                 </div>
+                {sub.resource_type === SubscriptionResourceTypeEnumApi.AiPrompt ? (
+                    <div>
+                        <dt className="text-sm text-secondary">Query plan</dt>
+                        <dd className="font-medium">
+                            <SubscriptionQueryPlanStatus status={sub.ai_query_plan_status} />
+                        </dd>
+                    </div>
+                ) : null}
             </dl>
         </div>
     )

@@ -36,6 +36,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     next_delivery_date: '2026-04-07T17:00:00Z',
     deleted: false,
     enabled: true,
+    ai_query_plan_status: null,
 }
 
 /** Insight subscription with several email recipients so Resource shows the type label, not the long name. */
@@ -68,6 +69,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     deleted: false,
     enabled: true,
     integration_id: 1,
+    ai_query_plan_status: null,
 }
 
 /** Dashboard subscription with several Slack channels. */
