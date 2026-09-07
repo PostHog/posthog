@@ -69,7 +69,7 @@ var droppedEventPropertyKeys = map[string]struct{}{
 func isTemporaryProperty(key string) bool {
 	root, _, _ := strings.Cut(key, ".")
 	switch root {
-	case "$set", "$set_once", "$unset", "$group_set",
+	case "$set", "$set_once", "$unset", "$group_set", "$feature_flag_request_id",
 		"$debug_first_full_snapshot_timestamp", "$snapshot_max_depth_exceeded",
 		"$sess_rec_flush_size", "$session_recording_remote_config",
 		"$session_recording_network_payload_capture", "$session_recording_canvas_recording",

@@ -15,21 +15,22 @@ Accepts a JSON object and retains only the following top-level properties, inclu
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Person and group instructions | `$set`, `$set_once`, `$unset`, `$group_set`                                                                                                      |
 | SDK diagnostics               | Every `$sdk_debug_*` property, including session duration                                                                                        |
+| Flag diagnostics              | `$feature_flag_request_id`                                                                                                                       |
 | Replay diagnostics            | `$debug_first_full_snapshot_timestamp`, `$snapshot_max_depth_exceeded`, `$sess_rec_flush_size`                                                   |
 | Replay configuration          | `$session_recording_remote_config`, `$session_recording_network_payload_capture`, `$session_recording_canvas_recording`, `$replay_script_config` |
 | Transport diagnostics         | `$sent_at`, `$lib_rate_limit_remaining_tokens`, `$lib_custom_api_host`                                                                           |
 
-`$debug_images` remains in permanent properties. Feature-flag payloads and `$active_feature_flags` are excluded from both outputs. Matching applies only at the root: a custom object's nested `$set` is not a temporary property.
+`$feature_flag_request_id` moves to temporary properties on every event type. `$debug_images` remains in permanent properties. Feature-flag payloads and `$active_feature_flags` are excluded from both outputs. Matching applies only at the root: a custom object's nested `$set` is not a temporary property.
 
 Run both cleaners on the original JSON; the event cleaner has already discarded the temporary properties. Apply person/group instructions before splitting stored event properties. Retention belongs to the destination column's TTL and insertion time; this function does not expire data itself.
 
 ```sql
-WITH '{"$set":{"score":7},"$sdk_debug_probe":true,"$sdk_debug_current_session_duration":42,"custom":"kept"}' AS raw_properties
+WITH '{"$set":{"score":7},"$sdk_debug_probe":true,"$sdk_debug_current_session_duration":42,"$feature_flag_request_id":"request-example","custom":"kept"}' AS raw_properties
 SELECT
     JSONCleanPostHogEventProperties(raw_properties) AS properties,
     JSONCleanPostHogTemporaryProperties(raw_properties) AS temporary_properties;
 -- properties: {"custom":"kept"}
--- temporary_properties: {"$set":{"score":7},"$sdk_debug_probe":true,"$sdk_debug_current_session_duration":42}
+-- temporary_properties: {"$set":{"score":7},"$sdk_debug_probe":true,"$sdk_debug_current_session_duration":42,"$feature_flag_request_id":"request-example"}
 ```
 
 Both functions use the same executable. The temporary entry point uses `--temporary-properties` with the existing chunk protocol.
