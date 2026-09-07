@@ -31,6 +31,14 @@ export const ToolDefinitionSchema = z
          */
         hidden_when_flag_on: z.string().optional(),
         /**
+         * Tool names that took over this tool's job. Declared next to the gate
+         * that retires the tool, so a call to the retired name can name its
+         * successor instead of reporting the name as unknown.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
+        /**
          * AvailableFeature the org's plan must include for this tool to be
          * advertised (e.g. `'audit_logs'`), matching the backend's
          * `premium_feature_on_cloud`. Best-effort — the backend
@@ -269,7 +277,11 @@ export function toolPassesEntitlementGate(
     return availableFeatures.includes(definition.feature_entitlement)
 }
 
-export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+/**
+ * Every catalog filter, with the flag gate optional: {@link getToolsForFeatures}
+ * drops what the flags hide, {@link getFlagGatedTools} keeps exactly that set.
+ */
+function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate: boolean): [string, ToolDefinition][] {
     const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams, availableFeatures, isCloud } =
         options || {}
     const toolDefinitions = getToolDefinitions()
@@ -310,7 +322,9 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     }
 
     // Filter by feature flags — see {@link toolPassesFlagGate} for the predicate.
-    entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    if (applyFlagGate) {
+        entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    }
 
     // Filter by billing entitlement — see {@link toolPassesEntitlementGate}.
     entries = entries.filter(([_, definition]) => toolPassesEntitlementGate(definition, availableFeatures, isCloud))
@@ -323,7 +337,49 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         )
     }
 
-    return entries.map(([toolName, _]) => toolName)
+    return entries
+}
+
+export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+    return filterToolEntries(options, true).map(([toolName, _]) => toolName)
+}
+
+export interface FlagGatedTool {
+    name: string
+    /** Tool names the definition declares as this tool's successors, in the order it lists them. */
+    supersededBy: string[]
+    /** Free-text guidance the definition adds to the redirect. */
+    redirectHint?: string
+}
+
+/**
+ * Tools a feature flag removed from the active catalog, while every other filter
+ * kept them. The exec dispatcher reads this so a call to a retired name reports
+ * the successor, or reports that the tool is not enabled — never that the name
+ * is unknown, which reads to an agent as a removed capability.
+ *
+ * Staff-only tools are left out for the same reason {@link getScopeGatedTools}
+ * leaves them out: the hint would advertise a staff surface to a customer.
+ */
+export function getFlagGatedTools(options?: ToolFilterOptions): FlagGatedTool[] {
+    const excluded = new Set(options?.excludeTools ?? [])
+    const gated: FlagGatedTool[] = []
+
+    for (const [name, definition] of filterToolEntries(options, false)) {
+        if (excluded.has(name) || toolPassesFlagGate(definition, options?.featureFlags)) {
+            continue
+        }
+        if (isStaffOnlyTool(definition.required_scopes ?? [])) {
+            continue
+        }
+        gated.push({
+            name,
+            supersededBy: definition.superseded_by ?? [],
+            ...(definition.redirect_hint ? { redirectHint: definition.redirect_hint } : {}),
+        })
+    }
+
+    return gated
 }
 
 export interface ScopeGatedTool {

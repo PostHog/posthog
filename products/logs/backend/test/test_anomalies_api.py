@@ -10,7 +10,10 @@ from rest_framework import status
 
 from products.apm.backend.facade.api import BaselineStage, Direction, IssueState, TrafficTier, VerdictType
 from products.logs.backend.anomaly_scan import ScanBucket, ScanBudgetExceeded, ScanIssue, ScanResult, ScanSeries
-from products.logs.backend.presentation.views.anomalies_api import LogsAnomalyScanRequestSerializer
+from products.logs.backend.presentation.views.anomalies_api import (
+    LogsAnomalyScanRequestSerializer,
+    LogsSeriesBandsRequestSerializer,
+)
 from products.logs.backend.series_bands import BandBucket, BandSeries, SeriesBandsFetchTruncated, SeriesBandsResult
 
 UTC = dt.UTC
@@ -170,6 +173,15 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
+class TestSeriesBandsRequestValidation(SimpleTestCase):
+    @parameterized.expand([(5, True), (15, True), (30, True), (60, True), (7, False), (120, False)])
+    def test_interval_must_sit_on_the_ladder(self, interval_minutes: int, valid: bool) -> None:
+        serializer = LogsSeriesBandsRequestSerializer(data={"serviceName": "svc", "intervalMinutes": interval_minutes})
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            assert serializer.validated_data["intervalMinutes"] == interval_minutes
+
+
 class TestLogsSeriesBandsAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -232,13 +244,22 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("span_over_seven_days", {"date_from": "-14d"}, "at most 7 days"),
-            ("start_beyond_retention", {"date_from": "-40d", "date_to": "-34d"}, "at most 35 days ago"),
+            ("span_over_seven_days", {"dateRange": {"date_from": "-14d"}}, "at most 7 days"),
+            (
+                "start_beyond_retention",
+                {"dateRange": {"date_from": "-40d", "date_to": "-34d"}},
+                "at most 35 days ago",
+            ),
+            (
+                "over_bucket_cap",
+                {"dateRange": {"date_from": "-7d"}, "intervalMinutes": 5},
+                "over the cap of 500 buckets per series. Use a 30 minute grain",
+            ),
         ]
     )
-    def test_unusable_window_is_rejected_before_querying(self, _name: str, date_range: dict, expected: str):
+    def test_unusable_window_is_rejected_before_querying(self, _name: str, body: dict, expected: str):
         with patch("products.logs.backend.presentation.views.anomalies_api.run_series_bands") as run:
-            response = self.client.post(self.url, {"serviceName": "svc", "dateRange": date_range}, format="json")
+            response = self.client.post(self.url, {"serviceName": "svc", **body}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert expected in response.json()["error"]
         run.assert_not_called()

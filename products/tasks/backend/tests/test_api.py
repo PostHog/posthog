@@ -1697,6 +1697,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.ONBOARDING,),
             (Task.OriginProduct.SIGNALS_CHAT,),
             (Task.OriginProduct.TASK_ANALYSIS,),
+            (Task.OriginProduct.REVIEW_HOG,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -14159,6 +14160,7 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertTrue(body["created"])
         analysis_task = Task.objects.get(id=body["analysis_task_id"])
         self.assertEqual(analysis_task.origin_product, Task.OriginProduct.TASK_ANALYSIS)
+        self.assertTrue(analysis_task.internal)
         self.assertIn("analyzing-task-runs", analysis_task.description)
         run = analysis_task.latest_run
         assert run is not None

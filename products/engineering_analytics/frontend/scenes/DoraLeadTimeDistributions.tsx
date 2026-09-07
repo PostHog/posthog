@@ -25,12 +25,7 @@ export function DoraLeadTimeDistributions(): JSX.Element {
                     />
                 }
             >
-                <Section
-                    id="merge-to-deploy"
-                    title="Lead time distributions"
-                    note={`Box per bucket: whisker ${excludeOutliers ? 'p5 to p95' : 'min to max'}, box p25 to p75, line at the median, dot at the mean. Buckets key on deploy time.`}
-                    busy={doraLoading && !!dora}
-                >
+                <Section id="merge-to-deploy" title="Lead time distributions" busy={doraLoading && !!dora}>
                     <DoraLeadTimeDistributionContent />
                 </Section>
             </ScopePanel>

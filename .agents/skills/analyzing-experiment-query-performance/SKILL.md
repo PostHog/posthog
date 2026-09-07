@@ -229,7 +229,7 @@ re-check the key's scopes before anything else.
    to identify which team, experiment, and metric type is responsible.
 3. **Drill to ground truth**: for a specific `query_id`, the full `query_log` row
    (settings, replica, ProfileEvents) needs ClickHouse —
-   use the `query-clickhouse-via-metabase` skill.
+   use the `querying-production-databases-via-metabase` skill.
 4. **Result-consistency questions** (precomputed vs direct results diverging) are out of scope here —
    these endpoints see performance and failures, not result values.
    That's the precompute result-consistency canary's territory:

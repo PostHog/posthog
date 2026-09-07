@@ -9566,6 +9566,8 @@ export const externalDataSources = [
     'Membrain',
     'RecallAI',
     'Tenjin',
+    'Folk',
+    'Cybersource',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

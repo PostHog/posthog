@@ -146,11 +146,14 @@ class PlanetScalePostgresSource(PostgresSource):
         team_id: int,
         schema_name: str | None = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         if _PLANETSCALE_WEB_HOST_RE.search(_bare_host(config.host or "")):
             return False, _HOST_IS_DASHBOARD_ERROR
 
-        return super().validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return super().validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
 
     def check_cdc_prerequisites(
         self,
