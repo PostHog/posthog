@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.api.services.flags_service import (
     FlagVersionConflictError,
+    PropertyMatchingVersionConflictError,
     batch_evaluate_flag_for_team,
     get_flags_from_service,
 )
@@ -34,6 +35,7 @@ class TestBatchEvaluateFlagForTeam(SimpleTestCase):
     def test_409_maps_to_flag_version_conflict_before_raise_for_status(self, mock_post):
         response = MagicMock()
         response.status_code = 409
+        response.json.return_value = {"error": "version_conflict"}
         mock_post.return_value = response
 
         with self.assertRaises(FlagVersionConflictError):
@@ -48,7 +50,65 @@ class TestBatchEvaluateFlagForTeam(SimpleTestCase):
         # The 409 branch must short-circuit: a generic HTTPError from raise_for_status
         # would lose the version-conflict semantics the paging loop relies on.
         response.raise_for_status.assert_not_called()
-        response.json.assert_not_called()
+
+    @override_settings(INTERNAL_REQUEST_TOKEN="secret")
+    @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
+    def test_property_matching_version_conflict_is_permanent(self, mock_post):
+        response = MagicMock()
+        response.status_code = 409
+        response.json.return_value = {"error": "property_matching_version_conflict"}
+        mock_post.return_value = response
+
+        with self.assertRaises(PropertyMatchingVersionConflictError):
+            batch_evaluate_flag_for_team(
+                team_id=1,
+                project_id=1,
+                flag_key="my-flag",
+                expected_version=7,
+                expected_property_matching_version=2,
+                cursor=0,
+                limit=100,
+            )
+
+    @override_settings(INTERNAL_REQUEST_TOKEN="secret")
+    @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
+    def test_accepts_legacy_response_without_property_matching_version(self, mock_post):
+        response_data: dict[str, object] = {"matched_person_uuids": [], "next_cursor": None, "errors_count": 0}
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = response_data
+        mock_post.return_value = response
+
+        result = batch_evaluate_flag_for_team(
+            team_id=1,
+            project_id=1,
+            flag_key="my-flag",
+            expected_version=7,
+            expected_property_matching_version=1,
+            cursor=0,
+            limit=100,
+        )
+
+        self.assertEqual(result, response_data)
+
+    @override_settings(INTERNAL_REQUEST_TOKEN="secret")
+    @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
+    def test_rejects_response_without_pinned_property_matching_version(self, mock_post):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"matched_person_uuids": [], "next_cursor": None, "errors_count": 0}
+        mock_post.return_value = response
+
+        with self.assertRaises(PropertyMatchingVersionConflictError):
+            batch_evaluate_flag_for_team(
+                team_id=1,
+                project_id=1,
+                flag_key="my-flag",
+                expected_version=7,
+                expected_property_matching_version=2,
+                cursor=0,
+                limit=100,
+            )
 
     @override_settings(INTERNAL_REQUEST_TOKEN="secret")
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
