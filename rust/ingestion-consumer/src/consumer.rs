@@ -227,14 +227,11 @@ pub struct IngestionConsumer {
     max_in_flight_batches: usize,
     handle: Handle,
     group_id: String,
-    /// Holds the frontiers awaiting the next commit and says when to commit.
-    /// Shared with the consumer's [`SentinelContext`], which drops a
-    /// departing partition's frontier on rebalance.
-    commit_manager: Arc<CommitManager>,
-    /// Checks every frontier handed to the commit manager and confirms
-    /// commits land. Shared with the [`SentinelContext`], which resets its
-    /// baselines on rebalance.
-    commit_sentinel: Arc<CommitSentinel>,
+    /// Where settled frontiers go: the sentinel checks each one and passes
+    /// it to the manager, which says when to commit. Shared with the
+    /// consumer's [`SentinelContext`], which tells it which partitions leave
+    /// the assignment.
+    commit_sentinel: Arc<CommitSentinel<CommitManager>>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// The per-partition offset ledger the commit path reads its frontiers
@@ -256,10 +253,9 @@ impl IngestionConsumer {
         options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
-        // Share the context's ledger, commit manager, and sentinel so rebalance
-        // callbacks forget partitions on the same ones the commit path uses.
+        // Share the context's ledger and sentinel so rebalance callbacks
+        // forget partitions on the same ones the commit path uses.
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
-        let commit_manager = consumer.context().commit_manager();
         let commit_sentinel = consumer.context().commit_sentinel();
         let consumer = Arc::new(consumer);
         let (batcher, outputs) = Batcher::new(
@@ -269,7 +265,6 @@ impl IngestionConsumer {
             options.deferred_flush_timeout,
         );
         Self {
-            commit_manager,
             commit_sentinel,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
@@ -314,19 +309,17 @@ impl IngestionConsumer {
             config.consumer_batch_size,
             config.consumer_batch_size_kb,
         );
-        let commit_sentinel = Arc::new(CommitSentinel::new());
+        let commit_sentinel = Arc::new(CommitSentinel::new(CommitManager::new(
+            Duration::from_millis(config.consumer_commit_interval_ms),
+        )));
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = batcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
-        let commit_manager = Arc::new(CommitManager::new(Duration::from_millis(
-            config.consumer_commit_interval_ms,
-        )));
         let mut context = SentinelContext::new(
             Arc::clone(&commit_sentinel),
             key_sentinel,
             Arc::clone(&topic_offset_ledger),
-            Arc::clone(&commit_manager),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
@@ -344,7 +337,6 @@ impl IngestionConsumer {
         );
 
         Ok(Self {
-            commit_manager,
             commit_sentinel,
             consumer,
             debug_recorder,
@@ -399,7 +391,7 @@ impl IngestionConsumer {
 
         // Frontiers handed over since the last commit are accepted work, and
         // neither a shutdown nor a failed batch should leave them to replay.
-        let offsets = self.commit_manager.drain();
+        let offsets = self.commit_sentinel.drain();
         if !offsets.is_empty() {
             if let Err(err) = self.commit_offsets(&offsets) {
                 warn!(error = %err, "Final offset commit failed");
@@ -485,11 +477,10 @@ impl IngestionConsumer {
         }
     }
 
-    /// One wake-up: report liveness and commit whatever the manager says is
-    /// due.
+    /// One wake-up: report liveness and commit whatever is due.
     fn tick(&self) -> anyhow::Result<()> {
         self.handle.report_healthy();
-        if let Some(offsets) = self.commit_manager.try_commit(Instant::now()) {
+        if let Some(offsets) = self.commit_sentinel.try_commit(Instant::now()) {
             self.commit_offsets(&offsets)?;
         }
         Ok(())
@@ -781,8 +772,8 @@ impl IngestionConsumer {
     }
 
     /// Settle the poll against the ledger and hand each partition's frontier
-    /// to the commit manager. A partition without a frontier stays on its
-    /// last commit.
+    /// over for commit. A partition without a frontier stays on its last
+    /// commit.
     fn settle_poll(&self, partitions: &HashMap<TopicPartition, PartitionDeliveries>) {
         if partitions.is_empty() {
             // Unreachable while batches require messages to be spawned; counted
@@ -806,15 +797,13 @@ impl IngestionConsumer {
                 continue;
             };
             settled += 1;
-            let Some(span) = frontier_span(&partition.span, frontier) else {
+            if frontier.is_none() {
+                continue;
+            }
+            let Some(taken) = self.topic_offset_ledger.take_frontier(topic_partition) else {
                 continue;
             };
-            self.topic_offset_ledger.take_frontier(topic_partition);
-            // Checked as it is handed over, so a violation is attributed to
-            // the work that caused it.
-            self.commit_sentinel
-                .check_commit([(topic_partition, &span)]);
-            self.commit_manager.on_frontier(topic_partition, span);
+            self.commit_sentinel.on_frontier(topic_partition, taken);
             advanced += 1;
         }
 
@@ -858,17 +847,6 @@ impl IngestionConsumer {
                 )
             })
     }
-}
-
-/// Map a settled frontier back to the span the commit path submits: the
-/// frontier is next-to-read and the span is last-processed, so the commit
-/// adds the 1 back and submits the frontier verbatim. `None` for a partition
-/// that settled without a frontier; it stays on its last commit.
-fn frontier_span(span: &OffsetSpan, frontier: Option<Offset>) -> Option<OffsetSpan> {
-    frontier.map(|frontier| OffsetSpan {
-        first: span.first,
-        last: frontier.0 - 1,
-    })
 }
 
 /// Emit the per-poll parity metrics (received counts, batch sizes,
@@ -1076,37 +1054,5 @@ mod tests {
 
         assert_eq!(in_flight[0].covered, 0);
         assert_eq!(in_flight[0].accepted, 0);
-    }
-
-    #[test]
-    fn frontier_span_submits_the_frontier_verbatim() {
-        let span = OffsetSpan {
-            first: 10,
-            last: 11,
-        };
-        assert_eq!(
-            frontier_span(&span, Some(Offset(12))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 11
-            })
-        );
-        assert_eq!(
-            frontier_span(&span, Some(Offset(11))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 10
-            }),
-            "a frontier trailing the span wins"
-        );
-    }
-
-    #[test]
-    fn a_partition_without_a_frontier_is_not_committed() {
-        let span = OffsetSpan {
-            first: 20,
-            last: 21,
-        };
-        assert_eq!(frontier_span(&span, None), None);
     }
 }

@@ -13,6 +13,7 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+use crate::commit_manager::Committer;
 use crate::commit_sentinel::CommitSentinel;
 use crate::order_sentinel::SentinelContext;
 
@@ -30,9 +31,9 @@ impl Drop for AbortOnDrop {
 
 /// Run the monitor until shutdown. Aborted when the guard drops, so a
 /// consumer torn down mid-test doesn't keep the rdkafka client alive.
-pub fn spawn_commit_monitor(
+pub fn spawn_commit_monitor<C: Committer + 'static>(
     consumer: Arc<StreamConsumer<SentinelContext>>,
-    sentinel: Arc<CommitSentinel>,
+    sentinel: Arc<CommitSentinel<C>>,
     handle: Handle,
 ) -> AbortOnDrop {
     AbortOnDrop(tokio::spawn(run_commit_monitor(consumer, sentinel, handle)))
@@ -42,9 +43,9 @@ pub fn spawn_commit_monitor(
 /// assignment (an OffsetFetch round trip) and feed them to the commit
 /// sentinel, which compares them against attempted commits and stamps the
 /// last-successful-commit gauge on progress.
-async fn run_commit_monitor(
+async fn run_commit_monitor<C: Committer>(
     consumer: Arc<StreamConsumer<SentinelContext>>,
-    sentinel: Arc<CommitSentinel>,
+    sentinel: Arc<CommitSentinel<C>>,
     handle: Handle,
 ) {
     loop {

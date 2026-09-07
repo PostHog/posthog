@@ -9,9 +9,26 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Offset, TopicPartition};
+use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 
-use crate::order_sentinel::OffsetSpan;
+/// Where the consumer's frontiers go, and what it asks on every tick. Holds
+/// no I/O: the consumer commits what it is given. Implemented by
+/// [`CommitManager`]; the commit sentinel wraps an implementation to check
+/// what passes through.
+pub trait Committer: Send + Sync {
+    /// The consumer took a partition's frontier from the ledger.
+    fn on_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier);
+
+    /// Partitions leaving the assignment: drop whatever is held for them.
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+
+    /// One tick of the consumer's wake-up timer. The offsets to commit now,
+    /// at most once per interval; `None` when nothing is due.
+    fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
+
+    /// Everything ready to commit, regardless of the interval.
+    fn drain(&self) -> HashMap<TopicPartition, Offset>;
+}
 
 #[derive(Default)]
 struct State {
@@ -22,8 +39,7 @@ struct State {
     last_commit: Option<Instant>,
 }
 
-/// Hands out the pending offsets at most once per `interval`. Holds no I/O:
-/// the consumer commits what it is given.
+/// Hands out the pending offsets at most once per `interval`.
 pub struct CommitManager {
     state: Mutex<State>,
     interval: Duration,
@@ -36,33 +52,28 @@ impl CommitManager {
             interval,
         }
     }
+}
 
-    /// A partition's frontier moved: `span` is the work now ready to commit,
-    /// last-processed.
-    pub fn on_frontier(&self, topic_partition: &TopicPartition, span: OffsetSpan) {
+impl Committer for CommitManager {
+    fn on_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
         self.state
             .lock()
             .unwrap()
             .pending
-            .insert(topic_partition.clone(), Offset(span.last + 1));
+            .insert(topic_partition.clone(), taken.offset);
     }
 
-    /// Drop the pending offsets of partitions leaving the assignment. A
-    /// commit issued for a partition another member now owns could move the
-    /// group's offset back behind that member's progress.
-    pub fn forget_partitions<'a>(
-        &self,
-        topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
-    ) {
+    /// A commit issued for a partition another member now owns could move the
+    /// group's offset back behind that member's progress, so the frontier
+    /// goes with the partition.
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         let mut state = self.state.lock().unwrap();
-        for (topic, partition) in topic_partitions {
-            state.pending.remove(&TopicPartition::new(topic, partition));
+        for topic_partition in topic_partitions {
+            state.pending.remove(topic_partition);
         }
     }
 
-    /// One tick of the consumer's wake-up timer. The offsets to commit now,
-    /// at most once per interval; `None` when nothing is due.
-    pub fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+    fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let mut state = self.state.lock().unwrap();
         let inside_interval = state
             .last_commit
@@ -76,45 +87,54 @@ impl CommitManager {
         Some(std::mem::take(&mut state.pending))
     }
 
-    /// Everything ready to commit, regardless of the interval.
-    pub fn drain(&self) -> HashMap<TopicPartition, Offset> {
+    fn drain(&self) -> HashMap<TopicPartition, Offset> {
         std::mem::take(&mut self.state.lock().unwrap().pending)
     }
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use common_kafka_consumer::Charge;
+
+    use super::*;
+
+    pub(crate) fn tp(partition: i32) -> TopicPartition {
+        TopicPartition::new("events", partition)
+    }
+
+    /// A take that started at window base `first` and reached `offset`.
+    pub(crate) fn taken(first: i64, offset: i64) -> TakenFrontier {
+        TakenFrontier {
+            first: Offset(first),
+            offset: Offset(offset),
+            charge: Charge::ZERO,
+            gap_offset_count: 0,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
+    use super::test_support::*;
     use super::*;
 
     const INTERVAL: Duration = Duration::from_millis(500);
 
-    fn tp(partition: i32) -> TopicPartition {
-        TopicPartition::new("events", partition)
-    }
-
-    fn span(first: i64, last: i64) -> OffsetSpan {
-        OffsetSpan { first, last }
-    }
-
     #[test]
     fn the_first_tick_with_a_pending_frontier_commits_at_once() {
         let manager = CommitManager::new(INTERVAL);
-        manager.on_frontier(&tp(0), span(0, 9));
+        manager.on_frontier(&tp(0), taken(0, 10));
 
         let offsets = manager.try_commit(Instant::now()).expect("due");
-        assert_eq!(
-            offsets,
-            HashMap::from([(tp(0), Offset(10))]),
-            "next to read, past the span"
-        );
+        assert_eq!(offsets, HashMap::from([(tp(0), Offset(10))]));
     }
 
     #[test]
     fn the_latest_frontier_per_partition_is_what_commits() {
         let manager = CommitManager::new(INTERVAL);
-        manager.on_frontier(&tp(0), span(0, 9));
-        manager.on_frontier(&tp(1), span(0, 19));
-        manager.on_frontier(&tp(0), span(10, 11));
+        manager.on_frontier(&tp(0), taken(0, 10));
+        manager.on_frontier(&tp(1), taken(0, 20));
+        manager.on_frontier(&tp(0), taken(10, 12));
 
         let offsets = manager.try_commit(Instant::now()).expect("due");
         assert_eq!(
@@ -127,9 +147,9 @@ mod tests {
     fn a_tick_inside_the_interval_commits_nothing_and_keeps_the_frontier() {
         let manager = CommitManager::new(INTERVAL);
         let start = Instant::now();
-        manager.on_frontier(&tp(0), span(0, 9));
+        manager.on_frontier(&tp(0), taken(0, 10));
         manager.try_commit(start).expect("due");
-        manager.on_frontier(&tp(1), span(0, 19));
+        manager.on_frontier(&tp(1), taken(0, 20));
 
         assert!(manager.try_commit(start + INTERVAL / 2).is_none());
         assert_eq!(
@@ -144,7 +164,7 @@ mod tests {
         let start = Instant::now();
 
         assert!(manager.try_commit(start).is_none());
-        manager.on_frontier(&tp(0), span(0, 9));
+        manager.on_frontier(&tp(0), taken(0, 10));
 
         assert!(manager
             .try_commit(start + Duration::from_millis(1))
@@ -155,9 +175,9 @@ mod tests {
     fn a_drain_ignores_the_interval() {
         let manager = CommitManager::new(INTERVAL);
         let start = Instant::now();
-        manager.on_frontier(&tp(0), span(0, 9));
+        manager.on_frontier(&tp(0), taken(0, 10));
         manager.try_commit(start).expect("due");
-        manager.on_frontier(&tp(1), span(0, 19));
+        manager.on_frontier(&tp(1), taken(0, 20));
 
         assert_eq!(manager.drain(), HashMap::from([(tp(1), Offset(20))]));
         assert!(manager.drain().is_empty(), "a drain leaves nothing behind");
@@ -166,10 +186,10 @@ mod tests {
     #[test]
     fn a_forgotten_partition_is_not_committed() {
         let manager = CommitManager::new(INTERVAL);
-        manager.on_frontier(&tp(0), span(0, 9));
-        manager.on_frontier(&tp(1), span(0, 19));
+        manager.on_frontier(&tp(0), taken(0, 10));
+        manager.on_frontier(&tp(1), taken(0, 20));
 
-        manager.forget_partitions([("events", 0)]);
+        manager.forget_partitions(&[tp(0)]);
 
         assert_eq!(manager.drain(), HashMap::from([(tp(1), Offset(20))]));
     }

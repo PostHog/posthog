@@ -35,7 +35,7 @@ use tracing::{info, warn};
 use crate::commit_manager::CommitManager;
 use crate::commit_sentinel::CommitSentinel;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger};
+use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -317,15 +317,13 @@ impl KeyOrderSentinel {
 /// restart-time redelivery), resets sentinel baselines around rebalances, and
 /// exports librdkafka's internal statistics (see [`crate::kafka_stats`]).
 pub struct SentinelContext {
-    commit_sentinel: Arc<CommitSentinel>,
+    /// Where the consumer's frontiers go. Held here so the rebalance
+    /// callbacks tell it which partitions leave the assignment.
+    commit_sentinel: Arc<CommitSentinel<CommitManager>>,
     key_sentinel: Arc<KeyOrderSentinel>,
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
-    /// Holds the frontiers awaiting the next commit. Owned here so the
-    /// rebalance callbacks drop a departing partition's frontier before a
-    /// commit can carry it under another owner.
-    commit_manager: Arc<CommitManager>,
     /// Advanced once per assignment callback; the gRPC transport stamps it
     /// on sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances. Distinct from the offset ledger's generations, which move
@@ -335,16 +333,14 @@ pub struct SentinelContext {
 
 impl SentinelContext {
     pub fn new(
-        commit_sentinel: Arc<CommitSentinel>,
+        commit_sentinel: Arc<CommitSentinel<CommitManager>>,
         key_sentinel: Arc<KeyOrderSentinel>,
         topic_offset_ledger: Arc<TopicOffsetLedger>,
-        commit_manager: Arc<CommitManager>,
     ) -> Self {
         Self {
             commit_sentinel,
             key_sentinel,
             topic_offset_ledger,
-            commit_manager,
             assignment_epoch: None,
         }
     }
@@ -360,23 +356,18 @@ impl SentinelContext {
     /// from the dispatcher.
     pub fn detached(commit_interval: Duration) -> Self {
         Self::new(
-            Arc::new(CommitSentinel::new()),
+            Arc::new(CommitSentinel::new(CommitManager::new(commit_interval))),
             Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
-            Arc::new(CommitManager::new(commit_interval)),
         )
     }
 
-    pub fn commit_sentinel(&self) -> Arc<CommitSentinel> {
+    pub fn commit_sentinel(&self) -> Arc<CommitSentinel<CommitManager>> {
         Arc::clone(&self.commit_sentinel)
     }
 
     pub fn topic_offset_ledger(&self) -> Arc<TopicOffsetLedger> {
         Arc::clone(&self.topic_offset_ledger)
-    }
-
-    pub fn commit_manager(&self) -> Arc<CommitManager> {
-        Arc::clone(&self.commit_manager)
     }
 
     /// Start a new ledger generation for every partition in `tpl`, dropping
@@ -385,8 +376,11 @@ impl SentinelContext {
         let elements = tpl.elements();
         self.topic_offset_ledger
             .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
-        self.commit_manager
-            .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
+        let topic_partitions: Vec<TopicPartition> = elements
+            .iter()
+            .map(|e| TopicPartition::new(e.topic(), e.partition()))
+            .collect();
+        self.commit_sentinel.forget_partitions(&topic_partitions);
     }
 }
 
@@ -421,8 +415,6 @@ impl ConsumerContext for SentinelContext {
                     topic_partitions = ?partition_names(tpl),
                     "Rebalance: partitions revoked"
                 );
-                self.commit_sentinel
-                    .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
                 self.forget_ledger_partitions(tpl);
                 // Revoked partitions may be replayed by another consumer (or by
                 // us after re-assignment) from the last commit — every per-key

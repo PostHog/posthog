@@ -20,17 +20,23 @@
 //!
 //! Rebalances reset the baselines, where Kafka legitimately re-deals
 //! partitions and the invariant must re-baseline instead of firing false
-//! positives. The sentinel is a pure observer: it never influences commits.
+//! positives.
+//!
+//! The sentinel wraps the [`Committer`] the consumer hands its frontiers to:
+//! every frontier passes through it on the way in, and every tick passes
+//! through it on the way to the committer. It is a pure observer: it never
+//! changes what is committed.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use common_kafka_consumer::TopicPartition;
+use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 use metrics::{counter, gauge};
 use tracing::warn;
 
+use crate::commit_manager::Committer;
 use crate::order_sentinel::OffsetSpan;
 
 /// How a commit violated the contiguous-monotonic invariant.
@@ -93,29 +99,55 @@ struct PartitionCommits {
 /// fires for them), commit *success* is verified out of band: the consumer's
 /// commit monitor periodically fetches the group's broker-committed offsets
 /// and feeds them to [`CommitSentinel::observe_broker_committed`].
-pub struct CommitSentinel {
+pub struct CommitSentinel<C: Committer> {
     partitions: Mutex<HashMap<(String, i32), PartitionCommits>>,
     /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
     /// no-op and no state accumulates.
     enabled: AtomicBool,
+    /// The committer being observed.
+    inner: C,
 }
 
-impl Default for CommitSentinel {
-    fn default() -> Self {
+impl<C: Committer> CommitSentinel<C> {
+    pub fn new(inner: C) -> Self {
         Self {
             partitions: Mutex::new(HashMap::new()),
             enabled: AtomicBool::new(true),
+            inner,
         }
-    }
-}
-
-impl CommitSentinel {
-    pub fn new() -> Self {
-        Self::default()
     }
 
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Check a taken frontier as it is handed over, so a violation is
+    /// attributed to the work that caused it, then pass it on. The frontier
+    /// spans the window base it started from to the frontier it reached, so
+    /// consecutive takes on a partition must chain; the frontier is
+    /// next-to-read while the span is last-processed.
+    pub fn on_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
+        let span = OffsetSpan {
+            first: taken.first.0,
+            last: taken.offset.0 - 1,
+        };
+        self.check_commit([(topic_partition, &span)]);
+        self.inner.on_frontier(topic_partition, taken);
+    }
+
+    /// Partitions leaving the assignment: drop their baselines, and whatever
+    /// the committer holds for them.
+    pub fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+        self.forget_baselines(topic_partitions);
+        self.inner.forget_partitions(topic_partitions);
+    }
+
+    pub fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        self.inner.try_commit(now)
+    }
+
+    pub fn drain(&self) -> HashMap<TopicPartition, Offset> {
+        self.inner.drain()
     }
 
     /// Check a batch's offset spans against the previous commit per partition,
@@ -256,15 +288,16 @@ impl CommitSentinel {
         progressed
     }
 
-    /// Drop the baselines for revoked partitions so the next commit after a
+    /// Drop the baselines for departing partitions so the next commit after a
     /// re-assignment baselines instead of reporting a false gap/overlap
     /// (another group member may have committed in between).
-    pub fn forget_partitions<'a>(&self, revoked: impl IntoIterator<Item = (&'a str, i32)>) {
+    fn forget_baselines(&self, topic_partitions: &[TopicPartition]) {
         let mut partitions = self.partitions.lock().unwrap();
-        for (topic, partition) in revoked {
-            let forgotten = partitions.remove(&(topic.to_string(), partition));
+        for topic_partition in topic_partitions {
+            let (topic, partition) = (&topic_partition.topic, topic_partition.partition);
+            let forgotten = partitions.remove(&(topic.clone(), partition));
             if forgotten.is_some_and(|state| state.attempted.is_some()) {
-                let topic: Arc<str> = Arc::from(topic);
+                let topic: Arc<str> = Arc::from(topic.as_str());
                 let partition: Arc<str> = Arc::from(partition.to_string());
                 gauge!(
                     "ingestion_consumer_commit_confirmation_lag",
@@ -279,7 +312,45 @@ impl CommitSentinel {
 
 #[cfg(test)]
 mod tests {
+    use crate::commit_manager::test_support::{taken, tp};
+
     use super::*;
+
+    /// A committer that commits nothing, so the tests see only the sentinel.
+    struct NullCommitter;
+
+    impl Committer for NullCommitter {
+        fn on_frontier(&self, _: &TopicPartition, _: TakenFrontier) {}
+        fn forget_partitions(&self, _: &[TopicPartition]) {}
+        fn try_commit(&self, _: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+            None
+        }
+        fn drain(&self) -> HashMap<TopicPartition, Offset> {
+            HashMap::new()
+        }
+    }
+
+    fn sentinel() -> CommitSentinel<NullCommitter> {
+        CommitSentinel::new(NullCommitter)
+    }
+
+    #[test]
+    fn taken_frontiers_chain_as_last_processed_spans() {
+        let sentinel = sentinel();
+        // Base 0, frontier 10: the commit covers 0..=9. Base 10, frontier 15
+        // starts where that left off.
+        sentinel.on_frontier(&tp(0), taken(0, 10));
+        sentinel.on_frontier(&tp(0), taken(10, 15));
+        assert!(sentinel
+            .check_commit(&spans(&[("events", 0, 15, 20)]))
+            .is_empty());
+
+        // A take that starts past the last frontier skipped offsets.
+        sentinel.on_frontier(&tp(0), taken(30, 35));
+        let violations = sentinel.check_commit(&spans(&[("events", 0, 40, 41)]));
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].prev_committed, 35);
+    }
 
     fn spans(entries: &[(&str, i32, i64, i64)]) -> HashMap<TopicPartition, OffsetSpan> {
         entries
@@ -300,7 +371,7 @@ mod tests {
 
     #[test]
     fn contiguous_commits_pass() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         assert!(
             sentinel.check_commit(&spans(&[("t", 0, 0, 99)])).is_empty(),
             "first commit baselines"
@@ -315,7 +386,7 @@ mod tests {
 
     #[test]
     fn commit_gap_is_detected() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
         // Offsets 100..=104 were never committed — the batch skipped them.
         let violations = sentinel.check_commit(&spans(&[("t", 0, 105, 150)]));
@@ -326,7 +397,7 @@ mod tests {
 
     #[test]
     fn commit_regression_is_out_of_order() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
         let violations = sentinel.check_commit(&spans(&[("t", 0, 10, 50)]));
         assert_eq!(violations.len(), 1);
@@ -335,7 +406,7 @@ mod tests {
 
     #[test]
     fn partial_recommit_is_overlap() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
         let violations = sentinel.check_commit(&spans(&[("t", 0, 90, 150)]));
         assert_eq!(violations.len(), 1);
@@ -344,7 +415,7 @@ mod tests {
 
     #[test]
     fn partitions_are_tracked_independently() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99), ("t", 1, 0, 9)]));
         // Partition 0 continues cleanly; partition 1 skips 10..=19.
         let violations = sentinel.check_commit(&spans(&[("t", 0, 100, 120), ("t", 1, 20, 30)]));
@@ -355,7 +426,7 @@ mod tests {
 
     #[test]
     fn broker_observation_baselines_then_tracks_progress() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)])); // attempted next = 100
                                                            // First poll baselines: a stale broker offset (previous incarnation)
                                                            // is not evidence that OUR commits landed.
@@ -373,7 +444,7 @@ mod tests {
 
     #[test]
     fn broker_observation_requires_every_attempted_partition_confirmed() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99), ("t", 1, 0, 9)]));
         sentinel.observe_broker_committed([("t".to_string(), 0, 100), ("t".to_string(), 1, 5)]);
         // Partition 0 fully confirmed but partition 1 stuck below attempted and
@@ -384,9 +455,9 @@ mod tests {
 
     #[test]
     fn forgotten_partition_rebaselines_without_violation() {
-        let sentinel = CommitSentinel::new();
+        let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
-        sentinel.forget_partitions([("t", 0)]);
+        sentinel.forget_partitions(&[TopicPartition::new("t", 0)]);
         // After revoke + re-assign another consumer may have committed past us;
         // a non-contiguous first commit must baseline, not fire.
         assert!(sentinel
@@ -396,7 +467,7 @@ mod tests {
 
     #[test]
     fn a_disabled_sentinel_checks_nothing() {
-        let commit = CommitSentinel::new();
+        let commit = sentinel();
         commit.set_enabled(false);
         commit.check_commit(&spans(&[("t", 0, 0, 99)]));
         // A blatant regression passes: the kill switch disarms the check.
