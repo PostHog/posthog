@@ -56,6 +56,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         RUNNING = "running", "Running"
         STOPPED = "stopped", "Stopped"
 
+    class AnalysisContract(models.TextChoices):
+        V1 = "v1", "v1"
+        V2 = "v2", "v2"
+
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=3000, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -151,6 +155,18 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # flag-cleanup PR. When null, cleanup falls back to the team's only cached repo and
     # is skipped when the team has several — never inferred.
     repository = models.CharField(max_length=255, null=True, blank=True)
+
+    # Rules v2 analysis link, dormant: nothing reads or writes these three columns yet, so every
+    # row is null. Nullable with no default so the expansion is metadata-only; the "v1" backfill
+    # and default, the NOT NULL constraint, and the partial unique index on non-null rule ids
+    # each need this schema deployed everywhere first and land in their own migrations.
+    # The experiment side of the two-way link: equals the `id` of the flag rule whose `experiment_id`
+    # is this row's primary key.
+    feature_flag_rule_id = models.UUIDField(null=True, blank=True)
+    # Which exposure-analysis contract the experiment is read under; immutable once started.
+    analysis_contract = models.CharField(max_length=8, choices=AnalysisContract, null=True, blank=True)
+    # Immutable copy of the flag rule taken at first v2 start, never replaced.
+    analysis_snapshot = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_experiment"

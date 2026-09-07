@@ -64,12 +64,15 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Experiment
   list([
+    'analysis_contract',
+    'analysis_snapshot',
     'archived',
     'conclusion',
     'conclusion_comment',
     'created_at',
     'deleted',
     'end_date',
+    'feature_flag_rule_id',
     'flag_cleanup_task_id',
     'repository',
     'start_date',
@@ -689,6 +692,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_Experiment
   list([
+    'AnalysisContract',
     'DoesNotExist',
     'ExperimentType',
     'MultipleObjectsReturned',
@@ -699,6 +703,8 @@
     '__static_attributes__',
     '__str__',
     '_meta',
+    'analysis_contract',
+    'analysis_snapshot',
     'archived',
     'can_freeze_exposure',
     'computed_status',
@@ -714,8 +720,10 @@
     'experimenttosavedmetric_set',
     'exposure_cohort_id',
     'feature_flag_id',
+    'feature_flag_rule_id',
     'flag_cleanup_task_id',
     'freeze_exposure_blocker',
+    'get_analysis_contract_display',
     'get_analytics_metadata',
     'get_conclusion_display',
     'get_feature_flag_key',
