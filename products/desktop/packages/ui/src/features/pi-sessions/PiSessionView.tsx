@@ -257,14 +257,19 @@ function usePiFailureNotice(failure: PiControllerSessionState["error"]): void {
   }, [failure]);
 }
 
+// Module scope: the controller keeps a connection failure in the store after the
+// view closes, so a remount would otherwise capture the same one again.
+const capturedFailureIds = new Set<string>();
+
 function usePiConnectionFailureCapture(
   taskId: string,
   failure: PiControllerSessionState["error"],
 ): void {
   useEffect(() => {
-    if (failure?.scope !== "connection") {
+    if (failure?.scope !== "connection" || capturedFailureIds.has(failure.id)) {
       return;
     }
+    capturedFailureIds.add(failure.id);
     track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
       task_id: taskId,
       error_type: failure.kind,
