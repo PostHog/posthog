@@ -895,9 +895,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
                             },
-                            compareFilter: {
-                                compare: true,
-                            },
+                            // All time starts at the first event, so the previous period contains no events.
+                            ...(dateRange.date_from === 'all' ? {} : { compareFilter: { compare: true } }),
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
@@ -930,9 +929,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
                             },
-                            compareFilter: {
-                                compare: true,
-                            },
+                            ...(dateRange.date_from === 'all' ? {} : { compareFilter: { compare: true } }),
                             filterTestAccounts,
                         },
                     },
@@ -964,9 +961,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
                             },
-                            compareFilter: {
-                                compare: true,
-                            },
+                            ...(dateRange.date_from === 'all' ? {} : { compareFilter: { compare: true } }),
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
@@ -999,9 +994,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
                             },
-                            compareFilter: {
-                                compare: true,
-                            },
+                            ...(dateRange.date_from === 'all' ? {} : { compareFilter: { compare: true } }),
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
@@ -1036,9 +1029,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
                             },
-                            compareFilter: {
-                                compare: true,
-                            },
+                            ...(dateRange.date_from === 'all' ? {} : { compareFilter: { compare: true } }),
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
@@ -1076,9 +1067,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                                 funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                             },
-                            compareFilter: {
-                                compare: true,
-                            },
+                            ...(dateRange.date_from === 'all' ? {} : { compareFilter: { compare: true } }),
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
@@ -1139,9 +1128,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                                 funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
                             },
-                            compareFilter: {
-                                compare: true,
-                            },
+                            ...(dateRange.date_from === 'all' ? {} : { compareFilter: { compare: true } }),
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },

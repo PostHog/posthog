@@ -102,6 +102,16 @@ describe('customerAnalyticsSceneLogic', () => {
                     .map((insight) => insight.name)
             ).toEqual([])
         })
+
+        it('is off for every signup tile on the all time range', () => {
+            logic.actions.setDates('all', null)
+
+            expect(
+                logic.values.signupInsights
+                    .filter((insight) => 'compareFilter' in insight.query.source)
+                    .map((insight) => insight.name)
+            ).toEqual([])
+        })
     })
 
     describe('URL sync', () => {
