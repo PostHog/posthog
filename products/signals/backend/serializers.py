@@ -9,6 +9,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
@@ -39,18 +40,39 @@ from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
 
-# Maps (source_product, source_type) → (ExternalDataSourceType value, schema name)
-_DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
-    (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
-    (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): ("Linear", "issues"),
-    (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): ("Zendesk", "tickets"),
-    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): ("PgAnalyze", "issues"),
+@frozen
+class _DataImportSchema:
+    """The warehouse source type and schema name a signal source reads its sync status from."""
+
+    source_type: str
+    schema_name: str
+
+    def matches(self, source_type: str, name: str) -> bool:
+        # A repo-qualified schema reads as `<owner>/<repo>.<endpoint>`, a legacy one as the bare
+        # endpoint name.
+        return source_type == self.source_type and (name == self.schema_name or name.endswith(f".{self.schema_name}"))
+
+
+# Maps (source_product, source_type) → the warehouse schema carrying that source's sync status
+_DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], _DataImportSchema] = {
+    (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): _DataImportSchema(
+        source_type="Github", schema_name="issues"
+    ),
+    (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): _DataImportSchema(
+        source_type="Linear", schema_name="issues"
+    ),
+    (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): _DataImportSchema(
+        source_type="Zendesk", schema_name="tickets"
+    ),
+    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): _DataImportSchema(
+        source_type="PgAnalyze", schema_name="issues"
+    ),
 }
 
-_DATA_IMPORT_EXTERNAL_SOURCE_TYPES = sorted({source_type for source_type, _ in _DATA_IMPORT_SOURCE_MAP.values()})
+_DATA_IMPORT_EXTERNAL_SOURCE_TYPES = sorted({schema.source_type for schema in _DATA_IMPORT_SOURCE_MAP.values()})
 
 
-def _read_data_import_statuses(team_id: int) -> dict[tuple[str, str], set[str]]:
+def _read_data_import_statuses(team_id: int) -> dict[_DataImportSchema, set[str]]:
     """Every data-import schema on a team in one query, bucketed by `_DATA_IMPORT_SOURCE_MAP` value."""
     rows = (
         ExternalDataSchema.objects.filter(
@@ -60,17 +82,14 @@ def _read_data_import_statuses(team_id: int) -> dict[tuple[str, str], set[str]]:
         .exclude(source__deleted=True)
         .values_list("source__source_type", "name", "status")
     )
-    statuses: dict[tuple[str, str], set[str]] = {}
+    statuses: dict[_DataImportSchema, set[str]] = {}
     for row_source_type, row_name, row_status in rows:
         # `status` is nullable. A row without one matches none of the ranked states below.
         if row_status is None:
             continue
-        for key in _DATA_IMPORT_SOURCE_MAP.values():
-            source_type, schema_name = key
-            # A repo-qualified schema reads as `<owner>/<repo>.<endpoint>`, a legacy one as the
-            # bare endpoint name.
-            if row_source_type == source_type and (row_name == schema_name or row_name.endswith(f".{schema_name}")):
-                statuses.setdefault(key, set()).add(row_status)
+        for schema in _DATA_IMPORT_SOURCE_MAP.values():
+            if schema.matches(row_source_type, row_name):
+                statuses.setdefault(schema, set()).add(row_status)
     return statuses
 
 
@@ -128,16 +147,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # Absent key means "not read yet", a `None` value means the read failed.
-        self._data_import_statuses_by_team: dict[int, dict[tuple[str, str], set[str]] | None] = {}
+        self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
 
     def get_status(self, obj: SignalSourceConfig) -> str | None:
-        mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
-        if mapping is None:
+        schema = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
+        if schema is None:
             return None
-        statuses_by_source = self._data_import_statuses(obj.team_id)
-        if statuses_by_source is None:
+        statuses_by_schema = self._data_import_statuses(obj.team_id)
+        if statuses_by_schema is None:
             return None
-        statuses = statuses_by_source.get(mapping, set())
+        statuses = statuses_by_schema.get(schema, set())
         if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
@@ -151,7 +170,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             return "completed"
         return None
 
-    def _data_import_statuses(self, team_id: int) -> dict[tuple[str, str], set[str]] | None:
+    def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:
         """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
 
         The inbox reads this list on load, and DRF reuses one child serializer across a list,
