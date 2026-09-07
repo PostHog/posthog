@@ -273,11 +273,21 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         summary: [
             null as Summary | null,
             {
                 loadSummary: async () => {
+                    // Only a deployment with a region group can act on the summary. Everywhere else
+                    // (see getRelevantGroupName) every selector below discards it, so the request buys
+                    // nothing. Skipping it also removes the `TypeError: Failed to fetch` that a
+                    // deployment without egress to posthogstatus.com reports on every poll.
+                    // `relevantGroupName` is null until preflight resolves, so the loadPreflightSuccess
+                    // listener starts the poll when the region arrives late.
+                    if (!values.relevantGroupName) {
+                        return null
+                    }
+
                     // The incident.io status page is external (posthogstatus.com), so the fetch can fail
                     // for reasons outside our control: ad blockers, tracking-protection extensions, DNS
                     // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
@@ -372,6 +382,11 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         loadSummarySuccess: () => {
             setIncidentStatus(values.status)
 
+            if (!values.relevantGroupName) {
+                // The loader fetched nothing, so there is nothing to refresh.
+                return
+            }
+
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => actions.loadSummary(), REFRESH_INTERVAL)
                 return () => clearTimeout(timerId)
@@ -382,6 +397,13 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                 actions.loadSummary()
             } else {
                 cache.disposables.dispose('refreshTimeout')
+            }
+        },
+        // The afterMount load can run before preflight resolves, and the region is unknown until then.
+        // Start the poll once preflight says which deployment this is.
+        [preflightLogic.actionTypes.loadPreflightSuccess]: () => {
+            if (!values.summary && !values.summaryLoading) {
+                actions.loadSummary()
             }
         },
     })),

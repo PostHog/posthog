@@ -23,9 +23,10 @@ use crate::{
 use axum::extract::{Extension, MatchedPath, Query, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::{debug_handler, Json};
+use axum::Json;
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use governor::clock;
 use serde_json;
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -254,10 +255,10 @@ fn get_versioned_response(
 
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
-#[debug_handler]
 #[allow(clippy::too_many_arguments)]
-pub async fn flags(
+pub async fn flags<C>(
     state: State<router::State>,
+    Extension(rate_limiters): Extension<router::FlagsEndpointRateLimiters<C>>,
     InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
     // Populated by the `record_concurrency_wait` middleware after
@@ -273,7 +274,10 @@ pub async fn flags(
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Response, FlagError> {
+) -> Result<Response, FlagError>
+where
+    C: clock::Clock + Clone + Send + Sync + 'static,
+{
     let request_id = extract_request_id(&headers);
 
     // Extract client IP, checking X-Forwarded-For header first
@@ -394,7 +398,7 @@ pub async fn flags(
     let ip_rl_result = {
         let _t = common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
             .label("kind", "ip");
-        state.ip_rate_limiter.allow_request(&ip_string)
+        rate_limiters.ip.allow_request(&ip_string)
     };
     match ip_rl_result {
         RateLimitResult::Blocked => {
@@ -502,7 +506,7 @@ pub async fn flags(
             let _t =
                 common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
                     .label("kind", "token");
-            state.flags_rate_limiter.allow_request(&rate_limit_key)
+            rate_limiters.token.allow_request(&rate_limit_key)
         };
         match token_rl_result {
             RateLimitResult::Blocked => {

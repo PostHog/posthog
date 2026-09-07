@@ -892,14 +892,19 @@ export function buildAggregateQuery(survey: Survey, filters: SurveyQueryFilters)
 
     const mergedSubmissions = buildMergedSubmissionsSubquery(survey, filters, questions)
 
+    // arrayConcat needs two arguments or more. A survey that emits one pair expression, such as a
+    // single rating question, goes straight to arrayJoin.
+    const allLabelPairs =
+        labelPairs.length === 1
+            ? labelPairs[0]
+            : `arrayConcat(\n                ${labelPairs.join(',\n                ')}\n            )`
+
     return `SELECT
             tupleElement(question_label, 1) AS question_id,
             tupleElement(question_label, 2) AS label,
             count() AS cnt
         FROM (
-            SELECT arrayJoin(arrayConcat(
-                ${labelPairs.join(',\n                ')}
-            )) AS question_label
+            SELECT arrayJoin(${allLabelPairs}) AS question_label
             FROM (
                 ${mergedSubmissions}
             )

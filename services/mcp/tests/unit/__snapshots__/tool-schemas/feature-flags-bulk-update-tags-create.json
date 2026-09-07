@@ -17,8 +17,10 @@
         "tags": {
             "description": "Tag names to add, remove, or set.",
             "items": {
+                "maxLength": 255,
                 "type": "string"
             },
+            "maxItems": 100,
             "type": "array"
         }
     },

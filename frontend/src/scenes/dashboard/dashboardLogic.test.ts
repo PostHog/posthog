@@ -175,6 +175,10 @@ describe('dashboardLogic', () => {
             11: {
                 ...dashboardResult(11, [], { date_from: '-24h' }),
             },
+            12: {
+                ...dashboardResult(12, []),
+                persisted_filters: { date_from: '-24h' },
+            },
             13: {
                 ...dashboardResult(13, []),
             },
@@ -203,6 +207,7 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/9/': { ...dashboards[9] },
                 '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
                 '/api/environments/:team_id/dashboards/11/': { ...dashboards[11] },
+                '/api/environments/:team_id/dashboards/12/': { ...dashboards[12] },
                 '/api/environments/:team_id/dashboards/': {
                     count: 6,
                     next: null,
@@ -1195,27 +1200,31 @@ describe('dashboardLogic', () => {
         describe('url filter overrides', () => {
             const PROPERTY_OVERRIDE = [{ key: '$browser', value: 'Chrome', type: 'event' }]
 
-            const openWithUrlFilters = async (urlFilters: Record<string, any>): Promise<void> => {
+            // Dashboard 12 saves `date_from: '-24h'`; dashboard 5 saves no filters.
+            const openWithUrlFilters = async (urlFilters: Record<string, any>, dashboardId = 5): Promise<void> => {
                 logic.unmount()
-                router.actions.push('/dashboard/5', {
+                router.actions.push(`/dashboard/${dashboardId}`, {
                     [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(urlFilters),
                 })
-                logic = dashboardLogic({ id: 5 })
+                logic = dashboardLogic({ id: dashboardId })
                 logic.mount()
                 await expectLogic(logic).toFinishAllListeners()
             }
 
             // The overrides banner renders off hasUrlFilters. An override that constrains nothing still
             // has keys, so testing for key presence announces overrides on a dashboard that is showing
-            // exactly its saved state.
-            const activeOverrideCases: [string, Record<string, any>, boolean][] = [
-                ['a date override is active', { date_from: '-7d', date_to: null }, true],
-                ['a property override is active', { properties: PROPERTY_OVERRIDE }, true],
-                ['properties cleared to empty is not active', { properties: [] }, false],
+            // exactly its saved state. A back link from an insight writes the saved filters into the url,
+            // which is that same state.
+            const activeOverrideCases: [string, Record<string, any>, number, boolean][] = [
+                ['a date override is active', { date_from: '-7d', date_to: null }, 5, true],
+                ['a property override is active', { properties: PROPERTY_OVERRIDE }, 5, true],
+                ['properties cleared to empty is not active', { properties: [] }, 5, false],
+                ['a url that repeats the saved filters is not active', { date_from: '-24h' }, 12, false],
+                ['a url that changes a saved filter is active', { date_from: '-7d' }, 12, true],
             ]
 
-            it.each(activeOverrideCases)('%s', async (_name, urlFilters, expected) => {
-                await openWithUrlFilters(urlFilters)
+            it.each(activeOverrideCases)('%s', async (_name, urlFilters, dashboardId, expected) => {
+                await openWithUrlFilters(urlFilters, dashboardId)
 
                 expect(logic.values.hasUrlFilters).toBe(expected)
             })

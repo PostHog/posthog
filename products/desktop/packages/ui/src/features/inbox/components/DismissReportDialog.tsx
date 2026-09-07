@@ -38,6 +38,7 @@ export interface DismissReportDialogProps {
   isSubmitting: boolean;
   snoozeDisabledReason: string | null;
   initialReason?: DismissalReasonOptionValue;
+  initialNote?: string;
   onConfirm: (result: DismissReportDialogResult) => void;
 }
 
@@ -49,6 +50,7 @@ export function DismissReportDialog({
   isSubmitting,
   snoozeDisabledReason,
   initialReason,
+  initialNote = "",
   onConfirm,
 }: DismissReportDialogProps): React.JSX.Element {
   return (
@@ -66,6 +68,7 @@ export function DismissReportDialog({
           isSubmitting={isSubmitting}
           snoozeDisabledReason={snoozeDisabledReason}
           initialReason={initialReason}
+          initialNote={initialNote}
           onConfirm={onConfirm}
         />
       </DialogContent>
@@ -79,6 +82,7 @@ function DismissReportDialogBody({
   isSubmitting,
   snoozeDisabledReason,
   initialReason,
+  initialNote = "",
   onConfirm,
 }: Omit<DismissReportDialogProps, "open" | "onOpenChange"> & {
   selectedCount: number;
@@ -86,7 +90,7 @@ function DismissReportDialogBody({
   const [reason, setReason] = useState<DismissalReasonOptionValue | null>(
     initialReason ?? null,
   );
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initialNote);
   const fieldId = useId();
   const pausesReport = reason != null && isDismissalReasonSnooze(reason);
   const reportNoun = selectedCount > 1 ? "reports" : "report";
@@ -99,17 +103,13 @@ function DismissReportDialogBody({
     <>
       <DialogHeader>
         <DialogTitle>
-          {pausesReport
-            ? selectedCount > 1
-              ? `Pause ${selectedCount} reports?`
-              : `Pause report "${title}"?`
-            : selectedCount > 1
-              ? `Dismiss ${selectedCount} reports?`
-              : `Dismiss report "${title}"?`}
+          {selectedCount > 1
+            ? `Dismiss ${selectedCount} reports?`
+            : `Dismiss report "${title}"?`}
         </DialogTitle>
         <DialogDescription>
           {pausesReport
-            ? `This pauses the ${reportNoun} until another matching signal arrives.`
+            ? `This dismisses the ${reportNoun} until another matching signal arrives.`
             : `This dismisses the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
           {hasOpenPr && !pausesReport
             ? " The open pull request will be closed."
@@ -132,7 +132,7 @@ function DismissReportDialogBody({
               const explanation = disabled
                 ? snoozeDisabledReason
                 : pauses
-                  ? "Pause this report until another matching signal arrives."
+                  ? "Dismiss this report until another matching signal arrives."
                   : "Dismiss this report so matching signals do not surface it again.";
               return (
                 <div key={option.value} className="flex items-center gap-2">
@@ -191,7 +191,7 @@ function DismissReportDialogBody({
           loading={isSubmitting}
           onClick={() => reason && onConfirm({ reason, note: note.trim() })}
         >
-          {pausesReport ? "Pause report" : "Dismiss report"}
+          Dismiss report
         </Button>
       </DialogFooter>
     </>

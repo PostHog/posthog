@@ -504,11 +504,17 @@ tools:
             destructive: false
             idempotent: true
         title: List services with stats
-        description: >
+        description: |
             Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate,
             plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on
             — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking
             attribute-values + per-service counts.
+
+            Put all parameters in `query`:
+
+            ```json
+            { "query": { "dateRange": { "date_from": "-24h" } } }
+            ```
         response:
             include:
                 - services

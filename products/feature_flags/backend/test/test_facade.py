@@ -353,6 +353,27 @@ class TestRollOutVariant:
         assert result["payloads"] == {}
         assert result["aggregation_group_type_index"] is None
 
+    def test_transform_filters_preserves_holdout(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+            "holdout": {"id": 42, "exclusion_percentage": 5},
+        }
+
+        assert _roll_out_variant(current_filters, "test")["holdout"] == {"id": 42, "exclusion_percentage": 5}
+        assert _roll_out_variant(current_filters, "test", release_to_everyone=True)["holdout"] == {
+            "id": 42,
+            "exclusion_percentage": 5,
+        }
+
+        del current_filters["holdout"]
+        assert "holdout" not in _roll_out_variant(current_filters, "test")
+
     def test_transform_filters_default_does_not_mutate_input(self):
         """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
         original_groups = [{"properties": [], "rollout_percentage": 50}]

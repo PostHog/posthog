@@ -1037,6 +1037,106 @@ class TestBulkUpdateStatus(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TestBulkUpdateTicketTags(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_tags/"
+
+    def _ticket_tags(self, ticket: Ticket) -> set[str]:
+        return set(ticket.tagged_items.values_list("tag__name", flat=True))
+
+    def test_bulk_add_tags_with_uuid_ids(self):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["billing", "urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual({row["id"] for row in data["updated"]}, set(ids))
+        self.assertEqual(data["skipped"], [])
+        for ticket in self.tickets:
+            self.assertEqual(self._ticket_tags(ticket), {"billing", "urgent"})
+
+    def test_other_team_ids_reported_not_found(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id), str(other_ticket.id)], "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual([row["id"] for row in data["updated"]], [str(self.tickets[0].id)])
+        self.assertEqual(data["skipped"], [{"id": str(other_ticket.id), "reason": "Not found"}])
+        self.assertEqual(self._ticket_tags(other_ticket), set())
+
+    def test_denied_ticket_skipped_with_permission_denied(self):
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.tickets[0].id),
+            organization_member=self.user.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["skipped"], [{"id": str(self.tickets[0].id), "reason": "Permission denied"}])
+        self.assertEqual({row["id"] for row in data["updated"]}, {str(t.id) for t in self.tickets[1:]})
+        self.assertEqual(self._ticket_tags(self.tickets[0]), set())
+
+    def test_bulk_tags_mirror_activity_onto_ticket_timeline(self):
+        # Ticket-scope entries come from the TaggedItem mirror (RELATED_OBJECT_ACTIVITY_LOGGERS),
+        # so the bulk path must keep flowing through signal-firing TaggedItem writes — and exactly
+        # one entry per ticket per tag guards against the bulk endpoint double-logging.
+        ids = [str(t.id) for t in self.tickets[:2]]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", activity="updated")
+        self.assertEqual(logs.count(), 2)
+        self.assertEqual({log.item_id for log in logs}, set(ids))
+        for log in logs:
+            ticket = next(t for t in self.tickets if str(t.id) == log.item_id)
+            assert log.detail is not None
+            self.assertEqual(log.detail["name"], f"Ticket #{ticket.ticket_number}")
+            [change] = log.detail["changes"]
+            self.assertEqual(change["field"], "tag")
+            self.assertEqual(change["action"], "created")
+            self.assertEqual(change["after"], "urgent")
+
+
 class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()
