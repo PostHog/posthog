@@ -922,7 +922,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'revamped-py-notebooks',
                 'tasks',
                 'dashboard-widgets',
-                'heatmaps-mcp',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
@@ -947,7 +946,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(33)
     })
 
     it('every loops tool is gated on the loops flag', () => {
