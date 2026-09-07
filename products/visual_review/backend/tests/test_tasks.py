@@ -409,11 +409,11 @@ class TestProcessRunDiffs:
             alternate_hash="new_hash",
         ).exists()
 
-    def test_absorbed_shift_stays_retryable_when_the_diff_upload_fails(self, repo, mocker):
-        # The diff pipeline retries CHANGED rows only. An absorbed shift that
-        # flipped to UNCHANGED before its artifact landed would finalize the
-        # run green with no trace of the shift and no way to get it back.
-        run_id, write = _prepare_one_diff(
+    def test_absorbed_shift_survives_a_failed_diff_upload(self, repo, mocker):
+        # The diff pass runs once per run. A noise row that stayed CHANGED
+        # because its courtesy diff image did not upload would fail the gate
+        # for a change nobody can see.
+        run_id, _write = _prepare_one_diff(
             repo,
             mocker,
             baseline_png=make_striped_png(STRIPED_PAGE_ROWS, width=100),
@@ -421,20 +421,14 @@ class TestProcessRunDiffs:
                 make_striped_png(STRIPED_PAGE_ROWS, width=100), y=20, rows=1, fill=(255, 255, 255, 255)
             ),
         )
-        working_write = write.side_effect
-        write.side_effect = RuntimeError("object storage down")
+        mocker.patch.object(diffing, "_write_diff_artifact", side_effect=RuntimeError("object storage down"))
 
-        process_diffs(run_id)
+        assert process_diffs(run_id) == 1
 
         snapshot = RunSnapshot.objects.get(run_id=run_id)
-        assert snapshot.result == SnapshotResult.CHANGED
-        assert snapshot.classification_reason != ClassificationReason.BELOW_THRESHOLD
-        assert snapshot.diff_artifact is None
-
-        write.side_effect = working_write
-        assert process_diffs(run_id) == 1
-        snapshot.refresh_from_db()
         assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_artifact is None
         assert snapshot.diff_metadata["row_shift"]["inserted_rows"] == 1
 
     def test_process_diffs_absorbs_a_one_row_shift_but_keeps_its_trace(self, repo, mocker):

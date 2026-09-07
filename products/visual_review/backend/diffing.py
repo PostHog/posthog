@@ -161,10 +161,20 @@ def _store_absorbed(snapshot: RunSnapshot, result: CompareResult) -> None:
     shift = result.row_shift
     has_shift = shift is not None and shift.shifted_rows > 0
 
-    # Upload first, then metrics and the UNCHANGED state in one row write. A
-    # failed upload leaves the row CHANGED with no kind and no artifact, which
-    # is exactly what the next process_diffs pass retries.
-    diff_artifact = _write_diff_artifact(snapshot, result) if has_shift and result.diff_image else None
+    # The diff image is a courtesy for the reviewer, not the decision. The task
+    # runs the diff pass once, so a lost upload must not leave a noise row
+    # sitting CHANGED with no kind and fail the gate for it.
+    diff_artifact: Artifact | None = None
+    if has_shift and result.diff_image:
+        try:
+            diff_artifact = _write_diff_artifact(snapshot, result)
+        except Exception as e:
+            logger.warning(
+                "visual_review.absorbed_diff_upload_failed",
+                snapshot_id=str(snapshot.id),
+                identifier=snapshot.identifier,
+                error=str(e),
+            )
     snapshot_diffs.update_snapshot_diff(
         snapshot_id=snapshot.id,
         diff_artifact=diff_artifact,
