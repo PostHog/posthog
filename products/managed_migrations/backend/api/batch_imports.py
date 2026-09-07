@@ -125,15 +125,12 @@ class BatchImportSerializer(serializers.ModelSerializer):
         try:
             validate_external_url(value)
         except ShapeError:
-            # Settled from the form alone, so it names what to fix. The value is never echoed:
-            # a URL carries its credentials in the userinfo, and this message reaches the
-            # response body, the request log and error tracking.
+            # The value is never echoed: a URL carries its credentials in the userinfo, and
+            # this message reaches the response body, the request log and error tracking.
             raise serializers.ValidationError(
                 "Invalid endpoint URL. Check that it starts with http:// or https:// and carries no credentials."
             )
         except ValueError:
-            # One message for a host that does not resolve and for one that resolves inside
-            # our network, so the error cannot be used to map it.
             raise serializers.ValidationError(UNREACHABLE_HOST_MESSAGE)
         return value
 

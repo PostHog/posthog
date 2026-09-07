@@ -65,9 +65,8 @@ def resolve_host_ips(host: str) -> ResolvedIPs:
     if ip is not None:
         return {ip}
 
-    # Resolving a value that is not a host would put it in the warning below, and dnspython
-    # repeats the queried name in its error text, so both fields would carry whatever the
-    # caller passed. Callers reject this shape first; this keeps a new one from leaking.
+    # dnspython repeats the queried name in its error text, so a value that is not a host
+    # would reach both the message and the host field of the warning below.
     if _host_shape_error(host) is not None:
         return set()
 
@@ -135,8 +134,7 @@ _CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 def _parse_ip_literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse a host written as an IP address, or None when it is a name."""
 
-    # ``ipaddress.ip_address`` also takes an integer, where 123 becomes 0.0.0.123, so reject
-    # non-string values first
+    # ``ipaddress.ip_address`` also takes an integer, where 123 becomes 0.0.0.123.
     if not isinstance(host, str):
         raise TypeError("host must be a string")
     try:
@@ -170,11 +168,9 @@ def _is_internal_ip_literal(host: str) -> bool:
     return ip is not None and _is_internal_ip(ip)
 
 
-# Labels joined by dots, with an optional root dot. The character class is ASCII on purpose,
-# because _host_shape_error converts an internationalized name to its punycode form before it
-# matches here. Underscores are not valid in a hostname under RFC 1123, but they resolve in
-# practice, so the pattern keeps them: the job here is to reject the parts of a URL, not to
-# enforce the RFC.
+# Labels joined by dots, with an optional root dot. ASCII on purpose, because callers match
+# the punycode form. Underscores are not valid under RFC 1123 but resolve in practice, so the
+# pattern keeps them: the job is to reject the parts of a URL, not to enforce the RFC.
 _HOSTNAME_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
 _BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?")
 _MAX_HOSTNAME_LENGTH = 253
@@ -190,10 +186,10 @@ def _canonicalize_host(host: str) -> str:
     We strip any trailing "." because an absolute FQDN carries the DNS root dot ("db.corp.").
     The block list matches exactly or by suffix, so it would otherwise miss that form.
 
-    An internationalized name becomes the punycode form the resolver queries. IDNA maps
-    several characters onto ASCII ones, so without this a host written in fullwidth
-    characters passes every name check and then resolves to the host those checks exist to
-    block. A name the codec rejects is returned unchanged, for the shape check to refuse.
+    An internationalized name becomes the punycode form the resolver queries, because IDNA
+    maps characters such as fullwidth ones onto ASCII: a name left raw clears the block list
+    and then resolves to the host it spells. A name the codec rejects comes back unchanged,
+    for the shape check to refuse.
     """
     try:
         host = host.encode("idna").decode("ascii")
@@ -205,15 +201,12 @@ def _canonicalize_host(host: str) -> str:
 def _host_shape_error(host: str) -> str | None:
     """Reason to reject a host on its form alone, or None when the form is usable.
 
-    A host field takes a hostname or an IP address. Customers could, in theory, paste whole
-    connection strings into it, so anything carrying credentials, a scheme, a port or a path is
-    rejected before it reaches DNS or a log line.
+    A host field takes a hostname or an IP address, so a pasted connection string is rejected
+    before its credentials reach DNS or a log line.
 
-    An IP address is accepted first because an IPv6 literal carries colons and so can never
-    match the hostname pattern. An IPv4 literal matches it either way.
-
-    Everything else is judged in canonical form, which is the form the checks below and the
-    resolver use. Judging a different form from theirs is what let a fullwidth name through.
+    An IP address is accepted first, because an IPv6 literal carries colons and can never match
+    the hostname pattern. Everything else is judged in canonical form, the one the checks below
+    and the resolver use.
     """
     if not host.strip():
         return "Host is empty"
@@ -246,8 +239,8 @@ def _url_shape_error(raw_url: str) -> str | None:
         parsed = urlparse.urlparse(raw_url)
     except Exception:
         return "Invalid URL"
-    # The scheme stays out of the message. It is caller-supplied text, and it is empty for
-    # anything urlparse does not read as a URL, which produced a reason ending in a colon.
+    # The scheme stays out of the message: it is caller-supplied text, and it is empty for
+    # anything urlparse does not read as a URL.
     if parsed.scheme not in {"http", "https"}:
         return "URL must start with http:// or https://"
     if not parsed.netloc:
@@ -259,9 +252,8 @@ def _url_shape_error(raw_url: str) -> str | None:
 class BlockedName:
     """Why a host name is blocked, and which internal pattern matched it.
 
-    The pattern rides alongside the reason rather than only inside it, so a log query can
-    group by it. Deriving it again at the log site would mean a second copy of the matching,
-    which is the shape that produced the fullwidth bypass.
+    The pattern travels beside the reason so a log query can group by it. Deriving it again at
+    the log site would mean a second copy of the matching.
     """
 
     reason: str
@@ -274,9 +266,8 @@ def _blocked_host_name(host: str) -> BlockedName | None:
     These checks run before resolution, so they also catch a name that resolves to a public
     IP: split-horizon DNS, and a registered domain shaped like an internal one.
 
-    Takes a canonical host. Every caller passes one, and it canonicalizes again anyway,
-    because matching below is exact or by suffix: an un-normalized host would fail these
-    checks open, which is the one failure mode worth paying a duplicate call to avoid.
+    Canonicalizes again although every caller does. Matching below is exact or by suffix, so
+    an un-normalized host would fail it open.
     """
     host = _canonicalize_host(host)
     if host in METADATA_HOSTS:
@@ -534,13 +525,14 @@ def validate_external_url(url: str) -> None:
 class ShapeError(ValueError):
     """The value cannot be a host or a URL, judged from its form alone before any lookup.
 
-    Separate from the other reasons because it is safe to report in detail: nothing about our
-    network went into the decision, and the user has something they can fix. Everything else a
-    validator raises has to stay behind one neutral message.
+    Safe to report in detail, because nothing about our network went into the decision and the
+    user has something they can fix.
     """
 
 
-# Both destination forms show these, so they live here rather than in either one.
+# Both destination forms show these, so they live here rather than in either one. A shape
+# error is safe to describe; every other reason shares one message, so an error cannot be used
+# to find which addresses exist inside our network. Neither echoes the value it rejected.
 INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
 UNREACHABLE_HOST_MESSAGE = (
     "Could not reach this host. Check that the hostname is correct and reachable from the internet."

@@ -85,13 +85,8 @@ class PostgreSQLServerIntegration:
         try:
             validate_external_host(host)
         except ShapeError:
-            # Decided from the form alone, so it names what to fix without saying anything
-            # about our network. The value itself is never echoed: it can be a pasted
-            # connection string carrying a password.
             raise common.IntegrationError(INVALID_HOST_MESSAGE)
         except ValueError:
-            # One message for a host that does not resolve and for one that resolves inside
-            # our network, so the error cannot be used to map it.
             raise common.IntegrationError(UNREACHABLE_HOST_MESSAGE)
 
         port = config.get("port", None)
