@@ -10,7 +10,7 @@ import { Workflow } from '../../Workflow'
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../types'
-import { EXAMPLE_WORKFLOWS, EXAMPLE_WORKFLOW_IDS } from './exampleWorkflows'
+import { EXAMPLE_WORKFLOWS } from './exampleWorkflows'
 import { HogFlowTreeEditor } from './HogFlowTreeEditor'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
@@ -351,7 +351,44 @@ const meta: Meta<typeof HogFlowTreeEditor> = {
     component: HogFlowTreeEditor,
     parameters: {
         featureFlags: [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW],
+        layout: 'fullscreen',
+        mockDate: '2026-09-04 12:00:00',
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr=workflow-tree-editor]',
+            viewport: { width: 1600, height: 1000 },
+        },
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
+                    200,
+                    PICKABLE_WORKFLOWS[String(params.id)] ?? COMPLEX_WORKFLOW,
+                ],
+                '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request, params }) => [
+                    200,
+                    {
+                        ...(PICKABLE_WORKFLOWS[String(params.id)] ?? COMPLEX_WORKFLOW),
+                        ...((await request.json()) as Partial<HogFlow>),
+                        updated_at: '2026-09-04T12:01:00.000Z',
+                    },
+                ],
+            },
+            post: {
+                '/api/environments/:team_id/hog_flows/user_blast_radius/': {
+                    affected: 240,
+                    total: 1200,
+                    limit: 100000,
+                    dedupe_key: null,
+                    confirm_token: 'storybook-confirm-token',
+                },
+            },
+        }),
+    ],
 }
 export default meta
 
@@ -378,62 +415,18 @@ const Template: StoryFn = () => {
 
 export const BranchesRejoin: StoryFn = Template.bind({})
 
-// The story's `example` arg is also the workflow id, so the mock resolves the picked workflow
-// straight off the request path.
 const PICKABLE_WORKFLOWS: Record<string, HogFlow> = { [COMPLEX_WORKFLOW_ID]: COMPLEX_WORKFLOW, ...EXAMPLE_WORKFLOWS }
 
-export const ComplexInteractive: StoryFn<{ example: string }> = ({ example }) => (
-    <BindLogic logic={workflowLogic} props={{ id: example }}>
+const InteractiveWorkflow = ({ id }: { id: string }): JSX.Element => (
+    <BindLogic logic={workflowLogic} props={{ id }}>
         <div className="h-screen p-4">
-            <Workflow id={example} />
+            <Workflow id={id} />
         </div>
     </BindLogic>
 )
 
-ComplexInteractive.args = { example: COMPLEX_WORKFLOW_ID }
-ComplexInteractive.argTypes = {
-    example: {
-        name: 'Workflow',
-        options: [COMPLEX_WORKFLOW_ID, ...EXAMPLE_WORKFLOW_IDS],
-        control: { type: 'select' },
-    },
-}
-ComplexInteractive.decorators = [
-    mswDecorator({
-        get: {
-            '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
-                200,
-                PICKABLE_WORKFLOWS[String(params.id)] ?? COMPLEX_WORKFLOW,
-            ],
-            '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
-        },
-        patch: {
-            '/api/environments/:team_id/hog_flows/:id/': async ({ request, params }) => [
-                200,
-                {
-                    ...(PICKABLE_WORKFLOWS[String(params.id)] ?? COMPLEX_WORKFLOW),
-                    ...((await request.json()) as Partial<HogFlow>),
-                    updated_at: '2026-09-04T12:01:00.000Z',
-                },
-            ],
-        },
-        post: {
-            '/api/environments/:team_id/hog_flows/user_blast_radius/': {
-                affected: 240,
-                total: 1200,
-                limit: 100000,
-                dedupe_key: null,
-                confirm_token: 'storybook-confirm-token',
-            },
-        },
-    }),
-]
-ComplexInteractive.parameters = {
-    layout: 'fullscreen',
-    mockDate: '2026-09-04 12:00:00',
-    testOptions: {
-        waitForLoadersToDisappear: true,
-        waitForSelector: '[data-attr=workflow-tree-editor]',
-        viewport: { width: 1600, height: 1000 },
-    },
-}
+export const CustomerOnboardingAndRetention: StoryFn = () => <InteractiveWorkflow id={COMPLEX_WORKFLOW_ID} />
+export const SupportSlaRouting: StoryFn = () => <InteractiveWorkflow id="example-support-sla-routing" />
+export const RenewalWindowAlerts: StoryFn = () => <InteractiveWorkflow id="example-renewal-window-alerts" />
+export const PendingTicketCleanup: StoryFn = () => <InteractiveWorkflow id="example-pending-ticket-cleanup" />
+export const AddOnPromotionEmails: StoryFn = () => <InteractiveWorkflow id="example-add-on-promotion-emails" />
