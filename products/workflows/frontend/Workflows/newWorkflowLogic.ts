@@ -41,8 +41,8 @@ export interface newWorkflowLogicActions {
         trigger: string,
         scaffold?: string
     ) => {
+        scaffold: string | undefined
         trigger: string
-        scaffold?: string
     }
 }
 
