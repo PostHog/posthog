@@ -282,7 +282,11 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
         )
     )
     history_start = serializers.DateTimeField(
-        help_text="Earliest bucket with data inside the fetched lookback.",
+        help_text=(
+            "Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with "
+            "enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic "
+            "is sustained yet."
+        ),
     )
     band_ready_at = serializers.DateTimeField(
         allow_null=True,
