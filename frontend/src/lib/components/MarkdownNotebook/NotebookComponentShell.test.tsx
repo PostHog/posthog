@@ -402,6 +402,57 @@ describe('NotebookComponentShell', () => {
         expect(toggleStatus).toHaveBeenCalledTimes(1)
     })
 
+    it('falls back to the contextual title when a component publishes a non-string title', () => {
+        function NumericTitleProbe(): JSX.Element {
+            const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+            useEffect(() => {
+                // A title written as `title={2026}` reaches the shell as a number, not a string.
+                setToolbarExtras?.({ actions: [], menuItems: null, title: 2026 as unknown as string })
+            }, [setToolbarExtras])
+            return <div>Release conditions</div>
+        }
+
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'FeatureFlagProbe',
+                label: 'Feature flag',
+                category: 'Test',
+                editableTitle: false,
+                ViewComponent: NumericTitleProbe,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{
+                    id: 'feature-flag-node',
+                    type: 'component',
+                    tagName: 'FeatureFlagProbe',
+                    props: { title: 2026 },
+                }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        const titleButton = container.querySelector(
+            '.MarkdownNotebook__component-toolbar-title--button'
+        ) as HTMLButtonElement
+        expect(titleButton.textContent).toBe('Feature flag')
+    })
+
     it('shows the filters toggle in view mode only when the host and definition opt in', () => {
         const toggleComponentPanel = jest.fn()
         const registry = createMarkdownNotebookRegistry([

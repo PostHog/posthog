@@ -1404,8 +1404,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         title: [
             (s) => [s.titlePlaceholder, s.nodeAttributes, s.editableTitle],
-            (titlePlaceholder: string, nodeAttributes, editableTitle: boolean) =>
-                (editableTitle ? nodeAttributes.title : null) || titlePlaceholder,
+            // Markdown notebooks parse props loosely, so `title` can arrive as a number or an
+            // object. Only a string is a title; anything else falls back to the placeholder.
+            (titlePlaceholder: string, nodeAttributes, editableTitle: boolean): string =>
+                (editableTitle && typeof nodeAttributes.title === 'string' ? nodeAttributes.title : '') ||
+                titlePlaceholder,
         ],
         // TODO: Fix the typing of nodeAttributes
         children: [
