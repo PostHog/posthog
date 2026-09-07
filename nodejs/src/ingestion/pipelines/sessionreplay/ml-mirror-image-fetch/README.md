@@ -104,6 +104,8 @@ Path patterns:
 
 **1.5** The producer collects only the `src` attribute on `img`, `image`, and `picture` elements. Other source attributes are out of scope until this specification adds them.
 
+**1.6** The lane does not collect or fetch an advertising or analytics beacon. A beacon is a URL whose host and decoded path match an entry in the shared list [`tracking_beacons.txt`](../../../../../../rust/replay-anonymizer/src/tracking_beacons.txt). An entry is a host pattern followed by a path prefix. The host pattern is an exact host, `*.` followed by a domain to match every host below it, or `*` to match every host. The path prefix is compared case-insensitively with the start of the path, and `/` alone matches every path on the host. The producer applies the list when it collects a URL. The fetcher applies the same list, through the shared URL policy, to every job it reads from the frontier and to every redirect target. A job that matches is dropped without a request, a crawl-history write, or a dead-letter record, so a beacon queued before its entry existed leaves the backlog at parse speed. Nobody sees the one-pixel image a beacon serves, so it has no value as training data, and a fetch of it reports a conversion or a visit to the network behind it. A credential refusal under requirement 1.2 takes precedence over this list.
+
 ### 2. Opt-out signals
 
 **2.1** Sites can refuse fetching by signaling this via these files:
@@ -528,6 +530,8 @@ The fetch URL keeps the original query verbatim. The global ref uses a canonical
 **13.12** For `srcset` and CSS `image-set()`, the mirror selects the candidate with the largest width or pixel density. It declines a malformed or mixed `srcset`. The first candidate wins a tie.
 
 **13.13** The mirror processes inline base64 images and remote URLs in image-bearing CSS properties. It keeps same-document fragment URLs unchanged and does not collect font or import URLs.
+
+**13.14** The mirror does not collect the `src`, `rr_src`, or `srcset` of an `img` element that nobody can see. An element cannot be seen when it has the `hidden` attribute, when its inline style sets `display` to `none`, or when its width and height are both at most one pixel. The mirror reads each dimension from the inline style first and from the `width` or `height` attribute second. A dimension that is not a pixel length, for example `100%`, is unknown and does not count as one pixel. The element keeps the media placeholder, and the mirror counts the decline as `hidden_pixel`. The fetcher cannot apply this rule, because the frontier carries only the URL.
 
 ### 14. HTTP request/response
 

@@ -195,6 +195,14 @@ impl<'a> Ctx<'a> {
         collector.borrow_mut().collect(original)
     }
 
+    /// Count a URL the walker refused before it reached the collector, in the collector's own
+    /// decline metric, so that the walker's refusals and the policy's refusals read on one panel.
+    pub(crate) fn decline_url(&self, reason: &'static str) {
+        if let Some(collector) = self.url_collector.as_ref() {
+            collector.borrow_mut().decline(reason);
+        }
+    }
+
     pub(crate) fn collect_url_from(&self, original: &str, source: ImageSource) -> Option<String> {
         let reference = self.collect_url(original)?;
         self.record_image_source(source, "url");

@@ -3,7 +3,13 @@ import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 
-import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
+import {
+    FetchCandidate,
+    MAX_HOPS,
+    UrlDropReason,
+    UrlSkipReason,
+    parseCollectedUrlsRecord,
+} from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
 import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
@@ -55,7 +61,7 @@ export class UrlFetchConsumer {
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
-        const drops = new Map<UrlDropReason, number>()
+        const drops = new Map<UrlDropReason | UrlSkipReason, number>()
         const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
@@ -83,6 +89,9 @@ export class UrlFetchConsumer {
                         message,
                         reasons: parsed.rejected.map((rejected) => rejected.reason),
                     })
+                }
+                for (const { reason } of parsed.skipped) {
+                    drops.set(reason, (drops.get(reason) ?? 0) + 1)
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
@@ -234,7 +243,7 @@ export class UrlFetchConsumer {
 
     private async parkRejectedRecords(
         records: RejectedFrontierRecord[],
-        drops: Map<UrlDropReason, number>
+        drops: Map<UrlDropReason | UrlSkipReason, number>
     ): Promise<void> {
         const deadlineAtMonotonicMs = performance.now() + DEAD_LETTER_BATCH_BUDGET_MS
         const limit = pLimit(DEAD_LETTER_PUBLISH_CONCURRENCY)
@@ -401,7 +410,7 @@ export class UrlFetchConsumer {
     }
 
     private recordMetrics(
-        drops: Map<UrlDropReason, number>,
+        drops: Map<UrlDropReason | UrlSkipReason, number>,
         dedupedInBatch: number,
         origins: number,
         registrableDomains: number,

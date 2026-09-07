@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import type { RepublishReason, UrlDropReason } from './collected-urls-record'
+import type { RepublishReason, UrlDropReason, UrlSkipReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
 import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
 import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
@@ -48,7 +48,7 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid, or skipped because the URL is a known advertising or analytics beacon. A rejected record waits for its dead-letter acknowledgement before this increment and the source commit. A skipped beacon has no dead-letter record',
         labelNames: ['reason'],
     })
     private static readonly deadLettered = new Counter({
@@ -165,7 +165,7 @@ export class ImageFetchConsumerMetrics {
     public static incDeduped(scope: DedupScope, count: number): void {
         this.deduped.labels(scope).inc(count)
     }
-    public static incDropped(reason: UrlDropReason, count: number): void {
+    public static incDropped(reason: UrlDropReason | UrlSkipReason, count: number): void {
         this.dropped.labels(reason).inc(count)
     }
     public static incDeadLettered(reason: FrontierDeadLetterReason): void {

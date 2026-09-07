@@ -10,7 +10,7 @@ use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
 use crate::context::{Ctx, ImageSource};
 use crate::images::ImageFallback;
-use crate::json::{as_str, string_value};
+use crate::json::{as_f64, as_str, string_value};
 use crate::srcset::largest_candidate;
 use crate::url::scrub_url;
 
@@ -69,6 +69,61 @@ pub(crate) fn is_fetchable_image_attr(name: &str, tag: &str, parent_is_picture: 
     }
 }
 
+/// A CSS or HTML length read as pixels. `1`, `1px`, and `1.0` all read as one pixel. A percentage or
+/// another unit reads as unknown.
+pub(crate) fn px_length(text: &str) -> Option<f64> {
+    let text = text.trim().to_ascii_lowercase();
+    let number = text.strip_suffix("px").map_or(text.as_str(), str::trim);
+    number.parse::<f64>().ok()
+}
+
+/// Both dimensions are known and neither is larger than one pixel.
+pub(crate) fn is_at_most_one_pixel(width: Option<f64>, height: Option<f64>) -> bool {
+    matches!((width, height), (Some(width), Some(height)) if width <= 1.0 && height <= 1.0)
+}
+
+/// The last value an inline style gives one property, lowercased and without `!important`.
+fn inline_style_declaration(style: &str, property: &str) -> Option<String> {
+    style
+        .split(';')
+        .filter_map(|declaration| declaration.split_once(':'))
+        .filter(|(name, _)| name.trim().eq_ignore_ascii_case(property))
+        .map(|(_, value)| {
+            let value = value.trim().to_ascii_lowercase();
+            value.trim_end_matches("!important").trim().to_string()
+        })
+        .next_back()
+}
+
+/// The inline style wins over the `width` and `height` attributes, as it does in the browser, so
+/// a declared style that is not a pixel length leaves the dimension unknown.
+fn dimension_px(attrs: &Object<'_>, style: Option<&str>, name: &str) -> Option<f64> {
+    if let Some(declared) = style.and_then(|style| inline_style_declaration(style, name)) {
+        return px_length(&declared);
+    }
+    let attribute = attrs.get(name)?;
+    as_str(attribute).map_or_else(|| as_f64(attribute), px_length)
+}
+
+/// An `img` nobody can see: hidden by the `hidden` attribute or by `display: none`, or a box of
+/// at most one pixel on each side. Such an element is a tracking pixel or a spacer, so its URL has
+/// no value to the fetch lane, and a fetch of it reports a visit to whoever serves it. The byte
+/// walker mirrors the attribute half of this rule in `bytewalk::attrs_hide_pixel`.
+pub(crate) fn is_hidden_pixel(attrs: &Object<'_>) -> bool {
+    if attrs.contains_key("hidden") {
+        return true;
+    }
+    let style = attrs.get("style").and_then(as_str);
+    let display = style.and_then(|style| inline_style_declaration(style, "display"));
+    if display.as_deref() == Some("none") {
+        return true;
+    }
+    is_at_most_one_pixel(
+        dimension_px(attrs, style, "width"),
+        dimension_px(attrs, style, "height"),
+    )
+}
+
 /// True if an attribute map contains any media-source attribute.
 pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
     MEDIA_SRC_ATTRS.iter().any(|name| attrs.contains_key(*name))
@@ -103,6 +158,7 @@ pub fn apply_blur(
     parent_is_picture: bool,
 ) -> bool {
     let mut acted = false;
+    let hidden_pixel = tag.eq_ignore_ascii_case("img") && is_hidden_pixel(attrs);
     for key in MEDIA_SRC_ATTRS {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
@@ -136,9 +192,14 @@ pub fn apply_blur(
             );
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
-            let collected = is_fetchable_image_attr(key, tag, parent_is_picture)
-                .then(|| ctx.collect_url_from(&selected, ImageSource::HtmlAttribute(key)))
-                .flatten();
+            let collected = if !is_fetchable_image_attr(key, tag, parent_is_picture) {
+                None
+            } else if hidden_pixel {
+                ctx.decline_url("hidden_pixel");
+                None
+            } else {
+                ctx.collect_url_from(&selected, ImageSource::HtmlAttribute(key))
+            };
             let scrubbed = scrub_url(ctx, &selected).unwrap_or_else(|| selected.clone());
             // Fetch completion must not change how an ordinary replay renders this element.
             attrs.insert(

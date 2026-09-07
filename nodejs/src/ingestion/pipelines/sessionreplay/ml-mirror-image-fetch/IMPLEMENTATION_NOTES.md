@@ -6,7 +6,7 @@ The [README](./README.md) is the normative specification. This file records the 
 
 ### URL collection and identity
 
-The shared Rust URL policy performs admission, canonicalization, and global ref creation. It refuses private targets, credentials, userinfo, and known signed URLs.
+The shared Rust URL policy performs admission, canonicalization, and global ref creation. It refuses private targets, credentials, userinfo, known signed URLs, and the beacons listed in `tracking_beacons.txt`. The anonymizer also refuses an `img` that is hidden or at most one pixel before the URL reaches the policy, in both the tree walk and the byte walk. The fetcher reads the policy's decline label through the addon and skips a beacon job on its own, because a rejected job would send its whole record to the dead-letter topic.
 
 The mirror emits versioned frontier jobs. Each job carries the original ref, current URL, remaining hops, timing, and amplification counters.
 

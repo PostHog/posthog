@@ -2,7 +2,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
 import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
-import { canonicalizeUrl } from './politeness-key'
+import { tryCanonicalizeUrl } from './politeness-key'
 
 export const MAX_HOPS = 10
 export const MAX_JOBS_PER_RECORD = 1_000
@@ -15,6 +15,8 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'oversized_record'
+/** A job the parser drops on its own, without rejecting the record that carries it. */
+export type UrlSkipReason = 'tracking_beacon'
 export type StoredRepublishReason =
     | 'redirect'
     | 'retry'
@@ -59,7 +61,13 @@ export interface FrontierRecord {
 }
 
 export type RecordParse =
-    | { ok: true; candidates: FetchCandidate[]; urlCount: number; rejected: { reason: UrlDropReason }[] }
+    | {
+          ok: true
+          candidates: FetchCandidate[]
+          urlCount: number
+          rejected: { reason: UrlDropReason }[]
+          skipped: { reason: UrlSkipReason }[]
+      }
     | {
           ok: false
           reason: Extract<
@@ -120,14 +128,19 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
 
     const candidates: FetchCandidate[] = []
     const rejected: { reason: UrlDropReason }[] = []
+    const skipped: { reason: UrlSkipReason }[] = []
     for (const job of parsed.jobs) {
         const parsedJob = parseJob(job, key)
-        if (!parsedJob.ok) {
+        if (parsedJob.kind === 'rejected') {
             return { ok: false, reason: parsedJob.reason }
+        }
+        if (parsedJob.kind === 'skipped') {
+            skipped.push({ reason: parsedJob.reason })
+            continue
         }
         candidates.push(parsedJob.candidate)
     }
-    return { ok: true, candidates, urlCount: parsed.jobs.length, rejected }
+    return { ok: true, candidates, urlCount: parsed.jobs.length, rejected, skipped }
 }
 
 function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): RecordParse {
@@ -148,6 +161,7 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
     const readyAtMs = isNonNegativeSafeInteger(notBeforeMs) ? notBeforeMs : 0
     const candidates: FetchCandidate[] = []
     const rejected: { reason: UrlDropReason }[] = []
+    const skipped: { reason: UrlSkipReason }[] = []
     for (const entry of urls) {
         if (!isRecord(entry) || typeof entry.ref !== 'string' || typeof entry.url !== 'string') {
             rejected.push({ reason: 'bad_url' })
@@ -158,11 +172,16 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
             rejected.push({ reason: 'bad_ref' })
             continue
         }
-        const canonical = canonicalizeUrl(entry.url)
-        if (!canonical) {
-            rejected.push({ reason: 'bad_url' })
+        const verdict = tryCanonicalizeUrl(entry.url)
+        if (!verdict.ok) {
+            if (verdict.decline === 'tracking_beacon') {
+                skipped.push({ reason: 'tracking_beacon' })
+            } else {
+                rejected.push({ reason: 'bad_url' })
+            }
             continue
         }
+        const canonical = verdict.url
         if (canonical.domain !== kafkaKey.replace(/\.$/, '')) {
             rejected.push({ reason: 'foreign_domain' })
             continue
@@ -181,17 +200,17 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
             lastRepublishReason: null,
         })
     }
-    return { ok: true, candidates, urlCount: urls.length, rejected }
+    return { ok: true, candidates, urlCount: urls.length, rejected, skipped }
 }
 
-function parseJob(
-    job: unknown,
-    kafkaKey: string
-):
-    | { ok: true; candidate: FetchCandidate }
-    | { ok: false; reason: Extract<UrlDropReason, 'bad_ref' | 'bad_url' | 'foreign_domain'> } {
+type ParsedJob =
+    | { kind: 'candidate'; candidate: FetchCandidate }
+    | { kind: 'rejected'; reason: Extract<UrlDropReason, 'bad_ref' | 'bad_url' | 'foreign_domain'> }
+    | { kind: 'skipped'; reason: UrlSkipReason }
+
+function parseJob(job: unknown, kafkaKey: string): ParsedJob {
     if (!isRecord(job)) {
-        return { ok: false, reason: 'bad_url' }
+        return { kind: 'rejected', reason: 'bad_url' }
     }
     const {
         originalRef,
@@ -218,21 +237,29 @@ function parseJob(
         (lastBlockReason !== undefined && !isImageFetchBlockReason(lastBlockReason)) ||
         (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
     ) {
-        return { ok: false, reason: 'bad_url' }
+        return { kind: 'rejected', reason: 'bad_url' }
     }
     const ref = parseImageRef(originalRef)
     if (!ref || ref.source !== 'url' || ref.pseudoTeam !== undefined) {
-        return { ok: false, reason: 'bad_ref' }
+        return { kind: 'rejected', reason: 'bad_ref' }
     }
-    const canonical = canonicalizeUrl(currentUrl)
-    if (!canonical || canonical.fetch !== currentUrl) {
-        return { ok: false, reason: 'bad_url' }
+    const verdict = tryCanonicalizeUrl(currentUrl)
+    if (!verdict.ok) {
+        // A rejected job sends its whole record to the dead-letter topic, and a record can hold a
+        // beacon next to real images, so a beacon is skipped on its own instead.
+        return verdict.decline === 'tracking_beacon'
+            ? { kind: 'skipped', reason: 'tracking_beacon' }
+            : { kind: 'rejected', reason: 'bad_url' }
+    }
+    const canonical = verdict.url
+    if (canonical.fetch !== currentUrl) {
+        return { kind: 'rejected', reason: 'bad_url' }
     }
     if (canonical.domain !== kafkaKey) {
-        return { ok: false, reason: 'foreign_domain' }
+        return { kind: 'rejected', reason: 'foreign_domain' }
     }
     return {
-        ok: true,
+        kind: 'candidate',
         candidate: {
             originalRef,
             currentUrl,

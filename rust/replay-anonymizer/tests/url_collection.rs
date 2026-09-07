@@ -289,6 +289,82 @@ fn a_remote_src_keeps_its_placeholder_and_stashes_the_ref() {
 }
 
 #[test]
+fn a_hidden_pixel_or_a_beacon_keeps_its_placeholder_and_is_declined() {
+    let src = "https://cdn.example.com/spacer.gif";
+    for (attrs, reason) in [
+        (
+            json!({ "src": src, "width": "1", "height": "1" }),
+            "hidden_pixel",
+        ),
+        (
+            json!({ "src": src, "width": 1, "height": 1 }),
+            "hidden_pixel",
+        ),
+        (
+            json!({ "src": src, "width": "0px", "height": "1PX" }),
+            "hidden_pixel",
+        ),
+        (
+            json!({ "src": src, "style": "width: 1px; height:1px !important" }),
+            "hidden_pixel",
+        ),
+        (
+            json!({ "src": src, "style": "display:none" }),
+            "hidden_pixel",
+        ),
+        (
+            json!({ "src": src, "width": "1", "height": "1", "style": "display: block" }),
+            "hidden_pixel",
+        ),
+        (json!({ "src": src, "hidden": "" }), "hidden_pixel"),
+        (
+            json!({ "src": "https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter" }),
+            "tracking_beacon",
+        ),
+    ] {
+        for (engine, result) in run(attrs.clone(), true) {
+            let (line, meta) = (&result[0], &result[1]);
+            let attributes = attrs_of(line);
+            let src = attributes["src"].as_str().expect("src is a string");
+            assert!(
+                src.starts_with("data:image/svg+xml"),
+                "{engine}: {attrs} should keep the placeholder, got {src}"
+            );
+            assert!(
+                attributes.get("data-anon-image-ref-src").is_none(),
+                "{engine}: {attrs} must not carry a ref"
+            );
+            assert!(
+                meta.get("urls").is_none(),
+                "{engine}: {attrs} must not be collected"
+            );
+            assert_eq!(
+                meta["urlDeclines"],
+                json!([{ "reason": reason, "count": 1 }]),
+                "{engine}: {attrs}"
+            );
+        }
+    }
+    for attrs in [
+        json!({ "src": src, "width": "2", "height": "2" }),
+        json!({ "src": src, "width": "1" }),
+        json!({ "src": src, "width": "1", "height": "100%" }),
+        json!({ "src": src, "width": "1", "height": "1", "style": "width: 100%" }),
+        json!({ "src": "https://analytics.twitter.com/transparency/logo.png" }),
+    ] {
+        for (engine, result) in run(attrs.clone(), true) {
+            let meta = &result[1];
+            assert_eq!(
+                meta["urls"].as_array().map(Vec::len),
+                Some(1),
+                "{engine}: {attrs} is a visible image and must be collected"
+            );
+            assert!(meta.get("urlDeclines").is_none(), "{engine}: {attrs}");
+        }
+    }
+}
+
+#[test]
 fn without_a_collection_a_remote_src_is_still_the_placeholder() {
     for (engine, result) in run(json!({ "src": "https://cdn.example.com/hero.png" }), false) {
         let (line, meta) = (&result[0], &result[1]);

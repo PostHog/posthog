@@ -13,6 +13,7 @@
 
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::sync::LazyLock;
 
 use percent_encoding::percent_decode_str;
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
@@ -64,6 +65,74 @@ const CREDENTIAL_PARAMS: &[&str] = &[
 
 const SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] =
     &[("_nc_ohc", &["_nc_ohc", "_nc_ht", "ccb", "oe", "oh", "stp"])];
+
+/// The advertising and analytics beacons the lane refuses. The file documents its own format.
+const TRACKING_BEACONS: &str = include_str!("tracking_beacons.txt");
+
+enum BeaconHost {
+    Any,
+    /// `*.example.com`: every host below the suffix, never the suffix itself.
+    Below(String),
+    Exact(String),
+}
+
+struct BeaconPattern {
+    host: BeaconHost,
+    path_prefix: String,
+}
+
+impl BeaconPattern {
+    fn matches(&self, host: &str, path: &str) -> bool {
+        let host_matches = match &self.host {
+            BeaconHost::Any => true,
+            BeaconHost::Below(suffix) => host.ends_with(suffix.as_str()),
+            BeaconHost::Exact(exact) => host == exact,
+        };
+        host_matches && path.starts_with(self.path_prefix.as_str())
+    }
+}
+
+static TRACKING_BEACON_PATTERNS: LazyLock<Vec<BeaconPattern>> = LazyLock::new(|| {
+    parse_beacon_list(TRACKING_BEACONS)
+        .unwrap_or_else(|line| panic!("tracking_beacons.txt has a malformed entry: {line:?}"))
+});
+
+fn parse_beacon_list(text: &str) -> Result<Vec<BeaconPattern>, String> {
+    let mut patterns = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some(slash) = line.find('/') else {
+            return Err(line.to_string());
+        };
+        let (host, path) = line.split_at(slash);
+        let host = match host {
+            "*" => BeaconHost::Any,
+            _ if host.starts_with("*.") && host.len() > 2 && !host[1..].contains('*') => {
+                BeaconHost::Below(host[1..].to_ascii_lowercase())
+            }
+            _ if !host.is_empty() && !host.contains('*') => {
+                BeaconHost::Exact(host.to_ascii_lowercase())
+            }
+            _ => return Err(line.to_string()),
+        };
+        patterns.push(BeaconPattern {
+            host,
+            path_prefix: path.to_ascii_lowercase(),
+        });
+    }
+    Ok(patterns)
+}
+
+/// Whether a host and decoded path name an entry in `tracking_beacons.txt`.
+pub fn is_tracking_beacon(host: &str, path: &str) -> bool {
+    let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+    let path = path.to_ascii_lowercase();
+    TRACKING_BEACON_PATTERNS
+        .iter()
+        .any(|pattern| pattern.matches(&host, &path))
+}
 
 /// Longer than this and we neither collect nor fetch it. Well past what a real image URL needs,
 /// and it bounds what one message can pin in memory alongside the count cap.
@@ -197,6 +266,9 @@ pub enum Decline {
     Credential,
     /// A query parameter name could not be percent-decoded as UTF-8.
     InvalidQuery,
+    /// An advertising or analytics beacon from `tracking_beacons.txt`. Nobody sees the one-pixel
+    /// image, and a fetch of it reports a conversion or a visit to the network that serves it.
+    TrackingBeacon,
 }
 
 impl Decline {
@@ -211,6 +283,7 @@ impl Decline {
             Decline::NonPublicHost => "non_public_host",
             Decline::Credential => "credential",
             Decline::InvalidQuery => "invalid_query",
+            Decline::TrackingBeacon => "tracking_beacon",
         }
     }
 }
@@ -257,6 +330,9 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     }
     if has_credential_query(&url)? || has_credential_path(&url, &host)? {
         return Err(Decline::Credential);
+    }
+    if is_tracking_beacon(&host, &decoded_path(&url)) {
+        return Err(Decline::TrackingBeacon);
     }
 
     let original_query = original_query(raw);
@@ -333,6 +409,13 @@ fn has_valid_percent_encoding(value: &str) -> bool {
         }
     }
     true
+}
+
+/// The request path with percent-encoding removed, so that `%61dsct` and `adsct` name one path.
+fn decoded_path(url: &Url) -> String {
+    percent_decode_str(url.path())
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 fn has_credential_path(url: &Url, host: &str) -> Result<bool, Decline> {
@@ -428,6 +511,52 @@ mod tests {
         }
         let long = format!("https://example.com/{}", "a".repeat(MAX_URL_LEN));
         assert!(canonicalize(&long).is_none());
+    }
+
+    #[test]
+    fn tracking_beacons_are_refused_by_host_pattern_and_path_prefix() {
+        for raw in [
+            "https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter",
+            "https://ANALYTICS.twitter.com/I/ADSCT",
+            "https://analytics.twitter.com/i/%61dsct",
+            "https://bat.bing.com/action/0?ti=123&Ver=2",
+            "https://123456.fls.doubleclick.net/activityi;src=1;type=a",
+            "https://metrics.example.com/b/ss/rsid/1/JS-2.0/s123",
+            "https://ct.pinterest.com/v3/?tid=1&noscript=1",
+        ] {
+            assert_eq!(try_canonicalize(raw), Err(Decline::TrackingBeacon), "{raw}");
+        }
+        for raw in [
+            "https://pbs.twimg.com/media/abc.jpg",
+            "https://analytics.twitter.com/transparency/logo.png",
+            "https://notanalytics.twitter.com/i/adsct",
+            "https://fls.doubleclick.net/activityi",
+            "https://example.com/b/ss.png",
+        ] {
+            assert!(canonicalize(raw).is_some(), "{raw} is not a beacon");
+        }
+        assert_eq!(
+            try_canonicalize("https://analytics.twitter.com/i/adsct?token=abc"),
+            Err(Decline::Credential),
+            "a credential is refused before the beacon list is consulted"
+        );
+    }
+
+    #[test]
+    fn the_beacon_list_parses_and_refuses_a_malformed_entry() {
+        assert!(!TRACKING_BEACON_PATTERNS.is_empty());
+        for malformed in [
+            "no-slash",
+            "/path-only",
+            "*x.example.com/",
+            "a.*.example.com/",
+            "*.example.com",
+        ] {
+            assert!(
+                parse_beacon_list(malformed).is_err(),
+                "{malformed:?} must not parse"
+            );
+        }
     }
 
     #[test]

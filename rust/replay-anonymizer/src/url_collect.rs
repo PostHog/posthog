@@ -132,7 +132,7 @@ impl UrlCollector {
         raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES
     }
 
-    fn decline(&mut self, reason: &'static str) {
+    pub(crate) fn decline(&mut self, reason: &'static str) {
         *self.declines.entry(reason).or_insert(0) += 1;
     }
 
