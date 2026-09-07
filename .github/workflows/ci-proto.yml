@@ -17,8 +17,6 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        # Runs on trunk-merge/** heads too, not only master: the queue batches PRs, so a
-        # break that needs two of them together reaches master unless the queue runs this.
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run proto checks
         outputs:

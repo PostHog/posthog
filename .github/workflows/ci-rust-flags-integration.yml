@@ -51,8 +51,6 @@ env:
 
 jobs:
     rust-flags-integration:
-        # Runs on trunk-merge/** heads too, not only master: the queue batches PRs, so a
-        # break that needs two of them together reaches master unless the queue runs this.
         name: Rust /flags Integration Tests (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30

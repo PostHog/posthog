@@ -16,8 +16,6 @@ concurrency:
 
 jobs:
     changes:
-        # Runs on trunk-merge/** heads too, not only master: the queue batches PRs, so a
-        # break that needs two of them together reaches master unless the queue runs this.
         permissions:
             contents: read
             pull-requests: read

@@ -30,8 +30,6 @@ permissions:
 
 jobs:
     multinode-migration-smoke:
-        # Runs on trunk-merge/** heads too, not only master: the queue batches PRs, so a
-        # break that needs two of them together reaches master unless the queue runs this.
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
         # The common path primes Postgres from the master schema artifact. The
