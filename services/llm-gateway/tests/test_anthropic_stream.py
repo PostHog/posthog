@@ -8,12 +8,13 @@ import pytest
 from litellm.llms.anthropic.experimental_pass_through.adapters.streaming_iterator import AnthropicStreamWrapper
 from litellm.types.utils import Delta, ModelResponseStream, StreamingChoices
 
-from llm_gateway.anthropic_stream import observe_anthropic_stream
+from llm_gateway.anthropic_stream import repair_anthropic_stream
 from llm_gateway.metrics.prometheus import ANTHROPIC_BRIDGE_INVALID_STREAM
 
 
 def _chunk(
     *,
+    content: str | None = None,
     reasoning_content: str | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
     finish_reason: str | None = None,
@@ -25,6 +26,7 @@ def _chunk(
                 finish_reason=finish_reason,
                 delta=Delta(
                     role="assistant",
+                    content=content,
                     reasoning_content=reasoning_content,
                     tool_calls=tool_calls,
                 ),
@@ -124,7 +126,7 @@ def test_litellm_anthropic_stream_uses_matching_thinking_block() -> None:
 
 
 @pytest.mark.parametrize("serialize", [False, True], ids=["structured", "sse_bytes"])
-async def test_observer_records_invalid_stream_without_modifying_it(serialize: bool) -> None:
+async def test_repairer_records_invalid_stream_without_modifying_it(serialize: bool) -> None:
     event = {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "{}"}}
     chunks = [f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode() if serialize else event] * 2
 
@@ -135,13 +137,13 @@ async def test_observer_records_invalid_stream_without_modifying_it(serialize: b
     labels = ANTHROPIC_BRIDGE_INVALID_STREAM.labels(backend="test", violation="delta_without_start")
     initial_value = labels._value.get()
 
-    observed = [chunk async for chunk in observe_anthropic_stream(stream(), "test")]
+    observed = [chunk async for chunk in repair_anthropic_stream(stream(), "test")]
 
     assert observed == chunks
     assert labels._value.get() == initial_value + 1
 
 
-async def test_observer_accepts_compaction_delta_for_compaction_block() -> None:
+async def test_repairer_accepts_compaction_delta_for_compaction_block() -> None:
     events = [
         {"type": "content_block_start", "index": 0, "content_block": {"type": "compaction", "content": ""}},
         {"type": "content_block_delta", "index": 0, "delta": {"type": "compaction_delta", "content": "summary"}},
@@ -155,13 +157,13 @@ async def test_observer_accepts_compaction_delta_for_compaction_block() -> None:
     labels = ANTHROPIC_BRIDGE_INVALID_STREAM.labels(backend="test", violation="delta_type_mismatch")
     initial_value = labels._value.get()
 
-    observed = [event async for event in observe_anthropic_stream(stream(), "test")]
+    observed = [event async for event in repair_anthropic_stream(stream(), "test")]
 
     assert observed == events
     assert labels._value.get() == initial_value
 
 
-async def test_observer_handles_fragmented_and_coalesced_sse_frames() -> None:
+async def test_repairer_handles_fragmented_and_coalesced_sse_frames() -> None:
     events = [
         {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
         {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello"}},
@@ -179,14 +181,14 @@ async def test_observer_handles_fragmented_and_coalesced_sse_frames() -> None:
     initial_delta_value = delta_labels._value.get()
     initial_unclosed_value = unclosed_labels._value.get()
 
-    observed = [chunk async for chunk in observe_anthropic_stream(stream(), "test")]
+    observed = [chunk async for chunk in repair_anthropic_stream(stream(), "test")]
 
     assert observed == chunks
     assert delta_labels._value.get() == initial_delta_value
     assert unclosed_labels._value.get() == initial_unclosed_value
 
 
-async def test_observer_records_unclosed_block_at_normal_eof() -> None:
+async def test_repairer_records_unclosed_block_at_normal_eof() -> None:
     events = [{"type": "content_block_start", "index": 3, "content_block": {"type": "text", "text": ""}}]
 
     async def stream() -> AsyncIterator[dict[str, Any]]:
@@ -196,7 +198,7 @@ async def test_observer_records_unclosed_block_at_normal_eof() -> None:
     labels = ANTHROPIC_BRIDGE_INVALID_STREAM.labels(backend="test", violation="unclosed_block")
     initial_value = labels._value.get()
 
-    observed = [event async for event in observe_anthropic_stream(stream(), "test")]
+    observed = [event async for event in repair_anthropic_stream(stream(), "test")]
 
     assert observed == events
     assert labels._value.get() == initial_value + 1
@@ -219,8 +221,60 @@ async def test_duplicate_start_preserves_original_block_type() -> None:
     initial_duplicate_value = duplicate_labels._value.get()
     initial_mismatch_value = mismatch_labels._value.get()
 
-    observed = [event async for event in observe_anthropic_stream(stream(), "test")]
+    observed = [event async for event in repair_anthropic_stream(stream(), "test")]
 
     assert observed == events
     assert duplicate_labels._value.get() == initial_duplicate_value + 1
     assert mismatch_labels._value.get() == initial_mismatch_value
+
+
+async def test_glm_reasoning_never_reaches_a_visible_text_block() -> None:
+    # A GLM chunk can carry the next reasoning token alongside visible text. The bridge
+    # reads the block type from `content` but the delta type from `reasoning_content`, so
+    # it opens a text block and then streams the reasoning into it.
+    chunks = [
+        _chunk(reasoning_content="weigh the options"),
+        _chunk(content="Here is the answer"),
+        _chunk(content=" and more", reasoning_content="second thought"),
+        _chunk(content=" done"),
+        _chunk(finish_reason="stop"),
+    ]
+
+    async def source() -> AsyncIterator[ModelResponseStream]:
+        for chunk in chunks:
+            yield chunk
+
+    wrapper = AnthropicStreamWrapper(source(), model="zai-org/GLM-5.3-Flash")
+    events = [event async for event in repair_anthropic_stream(wrapper, "test") if isinstance(event, dict)]
+
+    _assert_valid_event_order(events)
+    visible = "".join(
+        event["delta"]["text"]
+        for event in events
+        if event.get("type") == "content_block_delta" and event["delta"]["type"] == "text_delta"
+    )
+    assert "second thought" not in visible
+    assert "weigh the options" not in visible
+    assert "Here is the answer" in visible
+
+
+@pytest.mark.parametrize(
+    ("block_type", "dropped"),
+    [("text", True), ("thinking", False)],
+    ids=["text_block", "thinking_block"],
+)
+async def test_repairer_drops_reasoning_delta_only_when_the_block_is_text(block_type: str, dropped: bool) -> None:
+    reasoning_delta = {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "hm"}}
+    events = [
+        {"type": "content_block_start", "index": 0, "content_block": {"type": block_type}},
+        reasoning_delta,
+        {"type": "content_block_stop", "index": 0},
+    ]
+
+    async def stream() -> AsyncIterator[dict[str, Any]]:
+        for event in events:
+            yield event
+
+    observed = [event async for event in repair_anthropic_stream(stream(), "test")]
+
+    assert (reasoning_delta not in observed) is dropped
