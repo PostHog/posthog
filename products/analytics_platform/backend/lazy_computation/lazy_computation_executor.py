@@ -535,6 +535,7 @@ class LazyComputationQuery:
     breakdown_fields: list[str] = field(default_factory=list)
 
 
+# nosemgrep: prefer-frozen-dataclasses  # pre-existing dataclass (grandfathered); this change only adds a field
 @dataclass
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
@@ -549,6 +550,16 @@ class LazyComputationResult:
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
     stale: bool = False
+    # Oldest `computed_at` across the served jobs — the moment the stalest window in the
+    # range was last materialized. None when nothing was served (not ready) or a served
+    # job predates the column. Callers surface it as "data as of X".
+    computed_at: datetime | None = None
+
+
+def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
+    """Oldest `computed_at` among served jobs — the stalest window bounds how old the data can be."""
+    stamps = [j.computed_at for j in jobs if j.computed_at is not None]
+    return min(stamps) if stamps else None
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -1064,6 +1075,7 @@ class LazyComputationExecutor:
                             ready=True,
                             job_ids=[j.id for j in covering],
                             stale=True,
+                            computed_at=_oldest_computed_at(covering),
                         )
                         _log_execution("stale_hit", result)
                         return result
@@ -1284,7 +1296,11 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        result = LazyComputationResult(
+            ready=True,
+            job_ids=[j.id for j in final_ready],
+            computed_at=_oldest_computed_at(final_ready),
+        )
         _log_execution("success", result)
         return result
 

@@ -47,6 +47,7 @@ from .conversion_goal_conditions import (
     add_conversion_goal_property_filters,
     conversion_goal_match_expr,
 )
+from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
@@ -287,6 +288,9 @@ class ConversionGoalProcessor:
     # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
     # by the runner after the goal pool joins, to schedule one background revalidation for the read.
     precompute_stale: bool = False
+    # Oldest `computed_at` across this goal's served precomputes (touchpoints + conversions) — how old the
+    # goal's data can be. The runner takes the oldest across all goals for the response's "data as of X".
+    precompute_computed_at: datetime | None = None
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -516,24 +520,34 @@ class ConversionGoalProcessor:
     ) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window.
 
-        Reads the preagg table when eligible, falls back to events scan on any failure.
+        Serves precompute-only when the goal is precomputable: it reads the preagg tables, and reports
+        not-ready (rather than scanning events live) when the window has not been warmed. Only a
+        non-precomputable goal, or a rare precompute build error, reaches the live events scan.
         """
         if self._should_use_precompute(date_from, date_to):
             # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
             assert date_from is not None and date_to is not None
             try:
                 precomputed = self._build_attribution_from_precomputes(date_from, date_to, touchpoints)
-                if precomputed is not None:
-                    return precomputed
             except Exception:
+                # A genuine build error is a rare safety valve — fall through to the live scan below rather
+                # than fail the dashboard. A not-warmed window is NOT an error; it returns None (handled
+                # in the else) so it can surface as not-ready instead of a live scan.
                 CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER.inc()
                 logger.exception(
                     "conversion_goal_precompute_failed",
                     goal_id=self.goal.conversion_goal_id,
                     team_id=self.team.pk,
                 )
+            else:
+                if precomputed is not None:
+                    return precomputed
+                # Precompute-only: a precomputable goal with no warm window must not fall back to the live
+                # events scan (the expensive query this path exists to avoid). Report not-ready; the warmer
+                # materializes the window and the UI shows a "computing" state until it does.
+                raise MarketingPrecomputeNotReady(goal_id=self.goal.conversion_goal_id)
 
-        # Live events scan. Reaching here means the precompute did not serve this goal.
+        # Live events scan — reached only for non-precomputable goals, or after a precompute build error.
         with self.timings.measure("ma_goal_events_fallback"):
             array_collection = self.build_array_collection_query(additional_conditions)
             return self.build_attribution_pipeline(array_collection)
@@ -708,6 +722,11 @@ class ConversionGoalProcessor:
         # runner collects this once the goal pool has joined and schedules the revalidation.
         if touchpoints_result.stale or conversions_result.stale:
             self.precompute_stale = True
+
+        # Oldest materialization across the two precomputes bounds how old this goal's data can be; the
+        # runner takes the oldest across all goals for the response's "data as of X".
+        stamps = [r.computed_at for r in (touchpoints_result, conversions_result) if r.computed_at is not None]
+        self.precompute_computed_at = min(stamps) if stamps else None
 
         with self.timings.measure("ma_attribution_pipeline_precomputed"):
             array_collection = self._build_array_collection_from_precomputes(

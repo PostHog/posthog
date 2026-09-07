@@ -83,6 +83,14 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             _deterministic_job_uuid_factory(),
         )
         self._job_uuid_patcher.start()
+        # Reads are precompute-only (they never build inline), but these tests assert the precompute-read
+        # CTE and have no separate warmer. Treat the in-test ensures as a producer so they materialize the
+        # windows first — the resulting CTE is byte-identical to a warm read's. Mirrors the Dagster warmer.
+        self._warmer_patcher = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+            return_value=True,
+        )
+        self._warmer_patcher.start()
         self.config = MarketingAnalyticsConfig.from_team(self.team)
         self.config.conversion_goal_precomputation_enabled = True
         self.date_range = QueryDateRange(
@@ -93,6 +101,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         )
 
     def tearDown(self):
+        self._warmer_patcher.stop()
         self._job_uuid_patcher.stop()
         super().tearDown()
 
