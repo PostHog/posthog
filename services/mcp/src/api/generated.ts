@@ -52846,7 +52846,7 @@ export namespace Schemas {
       name: string;
       /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
       type: string;
-      /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+      /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
       value?: unknown;
     }
 
@@ -53372,6 +53372,8 @@ export namespace Schemas {
       content?: unknown;
       /** The notebook's kernel runtime state and compute config. */
       kernel: NotebookKernelState;
+      /** The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run. */
+      variables: NotebookVariable[];
       /** Every cell in document order, with its dependency edges and derived run state. */
       cells: NotebookCellState[];
     }
@@ -89167,6 +89169,8 @@ export namespace Schemas {
       success_rate_prev?: number | null;
       /** Successful runs that did real CI work. This is the p50/p95 sample count. */
       percentile_run_count?: number;
+      /** Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check. */
+      merge_queue_run_count?: number;
     }
 
     export interface WorkflowJob {
@@ -94879,6 +94883,10 @@ export namespace Schemas {
      */
     repo?: string;
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsJobAggregatesRunScope;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -94887,6 +94895,16 @@ export namespace Schemas {
      */
     workflow_name: string;
     };
+
+    export type EngineeringAnalyticsJobAggregatesRunScope = typeof EngineeringAnalyticsJobAggregatesRunScope[keyof typeof EngineeringAnalyticsJobAggregatesRunScope];
+
+
+    export const EngineeringAnalyticsJobAggregatesRunScope = {
+      All: 'all',
+      DefaultBranch: 'default_branch',
+      MergeQueue: 'merge_queue',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EngineeringAnalyticsMasterFailuresParams = {
     /**
@@ -95164,7 +95182,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
     /**
@@ -95178,6 +95196,8 @@ export namespace Schemas {
 
     export const EngineeringAnalyticsWorkflowHealthRunScope = {
       All: 'all',
+      DefaultBranch: 'default_branch',
+      MergeQueue: 'merge_queue',
       PullRequest: 'pull_request',
     } as const;
 
@@ -95233,6 +95253,10 @@ export namespace Schemas {
      */
     repo: string;
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunActivityRunScope;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -95241,6 +95265,16 @@ export namespace Schemas {
      */
     workflow_name: string;
     };
+
+    export type EngineeringAnalyticsWorkflowRunActivityRunScope = typeof EngineeringAnalyticsWorkflowRunActivityRunScope[keyof typeof EngineeringAnalyticsWorkflowRunActivityRunScope];
+
+
+    export const EngineeringAnalyticsWorkflowRunActivityRunScope = {
+      All: 'all',
+      DefaultBranch: 'default_branch',
+      MergeQueue: 'merge_queue',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
@@ -95260,6 +95294,10 @@ export namespace Schemas {
      */
     repo: string;
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunnerCostsRunScope;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -95268,6 +95306,16 @@ export namespace Schemas {
      */
     workflow_name: string;
     };
+
+    export type EngineeringAnalyticsWorkflowRunnerCostsRunScope = typeof EngineeringAnalyticsWorkflowRunnerCostsRunScope[keyof typeof EngineeringAnalyticsWorkflowRunnerCostsRunScope];
+
+
+    export const EngineeringAnalyticsWorkflowRunnerCostsRunScope = {
+      All: 'all',
+      DefaultBranch: 'default_branch',
+      MergeQueue: 'merge_queue',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowRunsParams = {
     /**
@@ -95287,6 +95335,10 @@ export namespace Schemas {
      */
     repo: string;
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunsRunScope;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -95295,6 +95347,16 @@ export namespace Schemas {
      */
     workflow_name: string;
     };
+
+    export type EngineeringAnalyticsWorkflowRunsRunScope = typeof EngineeringAnalyticsWorkflowRunsRunScope[keyof typeof EngineeringAnalyticsWorkflowRunsRunScope];
+
+
+    export const EngineeringAnalyticsWorkflowRunsRunScope = {
+      All: 'all',
+      DefaultBranch: 'default_branch',
+      MergeQueue: 'merge_queue',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EnvironmentsListParams = {
     /**
