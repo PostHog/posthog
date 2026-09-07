@@ -104,39 +104,61 @@ describe('snapshotDataLogic', () => {
             consoleError.mockRestore()
         })
 
-        it('does not grant a permanently-unauthorized source a fresh retry budget on a new seek target', async () => {
+        it.each([401, 403, 410])(
+            'gives up on the first failure for a terminal %s, instead of spending the retry budget',
+            async (status) => {
+                const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+                await expectLogic(logic, () => {
+                    logic.actions.loadSnapshotsForSourceFailure('terminal', new ApiError('terminal', status))
+                }).toDispatchActions(['snapshotSourceLoadExhausted'])
+                consoleError.mockRestore()
+            }
+        )
+
+        // Fetching one source 404s on a stale block key too, and re-listing the sources fixes that,
+        // so this one keeps its retries rather than giving up at once.
+        it('spends the retry budget on a 404 fetching a source', async () => {
             const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
-            const error = new ApiError('Unauthorized', 401)
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-
-            // Seeking to a genuinely new target would normally reset the retry budget, letting a
-            // permanently-failing 401 source buffer forever instead of ever reaching the cap.
-            logic.actions.setTargetTimestamp(123456, 1)
-
             await expectLogic(logic, () => {
-                logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+                logic.actions.loadSnapshotsForSourceFailure('not found', new ApiError('not found', 404))
+            }).toNotHaveDispatchedActions(['snapshotSourceLoadExhausted'])
             consoleError.mockRestore()
         })
     })
 
-    describe('isSnapshotUnauthorized', () => {
-        it('is false when no error', () => {
-            expect(logic.values.isSnapshotUnauthorized).toBe(false)
+    describe('permanentSnapshotLoadError', () => {
+        it('is null when no error', () => {
+            expect(logic.values.permanentSnapshotLoadError).toBe(null)
         })
 
-        it('is true for a 401', () => {
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', new ApiError('Unauthorized', 401))
+        it.each([
+            [401, 'unauthorized'],
+            [403, 'forbidden'],
+            [410, 'deleted'],
+        ])('classifies a %s as %s', (status, expected) => {
+            logic.actions.loadSnapshotsForSourceFailure('terminal', new ApiError('terminal', status as number))
 
-            expect(logic.values.isSnapshotUnauthorized).toBe(true)
+            expect(logic.values.permanentSnapshotLoadError).toBe(expected)
         })
 
-        it('is false for a non-401 error', () => {
-            logic.actions.loadSnapshotsForSourceFailure('Forbidden', new ApiError('Forbidden', 403))
+        it('classifies a failed source listing too, not only a failed source fetch', () => {
+            logic.actions.loadSnapshotSourcesFailure('Recording not found', new ApiError('Recording not found', 404))
 
-            expect(logic.values.isSnapshotUnauthorized).toBe(false)
+            expect(logic.values.permanentSnapshotLoadError).toBe('notFound')
+        })
+
+        // Only the source listing 404s because the recording is gone. Fetching one source also 404s
+        // on a block key the recording no longer has, and a fresh listing recovers that.
+        it('leaves a 404 fetching one source recoverable', () => {
+            logic.actions.loadSnapshotsForSourceFailure('Block index out of range', new ApiError('nope', 404))
+
+            expect(logic.values.permanentSnapshotLoadError).toBe(null)
+        })
+
+        it('is null for a transient failure that a retry can fix', () => {
+            logic.actions.loadSnapshotsForSourceFailure('Server error', new ApiError('Server error', 500))
+
+            expect(logic.values.permanentSnapshotLoadError).toBe(null)
         })
     })
 

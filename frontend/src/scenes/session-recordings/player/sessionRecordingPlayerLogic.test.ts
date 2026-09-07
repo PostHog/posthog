@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
+import { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -351,6 +352,39 @@ describe('sessionRecordingPlayerLogic', () => {
                 consoleError.mockRestore()
             }
         )
+
+        // A terminal response must not reach the overlay as a recoverable failure, or the person is
+        // offered a Retry button that can never succeed.
+        it.each([
+            { action: 'loadSnapshotsForSourceFailure', status: 401, expected: 'snapshotUnauthorized' },
+            { action: 'loadSnapshotsForSourceFailure', status: 403, expected: 'snapshotForbidden' },
+            { action: 'loadSnapshotSourcesFailure', status: 404, expected: 'recordingNotFound' },
+            { action: 'loadSnapshotsForSourceFailure', status: 410, expected: 'recordingDeleted' },
+        ] as const)(
+            'a $status snapshot response sets the $expected player error',
+            async ({ action, status, expected }) => {
+                const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+                await expectLogic(logic, () => {
+                    logic.actions[action]('terminal', new ApiError('terminal', status))
+                }).toDispatchActions([{ type: logic.actionTypes.setPlayerError, payload: { reason: expected } }])
+                consoleError.mockRestore()
+            }
+        )
+
+        // Fetching one source also 404s on a block key the recording no longer has, and re-listing
+        // the sources recovers that, so the overlay must still offer the retry.
+        it('a 404 fetching one source keeps the recoverable player error', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('not found', new ApiError('not found', 404))
+            }).toDispatchActions([
+                {
+                    type: logic.actionTypes.setPlayerError,
+                    payload: { reason: 'loadSnapshotsForSourceFailure' },
+                },
+            ])
+            consoleError.mockRestore()
+        })
     })
 
     describe('currentPlayerTime clamping', () => {
