@@ -49,8 +49,9 @@ function tabShowsDestination(
  * Focus an existing tab that shows this destination, instead of opening a
  * duplicate. The switch goes through pushTabHistoryEntry, the same path a tab
  * click uses, so the navigation effect sees a tagged entry and settles it
- * (durable focus, view-state restore). Returns false when no tab matches, the
- * router is not mounted, or the matching tab is already the active one.
+ * (durable focus, view-state restore). Returns false when no tab matches or
+ * the router is not mounted; a matching tab that is already active reports
+ * success without a navigation.
  */
 export function focusExistingTab(destination: BrowserTabDestination): boolean {
   const mirror = readMirror();

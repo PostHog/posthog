@@ -66,9 +66,8 @@ export function useOpenTargetDeepLink() {
         return;
       }
       void reseedMirror()
-        .then((server) => {
-          if (server && focusExistingTab(destination)) return;
-          openDirectly();
+        .then(() => {
+          if (!focusExistingTab(destination)) openDirectly();
         })
         .catch(() => openDirectly());
     },

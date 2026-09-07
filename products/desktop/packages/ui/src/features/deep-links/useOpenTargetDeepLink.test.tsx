@@ -128,26 +128,26 @@ describe("useOpenTargetDeepLink", () => {
     expect(onOpenTarget).toHaveBeenCalledTimes(1);
   });
 
+  const targetTab = {
+    id: "tab-9",
+    windowId: "window-1",
+    href: "/tasks/t1",
+    viewState: { title: "Task t1" },
+    dashboardId: null,
+    taskId: "t1",
+    channelId: null,
+    channelSection: null,
+    appView: null,
+    position: 1000,
+    scrollState: null,
+    createdAt: 1,
+    lastActiveAt: 1,
+  };
+
   it("focuses the tab that already shows the target instead of opening a copy", () => {
     readMirror.mockReturnValue({
       windows: seeded().windows,
-      tabs: [
-        {
-          id: "tab-9",
-          windowId: "window-1",
-          href: "/tasks/t1",
-          viewState: { title: "Task t1" },
-          dashboardId: null,
-          taskId: "t1",
-          channelId: null,
-          channelSection: null,
-          appView: null,
-          position: 1000,
-          scrollState: null,
-          createdAt: 1,
-          lastActiveAt: 1,
-        },
-      ],
+      tabs: [targetTab],
     });
 
     renderHook(() => useOpenTargetDeepLink(), { wrapper });
@@ -159,21 +159,6 @@ describe("useOpenTargetDeepLink", () => {
   });
 
   it("focuses the target's tab after a cold-start mirror reseed", async () => {
-    const targetTab = {
-      id: "tab-9",
-      windowId: "window-1",
-      href: "/tasks/t1",
-      viewState: { title: "Task t1" },
-      dashboardId: null,
-      taskId: "t1",
-      channelId: null,
-      channelSection: null,
-      appView: null,
-      position: 1000,
-      scrollState: null,
-      createdAt: 1,
-      lastActiveAt: 1,
-    };
     let reseeded = false;
     readMirror.mockImplementation(() =>
       reseeded
