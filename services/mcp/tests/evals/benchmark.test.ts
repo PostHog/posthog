@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import { getToolDefinitions } from '@/tools/toolDefinitions'
 
-import { TASK_CATEGORIES, loadBenchmark, referencedTools } from '../../evals/benchmark/schema'
+import {
+    TASK_CATEGORIES,
+    fixtureFlagKeys,
+    fixtureFlagKeysInIntent,
+    loadBenchmark,
+    referencedTools,
+} from '../../evals/benchmark/schema'
 
 describe('MCP eval benchmark fixtures', () => {
     // Loaded inside each test (not at describe scope) so a broken fixture or
@@ -37,6 +43,24 @@ describe('MCP eval benchmark fixtures', () => {
             .filter((task) => catalog[task.probe!.tool]?.annotations?.readOnlyHint !== true)
             .map((task) => `${task.id} → ${task.probe!.tool}`)
         expect(unsafe).toEqual([])
+    })
+
+    // Both halves of the seeded-fixture contract in one assertion. Zero tasks means the
+    // seeder writes state nothing reads, which is how a renamed key silently stops being
+    // exercised. Two or more means those tasks share a flag, which is the order-dependence
+    // v2 removed: whichever ran first decides what the next one starts from.
+    it('names every seeded flag fixture in exactly one task intent', () => {
+        const benchmark = loadBenchmark()
+        const tasksByKey = new Map(fixtureFlagKeys(benchmark.fixtures).map((key) => [key, [] as string[]]))
+        for (const task of benchmark.tasks) {
+            for (const key of fixtureFlagKeysInIntent(task, benchmark.fixtures)) {
+                tasksByKey.get(key)!.push(task.id)
+            }
+        }
+        const wrong = [...tasksByKey.entries()]
+            .filter(([, taskIds]) => taskIds.length !== 1)
+            .map(([key, taskIds]) => `${key} → ${taskIds.length ? taskIds.join(', ') : 'no task'}`)
+        expect(wrong).toEqual([])
     })
 
     it('probes exercise a tool the task expects', () => {
