@@ -1210,6 +1210,14 @@ class CSPMiddleware:
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             frame_ancestors = "https://posthog.com https://preview.posthog.com https://vercel.com"
+            # The script hosts the app loads from outside PostHog: the Turnstile challenge on
+            # signup, Stripe on the billing pages, the Unlayer email editor, and the Tailwind CDN
+            # the message preference pages pull. Every one of them reports today, so the policy
+            # has never covered a script the app depends on.
+            third_party_script_src = (
+                "https://challenges.cloudflare.com https://js.stripe.com "
+                "https://editor.unlayer.com https://cdn.tailwindcss.com"
+            )
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
@@ -1218,8 +1226,10 @@ class CSPMiddleware:
                 # module still requires calling WebAssembly.instantiate from JavaScript, so it grants
                 # nothing to an attacker who cannot already run script, and nothing further to one who
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
-                # parses with a WebAssembly build, so both break without it.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
+                # parses with a WebAssembly build, so both break without it. `'wasm-eval'` is the
+                # older keyword for the same permission. Safari before 16.4 understands only that
+                # one, and reports every WebAssembly compile as a violation without it.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' 'wasm-eval' {resource_url} https://*.i.posthog.com {third_party_script_src}",
                 f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
                 "worker-src 'self'",
                 "child-src 'none'",
@@ -1248,35 +1258,48 @@ class CSPMiddleware:
                 "form-action 'self'",
             ]
 
-            # The policy above is report-only, so it protects nothing. App pages still report script
-            # `eval`, inline scripts, blob workers, blob images and data fonts, so it cannot block
-            # today. This second policy does block, and carries the directives the app never
-            # violates. `object-src`, `base-uri`, `form-action` and `frame-ancestors` have no
-            # `default-src` fallback, so naming them is the only way to stop plugin embedding,
-            # base-tag hijacking, form exfiltration and framing.
+            # The policy above is report-only, so it protects nothing. App pages still report blob
+            # workers, blob images and data fonts, so it cannot block today. This second policy
+            # does block, and carries the directives the app never violates. `object-src`,
+            # `base-uri`, `form-action` and `frame-ancestors` have no `default-src` fallback, so
+            # naming them is the only way to stop plugin embedding, base-tag hijacking, form
+            # exfiltration and framing.
             #
             # `default-src 'self'` closes every directive neither policy names, but it is also the
             # fallback for every fetch directive. So each fetch directive repeats here with a value
             # that blocks nothing the app does; without that, enforcing `default-src` would clamp
             # them all. Move a tight value up from the report-only policy once its reports stop.
             permissive = f"'self' blob: data: https: {resource_url}"
+            # A browser blocks an http:// frame inside an https:// page as mixed content, so on a
+            # secure deployment `http:` reaches only a loopback target. It stays where the app
+            # itself runs over http, which covers local development and a plain self-hosted
+            # install. Heatmaps, the toolbar browser and site previews frame the URLs a team
+            # authorized, and almost none of those are http:// targets.
+            frame_src_http = "" if settings.SITE_URL.startswith("https://") else " http:"
             enforced_parts = [
                 "default-src 'self'",
                 "object-src 'none'",
                 "base-uri 'self'",
                 "form-action 'self'",
                 "manifest-src 'self'",
-                # A nonce here would make browsers ignore 'unsafe-inline' and block inline scripts.
-                f"script-src {permissive} 'unsafe-inline' 'unsafe-eval'",
+                # Scripts are the one directive that can block today. Every inline script the app
+                # serves carries the nonce, and the report-only policy named the external hosts
+                # above. What is left violating it comes from a browser extension or from a page
+                # the replay player renders inside our origin, and neither may run. A source list
+                # with a nonce makes browsers ignore `'unsafe-inline'`, so this list omits it, and
+                # omits the `https:` and `data:` sources that would let any host serve script.
+                #
+                # `'unsafe-eval'` is here because the app still calls eval, and stays out of the
+                # report-only policy so those calls keep reporting until they are gone.
+                f"script-src 'self' 'nonce-{nonce}' 'unsafe-eval' 'wasm-unsafe-eval' 'wasm-eval' "
+                f"{resource_url} https://*.i.posthog.com {third_party_script_src}",
                 f"style-src {permissive} 'unsafe-inline'",
                 f"img-src {permissive}",
                 f"font-src {permissive}",
                 f"media-src {permissive}",
                 f"worker-src {permissive}",
                 f"child-src {permissive}",
-                # Heatmaps, the toolbar browser and site previews frame the URLs a team
-                # authorized, and those include http:// targets such as http://localhost:3000.
-                f"frame-src {permissive} http:",
+                f"frame-src {permissive}{frame_src_http}",
                 f"connect-src {permissive} wss: {connect_debug_url}".rstrip(),
             ]
             # `xframe_options_exempt` marks a response a customer is meant to frame on their own

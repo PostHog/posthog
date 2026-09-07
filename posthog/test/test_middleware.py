@@ -1916,17 +1916,29 @@ class TestCSPMiddleware(APIBaseTest):
             assert directive in enforced
         # Enforcing default-src clamps every fetch directive through the fallback, so the ones the
         # app still violates have to be named with a value that blocks nothing.
-        for directive in ["script-src", "style-src", "img-src", "font-src", "worker-src", "frame-src"]:
+        for directive in ["style-src", "img-src", "font-src", "worker-src", "frame-src"]:
             assert f"{directive} 'self' blob: data: https:" in enforced
-        # Heatmaps, the toolbar browser and site previews frame the URLs a team authorized, and
-        # those include http:// targets such as http://localhost:3000.
-        frame_src = next(part for part in enforced.split("; ") if part.startswith("frame-src "))
-        assert "http:" in frame_src.split()
-        # A nonce makes browsers ignore 'unsafe-inline', which would block the app's inline scripts.
-        assert "'unsafe-inline' 'unsafe-eval'" in enforced
-        assert "nonce-" not in enforced
-        # The tight value of each of those directives stays report-only until its reports stop.
+        # script-src is the directive that blocks an injected script. It runs the app's own inline
+        # scripts from the nonce and names every host the app loads script from, so it must carry
+        # neither 'unsafe-inline' nor a scheme source that lets any host serve script.
+        script_src = next(part for part in enforced.split("; ") if part.startswith("script-src "))
+        assert "'nonce-" in script_src
+        assert "'unsafe-inline'" not in script_src
+        assert "https:" not in script_src.split()
+        assert "data:" not in script_src.split()
+        assert "https://challenges.cloudflare.com" in script_src
+        # The tight value of each of the other directives stays report-only until its reports stop.
         assert "worker-src 'self';" in response["Content-Security-Policy-Report-Only"]
+
+    @parameterized.expand([("https", "https://us.posthog.com", False), ("http", "http://localhost:8000", True)])
+    def test_enforced_frame_src_permits_http_where_the_app_runs_on_http(self, _name, site_url, expected):
+        # Heatmaps, the toolbar browser and site previews frame the URLs a team authorized. A
+        # browser blocks an http:// frame inside an https:// page as mixed content, so http: earns
+        # its place only where the app itself runs over http.
+        with override_settings(SITE_URL=site_url):
+            enforced = self._html_response()["Content-Security-Policy"]
+        frame_src = next(part for part in enforced.split("; ") if part.startswith("frame-src "))
+        assert ("http:" in frame_src.split()) is expected
 
     @parameterized.expand(
         [
