@@ -1391,6 +1391,32 @@ class TestErrorTracking(APIBaseTest):
             assert symbol_set.storage_ptr != "existing"
             assert symbol_set.content_hash is None
 
+    @parameterized.expand(
+        [
+            ("unchanged_content", "already_uploaded"),
+            ("new_content", "a_new_hash"),
+        ]
+    )
+    def test_bulk_start_upload_clears_a_stored_failure_reason(self, _name: str, content_hash: str) -> None:
+        chunk_id = str(uuid7())
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+            failure_reason='{"JavaScript":{"NoSourcemapUploaded":"' + chunk_id + '"}}',
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": content_hash}], "force": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        symbol_set.refresh_from_db()
+        assert symbol_set.failure_reason is None
+
     def test_bulk_start_upload_fail_restart_with_no_content_hash(self) -> None:
         existing_chunk_id = str(uuid7())
         _ = ErrorTrackingSymbolSet.objects.create(
