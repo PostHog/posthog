@@ -256,19 +256,22 @@ fi
 
 if [[ "$PROCESS_MANAGER" == "phrocs" ]]; then
     # Resolve phrocs deterministically. The in-repo source build (produced by
-    # flox activation via `make -C tools/phrocs build`) is canonical: it always
-    # matches this checkout, so prefer it over anything on PATH. This stops a
-    # stray brew/curl install from silently shadowing the version your branch
-    # built. Non-flox setups have no dist binary and fall back to PATH.
+    # the dev environment's activation via `make -C tools/phrocs build`) is
+    # canonical: it always matches this checkout, so prefer it over anything on
+    # PATH. This stops a stray brew/curl install from silently shadowing the
+    # version your branch built. Setups with neither dev environment have no
+    # dist binary and fall back to PATH.
     DIST_PHROCS="$REPOSITORY_ROOT/tools/phrocs/dist/phrocs"
+    source "$REPOSITORY_ROOT/bin/helpers/dev-env.sh"
     if [[ -x "$DIST_PHROCS" ]]; then
         PROCESS_MANAGER_BIN="$DIST_PHROCS"
-    elif [[ -n "${FLOX_ENV_PROJECT:-}" ]]; then
-        # Inside flox the source build is the only accepted binary — do NOT fall
-        # back to PATH, or a stray brew/curl phrocs would shadow the checkout
-        # build in exactly the failure mode this resolution is meant to prevent.
-        echo "👉 phrocs isn't built yet. Re-activate your flox environment to build it"
-        echo "   (leave and re-enter the repo directory, or run: flox activate),"
+    elif [[ -n "$(posthog_dev_env_root)" ]]; then
+        # Inside a dev environment the source build is the only accepted binary
+        # — do NOT fall back to PATH, or a stray brew/curl phrocs would shadow
+        # the checkout build in exactly the failure mode this resolution is
+        # meant to prevent.
+        echo "👉 phrocs isn't built yet. Re-activate your dev environment to build it"
+        echo "   (leave and re-enter the repo directory, or run: $(posthog_dev_env_activate_hint)),"
         echo "   or build it directly: hogli phrocs:build"
         exit 1
     elif PATH_PHROCS="$(command -v phrocs)"; then

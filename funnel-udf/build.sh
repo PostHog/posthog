@@ -1,8 +1,8 @@
 #!/bin/sh
 
-# If we're in a flox environment, exit
-if [ -n "$FLOX_ENV" ]; then
-    echo "⚠️ Please exit the flox environment by typing 'exit' before connecting to a toolbox."
+# If we're in a dev environment (flox or devenv), exit
+if [ -n "$FLOX_ENV" ] || [ -n "$DEVENV_ROOT" ]; then
+    echo "⚠️ Please exit the dev environment by typing 'exit' before connecting to a toolbox."
     exit 0
 fi
 

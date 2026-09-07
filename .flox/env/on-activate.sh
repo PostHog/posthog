@@ -8,6 +8,10 @@
 
 set -euo pipefail
 
+# The step bodies, shared with the devenv environment (bin/devenv-tasks.sh).
+# This file keeps the progress UI and the order; the steps live there.
+source "$FLOX_ENV_PROJECT/bin/helpers/dev-setup-steps.sh"
+
 # ── Colors & symbols ────────────────────────────────────────────────
 readonly C_RESET='\033[0m'
 readonly C_DIM='\033[2m'
@@ -317,47 +321,12 @@ _UV_SKIP=0
 _PHROCS_SKIP=0
 [[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
 
-# Seed repo-local git settings here, because package.json's postinstall runs inside
-# the sandbox below, which write-denies .git/config. The postinstall still tries
-# blame.ignoreRevsFile for clones that never activate flox (.claude/hooks/setup-cloud.sh
-# and friends); under the sandbox that attempt no-ops and this one is what lands.
-# Idempotent — the --get short-circuits once the value is set.
-git -C "$FLOX_ENV_PROJECT" config --get blame.ignoreRevsFile >/dev/null 2>&1 ||
-  git -C "$FLOX_ENV_PROJECT" config blame.ignoreRevsFile .git-blame-ignore-revs >/dev/null 2>&1 ||
-  true
-# Same for husky's core.hooksPath, which `prepare` sets during the sandboxed pnpm
-# install below. husky checks only whether git spawned, not how it exited, so the
-# denied write leaves a fresh clone with no hooks and an install that claims success.
-# --local, not --get: a global core.hooksPath would satisfy a merged --get and skip
-# the seed, leaving the repo pointed at the developer's global hooks dir instead.
-git -C "$FLOX_ENV_PROJECT" config --local --get core.hooksPath >/dev/null 2>&1 ||
-  git -C "$FLOX_ENV_PROJECT" config core.hooksPath .husky >/dev/null 2>&1 ||
-  true
-
-# Sandbox the automatic installs below by default on macOS (opt out with
-# POSTHOG_DEV_SANDBOX=0). .env.local isn't loaded at flox-activate time, so check
-# it directly — but only when the live env is unset, so shell env keeps precedence.
-# The build scripts that run during install (uv sdist hooks, allowlisted pnpm
-# builds, cargo build.rs) then execute inside the sandbox, like the runtime path.
-# See bin/dev-sandbox.
-_DEV_SANDBOX_INSTALLS=0
-if [[ "$(uname -s)" == "Darwin" && -x "$FLOX_ENV_PROJECT/bin/dev-sandbox" ]]; then
-  _DEV_SANDBOX_INSTALLS=1
-  if [[ "${POSTHOG_DEV_SANDBOX:-}" == "0" ]]; then
-    _DEV_SANDBOX_INSTALLS=0
-  elif [[ -z "${POSTHOG_DEV_SANDBOX:-}" ]] && grep -qE "^[[:space:]]*POSTHOG_DEV_SANDBOX=0[[:space:]]*$" "$FLOX_ENV_PROJECT/.env.local" 2>/dev/null; then
-    _DEV_SANDBOX_INSTALLS=0
-  fi
-fi
+seed_git_config
 
 if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_LOG=$(mktemp)
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
-  if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-    ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
-  else
-    ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
-  fi
+  ( run_install "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
   _BG_PNPM_PID=$!
   _BG_PNPM_START=$(date +%s)
 fi
@@ -365,7 +334,7 @@ fi
 if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
   _BG_PHROCS_LOG=$(mktemp)
   _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
-  ( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
+  ( build_phrocs ) >"$_BG_PHROCS_LOG" 2>&1 &
   _BG_PHROCS_PID=$!
   _BG_PHROCS_START=$(date +%s)
 fi
@@ -373,37 +342,12 @@ fi
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
   done_step "Python packages (cached)"
-elif [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-  run_step "Python packages" "$FLOX_ENV_PROJECT/bin/dev-sandbox" "uv sync"
 else
-  run_step "Python packages" uv sync
+  run_step "Python packages" run_install "uv sync"
 fi
 
-# Expose hogli on PATH via the uv-managed venv
-if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
-fi
-
-# Install shell completions for hogli
-HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
-mkdir -p "$HOGLI_COMPLETION_DIR"
-if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  "$UV_PROJECT_ENVIRONMENT/bin/python" \
-    -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
-  "$UV_PROJECT_ENVIRONMENT/bin/python" \
-    -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
-fi
-
-# Generate hogli man page into the active environment so `man hogli` works.
-HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
-if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  (
-    mkdir -p "$HOGLI_MANPAGE_DIR"
-    "$UV_PROJECT_ENVIRONMENT/bin/python" \
-      "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
-      --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
-  ) || true
-fi
+# Expose hogli on PATH via the uv-managed venv, plus its completions and man page.
+install_hogli
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
 if [[ "$_PHROCS_SKIP" -eq 1 ]]; then
@@ -411,9 +355,7 @@ if [[ "$_PHROCS_SKIP" -eq 1 ]]; then
 else
   wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
 fi
-if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
-fi
+link_phrocs
 
 # ── Step 2: Node packages ──────────────────────────────────────────
 if [[ "$_PNPM_SKIP" -eq 1 ]]; then
@@ -423,8 +365,7 @@ else
 fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
-if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
+if hosts_ok; then
   done_step "System hosts"
 else
   echo ""
@@ -433,7 +374,7 @@ else
   echo -e "  ${C_YELLOW}┃${C_RESET} PostHog services need hostnames in /etc/hosts."
   echo -e "  ${C_YELLOW}┃${C_RESET} Copy and run this to update them:"
   echo -e "  ${C_YELLOW}┃${C_RESET}"
-  echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
+  echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}${POSTHOG_HOSTS_FIX}${C_RESET}"
   echo -e "  ${C_YELLOW}┃${C_RESET}"
   echo ""
   if [[ "$_interactive" == true ]]; then
@@ -443,9 +384,7 @@ else
 fi
 
 # ── Step 4: Environment variables ───────────────────────────────────
-if [[ ! -f "$DOTENV_FILE" ]] && [[ -f ".env.example" ]]; then
-  cp .env.example "$DOTENV_FILE"
-fi
+dotenv_create
 if [[ -f "$DOTENV_FILE" ]]; then
   if [[ "${POSTHOG_SKIP_DOTENV:-}" == "1" ]]; then
     done_step "Environment vars (deferred)"

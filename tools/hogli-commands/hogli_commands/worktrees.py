@@ -37,6 +37,7 @@ from pathlib import Path
 import click
 from hogli.manifest import REPO_ROOT
 
+from .dev_env import VENV_PATHS
 from .doctor import _format_size
 
 
@@ -68,14 +69,13 @@ DEPS_RECURSIVE_DIRS = frozenset(
 
 # Directories never walked into when collecting deps — either handled explicitly
 # below or off-limits (git metadata).
-DEPS_WALK_SKIP = frozenset({".git", ".flox", ".venv", "venv"})
+DEPS_WALK_SKIP = frozenset({".git", ".flox", ".devenv", ".venv", "venv"})
 
 # Explicit relative paths (globs allowed) removed in --mode deps. These are not
 # matched recursively, so they must name their location from the worktree root.
 DEPS_EXPLICIT_PATHS = (
-    ".venv",
     "venv",
-    ".flox/cache/venv",
+    *VENV_PATHS,
     "frontend/dist",
     "frontend/.cache",
     "frontend/tmp",

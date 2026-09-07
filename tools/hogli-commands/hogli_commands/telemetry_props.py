@@ -21,6 +21,8 @@ from hogli.hooks import register_telemetry_properties
 from hogli.manifest import REPO_ROOT
 from hogli.telemetry import _load_config, _save_config, is_ci
 
+from .dev_env import is_devenv_active
+
 _POSTHOG_DEV_CACHE_TTL_SECONDS = 30 * 86400  # 30 days
 
 
@@ -198,6 +200,7 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
         "agent": agent,
         "environment": _detect_environment(),
         "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
+        "in_devenv": is_devenv_active(),
         "in_flox": os.environ.get("FLOX_ENV") is not None,
         "is_agent": agent is not None,
         "is_worktree": (REPO_ROOT / ".git").is_file(),

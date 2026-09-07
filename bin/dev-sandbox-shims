@@ -59,7 +59,7 @@ _ph_sandbox_should_wrap() {
 
 # The user-facing shims only make sense where the sandbox actually sandboxes.
 if [ "$(uname -s)" = "Darwin" ]; then
-    _PH_SANDBOX_PROJECT="${FLOX_ENV_PROJECT:-}"
+    _PH_SANDBOX_PROJECT="${FLOX_ENV_PROJECT:-${DEVENV_ROOT:-}}"
 
     _ph_sandbox_run() {
         local tool="$1"

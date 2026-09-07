@@ -237,3 +237,9 @@ corpora/
 # workflow's artifact; it is never committed.
 .test_durations
 .test_durations.*
+
+# devenv (opt-in dev environment, see devenv.nix). devenv.lock is committed.
+.devenv/
+.devenv.flake.nix
+devenv.local.nix
+devenv.local.yaml

@@ -17,14 +17,15 @@ The shape we enforce:
   An exact literal also avoids the historical GH API rate-limit issue caused
   by range resolution (astral-sh/setup-uv#325).
 
-- .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
-  CI. Comparison is on major.minor to allow patch drift.
+- .flox/env/manifest.toml and devenv.nix mirror the CI pin for parity between
+  local dev and CI. Comparison is on major.minor to allow patch drift, and it
+  keeps the two dev environments on the same uv as each other.
 
 Performs four checks:
 1. Workflow pins are present, exact literals, and identical across all files.
 2. Workflow pin satisfies pyproject's required-version floor.
 3. Workflow pin can download the required Python version.
-4. Flox manifest uv version matches the workflow pin on major.minor.
+4. Both dev environment uv versions match the workflow pin on major.minor.
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
@@ -105,6 +106,44 @@ def get_uv_version_from_flox() -> str | None:
 
     match = re.search(r"(\d+\.\d+\.\d+)", version)
     return match.group(1) if match else None
+
+
+def get_uv_version_from_devenv() -> str | None:
+    """Extract the uv version literal from devenv.nix.
+
+    devenv.nix is Nix, not a data format, so this reads the `uv = "x.y.z";`
+    attribute in the solvePins block by pattern rather than by evaluating it.
+    """
+    devenv_nix = Path(__file__).parent.parent / "devenv.nix"
+
+    if not devenv_nix.exists():
+        return None
+
+    match = re.search(r'^\s*uv\s*=\s*"(\d+\.\d+\.\d+)"', devenv_nix.read_text(), re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def major_minor(version: str) -> str:
+    """Return the 'X.Y' prefix of a version string."""
+    return ".".join(version.split(".")[:2])
+
+
+def compare_env_pins(env_pins: dict[str, str | None], workflow_pin: str | None) -> list[str]:
+    """Return one message per dev environment that diverges from the CI pin.
+
+    Each dev environment mirrors the CI pin on major.minor, so patch drift is
+    allowed. Holding both against the same pin also holds them against each
+    other, so flox and devenv cannot install different uv minor versions.
+    """
+    problems: list[str] = []
+    if not workflow_pin:
+        return problems
+
+    pin_mm = major_minor(workflow_pin)
+    for source, version in env_pins.items():
+        if version and major_minor(version) != pin_mm:
+            problems.append(f"{source} uv {version} diverges from workflow pin {workflow_pin}")
+    return problems
 
 
 def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
@@ -278,25 +317,31 @@ def check_python_downloadable(workflow_pin: str | None, python_version: str) -> 
     return False
 
 
-def check_flox_alignment(workflow_pin: str | None) -> bool:
-    """Check 4: the flox manifest matches the workflow pin on major.minor."""
-    _section("Check 4: Flox manifest uv version alignment")
+def check_dev_env_alignment(workflow_pin: str | None) -> bool:
+    """Check 4: both dev environments match the workflow pin on major.minor."""
+    _section("Check 4: Dev environment uv version alignment")
 
-    flox_uv = get_uv_version_from_flox()
-    if not flox_uv:
-        print("⚠ Skipped: No flox manifest or uv version found")
-        return True
-    if not workflow_pin:
-        print("⚠ Skipped: No workflow pin to compare against")
+    env_pins = {
+        ".flox/env/manifest.toml": get_uv_version_from_flox(),
+        "devenv.nix": get_uv_version_from_devenv(),
+    }
+    if not any(env_pins.values()):
+        print("⚠ Skipped: No dev environment uv version found")
         return True
 
-    flox_mm = ".".join(flox_uv.split(".")[:2])
-    pin_mm = ".".join(workflow_pin.split(".")[:2])
-    if flox_mm == pin_mm:
-        print(f"✓ Flox uv {flox_uv} matches workflow pin {workflow_pin} on major.minor")
+    # compare_env_pins holds the "no workflow pin, nothing to compare" rule, so
+    # a missing pin reaches here as an empty problem list. Check 1 has already
+    # failed loudly in that case.
+    problems = compare_env_pins(env_pins, workflow_pin)
+    if not problems:
+        for source, version in env_pins.items():
+            if version:
+                print(f"✓ {source} uv {version} matches workflow pin {workflow_pin} on major.minor")
         return True
-    print(f"✗ Flox uv {flox_uv} diverges from workflow pin {workflow_pin}")
-    print("  Update .flox/env/manifest.toml to match the workflow pin.")
+
+    for problem in problems:
+        print(f"✗ {problem}")
+    print("  Update the dev environment files to match the workflow pin, and each other.")
     return False
 
 
@@ -322,10 +367,10 @@ def main() -> int:
     _divider()
     python_ok = check_python_downloadable(workflow_pin, python_version)
     _divider()
-    flox_ok = check_flox_alignment(workflow_pin)
+    dev_env_ok = check_dev_env_alignment(workflow_pin)
     _divider()
 
-    if pins_ok and floor_ok and python_ok and flox_ok:
+    if pins_ok and floor_ok and python_ok and dev_env_ok:
         print("✓ All checks passed")
         return 0
 
@@ -336,8 +381,8 @@ def main() -> int:
         failures.append("workflow pin below pyproject floor")
     if not python_ok:
         failures.append("workflow uv cannot download required Python")
-    if not flox_ok:
-        failures.append("flox uv diverges from workflow pin")
+    if not dev_env_ok:
+        failures.append("dev environment uv diverges from workflow pin")
     print(f"✗ Failed: {'; '.join(failures)}")
     return 1
 

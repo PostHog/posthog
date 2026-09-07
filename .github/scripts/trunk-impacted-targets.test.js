@@ -135,6 +135,9 @@ test('a universal tripwire claims every known target', () => {
         // tree's prose obeys.
         '.depot/actions/pnpm-install/action.yml',
         '.flox/env/manifest.toml',
+        'devenv.nix',
+        'devenv.lock',
+        'bin/devenv-tasks.sh',
         'docker/clickhouse/config.d/default.xml',
         'devenv/duckgres.yaml',
         '.config/.markdownlint-cli2.jsonc',

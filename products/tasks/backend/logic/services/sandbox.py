@@ -791,8 +791,8 @@ def _get_docker_sandbox_class() -> SandboxClass:
     # DEBUG off in some paths — blocking there would kill collection, not production.
     if not (settings.DEBUG or settings.TEST):
         raise RuntimeError(
-            "DockerSandbox is for local development only. Set DEBUG=1 (the flox env sets this "
-            "automatically — are you outside 'flox activate'?) or unset SANDBOX_PROVIDER "
+            "DockerSandbox is for local development only. Set DEBUG=1 (the dev environment sets "
+            "this automatically — are you outside it?) or unset SANDBOX_PROVIDER "
             "(check .env/.env.local and your shell)."
         )
     from .docker_sandbox import DockerSandbox
@@ -811,8 +811,8 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     # DEBUG off in some paths — blocking there would kill collection, not production.
     if not (settings.DEBUG or settings.TEST):
         raise RuntimeError(
-            "MODAL_DOCKER sandbox is for local development only. Set DEBUG=1 (the flox env sets "
-            "this automatically — are you outside 'flox activate'?) or unset SANDBOX_PROVIDER "
+            "MODAL_DOCKER sandbox is for local development only. Set DEBUG=1 (the dev environment "
+            "sets this automatically — are you outside it?) or unset SANDBOX_PROVIDER "
             "(check .env/.env.local and your shell)."
         )
     from .modal_sandbox import ModalSandbox

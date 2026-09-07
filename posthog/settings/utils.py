@@ -28,7 +28,7 @@ def assert_debug_not_in_production(*, debug: bool, cloud_deployment: Optional[st
             f"DEBUG must not be enabled on deployed cloud environments (CLOUD_DEPLOYMENT={cloud_deployment!r}). "
             "Unset DEBUG. Developing cloud-only features locally? Use CLOUD_DEPLOYMENT=E2E instead — "
             "is_cloud() treats it as cloud and it is allowed with DEBUG. "
-            "(DEBUG=1 is injected by the flox env: .flox/env/manifest.toml [vars].)"
+            "(DEBUG=1 is injected by the dev environment: .flox/env/manifest.toml [vars], or devenv.nix.)"
         )
 
 

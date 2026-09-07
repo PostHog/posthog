@@ -93,6 +93,7 @@ jobs:
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
                         - .flox/env/manifest.toml
+                        - devenv.nix
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid

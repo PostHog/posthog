@@ -62,9 +62,9 @@ def _exit_for_signal(signum, _frame):
 def main():
     """Main entry point for the toolbox command."""
     try:
-        # If we're in a flox environment, exit
-        if "FLOX_ENV" in os.environ:
-            print("⚠️ Please exit the flox environment by typing `exit` before connecting to a toolbox.")  # noqa: T201
+        # If we're in a dev environment (flox or devenv), exit
+        if "FLOX_ENV" in os.environ or "DEVENV_ROOT" in os.environ:
+            print("⚠️ Please exit the dev environment by typing `exit` before connecting to a toolbox.")  # noqa: T201
             sys.exit(0)
 
         # Set up argument parser

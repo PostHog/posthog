@@ -167,7 +167,7 @@ copy_buckets() {
     local DST_ENDPOINT="$2"
 
     if ! python3 -c "import boto3" >/dev/null 2>&1; then
-        echo "❌ boto3 is required. Run this inside the PostHog dev environment (flox)."
+        echo "❌ boto3 is required. Run this inside the PostHog dev environment (flox or devenv)."
         exit 1
     fi
 

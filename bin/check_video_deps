@@ -2,11 +2,25 @@
 
 set -e
 
-# Check if flox is available
-if ! command -v flox &> /dev/null; then
-    echo "Error: flox not found. This script is optimized for flox environments."
-    exit 1
+source "$(dirname "$0")/helpers/dev-env.sh"
+
+# Every check below needs the pinned ffmpeg and Python rather than whatever the
+# host has, so re-run this whole script inside the dev environment when none is
+# active. One wrapper for the body beats one per command: entering the
+# environment is the expensive part.
+if [ -z "$(posthog_dev_env_root)" ]; then
+    DEV_ENV_KIND="$(posthog_dev_env_kind)"
+    if ! command -v "$DEV_ENV_KIND" &> /dev/null; then
+        echo "Error: $DEV_ENV_KIND not found. This script needs a PostHog dev environment."
+        exit 1
+    fi
+    # Absolute, because entering the environment may change the working directory.
+    SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    posthog_dev_env_run bash "$SELF" "$@"
+    exit $?
 fi
+
+ACTIVATE_HINT="$(posthog_dev_env_activate_hint)"
 
 # Determine the correct cache directory based on OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -16,33 +30,33 @@ else
 fi
 
 # Check if Playwright is installed
-if ! flox activate -- python -c "import playwright" &> /dev/null; then
+if ! python -c "import playwright" &> /dev/null; then
     echo "Installing Playwright via pip..."
-    flox activate -- pip install playwright
+    pip install playwright
     echo "Installing Playwright browsers..."
-    flox activate -- playwright install
+    playwright install
 else
     echo "Playwright is already installed"
-    
+
     # Check if browsers are installed by looking for chromium
     if [ ! -d "$PLAYWRIGHT_CACHE_DIR" ] || ! find "$PLAYWRIGHT_CACHE_DIR" -name "chrome-*" -o -name "headless_shell" -o -name "chromium-*" 2>/dev/null | grep -q .; then
         echo "Playwright browsers not found, installing..."
-        flox activate -- playwright install
+        playwright install
     else
         echo "Playwright browsers are already installed"
     fi
 fi
 
 # Check if FFmpeg is installed and is version 5.x (matching Dockerfile)
-if ! flox activate -- command -v ffmpeg &> /dev/null; then
-    echo "Error: FFmpeg not found. It should be installed via the flox manifest (ffmpeg_5)."
-    echo "Try re-entering your flox environment or running: flox activate"
+if ! command -v ffmpeg &> /dev/null; then
+    echo "Error: FFmpeg not found. The dev environment installs it (ffmpeg_5)."
+    echo "Try re-entering your dev environment or running: $ACTIVATE_HINT"
     exit 1
 else
-    FFMPEG_VERSION=$(flox activate -- ffmpeg -version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+    FFMPEG_VERSION=$(ffmpeg -version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
     if [[ ! "$FFMPEG_VERSION" =~ ^5\. ]]; then
         echo "Error: FFmpeg version $FFMPEG_VERSION found, but version 5.x is required (matching Dockerfile)."
-        echo "Try re-entering your flox environment or running: flox activate"
+        echo "Try re-entering your dev environment or running: $ACTIVATE_HINT"
         exit 1
     fi
     echo "FFmpeg $FFMPEG_VERSION is installed"
