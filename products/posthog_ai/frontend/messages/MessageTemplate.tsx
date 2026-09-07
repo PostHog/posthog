@@ -3,7 +3,6 @@ import { twMerge } from 'tailwind-merge'
 
 export interface MessageTemplateProps {
     type: 'human' | 'ai'
-    variant?: 'default' | 'outline' | 'ghost'
     action?: React.ReactNode
     className?: string
     boxClassName?: string
@@ -13,16 +12,7 @@ export interface MessageTemplateProps {
 }
 
 export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    {
-        type,
-        variant = type === 'human' ? 'default' : 'outline',
-        children,
-        className,
-        boxClassName,
-        wrapperClassName,
-        action,
-        header,
-    },
+    { type, children, className, boxClassName, wrapperClassName, action, header },
     ref
 ) {
     return (
@@ -35,18 +25,17 @@ export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateP
             ref={ref}
             data-message-type={type}
         >
-            <div className={twMerge('min-w-0 max-w-full', wrapperClassName)}>
+            <div className={twMerge('min-w-0 max-w-full', type === 'human' && 'max-w-4/5', wrapperClassName)}>
                 {header}
                 {children && (
                     <div
                         className={twMerge(
                             'border py-2 px-3 rounded-lg',
-                            variant === 'default' && 'border-transparent bg-surface-secondary',
-                            variant === 'outline' && 'bg-surface-primary',
-                            variant === 'ghost' && 'border-transparent bg-transparent',
+                            type === 'human' ? 'border-accent bg-accent-highlight-primary' : 'bg-surface-primary',
                             boxClassName
                         )}
                     >
+                        {type === 'human' && <div className="mb-1 text-xs font-semibold">User</div>}
                         {children}
                     </div>
                 )}

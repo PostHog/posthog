@@ -122,7 +122,6 @@ export const ThreadRow = memo(function ThreadRow({
         return (
             <MessageTemplate
                 type={peerAgentMessage ? 'ai' : 'human'}
-                variant={peerAgentMessage ? 'outline' : 'default'}
                 header={
                     peerAgentMessage && (
                         <LemonTag icon={<IconRobot />} wrap className="mb-1">
@@ -140,7 +139,7 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'assistant_message') {
         return (
-            <MessageTemplate type="ai" variant="ghost">
+            <MessageTemplate type="ai">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
             </MessageTemplate>
         )
