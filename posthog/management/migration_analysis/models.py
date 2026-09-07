@@ -64,6 +64,11 @@ class MigrationRisk:
         return base_score
 
     @property
+    def score(self) -> int:
+        """Alias of `max_score`, so both risk dataclasses answer `.score`."""
+        return self.max_score
+
+    @property
     def level(self) -> RiskLevel:
         return RiskLevel.from_score(self.max_score)
 

@@ -6,7 +6,7 @@ from django.db import migrations, models
 from parameterized import parameterized
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
-from posthog.management.migration_analysis.models import RiskLevel
+from posthog.management.migration_analysis.models import MigrationRisk, OperationRisk, RiskLevel
 from posthog.management.migration_analysis.policies import (
     AtomicFalsePolicy,
     ConcurrentIndexIdempotencyPolicy,
@@ -47,6 +47,26 @@ class TestRiskLevelScoring:
     def test_out_of_range_scores(self):
         assert RiskLevel.from_score(10) == RiskLevel.BLOCKED
         assert RiskLevel.from_score(-1) == RiskLevel.SAFE
+
+
+class TestMigrationRiskScore:
+    @parameterized.expand(
+        [
+            ("no_boost", [], 3),
+            ("policy_violation_boost", ["hot table alter"], 4),
+        ]
+    )
+    def test_score_matches_max_score(self, _name, policy_violations, expected):
+        risk = MigrationRisk(
+            path="posthog.0001_initial",
+            app="posthog",
+            name="0001_initial",
+            operations=[OperationRisk(type="AddField", score=3, reason="test", details={})],
+            policy_violations=policy_violations,
+        )
+
+        assert risk.score == expected
+        assert risk.score == risk.max_score
 
 
 class TestAddFieldOperations:

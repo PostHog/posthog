@@ -83,6 +83,10 @@ All concurrent-index ops require `atomic = False`.
 
 Meta-principle when you hit a risky-but-common pattern with no helper: don't hand-roll the safe DDL from docs — ship a drop-in helper in `posthog/migration_helpers` and point the CI policy at it. A one-import helper beats a wall of caveated `RunSQL` every time.
 
+## Scripting against the risk analyzer
+
+`posthog/management/migration_analysis/models.py` holds two risk dataclasses. `OperationRisk` scores one operation; `MigrationRisk` scores a whole migration file and exposes `max_score`, `level`, and `category`. Both answer `.score`, so on a `MigrationRisk` you can read either `score` or `max_score` — they return the same number.
+
 ## Hot table hazard
 
 `posthog_team`, `posthog_user`, `posthog_organization`, and `posthog_project` are read on virtually every request. Any `ALTER TABLE` on them — including a plain nullable `AddField`, which is "safe" everywhere else — needs an `ACCESS EXCLUSIVE` lock, and while that lock request waits behind in-flight queries, every later query on the table queues behind it. Even a metadata-only `ADD COLUMN` can stall site-wide traffic in waves (one per `bin/migrate` retry) until the ALTER wins the lock race. This has caused production 5xx incidents.
