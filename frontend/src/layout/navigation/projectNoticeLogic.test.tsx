@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -11,6 +11,7 @@ import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmail
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -289,6 +290,30 @@ describe('projectNoticeLogic', () => {
             await expectLogic(verifyEmailLogic, () => {
                 verifyEmailLogic.actions.requestVerificationCode('test-uuid')
             }).toDispatchActions(['requestVerificationCode', 'requestVerificationCodeSuccess'])
+
+            logic.unmount()
+        })
+
+        // The code entry only exists on the verify-email scene, and the code email carries no link.
+        // A CTA that only requests a code leaves the user holding six digits with no field.
+        it('opens the code entry for the current user when the CTA is clicked', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            preflightLogic.actions.loadPreflightSuccess({ email_service_available: true } as any)
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                uuid: 'user-uuid',
+                is_email_verified: false,
+                has_social_auth: false,
+            } as any)
+
+            expect(logic.values.projectNoticeVariant).toEqual('unverified_email')
+
+            await expectLogic(verifyEmailLogic, () => {
+                logic.values.projectNotice?.action?.onClick?.({} as any)
+            }).toDispatchActions(['requestVerificationCode'])
+
+            expect(router.values.location.pathname).toEqual(urls.verifyEmail('user-uuid'))
 
             logic.unmount()
         })

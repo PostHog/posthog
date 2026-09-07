@@ -11,6 +11,7 @@ const pathsWithoutProjectId = [
     'preflight',
     'login',
     'signup',
+    'verify_email',
     'create-organization',
     'account',
     'oauth',
