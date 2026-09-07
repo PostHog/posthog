@@ -335,6 +335,8 @@ class TestStaleFlagsContract(SimpleTestCase):
         assert registration.product == Product.FEATURE_FLAGS
         assert registration.schedule is not None
         assert registration.remediation is not None
+        # Payloads carry flag keys and names, so the Health API must gate them on flag access.
+        assert registration.access_controlled_resource == "feature_flag"
 
     def test_remediation_orders_code_removal_before_archive(self) -> None:
         remediation = StaleFeatureFlagsCheck.remediation

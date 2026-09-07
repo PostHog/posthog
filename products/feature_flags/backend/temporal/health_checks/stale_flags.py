@@ -55,6 +55,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
     owner = JobOwners.TEAM_FEATURE_FLAGS
     product = Product.FEATURE_FLAGS
     schedule = "0 6 * * 1"  # weekly, Mondays 06:00 UTC
+    # Payloads carry flag keys and names.
+    access_controlled_resource = "feature_flag"
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
