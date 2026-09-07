@@ -1859,7 +1859,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
                 if (isEventsQuery(query)) {
                     return !!(
-                        query.event ||
                         (query.properties && query.properties.length > 0) ||
                         (query.where && query.where.length > 0) ||
                         (query.fixedProperties && query.fixedProperties.length > 0)
@@ -1892,8 +1891,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         orderBy: undefined,
                         limit: undefined,
                         offset: undefined,
-                        // Remove all filters for total count
-                        event: undefined,
+                        // Keep the selected event scope while removing property filters.
                         properties: undefined,
                         where: undefined,
                     } as EventsQuery

@@ -279,6 +279,8 @@
         "required_scopes": ["notebook:write"],
         "feature_flag": "notebooks-collaboration",
         "hidden_when_flag_on": "revamped-py-notebooks",
+        "superseded_by": ["notebooks-update-cell", "notebooks-add-cell"],
+        "redirect_hint": "Read the notebook with notebooks-get first: the revamped notebooks are cell-based, so an edit targets one cell.",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

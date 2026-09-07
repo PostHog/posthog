@@ -356,7 +356,7 @@ export interface SessionTrpc {
 export interface ISessionStore {
   setSession(session: AgentSession): void;
   removeSession(taskRunId: string): void;
-  setTaskStarting?(taskId: string): void;
+  setTaskStarting?(taskId: string, runId?: string): void;
   clearTaskStarting?(taskId: string): void;
   updateSession(taskRunId: string, updates: Partial<AgentSession>): void;
   appendEvents(
@@ -1917,7 +1917,7 @@ export class SessionService {
       return;
     }
     if (task.latest_run?.environment !== "cloud") {
-      this.d.store.setTaskStarting?.(taskId);
+      this.d.store.setTaskStarting?.(taskId, task.latest_run?.id);
     }
     if (existingSession?.status === "connecting") {
       this.d.log.info("Session already in connecting state", { taskId });
@@ -2204,6 +2204,9 @@ export class SessionService {
     // previous in-memory events when the log read produced nothing.
     session.events =
       events.length === 0 && previous?.events.length ? previous.events : events;
+    if (hasSessionPromptEvent(session.events)) {
+      session.firstPromptForRunId = taskRunId;
+    }
     if (logUrl) {
       session.logUrl = logUrl;
     }
@@ -3424,11 +3427,19 @@ export class SessionService {
         } else if (kind === "output") turnTally.agentOutputEvents += 1;
       }
       if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
+        const promptSession = this.d.store.getSessions()[taskRunId];
+        const promptPosition = getStoredLogEventPosition(acpMsg);
+        const promptBelongsToRun = promptSession?.isCloud
+          ? promptPosition?.taskRunId === taskRunId
+          : true;
         this.d.store.updateSession(taskRunId, {
           isPromptPending: true,
           promptStartedAt: acpMsg.ts,
           pausedDurationMs: 0,
           currentPromptId: msg.id,
+          ...(promptBelongsToRun
+            ? { firstPromptForRunId: taskRunId }
+            : undefined),
         });
         this.liveTurnContent.set(taskRunId, {
           startedAtTs: acpMsg.ts,
@@ -3436,7 +3447,6 @@ export class SessionService {
           agentOutputEvents: 0,
           agentText: "",
         });
-        const promptSession = this.d.store.getSessions()[taskRunId];
         if (promptSession?.isCloud) {
           this.cloudRunIdleTracker.markBusy(promptSession);
           if (promptSession.agentIdleForRunId) {
@@ -5339,6 +5349,7 @@ export class SessionService {
       throw new Error("Failed to create resume run");
     }
 
+    this.d.store.setTaskStarting?.(session.taskId, newRun.id);
     this.supersededRunIds.add(session.taskRunId);
     while (this.supersededRunIds.size > MAX_SUPERSEDED_RUN_IDS) {
       const oldest = this.supersededRunIds.values().next().value;
@@ -5354,6 +5365,10 @@ export class SessionService {
     );
     newSession.status = "disconnected";
     newSession.isCloud = true;
+    newSession.resumeAncestorRunIds = [
+      ...(session.resumeAncestorRunIds ?? []),
+      session.taskRunId,
+    ];
     newSession.isPromptPending = true;
     newSession.promptStartedAt = Date.now();
     newSession.events = [...session.events];
@@ -6454,6 +6469,13 @@ export class SessionService {
     isTaskAuthor = true,
   ): () => void {
     const taskRunId = runId;
+    const watchedSession = this.d.store.getSessionByTaskId(taskId);
+    if (
+      !isTerminalStatus(runStatus) &&
+      watchedSession?.firstPromptForRunId !== taskRunId
+    ) {
+      this.d.store.setTaskStarting?.(taskId, taskRunId);
+    }
     const persistedConfigOptions = this.d.getPersistedConfigOptions(taskRunId);
     const persistedAdapter = this.d.adapterStore.getAdapter(taskRunId);
     const buildInitialConfigOptions = (
@@ -6646,6 +6668,10 @@ export class SessionService {
       session.status = "disconnected";
       session.isCloud = true;
       session.isTaskAuthor = isTaskAuthor;
+      session.resumeAncestorRunIds =
+        typeof runState?.resume_from_run_id === "string"
+          ? [runState.resume_from_run_id]
+          : undefined;
       session.adapter = adapter;
       session.configOptions = buildInitialConfigOptions(
         initialMode,
@@ -7013,6 +7039,37 @@ export class SessionService {
     }
   }
 
+  private async runPromptExistsBefore(
+    client: SessionLogsClient,
+    taskId: string,
+    taskRunId: string,
+    endOffset: number,
+  ): Promise<boolean> {
+    try {
+      let offset = 0;
+      const scanEnd = Math.min(endOffset, CLOUD_HYDRATION_MAX_ENTRIES);
+      while (offset < scanEnd) {
+        const page = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
+          limit: Math.min(SESSION_LOGS_MAX_PAGE_SIZE, scanEnd - offset),
+          offset,
+        });
+        if (page.entries.length === 0) return false;
+        if (hasSessionPromptEvent(convertStoredEntriesToEvents(page.entries))) {
+          return true;
+        }
+        offset += page.entries.length;
+      }
+    } catch (error) {
+      this.d.log.warn("Cloud prompt history check failed", {
+        taskId,
+        taskRunId,
+        endOffset,
+        error,
+      });
+    }
+    return false;
+  }
+
   /**
    * A one-entry probe learns the chain total without downloading a page an
    * oversized log would throw away, then only the newest
@@ -7175,6 +7232,7 @@ export class SessionService {
     let liveStreamLineCount: number;
     let resumeLeafEntryStartIndex: number | undefined;
     let transcriptWindow: ChainTranscriptWindow | null = null;
+    let hasPromptBeforeWindow = false;
     // How many entries a capped fetch dropped off the front of rawEntries on
     // paths that produce no window. The stream cursors count from the start of
     // the chain, and the engine's own totals still include those entries, so
@@ -7323,14 +7381,15 @@ export class SessionService {
         liveStreamLineCount = local.totalLineCount;
       } else {
         const authStatus = await this.getAuthCredentialsStatus();
-        const window =
-          authStatus.kind === "ready"
-            ? await this.fetchChainTranscriptWindow(
-                authStatus.auth.client,
-                taskId,
-                taskRunId,
-              )
-            : null;
+        const sessionLogsClient =
+          authStatus.kind === "ready" ? authStatus.auth.client : null;
+        const window = sessionLogsClient
+          ? await this.fetchChainTranscriptWindow(
+              sessionLogsClient,
+              taskId,
+              taskRunId,
+            )
+          : null;
         // An empty persisted chain can trail an S3 log that already has
         // entries (persistence lag), so only a non-empty window short-circuits
         // the full read.
@@ -7338,6 +7397,14 @@ export class SessionService {
           transcriptWindow = window;
           rawEntries = window.entries;
           liveStreamLineCount = window.chainTotal;
+          if (sessionLogsClient && window.windowStart > 0) {
+            hasPromptBeforeWindow = await this.runPromptExistsBefore(
+              sessionLogsClient,
+              taskId,
+              taskRunId,
+              window.windowStart,
+            );
+          }
         } else {
           const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
           rawEntries = parsed.rawEntries;
@@ -7388,9 +7455,21 @@ export class SessionService {
         );
       }
     }
+    const hasCurrentRunOutput = events.some((event) => {
+      const position = getStoredLogEventPosition(event);
+      return (
+        (!isResumeRun || position?.taskRunId === taskRunId) &&
+        classifyTurnEventKind(event.message) !== "other"
+      );
+    });
     const hasCurrentRunUserPrompt = isResumeRun
       ? hasSessionPromptEventForTaskRun(events, taskRunId)
-      : hasSessionPromptEvent(events);
+      : hasPromptBeforeWindow || hasSessionPromptEvent(events);
+    if (hasCurrentRunUserPrompt || hasCurrentRunOutput) {
+      this.d.store.updateSession(taskRunId, {
+        firstPromptForRunId: taskRunId,
+      });
+    }
 
     // A reload loses the in-memory placeholder; restore it from the resume
     // state or initial task description until the active run records its prompt.
@@ -8024,6 +8103,10 @@ export class SessionService {
     this.d.store.setTaskStarting?.(taskId);
   }
 
+  public clearVisibleTaskStarting(taskId: string): void {
+    this.d.store.clearTaskStarting?.(taskId);
+  }
+
   private clearTaskCreationInFlight(taskId: string): void {
     this.taskCreationMarks.delete(taskId);
     this.d.store.clearTaskStarting?.(taskId);
@@ -8035,7 +8118,7 @@ export class SessionService {
     const expired =
       Date.now() - markedAt > SessionService.TASK_CREATION_IN_FLIGHT_TTL_MS;
     if (expired) {
-      this.clearTaskCreationInFlight(taskId);
+      this.taskCreationMarks.delete(taskId);
       return false;
     }
     return true;
