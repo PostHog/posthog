@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this logs alert configuration.",
+            "type": "string"
+        },
+        "slack_channel_id": {
+            "description": "Slack channel ID. Required when type is slack.",
+            "type": "string"
+        },
+        "slack_channel_name": {
+            "description": "Optional Slack channel name used for display.",
+            "type": "string"
+        },
+        "slack_workspace_id": {
+            "description": "Slack workspace integration ID. Required when type is slack.",
+            "type": "number"
+        },
+        "type": {
+            "description": "Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.",
+            "enum": ["slack", "webhook", "teams"],
+            "type": "string"
+        },
+        "webhook_url": {
+            "description": "Required when type is webhook or teams.",
+            "format": "uri",
+            "type": "string"
+        }
+    },
+    "required": ["id", "type"],
+    "type": "object"
+}

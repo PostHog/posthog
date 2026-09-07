@@ -35,15 +35,15 @@ This skill teaches you how to:
 
 - **`regex`** — a [re2](https://github.com/google/re2/wiki/Syntax) pattern. No
   need to escape `/`. Anchor with `^` / `$` when you mean it.
-- **`alias`** — the literal replacement. Use angle-bracket placeholders
-  (`<id>`, `<slug>`, `<uuid>`, `<date>`) by convention so the cleaned path stays
-  human-readable. The alias is _not_ a regex template — backreferences are not
-  supported.
+- **`alias`** — the replacement. Default to angle-bracket placeholders
+  (`<id>`, `<slug>`, `<uuid>`, `<date>`) so the cleaned path stays
+  human-readable. Backreferences to the regex's capture groups also work, but
+  they cost more to evaluate — see the backreference pitfall below before
+  reaching for one.
 - **`order`** — integer. Rules apply **sequentially** in `order` ascending,
   each rule's output feeds the next.
 
 Application is `replaceRegexpAll(pathname, regex, alias)` per rule, chained.
-Source: `posthog/hogql/property.py:613`.
 
 ## Workflow
 
@@ -160,7 +160,6 @@ destroys whatever the team has already configured.
 When the user (or a HogQL query) opts in:
 
 - Web analytics: the **Path cleaning** toggle in the page header
-  (`PathCleaningToggle.tsx`)
 - Paths insights: the path cleaning toggle in the insight filters
 - HogQL: any query that calls `apply_path_cleaning(path_expr, team)`
 
@@ -168,6 +167,14 @@ The rules are stored once per project — they are not insight-scoped.
 
 ## Common pitfalls
 
+- **Prefer a placeholder alias over a backreference** — a rule that substitutes
+  a capture group costs roughly 3x more per row than the same rule with a fixed
+  alias, because re2 has to track submatch boundaries instead of answering
+  match/no-match on its fast path. Reach for one only when it collapses several
+  near-identical rules into one, which is a clear net win since cleaning
+  evaluates every rule against every row. Keep the regex `^`-anchored either
+  way: `replaceRegexpAll` keeps scanning for further matches, so an unanchored
+  pattern is much more expensive than an anchored one.
 - **Backreferences in `alias` need double-escaping** — ClickHouse's
   `replaceRegexpAll` supports `\0` (whole match) and `\1`–`\9` (capture
   groups). In a JSON field or SQL string literal the backslash must be

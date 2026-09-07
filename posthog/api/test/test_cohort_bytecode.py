@@ -538,16 +538,16 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             "value": 13,
             "operator": "gt",
         }
-        bytecode_gt, error_gt, hash_gt = generate_cohort_filter_bytecode(filter_data_gt, self.team)
-        self.assertIsNone(error_gt)
-        self.assertIsNotNone(bytecode_gt)
+        result_gt = generate_cohort_filter_bytecode(filter_data_gt, self.team)
+        self.assertIsNone(result_gt.error)
+        self.assertIsNotNone(result_gt.bytecode)
         # The bytecode should contain null-safe wrapping operations
-        assert bytecode_gt is not None  # Type narrowing for mypy
-        self.assertIn("isNull", bytecode_gt)  # isNull function calls
-        self.assertIn(Operation.OR, bytecode_gt)  # OR operation for combining null checks
-        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_gt)  # Conditional jump
-        self.assertIn(Operation.FALSE, bytecode_gt)  # Return false if null
-        self.assertIn(Operation.GT, bytecode_gt)  # The actual GT comparison
+        assert result_gt.bytecode is not None  # Type narrowing for mypy
+        self.assertIn("isNull", result_gt.bytecode)  # isNull function calls
+        self.assertIn(Operation.OR, result_gt.bytecode)  # OR operation for combining null checks
+        self.assertIn(Operation.JUMP_IF_FALSE, result_gt.bytecode)  # Conditional jump
+        self.assertIn(Operation.FALSE, result_gt.bytecode)  # Return false if null
+        self.assertIn(Operation.GT, result_gt.bytecode)  # The actual GT comparison
 
         # Test LT operator
         filter_data_lt = {
@@ -556,14 +556,14 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             "value": 100,
             "operator": "lt",
         }
-        bytecode_lt, error_lt, hash_lt = generate_cohort_filter_bytecode(filter_data_lt, self.team)
-        self.assertIsNone(error_lt)
-        self.assertIsNotNone(bytecode_lt)
-        assert bytecode_lt is not None  # Type narrowing for mypy
-        self.assertIn("isNull", bytecode_lt)
-        self.assertIn(Operation.OR, bytecode_lt)
-        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_lt)
-        self.assertIn(Operation.LT, bytecode_lt)
+        result_lt = generate_cohort_filter_bytecode(filter_data_lt, self.team)
+        self.assertIsNone(result_lt.error)
+        self.assertIsNotNone(result_lt.bytecode)
+        assert result_lt.bytecode is not None  # Type narrowing for mypy
+        self.assertIn("isNull", result_lt.bytecode)
+        self.assertIn(Operation.OR, result_lt.bytecode)
+        self.assertIn(Operation.JUMP_IF_FALSE, result_lt.bytecode)
+        self.assertIn(Operation.LT, result_lt.bytecode)
 
         # Test GTE operator
         filter_data_gte = {
@@ -572,14 +572,14 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             "value": 18,
             "operator": "gte",
         }
-        bytecode_gte, error_gte, hash_gte = generate_cohort_filter_bytecode(filter_data_gte, self.team)
-        self.assertIsNone(error_gte)
-        self.assertIsNotNone(bytecode_gte)
-        assert bytecode_gte is not None  # Type narrowing for mypy
-        self.assertIn("isNull", bytecode_gte)
-        self.assertIn(Operation.OR, bytecode_gte)
-        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_gte)
-        self.assertIn(Operation.GT_EQ, bytecode_gte)
+        result_gte = generate_cohort_filter_bytecode(filter_data_gte, self.team)
+        self.assertIsNone(result_gte.error)
+        self.assertIsNotNone(result_gte.bytecode)
+        assert result_gte.bytecode is not None  # Type narrowing for mypy
+        self.assertIn("isNull", result_gte.bytecode)
+        self.assertIn(Operation.OR, result_gte.bytecode)
+        self.assertIn(Operation.JUMP_IF_FALSE, result_gte.bytecode)
+        self.assertIn(Operation.GT_EQ, result_gte.bytecode)
 
         # Test LTE operator
         filter_data_lte = {
@@ -588,14 +588,14 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             "value": 65,
             "operator": "lte",
         }
-        bytecode_lte, error_lte, hash_lte = generate_cohort_filter_bytecode(filter_data_lte, self.team)
-        self.assertIsNone(error_lte)
-        self.assertIsNotNone(bytecode_lte)
-        assert bytecode_lte is not None  # Type narrowing for mypy
-        self.assertIn("isNull", bytecode_lte)
-        self.assertIn(Operation.OR, bytecode_lte)
-        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_lte)
-        self.assertIn(Operation.LT_EQ, bytecode_lte)
+        result_lte = generate_cohort_filter_bytecode(filter_data_lte, self.team)
+        self.assertIsNone(result_lte.error)
+        self.assertIsNotNone(result_lte.bytecode)
+        assert result_lte.bytecode is not None  # Type narrowing for mypy
+        self.assertIn("isNull", result_lte.bytecode)
+        self.assertIn(Operation.OR, result_lte.bytecode)
+        self.assertIn(Operation.JUMP_IF_FALSE, result_lte.bytecode)
+        self.assertIn(Operation.LT_EQ, result_lte.bytecode)
 
         # Test that EQ operator does NOT get wrapped (should not have null-safe wrapping)
         filter_data_eq = {
@@ -604,12 +604,12 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             "value": 25,
             "operator": "exact",
         }
-        bytecode_eq, error_eq, hash_eq = generate_cohort_filter_bytecode(filter_data_eq, self.team)
-        self.assertIsNone(error_eq)
-        self.assertIsNotNone(bytecode_eq)
-        assert bytecode_eq is not None  # Type narrowing for mypy
+        result_eq = generate_cohort_filter_bytecode(filter_data_eq, self.team)
+        self.assertIsNone(result_eq.error)
+        self.assertIsNotNone(result_eq.bytecode)
+        assert result_eq.bytecode is not None  # Type narrowing for mypy
         # EQ should not have the null-safe wrapping
-        self.assertIn(Operation.EQ, bytecode_eq)
+        self.assertIn(Operation.EQ, result_eq.bytecode)
         # Should NOT have the wrapping pattern (no JUMP_IF_FALSE for null checks)
         # Should NOT have the wrapping pattern (no isNull function for null checks)
-        self.assertNotIn("isNull", bytecode_eq)
+        self.assertNotIn("isNull", result_eq.bytecode)

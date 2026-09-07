@@ -102,3 +102,13 @@ class TestLogsExportEndpoint(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_export_rejects_non_object_query(self):
+        # A non-object `query` (e.g. a bare string) used to crash with an unhandled
+        # AttributeError on the first `.get()` call instead of a clean 400.
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/logs/export/",
+            data={"query": "not-an-object"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

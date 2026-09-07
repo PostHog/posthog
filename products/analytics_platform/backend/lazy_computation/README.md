@@ -147,7 +147,7 @@ When a job fails, multiple waiters may all try to create a replacement job simul
 
 1. Job A fails
 2. Waiters B and C both try to create a replacement
-3. One succeeds (gets the new job), the other gets an IntegrityError
+3. One succeeds (gets the new job); the other's `INSERT .. ON CONFLICT DO NOTHING` is a silent no-op (`create_lazy_computation_job` returns `None`)
 4. The loser finds the winner's job and waits for it
 
 ### Replacement jobs use the same range
@@ -188,14 +188,18 @@ Each invocation of the executor emits both a structured log and Prometheus count
 
 Jobs run synchronously inside `execute()` — there is no background queue, so PENDING just means "an INSERT is in flight in some pod". A periodic gauge of `status='pending'` rows misses jobs that started and finished between scrapes and tells you nothing about throughput. These two counters fire at the exact PG status transitions instead:
 
-- `lazy_computation_jobs_created_total{cache_state, table}` — one increment every time a PENDING row is inserted (one per missing range per executor). The loser of a partial-unique-index race (`IntegrityError`) does **not** increment, so the count matches PG row inserts. `cache_state` mirrors the executor-level label so a job created during a fresh execute() call lands on `miss` and a top-up job filling a hole in pre-existing READY data lands on `partial_hit`. `hit` never appears because hits don't create anything.
+- `lazy_computation_jobs_created_total{cache_state, table}` — one increment every time a PENDING row is inserted (one per missing range per executor). The loser of a partial-unique-index race does **not** increment, so the count matches PG row inserts. `cache_state` mirrors the executor-level label so a job created during a fresh execute() call lands on `miss` and a top-up job filling a hole in pre-existing READY data lands on `partial_hit`. `hit` never appears because hits don't create anything.
+- `lazy_computation_job_create_conflicts_total{table}` — one increment every time a create is skipped because a PENDING row already holds the `unique_pending_job_per_range` slot. A steady background rate is expected (the warmers and SWR revalidation race on the same windows by design); a sustained elevated rate means writers piling onto the same windows, or a PENDING row past its own `expires_at` blocking a window it no longer serves. Each conflict also emits a `lazy_computation.job_create_conflict` structured log with `team_id`, `query_hash`, and the window, which is the only place the colliding values appear now that the insert no longer raises a Postgres error.
 - `lazy_computation_jobs_finished_total{outcome, table}` — one increment every time a job reaches a terminal status.
 
 `outcome` values:
 
-- `ready` — INSERT succeeded, PENDING → READY.
+- `ready` — INSERT succeeded and wrote rows, PENDING → READY.
+- `ready_empty` — INSERT succeeded but wrote no rows, PENDING → READY. Still a success; split out because an empty window is only provisionally computed (see `TtlSchedule.empty_result_ttl_seconds`), so a climbing share here points at a lagging source rather than a broken query.
 - `failed` — INSERT raised (retryable or non-retryable), PENDING → FAILED.
 - `stale` — a waiter detected the owning executor crashed (`_try_mark_stale_job_as_failed`) and the atomic update flipped the row to FAILED.
+
+Sum `ready` and `ready_empty` for total successes, and prefer `outcome=~"failed|stale"` over `outcome!="ready"` when alerting — the latter counts empty-but-successful jobs as problems.
 
 Net job throughput (positive = backlog growing, expected ~0 in steady state):
 

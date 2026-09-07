@@ -6,8 +6,22 @@
             "type": "string"
         },
         "unset": {
-            "description": "The property key to remove from this person.",
-            "type": "string"
+            "anyOf": [
+                {
+                    "minLength": 1,
+                    "type": "string"
+                },
+                {
+                    "items": {
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "minItems": 1,
+                    "type": "array"
+                }
+            ],
+            "description": "A property key, or a list of property keys, to remove from this person."
         }
     },
     "required": ["id", "unset"],

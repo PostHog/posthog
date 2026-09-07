@@ -5,27 +5,16 @@ from django.conf import settings
 import structlog
 from drf_spectacular.utils import OpenApiTypes, extend_schema
 from rest_framework import status
-from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.exceptions_capture import capture_exception
-from posthog.rate_limit import IPThrottle
 
 from ..facade import api
 
 logger = structlog.get_logger(__name__)
-
-
-class PandaDocWebhookBurstThrottle(IPThrottle):
-    scope = "legal_document_pandadoc_webhook_burst"
-    rate = "5/minute"
-
-
-class PandaDocWebhookSustainedThrottle(IPThrottle):
-    scope = "legal_document_pandadoc_webhook_sustained"
-    rate = "30/hour"
 
 
 # PandaDoc state-change events we care about. Everything else is ignored.
@@ -47,20 +36,20 @@ _PANDADOC_COMPLETED_STATUS = "document.completed"
     description=(
         "PandaDoc webhook receiver. Authenticates via HMAC-SHA256 over the raw "
         "body. Handles two `document_state_changed` events: `document.draft` "
-        "dispatches the signing email, and `document.completed` pulls the "
-        "signed PDF and stores it in object storage. Returns 200 "
-        "when an event applied, 204 when the request is valid but the "
-        "document doesn't live on this cloud instance (PandaDoc fans the "
+        "dispatches the signing email, and `document.completed` records the "
+        "signature and schedules the signed-PDF archive as a background job. "
+        "Returns 200 when an event applied, 204 when the request is valid but "
+        "the document doesn't live on this cloud instance (PandaDoc fans the "
         "webhook out to every instance, only one of which owns the row), "
-        "404 on a bad signature, 400 on an unparseable body. A transient "
-        "failure fetching/storing the signed PDF surfaces as 5xx so PandaDoc "
-        "retries."
+        "404 on a bad signature, 400 on an unparseable body. No per-IP throttle: "
+        "PandaDoc delivers from a small shared pool of egress IPs, so keying on "
+        "them drops legitimate deliveries; the HMAC check already proves "
+        "provenance."
     ),
 )
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@throttle_classes([PandaDocWebhookBurstThrottle, PandaDocWebhookSustainedThrottle])
 def legal_document_pandadoc_webhook(request: Request) -> Response:
     if not (is_cloud() or is_dev_mode()):
         # Self-hosted deployments don't run the PandaDoc integration — never
@@ -88,13 +77,6 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
         events = [events]
 
     processed_any = False
-    # Set when a completed event raises a retriable failure. We finish
-    # iterating the rest of the batch first — every facade method is
-    # idempotent, so whatever else applies now is a no-op on the replay —
-    # and surface the 503 at the end. Short-circuiting mid-batch would
-    # silently drop trailing events until PandaDoc's retry replayed the
-    # whole payload.
-    deferred_retry = False
 
     for event in events:
         if not isinstance(event, dict):
@@ -128,23 +110,12 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
             continue
 
         if event_status == _PANDADOC_COMPLETED_STATUS:
-            # PandaDoc's completed payload does not carry a signed-PDF URL;
-            # the facade pulls the PDF via the public API and stashes it in
-            # object storage. A transient download/upload failure surfaces as
-            # 503 so PandaDoc retries the delivery.
-            try:
-                dto = api.mark_signed_by_pandadoc_document_id(
-                    pandadoc_document_id=pandadoc_document_id,
-                    template_id=template_id or "",
-                )
-            except api.LegalDocumentDownloadFailed as exc:
-                logger.warning(
-                    "pandadoc_webhook_signed_pdf_unavailable",
-                    pandadoc_document_id=pandadoc_document_id,
-                    error=str(exc),
-                )
-                deferred_retry = True
-                continue
+            # Record the signature and schedule the PDF archive as a background
+            # job — the signature is never gated on the download succeeding.
+            dto = api.mark_signed_by_pandadoc_document_id(
+                pandadoc_document_id=pandadoc_document_id,
+                template_id=template_id or "",
+            )
             if dto is None:
                 logger.info("pandadoc_webhook_no_matching_document", pandadoc_document_id=pandadoc_document_id)
                 continue
@@ -152,12 +123,6 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
             continue
 
         # Other states (document.sent, document.viewed, …) — nothing to do.
-
-    if deferred_retry:
-        return Response(
-            {"detail": "Signed document unavailable; please retry."},
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
 
     if processed_any:
         return Response({"status": "ok"}, status=status.HTTP_200_OK)

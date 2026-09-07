@@ -1,5 +1,6 @@
+import { randomUUID } from 'crypto'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { delay } from '~/common/utils/utils'
@@ -8,6 +9,7 @@ import { Hub } from '~/types'
 import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { createCdpValkeyShadowPools } from '../../cdp-services'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
@@ -20,10 +22,13 @@ describe('HogMasker', () => {
         let hub: Hub
         let masker: HogMaskerService
         let redis: RedisV2
+        let valkey: RedisV2
+        let testRunId: string
 
         beforeEach(async () => {
             hub = await createHub()
             now = 1720000000000
+            testRunId = randomUUID()
             mockNow.mockReturnValue(now)
 
             redis = createRedisV2PoolFromConfig({
@@ -36,9 +41,8 @@ describe('HogMasker', () => {
                 poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
             })
-            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
-
-            masker = new HogMaskerService(redis)
+            valkey = createCdpValkeyShadowPools(hub, 'hog-masker-test').writer
+            masker = new HogMaskerService(redis, valkey)
         })
 
         const advanceTime = (ms: number) => {
@@ -67,7 +71,7 @@ describe('HogMasker', () => {
 
         it('supports hog flow invocations without trigger_masking', async () => {
             const hogFlow: HogFlow = {
-                id: 'flow_1',
+                id: `flow_1-${testRunId}`,
                 team_id: 1,
                 name: 'Test Flow',
                 version: 1,
@@ -313,9 +317,9 @@ describe('HogMasker', () => {
             })
 
             describe('ttl constraints', () => {
-                const getRedisKeyTtl = async (): Promise<number> => {
+                const getRedisKeyTtl = async (entityId: string): Promise<number> => {
                     const keys = await redis.useClient({ name: 'test-keys' }, async (client) => {
-                        return await client.keys(`${BASE_REDIS_KEY}/mask/*`)
+                        return await client.keys(`${BASE_REDIS_KEY}/mask/${entityId}/*`)
                     })
                     expect(keys?.length).toBe(1)
                     const ttl = await redis.useClient({ name: 'test-ttl' }, async (client) => {
@@ -342,7 +346,7 @@ describe('HogMasker', () => {
                         })
 
                         await masker.filterByMasking([createExampleInvocation(hogFunction)])
-                        expectTtlNear(await getRedisKeyTtl(), oneDaySeconds)
+                        expectTtlNear(await getRedisKeyTtl(hogFunction.id), oneDaySeconds)
                     })
 
                     it('should cap at 1 day max', async () => {
@@ -354,13 +358,13 @@ describe('HogMasker', () => {
                         })
 
                         await masker.filterByMasking([createExampleInvocation(hogFunction)])
-                        expectTtlNear(await getRedisKeyTtl(), oneDaySeconds)
+                        expectTtlNear(await getRedisKeyTtl(hogFunction.id), oneDaySeconds)
                     })
                 })
 
                 describe('hog flows', () => {
                     const createFlowWithTtl = (ttl: number | null): HogFlow => ({
-                        id: `flow_${ttl}`,
+                        id: `flow_${ttl}-${testRunId}`,
                         team_id: 1,
                         name: 'Test Flow',
                         version: 1,
@@ -383,20 +387,19 @@ describe('HogMasker', () => {
                     it('should default to 3 years when ttl is null', async () => {
                         const hogFlow = createFlowWithTtl(null)
                         await masker.filterByMasking([createExampleHogFlowInvocation(hogFlow)])
-                        expectTtlNear(await getRedisKeyTtl(), threeYearsSeconds)
+                        expectTtlNear(await getRedisKeyTtl(hogFlow.id), threeYearsSeconds)
                     })
 
                     it('should cap at 3 years when set to a higher value', async () => {
                         const hogFlow = createFlowWithTtl(60 * 60 * 24 * 365 * 10) // 10 years
                         await masker.filterByMasking([createExampleHogFlowInvocation(hogFlow)])
-                        expectTtlNear(await getRedisKeyTtl(), threeYearsSeconds)
+                        expectTtlNear(await getRedisKeyTtl(hogFlow.id), threeYearsSeconds)
                     })
                 })
             })
 
             describe('hog flow trigger masking', () => {
                 let hogFlowEvery: HogFlow
-                let hogFlowOncePer: HogFlow
                 let hogFlowOnceEver: HogFlow
 
                 beforeEach(() => {
@@ -418,17 +421,12 @@ describe('HogMasker', () => {
 
                     hogFlowEvery = {
                         ...base,
-                        id: 'hf_every',
+                        id: `hf_every-${testRunId}`,
                         trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking },
-                    } as HogFlow
-                    hogFlowOncePer = {
-                        ...base,
-                        id: 'hf_once_per',
-                        trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking, ttl: 1 },
                     } as HogFlow
                     hogFlowOnceEver = {
                         ...base,
-                        id: 'hf_once_ever',
+                        id: `hf_once_ever-${testRunId}`,
                         trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking },
                     } as HogFlow
                 })
@@ -443,13 +441,24 @@ describe('HogMasker', () => {
                     expect(res.masked).toHaveLength(2)
                 })
 
-                it('resets after ttl for hog flow trigger masking', async () => {
-                    const inv = createExampleHogFlowInvocation(hogFlowOncePer)
-                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
-                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
-                    await reallyAdvanceTime(1000)
-                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
-                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
+                it('release() undoes exactly the claims a call made, so a replay is not masked', async () => {
+                    const first = await masker.filterByMasking([
+                        createExampleHogFlowInvocation(hogFlowEvery),
+                        createExampleHogFlowInvocation(hogFlowEvery),
+                    ])
+                    expect(first.notMasked).toHaveLength(1)
+
+                    await first.release()
+
+                    // The replay is allowed again — an under-release (only part of the batch's
+                    // increment undone) or a no-op release would leave it masked.
+                    const replay = await masker.filterByMasking([createExampleHogFlowInvocation(hogFlowEvery)])
+                    expect(replay.notMasked).toHaveLength(1)
+
+                    // Only the released claims came back — an over-release (counter pushed
+                    // negative) would let this one through too.
+                    const extra = await masker.filterByMasking([createExampleHogFlowInvocation(hogFlowEvery)])
+                    expect(extra.masked).toHaveLength(1)
                 })
 
                 it('uses threshold for onceEver flow trigger masking', async () => {
@@ -472,7 +481,7 @@ describe('HogMasker', () => {
                     }
                     const hogFlowPerDay = {
                         ...base,
-                        id: 'hf_per_day',
+                        id: `hf_per_day-${testRunId}`,
                         trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.oncePerCalendarDay.trigger_masking },
                     } as HogFlow
 

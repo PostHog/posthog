@@ -2,10 +2,12 @@ import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TICK_GAP } from '../core/y-axis-gutters'
+import { minimumRotatedTickLabelGap, normalizeTickLabelRotation } from '../utils/axis-labels'
 import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
+    xTickLabelRotation?: number
     yTickFormatter?: (value: number) => string
     hideXAxis?: boolean
     hideYAxis?: boolean
@@ -46,8 +48,8 @@ function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { t
     return { text, title: text === fullText ? undefined : fullText }
 }
 
-/** Greedily keep entries left→right, dropping any whose centered label would collide with the
- *  previously kept one (closer than `padding` px). Entries must be sorted by ascending `x`. */
+/** Greedily keep entries left→right. Horizontal labels use their measured text boxes; rotated
+ *  labels use the minimum perpendicular separation between parallel lines of text. */
 function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[], padding: number): T[] {
     if (candidates.length === 0) {
         return []
@@ -79,24 +81,31 @@ export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
     formatter?: (value: string, index: number) => string | null,
-    maxCategoryLabelWidth = 0
+    maxCategoryLabelWidth = 0,
+    tickLabelRotation = 0
 ): XLabelCandidate[] {
     const candidates: XLabelCandidate[] = []
+    const rotation = normalizeTickLabelRotation(tickLabelRotation)
+    const minimumGap = rotation === 0 ? 0 : Math.max(minimumRotatedTickLabelGap(rotation), CATEGORY_LABEL_PADDING)
+    let lastX = -Infinity
+
     for (let i = 0; i < labels.length; i++) {
         const x = xScale(labels[i])
         if (x == null) {
             continue
         }
         const fullText = formatter ? formatter(labels[i], i) : labels[i]
-        if (fullText === null) {
+        if (fullText === null || (rotation !== 0 && x < lastX + minimumGap)) {
             continue
         }
-        // The truncated text drives both display and overlap measurement below.
         const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
         candidates.push({ index: i, text, title, x })
+        if (rotation !== 0) {
+            lastX = x
+        }
     }
 
-    return dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING)
+    return rotation === 0 ? dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING) : candidates
 }
 
 interface ValueTickCandidate {
@@ -239,6 +248,7 @@ function XTickLabel({
     color,
     dataAttr,
     title,
+    tickLabelRotation = 0,
 }: {
     x: number
     box: ChartBox
@@ -246,7 +256,20 @@ function XTickLabel({
     color: string
     dataAttr: string
     title?: string
+    tickLabelRotation?: number
 }): React.ReactElement {
+    const rotation = normalizeTickLabelRotation(tickLabelRotation)
+    const positionStyle: React.CSSProperties =
+        rotation < 0
+            ? {
+                  right: box.width - x,
+                  transform: `rotate(${rotation}deg)`,
+                  transformOrigin: 'top right',
+              }
+            : rotation > 0
+              ? { left: x, transform: `rotate(${rotation}deg)`, transformOrigin: 'top left' }
+              : { left: x, transform: 'translateX(-50%)' }
+
     return (
         <div
             data-attr={dataAttr}
@@ -254,9 +277,8 @@ function XTickLabel({
             style={{
                 ...TICK_STYLE_BASE,
                 ...titleStyle(title),
-                left: x,
+                ...positionStyle,
                 top: box.plotTop + box.plotHeight + TICK_GAP,
-                transform: 'translateX(-50%)',
                 color,
             }}
         >
@@ -267,6 +289,7 @@ function XTickLabel({
 
 export const AxisLabels = React.memo(function AxisLabels({
     xTickFormatter,
+    xTickLabelRotation = 0,
     yTickFormatter,
     hideXAxis,
     hideYAxis,
@@ -282,8 +305,8 @@ export const AxisLabels = React.memo(function AxisLabels({
         () =>
             hideXAxis || orientation === 'horizontal'
                 ? []
-                : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth),
-        [hideXAxis, labels, scales.x, xTickFormatter, orientation, maxCategoryLabelWidth]
+                : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation),
+        [hideXAxis, labels, scales.x, xTickFormatter, xTickLabelRotation, orientation, maxCategoryLabelWidth]
     )
 
     // Mirror the vertical branch's memoization so an unrelated prop change (e.g. axisColor)
@@ -368,6 +391,7 @@ export const AxisLabels = React.memo(function AxisLabels({
                     box={dimensions}
                     text={text}
                     title={title}
+                    tickLabelRotation={xTickLabelRotation}
                     color={axisColor}
                     dataAttr="hog-chart-axis-tick-x"
                 />

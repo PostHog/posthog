@@ -21,6 +21,7 @@ import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
+import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import {
@@ -197,8 +198,15 @@ class McpDispatcher {
             }
         } else {
             const message = messages[0]! as { id?: number | string; method?: unknown; params?: unknown }
-            singleModern = isModernRequest(protocolHeaders, parseRequestProtocolMeta(message.params))
+            const protocolMeta = parseRequestProtocolMeta(message.params)
+            singleModern = isModernRequest(protocolHeaders, protocolMeta)
             if (singleModern) {
+                // Before header validation, so header-dropping bridges fall back to
+                // `initialize` instead of dying on HeaderMismatch. HTTP 200, not the
+                // spec's 404: mcp-remote's transport treats any non-2xx as fatal.
+                if (message.method === Method.Discover && isLegacyDialectOnlyClient(protocolMeta.clientName)) {
+                    return jsonRpcErrorResponse(message.id ?? null, ErrorCode.MethodNotFound, 'Method not found')
+                }
                 const validationError = validateModernRequest(protocolHeaders, message)
                 if (validationError) {
                     return jsonRpcErrorResponse(

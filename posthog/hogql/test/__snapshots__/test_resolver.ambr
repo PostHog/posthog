@@ -114,7 +114,7 @@
                           },
                           event_person_id: {
                             description: None,
-                            hidden: False
+                            hidden: True
                           },
                           exception_issue_override: {
                             description: None,
@@ -191,6 +191,10 @@
                           issue_name: {
                             description: None,
                             hidden: False
+                          },
+                          issue_severity: {
+                            description: None,
+                            hidden: True
                           },
                           issue_status: {
                             description: None,
@@ -363,13 +367,6 @@
                     }
                   }
                 },
-                event_person_id: {
-                  alias: "event_person_id"
-                  type: {
-                    name: "event_person_id"
-                    table_type: <recursion ...>
-                  }
-                },
                 issue_assigned_role_id: {
                   alias: "issue_assigned_role_id"
                   type: {
@@ -418,6 +415,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -491,6 +492,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -562,6 +567,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -635,6 +644,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -661,24 +674,76 @@
                 issue_id: {
                   alias: "issue_id"
                   type: {
-                    arg_types: [
-                      {
-                        data_type: "bool"
-                        nullable: False
-                      },
-                      {
-                        data_type: "str"
-                        nullable: False
-                      },
-                      {
-                        data_type: "uuid"
-                        nullable: True
+                    alias: "issue_id"
+                    type: {
+                      name: "issue_id"
+                      table_type: {
+                        field: "fingerprint_issue_state"
+                        lazy_join: {
+                          description: None,
+                          from_field: [
+                            "fingerprint"
+                          ],
+                          hidden: False,
+                          join_table: {
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
+                            fields: {
+                              assigned_role_id: {
+                                description: "Role the issue is assigned to, if any.",
+                                hidden: False
+                              },
+                              assigned_user_id: {
+                                description: "User the issue is assigned to, if any.",
+                                hidden: False
+                              },
+                              fingerprint: {
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
+                                hidden: False
+                              },
+                              first_seen: {
+                                description: "When the issue was first observed (in UTC).",
+                                hidden: False
+                              },
+                              fp_hash: {
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
+                                hidden: False
+                              },
+                              issue_description: {
+                                description: "Description of the issue (latest version).",
+                                hidden: False
+                              },
+                              issue_id: {
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
+                                hidden: False
+                              },
+                              issue_name: {
+                                description: "Display name of the issue (latest version).",
+                                hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
+                              issue_status: {
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
+                                hidden: False
+                              },
+                              team_id: {
+                                description: None,
+                                hidden: False
+                              }
+                            },
+                            hidden: False,
+                            name: None,
+                            top_level_settings: None,
+                            workload: None
+                          },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
+                          to_field: None
+                        }
+                        table_type: <recursion ...>
                       }
-                    ]
-                    name: "if"
-                    return_type: {
-                      data_type: "str"
-                      nullable: True
                     }
                   }
                 },
@@ -730,6 +795,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -803,6 +872,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -874,6 +947,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -1324,25 +1401,6 @@
         hidden: True
         type: {
           alias: "elements_chain_elements"
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
           type: <recursion ...>
         }
       },
@@ -1949,19 +2007,6 @@
             type: <recursion ...>
           },
           {
-            alias: "event_person_id"
-            expr: {
-              chain: [
-                "event_person_id"
-              ]
-              from_asterisk: True
-              type: <recursion ...>
-            }
-            from_asterisk: False
-            hidden: True
-            type: <recursion ...>
-          },
-          {
             alias: "event_issue_id"
             expr: {
               args: [
@@ -2006,204 +2051,17 @@
           {
             alias: "issue_id"
             expr: {
-              args: [
-                {
-                  args: [
-                    {
-                      args: [
-                        {
-                          alias: "issue_id"
-                          expr: {
-                            chain: [
-                              "exception_issue_override",
-                              "issue_id"
-                            ]
-                            from_asterisk: False
-                            type: {
-                              name: "issue_id"
-                              table_type: {
-                                field: "exception_issue_override"
-                                lazy_join: {
-                                  description: None,
-                                  from_field: [
-                                    "fingerprint"
-                                  ],
-                                  hidden: False,
-                                  join_table: {
-                                    description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                                    fields: {
-                                      fingerprint: {
-                                        description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                        hidden: False
-                                      },
-                                      issue_id: {
-                                        description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                        hidden: False
-                                      },
-                                      team_id: {
-                                        description: None,
-                                        hidden: False
-                                      }
-                                    },
-                                    hidden: False,
-                                    name: None,
-                                    top_level_settings: None,
-                                    workload: None
-                                  },
-                                  resolver: "error_tracking_issue_fingerprint_overrides",
-                                  resolver_params: {},
-                                  to_field: None
-                                }
-                                table_type: <recursion ...>
-                              }
-                            }
-                          }
-                          from_asterisk: False
-                          hidden: True
-                          type: {
-                            alias: "issue_id"
-                            type: <recursion ...>
-                          }
-                        }
-                      ]
-                      distinct: False
-                      name: "empty"
-                      type: {
-                        arg_types: [
-                          {
-                            data_type: "str"
-                            nullable: False
-                          }
-                        ]
-                        name: "empty"
-                        return_type: {
-                          data_type: "int"
-                          nullable: False
-                        }
-                      }
-                    }
-                  ]
-                  distinct: False
-                  name: "not"
-                  type: {
-                    arg_types: [
-                      <recursion ...>
-                    ]
-                    name: "not"
-                    return_type: <recursion ...>
-                  }
-                },
-                {
-                  alias: "issue_id"
-                  expr: {
-                    chain: [
-                      "exception_issue_override",
-                      "issue_id"
-                    ]
-                    from_asterisk: False
-                    type: {
-                      name: "issue_id"
-                      table_type: {
-                        field: "exception_issue_override"
-                        lazy_join: {
-                          description: None,
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_table: {
-                            description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                            fields: {
-                              fingerprint: {
-                                description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                hidden: False
-                              },
-                              issue_id: {
-                                description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                hidden: False
-                              },
-                              team_id: {
-                                description: None,
-                                hidden: False
-                              }
-                            },
-                            hidden: False,
-                            name: None,
-                            top_level_settings: None,
-                            workload: None
-                          },
-                          resolver: "error_tracking_issue_fingerprint_overrides",
-                          resolver_params: {},
-                          to_field: None
-                        }
-                        table_type: <recursion ...>
-                      }
-                    }
-                  }
-                  from_asterisk: False
-                  hidden: True
-                  type: {
-                    alias: "issue_id"
-                    type: <recursion ...>
-                  }
-                },
-                {
-                  alias: "event_issue_id"
-                  expr: {
-                    args: [
-                      {
-                        alias: "$exception_issue_id"
-                        expr: {
-                          chain: [
-                            "properties",
-                            "$exception_issue_id"
-                          ]
-                          end: 37
-                          from_asterisk: False
-                          start: 7
-                          type: {
-                            chain: [
-                              "$exception_issue_id"
-                            ]
-                            field_type: {
-                              name: "properties"
-                              table_type: <recursion ...>
-                            }
-                          }
-                        }
-                        from_asterisk: False
-                        hidden: True
-                        type: {
-                          alias: "$exception_issue_id"
-                          type: <recursion ...>
-                        }
-                      }
-                    ]
-                    distinct: False
-                    end: 38
-                    name: "toUUID"
-                    start: 0
-                    type: {
-                      arg_types: [
-                        {
-                          data_type: "str"
-                          nullable: True
-                        }
-                      ]
-                      name: "toUUID"
-                      return_type: <recursion ...>
-                    }
-                  }
-                  from_asterisk: False
-                  hidden: True
-                  type: {
-                    alias: "event_issue_id"
-                    type: <recursion ...>
-                  }
-                }
-              ]
-              distinct: False
-              name: "if"
+              alias: "issue_id"
+              expr: {
+                chain: [
+                  "fingerprint_issue_state",
+                  "issue_id"
+                ]
+                from_asterisk: False
+                type: <recursion ...>
+              }
+              from_asterisk: False
+              hidden: True
               type: <recursion ...>
             }
             from_asterisk: False
@@ -2387,7 +2245,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -2516,7 +2373,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -2597,6 +2454,10 @@
                   issue_name: {
                     description: None,
                     hidden: False
+                  },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
                   },
                   issue_status: {
                     description: None,
@@ -3208,25 +3069,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -3286,224 +3128,89 @@
       {
         alias: "issue_id"
         expr: {
-          args: [
-            {
-              args: [
-                {
-                  args: [
-                    {
-                      alias: "issue_id"
-                      expr: {
-                        chain: [
-                          "exception_issue_override",
-                          "issue_id"
-                        ]
-                        from_asterisk: False
-                        type: {
-                          name: "issue_id"
-                          table_type: {
-                            field: "exception_issue_override"
-                            lazy_join: {
-                              description: None,
-                              from_field: [
-                                "fingerprint"
-                              ],
-                              hidden: False,
-                              join_table: {
-                                description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                                fields: {
-                                  fingerprint: {
-                                    description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                    hidden: False
-                                  },
-                                  issue_id: {
-                                    description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                    hidden: False
-                                  },
-                                  team_id: {
-                                    description: None,
-                                    hidden: False
-                                  }
-                                },
-                                hidden: False,
-                                name: None,
-                                top_level_settings: None,
-                                workload: None
-                              },
-                              resolver: "error_tracking_issue_fingerprint_overrides",
-                              resolver_params: {},
-                              to_field: None
-                            }
-                            table_type: <recursion ...>
-                          }
-                        }
-                      }
-                      from_asterisk: False
-                      hidden: True
-                      type: {
-                        alias: "issue_id"
-                        type: <recursion ...>
-                      }
-                    }
-                  ]
-                  distinct: False
-                  name: "empty"
-                  type: {
-                    arg_types: [
-                      {
-                        data_type: "str"
-                        nullable: False
-                      }
-                    ]
-                    name: "empty"
-                    return_type: {
-                      data_type: "int"
-                      nullable: False
-                    }
-                  }
-                }
-              ]
-              distinct: False
-              name: "not"
-              type: {
-                arg_types: [
-                  <recursion ...>
-                ]
-                name: "not"
-                return_type: {
-                  data_type: "bool"
-                  nullable: False
-                }
-              }
-            },
-            {
-              alias: "issue_id"
-              expr: {
-                chain: [
-                  "exception_issue_override",
-                  "issue_id"
-                ]
-                from_asterisk: False
-                type: {
-                  name: "issue_id"
-                  table_type: {
-                    field: "exception_issue_override"
-                    lazy_join: {
-                      description: None,
-                      from_field: [
-                        "fingerprint"
-                      ],
-                      hidden: False,
-                      join_table: {
-                        description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                        fields: {
-                          fingerprint: {
-                            description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                            hidden: False
-                          },
-                          issue_id: {
-                            description: "Identifier of the error tracking issue this fingerprint maps to.",
-                            hidden: False
-                          },
-                          team_id: {
-                            description: None,
-                            hidden: False
-                          }
-                        },
-                        hidden: False,
-                        name: None,
-                        top_level_settings: None,
-                        workload: None
-                      },
-                      resolver: "error_tracking_issue_fingerprint_overrides",
-                      resolver_params: {},
-                      to_field: None
-                    }
-                    table_type: <recursion ...>
-                  }
-                }
-              }
-              from_asterisk: False
-              hidden: True
-              type: {
-                alias: "issue_id"
-                type: <recursion ...>
-              }
-            },
-            {
-              alias: "event_issue_id"
-              expr: {
-                args: [
-                  {
-                    alias: "$exception_issue_id"
-                    expr: {
-                      chain: [
-                        "properties",
-                        "$exception_issue_id"
-                      ]
-                      end: 37
-                      from_asterisk: False
-                      start: 7
-                      type: {
-                        chain: [
-                          "$exception_issue_id"
-                        ]
-                        field_type: {
-                          name: "properties"
-                          table_type: <recursion ...>
-                        }
-                      }
-                    }
-                    from_asterisk: False
-                    hidden: True
-                    type: {
-                      alias: "$exception_issue_id"
-                      type: <recursion ...>
-                    }
-                  }
-                ]
-                distinct: False
-                end: 38
-                name: "toUUID"
-                start: 0
-                type: {
-                  arg_types: [
-                    {
-                      data_type: "str"
-                      nullable: True
-                    }
-                  ]
-                  name: "toUUID"
-                  return_type: {
-                    data_type: "uuid"
-                    nullable: True
-                  }
-                }
-              }
-              from_asterisk: False
-              hidden: True
-              type: {
-                alias: "event_issue_id"
-                type: <recursion ...>
-              }
-            }
-          ]
-          distinct: False
-          name: "if"
-          type: {
-            arg_types: [
-              <recursion ...>,
-              {
-                data_type: "str"
-                nullable: False
-              },
-              <recursion ...>
+          alias: "issue_id"
+          expr: {
+            chain: [
+              "fingerprint_issue_state",
+              "issue_id"
             ]
-            name: "if"
-            return_type: {
-              data_type: "str"
-              nullable: True
+            from_asterisk: False
+            type: {
+              name: "issue_id"
+              table_type: {
+                field: "fingerprint_issue_state"
+                lazy_join: {
+                  description: None,
+                  from_field: [
+                    "fingerprint"
+                  ],
+                  hidden: False,
+                  join_table: {
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
+                    fields: {
+                      assigned_role_id: {
+                        description: "Role the issue is assigned to, if any.",
+                        hidden: False
+                      },
+                      assigned_user_id: {
+                        description: "User the issue is assigned to, if any.",
+                        hidden: False
+                      },
+                      fingerprint: {
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
+                        hidden: False
+                      },
+                      first_seen: {
+                        description: "When the issue was first observed (in UTC).",
+                        hidden: False
+                      },
+                      fp_hash: {
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
+                        hidden: False
+                      },
+                      issue_description: {
+                        description: "Description of the issue (latest version).",
+                        hidden: False
+                      },
+                      issue_id: {
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
+                        hidden: False
+                      },
+                      issue_name: {
+                        description: "Display name of the issue (latest version).",
+                        hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
+                      issue_status: {
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
+                        hidden: False
+                      },
+                      team_id: {
+                        description: None,
+                        hidden: False
+                      }
+                    },
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
+                  },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
+                  to_field: None
+                }
+                table_type: <recursion ...>
+              }
             }
+          }
+          from_asterisk: False
+          hidden: True
+          type: {
+            alias: "issue_id"
+            type: <recursion ...>
           }
         }
         from_asterisk: False
@@ -3567,6 +3274,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -3659,6 +3370,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3749,6 +3464,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -3841,6 +3560,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3931,6 +3654,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -4023,6 +3750,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -4114,6 +3845,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -4181,7 +3916,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -5470,10 +5204,6 @@
                   data_type: "uuid"
                   nullable: True
                 },
-                event_person_id: {
-                  data_type: "uuid"
-                  nullable: False
-                },
                 issue_assigned_role_id: {
                   data_type: "uuid"
                   nullable: True
@@ -5491,11 +5221,11 @@
                   nullable: True
                 },
                 issue_id: {
-                  data_type: "str"
+                  data_type: "uuid"
                   nullable: True
                 },
                 issue_id_v2: {
-                  data_type: "str"
+                  data_type: "uuid"
                   nullable: True
                 },
                 issue_name: {
@@ -5630,7 +5360,7 @@
                               },
                               event_person_id: {
                                 description: None,
-                                hidden: False
+                                hidden: True
                               },
                               exception_issue_override: {
                                 description: None,
@@ -5707,6 +5437,10 @@
                               issue_name: {
                                 description: None,
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
                               },
                               issue_status: {
                                 description: None,
@@ -5879,13 +5613,6 @@
                         }
                       }
                     },
-                    event_person_id: {
-                      alias: "event_person_id"
-                      type: {
-                        name: "event_person_id"
-                        table_type: <recursion ...>
-                      }
-                    },
                     issue_assigned_role_id: {
                       alias: "issue_assigned_role_id"
                       type: {
@@ -5934,6 +5661,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6007,6 +5738,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6078,6 +5813,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6151,6 +5890,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6177,24 +5920,76 @@
                     issue_id: {
                       alias: "issue_id"
                       type: {
-                        arg_types: [
-                          {
-                            data_type: "bool"
-                            nullable: False
-                          },
-                          {
-                            data_type: "str"
-                            nullable: False
-                          },
-                          {
-                            data_type: "uuid"
-                            nullable: True
+                        alias: "issue_id"
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              description: None,
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
+                                fields: {
+                                  assigned_role_id: {
+                                    description: "Role the issue is assigned to, if any.",
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    description: "User the issue is assigned to, if any.",
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    description: "When the issue was first observed (in UTC).",
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    description: "Description of the issue (latest version).",
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    description: "Display name of the issue (latest version).",
+                                    hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
+                                  issue_status: {
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    description: None,
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
                           }
-                        ]
-                        name: "if"
-                        return_type: {
-                          data_type: "str"
-                          nullable: True
                         }
                       }
                     },
@@ -6246,6 +6041,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6319,6 +6118,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6390,6 +6193,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6575,7 +6382,7 @@
                               },
                               event_person_id: {
                                 description: None,
-                                hidden: False
+                                hidden: True
                               },
                               exception_issue_override: {
                                 description: None,
@@ -6652,6 +6459,10 @@
                               issue_name: {
                                 description: None,
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
                               },
                               issue_status: {
                                 description: None,
@@ -6824,13 +6635,6 @@
                         }
                       }
                     },
-                    event_person_id: {
-                      alias: "event_person_id"
-                      type: {
-                        name: "event_person_id"
-                        table_type: <recursion ...>
-                      }
-                    },
                     issue_assigned_role_id: {
                       alias: "issue_assigned_role_id"
                       type: {
@@ -6879,6 +6683,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6952,6 +6760,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7023,6 +6835,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -7096,6 +6912,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7122,24 +6942,76 @@
                     issue_id: {
                       alias: "issue_id"
                       type: {
-                        arg_types: [
-                          {
-                            data_type: "bool"
-                            nullable: False
-                          },
-                          {
-                            data_type: "str"
-                            nullable: False
-                          },
-                          {
-                            data_type: "uuid"
-                            nullable: True
+                        alias: "issue_id"
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              description: None,
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
+                                fields: {
+                                  assigned_role_id: {
+                                    description: "Role the issue is assigned to, if any.",
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    description: "User the issue is assigned to, if any.",
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    description: "When the issue was first observed (in UTC).",
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    description: "Description of the issue (latest version).",
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    description: "Display name of the issue (latest version).",
+                                    hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
+                                  issue_status: {
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    description: None,
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
                           }
-                        ]
-                        name: "if"
-                        return_type: {
-                          data_type: "str"
-                          nullable: True
                         }
                       }
                     },
@@ -7191,6 +7063,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -7264,6 +7140,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7335,6 +7215,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -7787,25 +7671,6 @@
         hidden: True
         type: {
           alias: "elements_chain_elements"
-          type: <recursion ...>
-        }
-      },
-      {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
           type: <recursion ...>
         }
       },
@@ -8413,19 +8278,6 @@
               type: <recursion ...>
             },
             {
-              alias: "event_person_id"
-              expr: {
-                chain: [
-                  "event_person_id"
-                ]
-                from_asterisk: True
-                type: <recursion ...>
-              }
-              from_asterisk: False
-              hidden: True
-              type: <recursion ...>
-            },
-            {
               alias: "event_issue_id"
               expr: {
                 args: [
@@ -8470,204 +8322,17 @@
             {
               alias: "issue_id"
               expr: {
-                args: [
-                  {
-                    args: [
-                      {
-                        args: [
-                          {
-                            alias: "issue_id"
-                            expr: {
-                              chain: [
-                                "exception_issue_override",
-                                "issue_id"
-                              ]
-                              from_asterisk: False
-                              type: {
-                                name: "issue_id"
-                                table_type: {
-                                  field: "exception_issue_override"
-                                  lazy_join: {
-                                    description: None,
-                                    from_field: [
-                                      "fingerprint"
-                                    ],
-                                    hidden: False,
-                                    join_table: {
-                                      description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                                      fields: {
-                                        fingerprint: {
-                                          description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                          hidden: False
-                                        },
-                                        issue_id: {
-                                          description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                          hidden: False
-                                        },
-                                        team_id: {
-                                          description: None,
-                                          hidden: False
-                                        }
-                                      },
-                                      hidden: False,
-                                      name: None,
-                                      top_level_settings: None,
-                                      workload: None
-                                    },
-                                    resolver: "error_tracking_issue_fingerprint_overrides",
-                                    resolver_params: {},
-                                    to_field: None
-                                  }
-                                  table_type: <recursion ...>
-                                }
-                              }
-                            }
-                            from_asterisk: False
-                            hidden: True
-                            type: {
-                              alias: "issue_id"
-                              type: <recursion ...>
-                            }
-                          }
-                        ]
-                        distinct: False
-                        name: "empty"
-                        type: {
-                          arg_types: [
-                            {
-                              data_type: "str"
-                              nullable: False
-                            }
-                          ]
-                          name: "empty"
-                          return_type: {
-                            data_type: "int"
-                            nullable: False
-                          }
-                        }
-                      }
-                    ]
-                    distinct: False
-                    name: "not"
-                    type: {
-                      arg_types: [
-                        <recursion ...>
-                      ]
-                      name: "not"
-                      return_type: <recursion ...>
-                    }
-                  },
-                  {
-                    alias: "issue_id"
-                    expr: {
-                      chain: [
-                        "exception_issue_override",
-                        "issue_id"
-                      ]
-                      from_asterisk: False
-                      type: {
-                        name: "issue_id"
-                        table_type: {
-                          field: "exception_issue_override"
-                          lazy_join: {
-                            description: None,
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_table: {
-                              description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                              fields: {
-                                fingerprint: {
-                                  description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                  hidden: False
-                                },
-                                team_id: {
-                                  description: None,
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            resolver: "error_tracking_issue_fingerprint_overrides",
-                            resolver_params: {},
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
-                    }
-                    from_asterisk: False
-                    hidden: True
-                    type: {
-                      alias: "issue_id"
-                      type: <recursion ...>
-                    }
-                  },
-                  {
-                    alias: "event_issue_id"
-                    expr: {
-                      args: [
-                        {
-                          alias: "$exception_issue_id"
-                          expr: {
-                            chain: [
-                              "properties",
-                              "$exception_issue_id"
-                            ]
-                            end: 37
-                            from_asterisk: False
-                            start: 7
-                            type: {
-                              chain: [
-                                "$exception_issue_id"
-                              ]
-                              field_type: {
-                                name: "properties"
-                                table_type: <recursion ...>
-                              }
-                            }
-                          }
-                          from_asterisk: False
-                          hidden: True
-                          type: {
-                            alias: "$exception_issue_id"
-                            type: <recursion ...>
-                          }
-                        }
-                      ]
-                      distinct: False
-                      end: 38
-                      name: "toUUID"
-                      start: 0
-                      type: {
-                        arg_types: [
-                          {
-                            data_type: "str"
-                            nullable: True
-                          }
-                        ]
-                        name: "toUUID"
-                        return_type: <recursion ...>
-                      }
-                    }
-                    from_asterisk: False
-                    hidden: True
-                    type: {
-                      alias: "event_issue_id"
-                      type: <recursion ...>
-                    }
-                  }
-                ]
-                distinct: False
-                name: "if"
+                alias: "issue_id"
+                expr: {
+                  chain: [
+                    "fingerprint_issue_state",
+                    "issue_id"
+                  ]
+                  from_asterisk: False
+                  type: <recursion ...>
+                }
+                from_asterisk: False
+                hidden: True
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -9259,19 +8924,6 @@
                   type: <recursion ...>
                 },
                 {
-                  alias: "event_person_id"
-                  expr: {
-                    chain: [
-                      "event_person_id"
-                    ]
-                    from_asterisk: True
-                    type: <recursion ...>
-                  }
-                  from_asterisk: False
-                  hidden: True
-                  type: <recursion ...>
-                },
-                {
                   alias: "event_issue_id"
                   expr: {
                     args: [
@@ -9316,204 +8968,17 @@
                 {
                   alias: "issue_id"
                   expr: {
-                    args: [
-                      {
-                        args: [
-                          {
-                            args: [
-                              {
-                                alias: "issue_id"
-                                expr: {
-                                  chain: [
-                                    "exception_issue_override",
-                                    "issue_id"
-                                  ]
-                                  from_asterisk: False
-                                  type: {
-                                    name: "issue_id"
-                                    table_type: {
-                                      field: "exception_issue_override"
-                                      lazy_join: {
-                                        description: None,
-                                        from_field: [
-                                          "fingerprint"
-                                        ],
-                                        hidden: False,
-                                        join_table: {
-                                          description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                                          fields: {
-                                            fingerprint: {
-                                              description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                              hidden: False
-                                            },
-                                            issue_id: {
-                                              description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                              hidden: False
-                                            },
-                                            team_id: {
-                                              description: None,
-                                              hidden: False
-                                            }
-                                          },
-                                          hidden: False,
-                                          name: None,
-                                          top_level_settings: None,
-                                          workload: None
-                                        },
-                                        resolver: "error_tracking_issue_fingerprint_overrides",
-                                        resolver_params: {},
-                                        to_field: None
-                                      }
-                                      table_type: <recursion ...>
-                                    }
-                                  }
-                                }
-                                from_asterisk: False
-                                hidden: True
-                                type: {
-                                  alias: "issue_id"
-                                  type: <recursion ...>
-                                }
-                              }
-                            ]
-                            distinct: False
-                            name: "empty"
-                            type: {
-                              arg_types: [
-                                {
-                                  data_type: "str"
-                                  nullable: False
-                                }
-                              ]
-                              name: "empty"
-                              return_type: {
-                                data_type: "int"
-                                nullable: False
-                              }
-                            }
-                          }
-                        ]
-                        distinct: False
-                        name: "not"
-                        type: {
-                          arg_types: [
-                            <recursion ...>
-                          ]
-                          name: "not"
-                          return_type: <recursion ...>
-                        }
-                      },
-                      {
-                        alias: "issue_id"
-                        expr: {
-                          chain: [
-                            "exception_issue_override",
-                            "issue_id"
-                          ]
-                          from_asterisk: False
-                          type: {
-                            name: "issue_id"
-                            table_type: {
-                              field: "exception_issue_override"
-                              lazy_join: {
-                                description: None,
-                                from_field: [
-                                  "fingerprint"
-                                ],
-                                hidden: False,
-                                join_table: {
-                                  description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                                  fields: {
-                                    fingerprint: {
-                                      description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                      hidden: False
-                                    },
-                                    issue_id: {
-                                      description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                      hidden: False
-                                    },
-                                    team_id: {
-                                      description: None,
-                                      hidden: False
-                                    }
-                                  },
-                                  hidden: False,
-                                  name: None,
-                                  top_level_settings: None,
-                                  workload: None
-                                },
-                                resolver: "error_tracking_issue_fingerprint_overrides",
-                                resolver_params: {},
-                                to_field: None
-                              }
-                              table_type: <recursion ...>
-                            }
-                          }
-                        }
-                        from_asterisk: False
-                        hidden: True
-                        type: {
-                          alias: "issue_id"
-                          type: <recursion ...>
-                        }
-                      },
-                      {
-                        alias: "event_issue_id"
-                        expr: {
-                          args: [
-                            {
-                              alias: "$exception_issue_id"
-                              expr: {
-                                chain: [
-                                  "properties",
-                                  "$exception_issue_id"
-                                ]
-                                end: 37
-                                from_asterisk: False
-                                start: 7
-                                type: {
-                                  chain: [
-                                    "$exception_issue_id"
-                                  ]
-                                  field_type: {
-                                    name: "properties"
-                                    table_type: <recursion ...>
-                                  }
-                                }
-                              }
-                              from_asterisk: False
-                              hidden: True
-                              type: {
-                                alias: "$exception_issue_id"
-                                type: <recursion ...>
-                              }
-                            }
-                          ]
-                          distinct: False
-                          end: 38
-                          name: "toUUID"
-                          start: 0
-                          type: {
-                            arg_types: [
-                              {
-                                data_type: "str"
-                                nullable: True
-                              }
-                            ]
-                            name: "toUUID"
-                            return_type: <recursion ...>
-                          }
-                        }
-                        from_asterisk: False
-                        hidden: True
-                        type: {
-                          alias: "event_issue_id"
-                          type: <recursion ...>
-                        }
-                      }
-                    ]
-                    distinct: False
-                    name: "if"
+                    alias: "issue_id"
+                    expr: {
+                      chain: [
+                        "fingerprint_issue_state",
+                        "issue_id"
+                      ]
+                      from_asterisk: False
+                      type: <recursion ...>
+                    }
+                    from_asterisk: False
+                    hidden: True
                     type: <recursion ...>
                   }
                   from_asterisk: False
@@ -9702,7 +9167,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -10061,7 +9525,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -10138,6 +9602,10 @@
                   issue_name: {
                     description: None,
                     hidden: False
+                  },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
                   },
                   issue_status: {
                     description: None,
@@ -10749,25 +10217,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -10827,224 +10276,89 @@
       {
         alias: "issue_id"
         expr: {
-          args: [
-            {
-              args: [
-                {
-                  args: [
-                    {
-                      alias: "issue_id"
-                      expr: {
-                        chain: [
-                          "exception_issue_override",
-                          "issue_id"
-                        ]
-                        from_asterisk: False
-                        type: {
-                          name: "issue_id"
-                          table_type: {
-                            field: "exception_issue_override"
-                            lazy_join: {
-                              description: None,
-                              from_field: [
-                                "fingerprint"
-                              ],
-                              hidden: False,
-                              join_table: {
-                                description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                                fields: {
-                                  fingerprint: {
-                                    description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                    hidden: False
-                                  },
-                                  issue_id: {
-                                    description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                    hidden: False
-                                  },
-                                  team_id: {
-                                    description: None,
-                                    hidden: False
-                                  }
-                                },
-                                hidden: False,
-                                name: None,
-                                top_level_settings: None,
-                                workload: None
-                              },
-                              resolver: "error_tracking_issue_fingerprint_overrides",
-                              resolver_params: {},
-                              to_field: None
-                            }
-                            table_type: <recursion ...>
-                          }
-                        }
-                      }
-                      from_asterisk: False
-                      hidden: True
-                      type: {
-                        alias: "issue_id"
-                        type: <recursion ...>
-                      }
-                    }
-                  ]
-                  distinct: False
-                  name: "empty"
-                  type: {
-                    arg_types: [
-                      {
-                        data_type: "str"
-                        nullable: False
-                      }
-                    ]
-                    name: "empty"
-                    return_type: {
-                      data_type: "int"
-                      nullable: False
-                    }
-                  }
-                }
-              ]
-              distinct: False
-              name: "not"
-              type: {
-                arg_types: [
-                  <recursion ...>
-                ]
-                name: "not"
-                return_type: {
-                  data_type: "bool"
-                  nullable: False
-                }
-              }
-            },
-            {
-              alias: "issue_id"
-              expr: {
-                chain: [
-                  "exception_issue_override",
-                  "issue_id"
-                ]
-                from_asterisk: False
-                type: {
-                  name: "issue_id"
-                  table_type: {
-                    field: "exception_issue_override"
-                    lazy_join: {
-                      description: None,
-                      from_field: [
-                        "fingerprint"
-                      ],
-                      hidden: False,
-                      join_table: {
-                        description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                        fields: {
-                          fingerprint: {
-                            description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                            hidden: False
-                          },
-                          issue_id: {
-                            description: "Identifier of the error tracking issue this fingerprint maps to.",
-                            hidden: False
-                          },
-                          team_id: {
-                            description: None,
-                            hidden: False
-                          }
-                        },
-                        hidden: False,
-                        name: None,
-                        top_level_settings: None,
-                        workload: None
-                      },
-                      resolver: "error_tracking_issue_fingerprint_overrides",
-                      resolver_params: {},
-                      to_field: None
-                    }
-                    table_type: <recursion ...>
-                  }
-                }
-              }
-              from_asterisk: False
-              hidden: True
-              type: {
-                alias: "issue_id"
-                type: <recursion ...>
-              }
-            },
-            {
-              alias: "event_issue_id"
-              expr: {
-                args: [
-                  {
-                    alias: "$exception_issue_id"
-                    expr: {
-                      chain: [
-                        "properties",
-                        "$exception_issue_id"
-                      ]
-                      end: 37
-                      from_asterisk: False
-                      start: 7
-                      type: {
-                        chain: [
-                          "$exception_issue_id"
-                        ]
-                        field_type: {
-                          name: "properties"
-                          table_type: <recursion ...>
-                        }
-                      }
-                    }
-                    from_asterisk: False
-                    hidden: True
-                    type: {
-                      alias: "$exception_issue_id"
-                      type: <recursion ...>
-                    }
-                  }
-                ]
-                distinct: False
-                end: 38
-                name: "toUUID"
-                start: 0
-                type: {
-                  arg_types: [
-                    {
-                      data_type: "str"
-                      nullable: True
-                    }
-                  ]
-                  name: "toUUID"
-                  return_type: {
-                    data_type: "uuid"
-                    nullable: True
-                  }
-                }
-              }
-              from_asterisk: False
-              hidden: True
-              type: {
-                alias: "event_issue_id"
-                type: <recursion ...>
-              }
-            }
-          ]
-          distinct: False
-          name: "if"
-          type: {
-            arg_types: [
-              <recursion ...>,
-              {
-                data_type: "str"
-                nullable: False
-              },
-              <recursion ...>
+          alias: "issue_id"
+          expr: {
+            chain: [
+              "fingerprint_issue_state",
+              "issue_id"
             ]
-            name: "if"
-            return_type: {
-              data_type: "str"
-              nullable: True
+            from_asterisk: False
+            type: {
+              name: "issue_id"
+              table_type: {
+                field: "fingerprint_issue_state"
+                lazy_join: {
+                  description: None,
+                  from_field: [
+                    "fingerprint"
+                  ],
+                  hidden: False,
+                  join_table: {
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
+                    fields: {
+                      assigned_role_id: {
+                        description: "Role the issue is assigned to, if any.",
+                        hidden: False
+                      },
+                      assigned_user_id: {
+                        description: "User the issue is assigned to, if any.",
+                        hidden: False
+                      },
+                      fingerprint: {
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
+                        hidden: False
+                      },
+                      first_seen: {
+                        description: "When the issue was first observed (in UTC).",
+                        hidden: False
+                      },
+                      fp_hash: {
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
+                        hidden: False
+                      },
+                      issue_description: {
+                        description: "Description of the issue (latest version).",
+                        hidden: False
+                      },
+                      issue_id: {
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
+                        hidden: False
+                      },
+                      issue_name: {
+                        description: "Display name of the issue (latest version).",
+                        hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
+                      issue_status: {
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
+                        hidden: False
+                      },
+                      team_id: {
+                        description: None,
+                        hidden: False
+                      }
+                    },
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
+                  },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
+                  to_field: None
+                }
+                table_type: <recursion ...>
+              }
             }
+          }
+          from_asterisk: False
+          hidden: True
+          type: {
+            alias: "issue_id"
+            type: <recursion ...>
           }
         }
         from_asterisk: False
@@ -11108,6 +10422,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -11200,6 +10518,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -11290,6 +10612,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -11382,6 +10708,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -11472,6 +10802,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -11564,6 +10898,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -11655,6 +10993,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -11722,7 +11064,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -11855,7 +11196,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -11932,6 +11273,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -12544,25 +11889,6 @@
         }
       },
       {
-        alias: "event_person_id"
-        expr: {
-          chain: [
-            "event_person_id"
-          ]
-          from_asterisk: True
-          type: {
-            name: "event_person_id"
-            table_type: <recursion ...>
-          }
-        }
-        from_asterisk: False
-        hidden: True
-        type: {
-          alias: "event_person_id"
-          type: <recursion ...>
-        }
-      },
-      {
         alias: "event_issue_id"
         expr: {
           args: [
@@ -12622,224 +11948,89 @@
       {
         alias: "issue_id"
         expr: {
-          args: [
-            {
-              args: [
-                {
-                  args: [
-                    {
-                      alias: "issue_id"
-                      expr: {
-                        chain: [
-                          "exception_issue_override",
-                          "issue_id"
-                        ]
-                        from_asterisk: False
-                        type: {
-                          name: "issue_id"
-                          table_type: {
-                            field: "exception_issue_override"
-                            lazy_join: {
-                              description: None,
-                              from_field: [
-                                "fingerprint"
-                              ],
-                              hidden: False,
-                              join_table: {
-                                description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                                fields: {
-                                  fingerprint: {
-                                    description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                                    hidden: False
-                                  },
-                                  issue_id: {
-                                    description: "Identifier of the error tracking issue this fingerprint maps to.",
-                                    hidden: False
-                                  },
-                                  team_id: {
-                                    description: None,
-                                    hidden: False
-                                  }
-                                },
-                                hidden: False,
-                                name: None,
-                                top_level_settings: None,
-                                workload: None
-                              },
-                              resolver: "error_tracking_issue_fingerprint_overrides",
-                              resolver_params: {},
-                              to_field: None
-                            }
-                            table_type: <recursion ...>
-                          }
-                        }
-                      }
-                      from_asterisk: False
-                      hidden: True
-                      type: {
-                        alias: "issue_id"
-                        type: <recursion ...>
-                      }
-                    }
-                  ]
-                  distinct: False
-                  name: "empty"
-                  type: {
-                    arg_types: [
-                      {
-                        data_type: "str"
-                        nullable: False
-                      }
-                    ]
-                    name: "empty"
-                    return_type: {
-                      data_type: "int"
-                      nullable: False
-                    }
-                  }
-                }
-              ]
-              distinct: False
-              name: "not"
-              type: {
-                arg_types: [
-                  <recursion ...>
-                ]
-                name: "not"
-                return_type: {
-                  data_type: "bool"
-                  nullable: False
-                }
-              }
-            },
-            {
-              alias: "issue_id"
-              expr: {
-                chain: [
-                  "exception_issue_override",
-                  "issue_id"
-                ]
-                from_asterisk: False
-                type: {
-                  name: "issue_id"
-                  table_type: {
-                    field: "exception_issue_override"
-                    lazy_join: {
-                      description: None,
-                      from_field: [
-                        "fingerprint"
-                      ],
-                      hidden: False,
-                      join_table: {
-                        description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
-                        fields: {
-                          fingerprint: {
-                            description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
-                            hidden: False
-                          },
-                          issue_id: {
-                            description: "Identifier of the error tracking issue this fingerprint maps to.",
-                            hidden: False
-                          },
-                          team_id: {
-                            description: None,
-                            hidden: False
-                          }
-                        },
-                        hidden: False,
-                        name: None,
-                        top_level_settings: None,
-                        workload: None
-                      },
-                      resolver: "error_tracking_issue_fingerprint_overrides",
-                      resolver_params: {},
-                      to_field: None
-                    }
-                    table_type: <recursion ...>
-                  }
-                }
-              }
-              from_asterisk: False
-              hidden: True
-              type: {
-                alias: "issue_id"
-                type: <recursion ...>
-              }
-            },
-            {
-              alias: "event_issue_id"
-              expr: {
-                args: [
-                  {
-                    alias: "$exception_issue_id"
-                    expr: {
-                      chain: [
-                        "properties",
-                        "$exception_issue_id"
-                      ]
-                      end: 37
-                      from_asterisk: False
-                      start: 7
-                      type: {
-                        chain: [
-                          "$exception_issue_id"
-                        ]
-                        field_type: {
-                          name: "properties"
-                          table_type: <recursion ...>
-                        }
-                      }
-                    }
-                    from_asterisk: False
-                    hidden: True
-                    type: {
-                      alias: "$exception_issue_id"
-                      type: <recursion ...>
-                    }
-                  }
-                ]
-                distinct: False
-                end: 38
-                name: "toUUID"
-                start: 0
-                type: {
-                  arg_types: [
-                    {
-                      data_type: "str"
-                      nullable: True
-                    }
-                  ]
-                  name: "toUUID"
-                  return_type: {
-                    data_type: "uuid"
-                    nullable: True
-                  }
-                }
-              }
-              from_asterisk: False
-              hidden: True
-              type: {
-                alias: "event_issue_id"
-                type: <recursion ...>
-              }
-            }
-          ]
-          distinct: False
-          name: "if"
-          type: {
-            arg_types: [
-              <recursion ...>,
-              {
-                data_type: "str"
-                nullable: False
-              },
-              <recursion ...>
+          alias: "issue_id"
+          expr: {
+            chain: [
+              "fingerprint_issue_state",
+              "issue_id"
             ]
-            name: "if"
-            return_type: {
-              data_type: "str"
-              nullable: True
+            from_asterisk: False
+            type: {
+              name: "issue_id"
+              table_type: {
+                field: "fingerprint_issue_state"
+                lazy_join: {
+                  description: None,
+                  from_field: [
+                    "fingerprint"
+                  ],
+                  hidden: False,
+                  join_table: {
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
+                    fields: {
+                      assigned_role_id: {
+                        description: "Role the issue is assigned to, if any.",
+                        hidden: False
+                      },
+                      assigned_user_id: {
+                        description: "User the issue is assigned to, if any.",
+                        hidden: False
+                      },
+                      fingerprint: {
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
+                        hidden: False
+                      },
+                      first_seen: {
+                        description: "When the issue was first observed (in UTC).",
+                        hidden: False
+                      },
+                      fp_hash: {
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
+                        hidden: False
+                      },
+                      issue_description: {
+                        description: "Description of the issue (latest version).",
+                        hidden: False
+                      },
+                      issue_id: {
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
+                        hidden: False
+                      },
+                      issue_name: {
+                        description: "Display name of the issue (latest version).",
+                        hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
+                      issue_status: {
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
+                        hidden: False
+                      },
+                      team_id: {
+                        description: None,
+                        hidden: False
+                      }
+                    },
+                    hidden: False,
+                    name: None,
+                    top_level_settings: None,
+                    workload: None
+                  },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
+                  to_field: None
+                }
+                table_type: <recursion ...>
+              }
             }
+          }
+          from_asterisk: False
+          hidden: True
+          type: {
+            alias: "issue_id"
+            type: <recursion ...>
           }
         }
         from_asterisk: False
@@ -12903,6 +12094,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -12995,6 +12190,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -13085,6 +12284,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -13177,6 +12380,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -13267,6 +12474,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -13359,6 +12570,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -13450,6 +12665,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -13518,7 +12737,6 @@
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
-        event_person_id: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -13651,7 +12869,7 @@
                       },
                       event_person_id: {
                         description: None,
-                        hidden: False
+                        hidden: True
                       },
                       exception_issue_override: {
                         description: None,
@@ -13728,6 +12946,10 @@
                       issue_name: {
                         description: None,
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
                       },
                       issue_status: {
                         description: None,
@@ -13947,7 +13169,7 @@
                       },
                       event_person_id: {
                         description: None,
-                        hidden: False
+                        hidden: True
                       },
                       exception_issue_override: {
                         description: None,
@@ -14024,6 +13246,10 @@
                       issue_name: {
                         description: None,
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
                       },
                       issue_status: {
                         description: None,
@@ -14590,7 +13816,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -14667,6 +13893,10 @@
                   issue_name: {
                     description: None,
                     hidden: False
+                  },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
                   },
                   issue_status: {
                     description: None,
@@ -14922,7 +14152,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -14999,6 +14229,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -15258,7 +14492,7 @@
                       },
                       event_person_id: {
                         description: None,
-                        hidden: False
+                        hidden: True
                       },
                       exception_issue_override: {
                         description: None,
@@ -15335,6 +14569,10 @@
                       issue_name: {
                         description: None,
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
                       },
                       issue_status: {
                         description: None,
@@ -15634,7 +14872,7 @@
                               },
                               event_person_id: {
                                 description: None,
-                                hidden: False
+                                hidden: True
                               },
                               exception_issue_override: {
                                 description: None,
@@ -15711,6 +14949,10 @@
                               issue_name: {
                                 description: None,
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
                               },
                               issue_status: {
                                 description: None,
@@ -16016,7 +15258,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -16093,6 +15335,10 @@
                   issue_name: {
                     description: None,
                     hidden: False
+                  },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
                   },
                   issue_status: {
                     description: None,
@@ -16367,7 +15613,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -16444,6 +15690,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -16719,7 +15969,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -16796,6 +16046,10 @@
                   issue_name: {
                     description: None,
                     hidden: False
+                  },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
                   },
                   issue_status: {
                     description: None,
@@ -17055,7 +16309,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -17132,6 +16386,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -17503,7 +16761,7 @@
                     },
                     event_person_id: {
                       description: None,
-                      hidden: False
+                      hidden: True
                     },
                     exception_issue_override: {
                       description: None,
@@ -17580,6 +16838,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -17796,7 +17058,7 @@
                         },
                         event_person_id: {
                           description: None,
-                          hidden: False
+                          hidden: True
                         },
                         exception_issue_override: {
                           description: None,
@@ -17873,6 +17135,10 @@
                         issue_name: {
                           description: None,
                           hidden: False
+                        },
+                        issue_severity: {
+                          description: None,
+                          hidden: True
                         },
                         issue_status: {
                           description: None,
@@ -18111,7 +17377,7 @@
                   },
                   event_person_id: {
                     description: None,
-                    hidden: False
+                    hidden: True
                   },
                   exception_issue_override: {
                     description: None,
@@ -18189,6 +17455,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -18256,57 +17526,196 @@
       {
         alias: "id"
         expr: {
-          chain: [
-            "poe",
-            "id"
-          ]
-          from_asterisk: False
-          type: {
-            name: "id"
-            table_type: {
-              field: "poe"
-              table_type: <recursion ...>
-              virtual_table: {
-                description: None,
-                fields: {
-                  $virt_initial_channel_type: {
-                    description: None,
-                    hidden: False
-                  },
-                  $virt_initial_referring_domain_type: {
-                    description: None,
-                    hidden: False
-                  },
-                  $virt_mrr: {
-                    description: None,
-                    hidden: False
-                  },
-                  $virt_revenue: {
-                    description: None,
-                    hidden: False
-                  },
-                  created_at: {
-                    description: None,
-                    hidden: False
-                  },
-                  id: {
-                    description: None,
-                    hidden: False
-                  },
-                  properties: {
-                    description: None,
-                    hidden: False
-                  },
-                  revenue_analytics: {
-                    description: None,
-                    hidden: False
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "distinct_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "distinct_id"
+                        ]
+                        from_asterisk: False
+                        type: {
+                          name: "distinct_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              description: None,
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
+                                fields: {
+                                  distinct_id: {
+                                    description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
+                                    hidden: False
+                                  },
+                                  person: {
+                                    description: None,
+                                    hidden: False
+                                  },
+                                  person_id: {
+                                    description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    description: None,
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      from_asterisk: False
+                      hidden: True
+                      type: {
+                        alias: "distinct_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "int"
+                      nullable: False
+                    }
                   }
-                },
-                hidden: False,
-                name: None,
-                top_level_settings: None,
-                workload: None
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "bool"
+                  nullable: False
+                }
               }
+            },
+            {
+              alias: "person_id"
+              expr: {
+                chain: [
+                  "override",
+                  "person_id"
+                ]
+                from_asterisk: False
+                type: {
+                  name: "person_id"
+                  table_type: {
+                    field: "override"
+                    lazy_join: {
+                      description: None,
+                      from_field: [
+                        "distinct_id"
+                      ],
+                      hidden: False,
+                      join_table: {
+                        description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
+                        fields: {
+                          distinct_id: {
+                            description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
+                            hidden: False
+                          },
+                          person: {
+                            description: None,
+                            hidden: False
+                          },
+                          person_id: {
+                            description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
+                            hidden: False
+                          },
+                          team_id: {
+                            description: None,
+                            hidden: False
+                          }
+                        },
+                        hidden: False,
+                        name: None,
+                        top_level_settings: None,
+                        workload: None
+                      },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              from_asterisk: False
+              hidden: True
+              type: {
+                alias: "person_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_person_id"
+              expr: {
+                chain: [
+                  "event_person_id"
+                ]
+                from_asterisk: False
+                type: {
+                  name: "event_person_id"
+                  table_type: <recursion ...>
+                }
+              }
+              from_asterisk: False
+              hidden: True
+              type: {
+                alias: "event_person_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "uuid"
+                nullable: False
+              },
+              {
+                data_type: "uuid"
+                nullable: False
+              }
+            ]
+            name: "if"
+            return_type: {
+              data_type: "uuid"
+              nullable: False
             }
           }
         }

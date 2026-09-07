@@ -9,11 +9,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
+    COHERE_API_VERSION_V1,
     cohere_source,
     validate_credentials as validate_cohere_credentials,
 )
@@ -24,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -31,8 +29,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CohereSource(SimpleSource[CohereSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v1",)
-    default_version = "v1"
+    # Cohere's v2 generation adds no route for anything this source reads: its own v2 reference
+    # documents datasets, models, finetuned models, and embed jobs at /v1/ paths, and connectors has
+    # no v2 successor at all. A "v2" pin would therefore name a wire Cohere does not serve for these
+    # tables. v1 is not sunset either - the 2025-09-15 announcement retires individual endpoints
+    # (/v1/connectors here), not the version - so v1 stays supported and undeprecated.
+    supported_versions = (COHERE_API_VERSION_V1,)
+    default_version = COHERE_API_VERSION_V1
     api_docs_url = "https://docs.cohere.com/reference/about"
 
     @property

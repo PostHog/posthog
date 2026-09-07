@@ -8,6 +8,7 @@ use rstest::rstest;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
+use crate::ordering::OrderingGuarantee;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
@@ -52,6 +53,7 @@ struct FakeEvent {
     partition_key: Option<String>,
     payload: Result<String, String>,
     event_headers: CapturedEventHeaders,
+    ordering: OrderingGuarantee,
 }
 
 impl FakeEvent {
@@ -63,7 +65,13 @@ impl FakeEvent {
             partition_key: Some(format!("phc_test:{uuid}")),
             payload: Ok(r#"{"event":"test"}"#.to_string()),
             event_headers: empty_captured_headers(),
+            ordering: OrderingGuarantee::PerDistinctId,
         }
+    }
+
+    fn with_ordering(mut self, o: OrderingGuarantee) -> Self {
+        self.ordering = o;
+        self
     }
 
     fn with_destination(mut self, d: Destination) -> Self {
@@ -106,6 +114,10 @@ impl Event for FakeEvent {
 
     fn partition_key(&self, _ctx: &RequestContext) -> String {
         self.partition_key.clone().unwrap_or_default()
+    }
+
+    fn ordering(&self) -> OrderingGuarantee {
+        self.ordering
     }
 
     fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
@@ -736,30 +748,36 @@ async fn health_refreshed_on_partial_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Partition key: null-key policy × destination
+// Partition key: the ordering guarantee decides it
 // ---------------------------------------------------------------------------
 
+/// The sink realizes the guarantee and nothing else. Which lanes give up
+/// ordering is decided upstream (`WrappedEvent::ordering`), and the
+/// person-processing header must not influence the key here: reading it back
+/// out of the headers is the bug this indirection removes.
 #[rstest]
-#[case::analytics_main(Destination::AnalyticsMain, true, None)]
-#[case::overflow(Destination::Overflow, true, None)]
-#[case::dlq(Destination::Dlq, true, Some("phc_test:user-1"))]
-#[case::historical(Destination::AnalyticsHistorical, true, Some("phc_test:user-1"))]
-#[case::custom(Destination::Custom("my_topic".into()), true, Some("phc_test:user-1"))]
-#[case::analytics_main_no_disable(Destination::AnalyticsMain, false, Some("phc_test:user-1"))]
+#[case::none_drops_key(OrderingGuarantee::None, true, None)]
+#[case::per_distinct_id_keeps_key(OrderingGuarantee::PerDistinctId, false, Some("phc_test:user-1"))]
+#[case::per_session_keeps_key(OrderingGuarantee::PerSession, false, Some("phc_test:user-1"))]
+#[case::header_alone_does_not_drop_key(
+    OrderingGuarantee::PerDistinctId,
+    true,
+    Some("phc_test:user-1")
+)]
 #[tokio::test]
-async fn force_disable_null_key_policy(
-    #[case] destination: Destination,
-    #[case] force_disable: bool,
+async fn ordering_decides_partition_key(
+    #[case] ordering: OrderingGuarantee,
+    #[case] force_disable_header: bool,
     #[case] expected_key: Option<&str>,
 ) {
     let h = TestHarness::new();
     let mut headers = empty_captured_headers();
-    if force_disable {
+    if force_disable_header {
         headers.force_disable_person_processing = Some(true);
     }
     let event = FakeEvent::ok("evt-1")
         .with_partition_key(Some("phc_test:user-1"))
-        .with_destination(destination)
+        .with_ordering(ordering)
         .with_headers(headers);
     let events = prepared(&[&event], &h.ctx);
 

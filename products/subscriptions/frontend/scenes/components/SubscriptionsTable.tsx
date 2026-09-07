@@ -11,6 +11,7 @@ import { SubscriptionResourceTypes } from '~/types'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { subscriptionDestination } from './subscriptionDestination'
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
@@ -86,7 +87,10 @@ export function subscriptionResourceLabel(sub: SubscriptionApi, mode: Subscripti
     return '—'
 }
 
-function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): LemonTableColumns<SubscriptionApi> {
+function buildColumns(
+    renderRowActions: (sub: SubscriptionApi) => JSX.Element,
+    renderEnabledToggle?: (sub: SubscriptionApi) => JSX.Element
+): LemonTableColumns<SubscriptionApi> {
     return [
         {
             title: 'Name',
@@ -192,7 +196,9 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
         {
             title: 'Destination',
             key: 'target_value',
-            render: (_value: unknown, sub: SubscriptionApi) => <SubscriptionDestinationCell sub={sub} />,
+            render: (_value: unknown, sub: SubscriptionApi) => (
+                <SubscriptionDestinationCell destination={subscriptionDestination(sub.target_type, sub.target_value)} />
+            ),
         },
         {
             title: 'Recurrence',
@@ -228,11 +234,14 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             sorter: true,
         },
         {
-            title: 'Status',
+            title: 'Enabled',
             key: 'enabled',
             dataIndex: 'enabled',
+            width: '5rem',
             render: (_value: unknown, sub: SubscriptionApi) =>
-                isSubscriptionEnabled(sub) ? (
+                renderEnabledToggle ? (
+                    renderEnabledToggle(sub)
+                ) : isSubscriptionEnabled(sub) ? (
                     <LemonTag type="success">Enabled</LemonTag>
                 ) : (
                     <LemonTag type="danger">Disabled</LemonTag>
@@ -254,6 +263,8 @@ export interface SubscriptionsTableProps {
     sorting?: Sorting | null
     onSort?: (sorting: Sorting | null) => void
     renderRowActions: (sub: SubscriptionApi) => JSX.Element
+    /** Overrides the "Enabled" column with an interactive control (a LemonSwitch). Omit for a read-only tag. */
+    renderEnabledToggle?: (sub: SubscriptionApi) => JSX.Element
 }
 
 export function SubscriptionsTable({
@@ -263,8 +274,9 @@ export function SubscriptionsTable({
     sorting,
     onSort,
     renderRowActions,
+    renderEnabledToggle,
 }: SubscriptionsTableProps): JSX.Element {
-    const columns = buildColumns(renderRowActions)
+    const columns = buildColumns(renderRowActions, renderEnabledToggle)
 
     return (
         <LemonTable

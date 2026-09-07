@@ -4,6 +4,7 @@ import { hasScope, hasScopes } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
+import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
@@ -23,6 +24,20 @@ export const ToolDefinitionSchema = z
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
+        /**
+         * Additional gate: hide the tool whenever this flag is on, independent of
+         * `feature_flag`. For retiring a tool under a successor surface's rollout
+         * flag while the tool keeps its own gating flag.
+         */
+        hidden_when_flag_on: z.string().optional(),
+        /**
+         * Tool names that took over this tool's job. Declared next to the gate
+         * that retires the tool, so a call to the retired name can name its
+         * successor instead of reporting the name as unknown.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
         /**
          * AvailableFeature the org's plan must include for this tool to be
          * advertised (e.g. `'audit_logs'`), matching the backend's
@@ -60,6 +75,26 @@ const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
 let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
+let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
+
+const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
+
+function addNotebookWidgetCatalog(definitions: ToolDefinitions): ToolDefinitions {
+    const widgetCatalog = formatNotebookWidgetCatalogForAgents()
+    const enrichedDefinitions = { ...definitions }
+
+    for (const toolName of NOTEBOOK_BUILDER_TOOL_NAMES) {
+        const definition = enrichedDefinitions[toolName]
+        if (definition) {
+            enrichedDefinitions[toolName] = {
+                ...definition,
+                description: `${definition.description}\n\n${widgetCatalog}`,
+            }
+        }
+    }
+
+    return enrichedDefinitions
+}
 
 function getGeneratedToolDefinitions(): ToolDefinitions {
     if (!_generatedToolDefinitions) {
@@ -68,12 +103,17 @@ function getGeneratedToolDefinitions(): ToolDefinitions {
     return _generatedToolDefinitions
 }
 
+// Both sources are immutable module JSON, so the merge is memoised alongside them:
+// the analytics hot path calls this twice per tool call (category + description),
+// and rebuilding the whole record each time is pure waste.
 export function getToolDefinitions(): ToolDefinitions {
-    const generated = getGeneratedToolDefinitions()
-    if (!_toolDefinitions) {
-        _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
+    if (!_mergedToolDefinitions) {
+        if (!_toolDefinitions) {
+            _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
+        }
+        _mergedToolDefinitions = addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() })
     }
-    return { ..._toolDefinitions, ...generated }
+    return _mergedToolDefinitions
 }
 
 let _advertisedOAuthScopes: readonly string[] | undefined = undefined
@@ -122,6 +162,23 @@ export function getToolCategory(toolName: string): string | undefined {
     return getToolDefinitions()[toolName]?.category
 }
 
+/**
+ * Catalogued descriptions run to ~13 KB (the query tools embed full usage guides), which
+ * is too heavy to stamp on every analytics event. The first 512 characters carry the
+ * lead paragraph, which is the part that describes what the tool is for.
+ */
+export const MAX_CAPTURED_DESCRIPTION_LENGTH = 512
+
+/**
+ * The description a tool advertises to agents, clipped for analytics capture, or
+ * undefined for tools without a catalogued definition (e.g. the `exec` wrapper).
+ * Like {@link getToolCategory} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolDescription(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.description?.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+}
+
 export interface ToolFilterOptions {
     features?: string[] | undefined
     tools?: string[] | undefined
@@ -153,6 +210,9 @@ export function getRequiredFeatureFlags(): string[] {
         if (definition.feature_flag) {
             flags.add(definition.feature_flag)
         }
+        if (definition.hidden_when_flag_on) {
+            flags.add(definition.hidden_when_flag_on)
+        }
     }
     return [...flags]
 }
@@ -165,12 +225,16 @@ function normalizeFeatureName(name: string): string {
  * Predicate: does a tool's `feature_flag` configuration permit it under the
  * given evaluation map? An undefined map is treated as "no flags evaluated".
  *
+ *   `hidden_when_flag_on` set and that flag is on → always hidden
  *   no `feature_flag`         → always passes
  *   `feature_flag_variant` set → flag value must equal the variant string
  *   `feature_flag_behavior: 'enable'` (default) → flag must be `=== true`
  *   `feature_flag_behavior: 'disable'` → flag must NOT be `=== true`
  */
 export function toolPassesFlagGate(definition: ToolDefinition, featureFlags: EvaluatedFlags = {}): boolean {
+    if (definition.hidden_when_flag_on && featureFlags[definition.hidden_when_flag_on] === true) {
+        return false
+    }
     if (!definition.feature_flag) {
         // Belt-and-braces: the schema `.refine` rejects this at parse time, but
         // `z.infer` strips refinements so TS lets callers hand-roll a bad
@@ -213,7 +277,11 @@ export function toolPassesEntitlementGate(
     return availableFeatures.includes(definition.feature_entitlement)
 }
 
-export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+/**
+ * Every catalog filter, with the flag gate optional: {@link getToolsForFeatures}
+ * drops what the flags hide, {@link getFlagGatedTools} keeps exactly that set.
+ */
+function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate: boolean): [string, ToolDefinition][] {
     const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams, availableFeatures, isCloud } =
         options || {}
     const toolDefinitions = getToolDefinitions()
@@ -254,7 +322,9 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     }
 
     // Filter by feature flags — see {@link toolPassesFlagGate} for the predicate.
-    entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    if (applyFlagGate) {
+        entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+    }
 
     // Filter by billing entitlement — see {@link toolPassesEntitlementGate}.
     entries = entries.filter(([_, definition]) => toolPassesEntitlementGate(definition, availableFeatures, isCloud))
@@ -267,7 +337,49 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         )
     }
 
-    return entries.map(([toolName, _]) => toolName)
+    return entries
+}
+
+export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+    return filterToolEntries(options, true).map(([toolName, _]) => toolName)
+}
+
+export interface FlagGatedTool {
+    name: string
+    /** Tool names the definition declares as this tool's successors, in the order it lists them. */
+    supersededBy: string[]
+    /** Free-text guidance the definition adds to the redirect. */
+    redirectHint?: string
+}
+
+/**
+ * Tools a feature flag removed from the active catalog, while every other filter
+ * kept them. The exec dispatcher reads this so a call to a retired name reports
+ * the successor, or reports that the tool is not enabled — never that the name
+ * is unknown, which reads to an agent as a removed capability.
+ *
+ * Staff-only tools are left out for the same reason {@link getScopeGatedTools}
+ * leaves them out: the hint would advertise a staff surface to a customer.
+ */
+export function getFlagGatedTools(options?: ToolFilterOptions): FlagGatedTool[] {
+    const excluded = new Set(options?.excludeTools ?? [])
+    const gated: FlagGatedTool[] = []
+
+    for (const [name, definition] of filterToolEntries(options, false)) {
+        if (excluded.has(name) || toolPassesFlagGate(definition, options?.featureFlags)) {
+            continue
+        }
+        if (isStaffOnlyTool(definition.required_scopes ?? [])) {
+            continue
+        }
+        gated.push({
+            name,
+            supersededBy: definition.superseded_by ?? [],
+            ...(definition.redirect_hint ? { redirectHint: definition.redirect_hint } : {}),
+        })
+    }
+
+    return gated
 }
 
 export interface ScopeGatedTool {

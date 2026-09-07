@@ -6,6 +6,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType, IntegrationType } from '~/types'
 
+import { alertsTestDeliveryCreate } from 'products/alerts/frontend/generated/api'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
@@ -14,6 +15,10 @@ import {
 } from 'products/alerts/frontend/logic/alertNotifications'
 
 import { alertNotificationLogic } from './alertNotificationLogic'
+
+jest.mock('products/alerts/frontend/generated/api', () => ({
+    alertsTestDeliveryCreate: jest.fn(),
+}))
 
 describe('alertNotificationLogic', () => {
     let logic: ReturnType<typeof alertNotificationLogic.build>
@@ -92,6 +97,24 @@ describe('alertNotificationLogic', () => {
 
         logic.actions.loadIntegrationsSuccess([])
         await expectLogic(logic).toMatchValues({ integrationsFailed: false })
+    })
+
+    it('sends a test delivery for the saved alert', async () => {
+        jest.mocked(alertsTestDeliveryCreate).mockResolvedValue({
+            destination_count: 2,
+            email_recipient_count: 1,
+            failed_delivery_channels: [],
+        })
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        logic.actions.sendTestDelivery()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(alertsTestDeliveryCreate).toHaveBeenCalledWith('997', 'alert-123')
+        await expectLogic(logic).toMatchValues({
+            testDeliveryResult: { destination_count: 2, email_recipient_count: 1, failed_delivery_channels: [] },
+        })
     })
 
     it('clears the channel when an integrations refresh removes the selected workspace', async () => {

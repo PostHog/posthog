@@ -17,6 +17,7 @@ from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
 from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestion, extract_unknown_tables
 
 
@@ -29,9 +30,21 @@ class ExecuteSQLMCPToolArgs(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). "
-            "When set, runs the query against that source instead of the ClickHouse catalog. "
-            "Use external-data-sources-list to discover available connection ids."
+            "Optional id of a data warehouse connection (e.g. Postgres, MySQL, Snowflake, Redshift). "
+            "When set, the query runs live against that source instead of the ClickHouse catalog, and may "
+            "only reference that source's tables. Discover connection ids with "
+            "external-data-sources-connections-list, then list a connection's tables by running "
+            "`SELECT table_name FROM system.information_schema.tables` with that connectionId set."
+        ),
+    )
+    sendRawQuery: bool = Field(
+        default=False,
+        description=(
+            "Send `query` to the connection verbatim instead of compiling it from HogQL first. Use this "
+            "for SQL only that connection's own engine understands, such as vendor-specific functions. "
+            "Requires connectionId, and works only on a pure direct connection (access_method 'direct'), "
+            "not on a synced source with live queries enabled. The connection is read-only and accepts a "
+            "single statement."
         ),
     )
 
@@ -59,13 +72,19 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             cleaned_query = args.query.rstrip(";").strip() if args.query else ""
             if not cleaned_query:
                 raise MaxToolRetryableError("Query validation failed: Query is empty")
-            query = HogQLQuery(query=cleaned_query, connectionId=args.connectionId)
+            query = HogQLQuery(
+                query=cleaned_query, connectionId=args.connectionId, sendRawQuery=args.sendRawQuery or None
+            )
+        elif args.sendRawQuery:
+            raise MaxToolRetryableError(
+                "sendRawQuery needs a connectionId. Set one, or drop sendRawQuery to run the query as HogQL."
+            )
         else:
             try:
                 validated = await self._validate_hogql_query(args.query)
             except PydanticOutputParserException as e:
                 message = f"Query validation failed: {e.validation_message}"
-                suggestion = await self._maybe_import_suggestion(e.validation_message)
+                suggestion = await self._maybe_unknown_table_suggestion(e.validation_message)
                 if suggestion:
                     message = f"{message}\n\n{suggestion}"
                 raise MaxToolRetryableError(message)
@@ -84,6 +103,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             name="",
             description="",
             user=self._user,
+            event_source=self._event_source,
         )
         results = await insight_context.execute_and_format(
             prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
@@ -91,13 +111,24 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
         return _prepend_taxonomy_warnings(results, taxonomy_warnings)
 
-    async def _maybe_import_suggestion(self, validation_message: str) -> str | None:
-        """When a query fails on an unknown table, suggest importing a matching warehouse source."""
+    async def _maybe_unknown_table_suggestion(self, validation_message: str) -> str | None:
+        """When a query fails on an unknown table, say where that table actually is.
+
+        A table already sitting on a live connection is one parameter away, so that hint comes first;
+        suggesting an import for data the team has already connected would send the agent backwards.
+        """
         missing_tables = extract_unknown_tables(validation_message)
         if not missing_tables:
             return None
+        live_connection_suggestion = await self._live_connection_suggestion(missing_tables)
+        if live_connection_suggestion:
+            return live_connection_suggestion
         existing_source_types = await self._existing_source_types()
         return build_import_suggestion(missing_tables, existing_source_types)
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _live_connection_suggestion(self, missing_tables: list[str]) -> str | None:
+        return build_direct_connection_suggestion(self._team, self._user, missing_tables)
 
     @database_sync_to_async(thread_sensitive=False)
     def _existing_source_types(self) -> set[str]:

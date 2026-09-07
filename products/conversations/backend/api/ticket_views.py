@@ -3,12 +3,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import Exists, OuterRef
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 
+from products.conversations.backend.api.ticket_filters import TicketViewFiltersSerializer
 from products.conversations.backend.models import TicketView, TicketViewFavorite
 
 if TYPE_CHECKING:
@@ -17,22 +19,34 @@ if TYPE_CHECKING:
 MAX_FILTERS_SIZE_BYTES = 10_000
 
 
+@extend_schema_field(TicketViewFiltersSerializer)
+class TicketViewFiltersField(serializers.JSONField):
+    """Validates writes against the canonical filter shape but stores and returns the raw
+    dict, so unknown keys survive round-trips and legacy blobs render unchanged."""
+
+    def to_internal_value(self, data: Any) -> dict:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Expected a JSON object.")
+        if len(json.dumps(value)) > MAX_FILTERS_SIZE_BYTES:
+            raise serializers.ValidationError("Filters payload is too large.")
+        filters_serializer = TicketViewFiltersSerializer(data=value, context={"strict_writes": True})
+        filters_serializer.is_valid(raise_exception=True)
+        return value
+
+
 class TicketViewSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    filters = serializers.DictField(
+    filters = TicketViewFiltersField(
         required=False,
         default=dict,
-        help_text="Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.",
+        help_text="Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, "
+        "tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.",
     )
     is_favorited = serializers.BooleanField(
         required=False,
         help_text="Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.",
     )
-
-    def validate_filters(self, value: dict) -> dict:
-        if len(json.dumps(value)) > MAX_FILTERS_SIZE_BYTES:
-            raise serializers.ValidationError("Filters payload is too large.")
-        return value
 
     class Meta:
         model = TicketView

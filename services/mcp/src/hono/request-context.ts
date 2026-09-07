@@ -19,13 +19,13 @@ import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
+    getEffectiveMCPClientContext,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
-    private sessionCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
@@ -58,16 +58,6 @@ export class RequestContext {
         return this.tokenCacheInstance
     }
 
-    get sessionCache(): RedisCache<State> {
-        if (!this.props.mcpSessionId) {
-            throw new Error('Session ID is required to use the session cache')
-        }
-        if (!this.sessionCacheInstance) {
-            this.sessionCacheInstance = new RedisCache<State>(hash(this.props.mcpSessionId), this.redis, 'session')
-        }
-        return this.sessionCacheInstance
-    }
-
     getUserCache(distinctId: string): RedisCache<State> {
         if (!this.userCacheInstance) {
             this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
@@ -88,6 +78,7 @@ export class RequestContext {
 
     private async api(): Promise<ApiClient> {
         if (!this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(this.requestContext, this.sessionContext)
             const customApiBaseUrl = getCustomApiBaseUrl()
             let baseUrl: string
             if (customApiBaseUrl) {
@@ -104,10 +95,10 @@ export class RequestContext {
                 baseUrl,
                 publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.props.clientUserAgent,
-                mcpClientName: this.props.mcpClientName,
-                mcpClientVersion: this.props.mcpClientVersion,
-                mcpProtocolVersion: this.props.mcpProtocolVersion,
-                mcpConsumer: this.props.mcpConsumer,
+                mcpClientName: clientContext.mcpClientName,
+                mcpClientVersion: clientContext.mcpClientVersion,
+                mcpProtocolVersion: clientContext.mcpProtocolVersion,
+                mcpConsumer: clientContext.mcpConsumer,
                 // Cached from a previous request's token introspection. On a cold cache this is
                 // still unset here, so `StateManager` also stamps it onto the live client's config
                 // the moment introspection resolves it — otherwise a token's first request would
@@ -188,6 +179,10 @@ export class RequestContext {
     setMcpContexts(requestContext: MCPRequestContext, sessionContext: MCPSessionContext | null): void {
         this.requestContext = requestContext
         this.sessionContext = sessionContext
+        if (this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+            Object.assign(this.apiInstance.config, clientContext)
+        }
     }
 
     async safelyGetAnalyticsContext(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {

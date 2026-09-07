@@ -18,7 +18,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { delay } from 'lib/utils/async'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -30,7 +29,12 @@ import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/feature
 import type { UserType } from '../../../../frontend/src/types'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
-import { defaultPermissionDecision, findAllowOptionId, isFullAutoMode, isPersistPromptTool } from '../policy/toolPolicy'
+import {
+    defaultPermissionDecision,
+    findAllowOptionId,
+    isConnectedProjectTool,
+    isFullAutoMode,
+} from '../policy/toolPolicy'
 import type {
     ContextUsage,
     PermissionRequestRecord,
@@ -70,29 +74,41 @@ import {
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
+import { registerHmrStreamAbort } from './devHmrStreamAbort'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
 import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
 import type { ToolStreamSubscription } from './toolStreamEventsLogic'
 
+export interface LiveStreamEntry {
+    controller: AbortController
+    /** Reopens this stream after an HMR swap its logic survived. See `devHmrStreamAbort`. */
+    reopen: () => void
+}
+
 interface LiveStreamRegistryHost {
-    __posthogAiLiveStreamControllers?: Set<AbortController>
+    __posthogAiLiveStreamControllers?: Set<LiveStreamEntry>
 }
 
 // Dev-only guard against orphaned SSE readers: an HMR swap re-evaluates this module in the same page,
-// and the old build's logic gets discarded with a fresh kea `cache` — its 'event-source' disposable
-// never runs teardown, so its reader keeps the connection open (pinning a granian dev worker) until
-// the tab closes. A fresh evaluation finding controllers in the page-global registry therefore means
-// an HMR swap just replaced their build — abort them (an aborted signal is the silent teardown path,
-// so the old logic won't schedule a reconnect). On first load the registry is empty, and a full page
-// load needs none of this: the browser aborts in-flight fetches itself. `import.meta.hot.dispose`
-// would be the idiomatic hook, but `import.meta` is a parse error in Jest's CJS transform.
-const liveStreamControllers = new Set<AbortController>()
+// and the old build's logic gets discarded with a fresh kea `cache`, so its 'event-source' disposable
+// never runs teardown and its reader keeps the connection open (pinning a granian dev worker) until
+// the tab closes. A fresh evaluation finding entries in the page-global registry therefore means
+// an HMR swap just replaced their build, so abort them (an aborted signal is the silent teardown path,
+// which is why the old logic won't schedule a reconnect). On first load the registry is empty, and a
+// full page load needs none of this because the browser aborts in-flight fetches itself.
+//
+// This only covers swaps that re-evaluate this module. `devHmrStreamAbort` covers the rest, where the
+// logic survives and its stream has to be reopened rather than left closed.
+const liveStreamControllers = new Set<LiveStreamEntry>()
 if (process.env.NODE_ENV === 'development') {
     const registryHost = globalThis as LiveStreamRegistryHost
-    registryHost.__posthogAiLiveStreamControllers?.forEach((controller) => controller.abort())
+    registryHost.__posthogAiLiveStreamControllers?.forEach((entry) => entry.controller.abort())
     registryHost.__posthogAiLiveStreamControllers = liveStreamControllers
+    // Jest maps this module to an empty stub, so the call has to stay inside this check.
+    registerHmrStreamAbort()
 }
 
 export type RunSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
@@ -141,6 +157,20 @@ export const INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestInitialPermis
 
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'
+
+/**
+ * `session/update` sub-types that mean the agent is producing output for a turn, and so that a turn is
+ * open. An allowlist, so an unknown or malformed sub-type fails safe to "not generating" rather than
+ * reopening a turn that finished. `tool_call_update` is deliberately absent: it updates a call the turn
+ * already started, and can trail the end of that turn.
+ */
+const AGENT_GENERATING_SESSION_UPDATES: ReadonlySet<string> = new Set([
+    'agent_message',
+    'agent_message_chunk',
+    'agent_thought_chunk',
+    'tool_call',
+    'plan',
+])
 
 /**
  * In-band durable end-of-run sentinel emitted by both the Django stream view and the agent-proxy
@@ -545,9 +575,9 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
     return -1
 }
 
-/** The in-progress compaction spinner item — cleared when compaction completes or a boundary lands. */
-function isPendingCompactingStatus(item: ThreadItem): boolean {
-    return item.type === 'status' && item.status === 'compacting' && item.isComplete !== true
+/** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
+function isPendingStatus(item: ThreadItem, status: string): boolean {
+    return item.type === 'status' && item.status === status && item.isComplete !== true
 }
 
 function insertHumanMessageAtTurnStart(state: ThreadItem[], item: ThreadItem): ThreadItem[] {
@@ -1005,6 +1035,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let errorSeq = 0
     let statusSeq = 0
     let compactSeq = 0
+    let clearedSeq = 0
     let taskSeq = 0
     let consoleSeq = 0
     let contextSeq = 0
@@ -1163,7 +1194,8 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/turn_complete') {
-            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
+            const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
+            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator', ...(traceId && { traceId }) })
             continue
         }
         if (method === '_posthog/progress') {
@@ -1203,15 +1235,26 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         if (method === '_posthog/status') {
             const status = String(params.status ?? '')
             const isComplete = params.isComplete === true
-            if (status === 'compacting' && isComplete) {
-                items = items.filter((item) => !isPendingCompactingStatus(item))
+            if (isComplete && (status === 'compacting' || status === 'clearing')) {
+                items = items.filter((item) => !isPendingStatus(item, status))
+            } else if (status === 'clearing_failed') {
+                // A failed clear emits no `conversation_cleared` marker, so retire the spinner
+                // here and report the outcome in its place.
+                items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+                items.push({
+                    id: `status-${statusSeq++}`,
+                    type: 'status',
+                    status,
+                    isComplete: true,
+                    errorMessage: stringifyOptional(params.error),
+                })
             } else {
                 items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
             }
             continue
         }
         if (method === '_posthog/compact_boundary') {
-            items = items.filter((item) => !isPendingCompactingStatus(item))
+            items = items.filter((item) => !isPendingStatus(item, 'compacting'))
             items.push({
                 id: `compact-${compactSeq++}`,
                 type: 'compact_boundary',
@@ -1219,6 +1262,13 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 preTokens: typeof params.preTokens === 'number' ? params.preTokens : undefined,
                 contextSize: typeof params.contextSize === 'number' ? params.contextSize : undefined,
             })
+            continue
+        }
+        if (method === '_posthog/conversation_cleared') {
+            // The divider supersedes the spinner visually, but the completing `_posthog/status`
+            // frame is a separate notification that may not have landed yet.
+            items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+            items.push({ id: `cleared-${clearedSeq++}`, type: 'conversation_cleared' })
             continue
         }
         if (method === '_posthog/task_notification') {
@@ -1348,6 +1398,7 @@ export interface runStreamLogicValues {
     bootstrappedRunId: string | null
     bootstrappedTaskId: string | null
     contextUsage: ContextUsage | null
+    conversationClearSupported: boolean
     cumulativeReconnectAttempt: number
     currentMode: string | null
     currentProgress: string | null
@@ -1357,6 +1408,7 @@ export interface runStreamLogicValues {
     hasGitArtifacts: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
+    latestTurnTraceId: string | null
     log: RunLog
     logBootstrapLoading: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
@@ -1473,6 +1525,9 @@ export interface runStreamLogicActions {
     markTurnComplete: () => {
         value: true
     }
+    markTurnStarted: () => {
+        value: true
+    }
     mergeResourcesUsed: (
         products: {
             id?: string
@@ -1494,6 +1549,9 @@ export interface runStreamLogicActions {
         traceId?: string | undefined
     }
     permissionResponseFailed: () => {
+        value: true
+    }
+    pushConversationCleared: () => {
         value: true
     }
     pushErrorItem: (
@@ -1530,11 +1588,14 @@ export interface runStreamLogicActions {
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
     }
+    setConversationClearSupported: (supported: boolean) => {
+        supported: boolean
+    }
     setCurrentMode: (mode: string) => {
         mode: string
     }
-    setCurrentProgress: (progress: string) => {
-        progress: string
+    setCurrentProgress: (progress: string | null) => {
+        progress: string | null
     }
     setCurrentStage: (stage: string | null) => {
         stage: string | null
@@ -1570,6 +1631,7 @@ export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
         isThinking: (
@@ -1713,9 +1775,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
         }),
         /**
          * Entry point for every parsed permission request. Applies the default tool policy
-         * (`toolPolicy`): auto-approve built-in tools + non-destructive PostHog exec, prompt
-         * for update/delete exec (and other MCP). Replayed-from-history requests are never
-         * auto-approved — they're a read-only restore and the run may already be terminal.
+         * (`toolPolicy`): auto-approve built-in tools and PostHog exec in the task's project, but
+         * prompt for connected-project calls and other MCP. Replayed-from-history requests are
+         * never auto-approved because the run may already be terminal.
          */
         routePermissionRequest: (record: PermissionRequestRecord, replayedFromHistory: boolean = false) => ({
             record,
@@ -1763,11 +1825,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
         handleStreamError: (envelope: StreamErrorEnvelope) => envelope,
         // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
-        setCurrentProgress: (progress: string) => ({ progress }),
+        setCurrentProgress: (progress: string | null) => ({ progress }),
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
         markRunStarted: true,
+        /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
+        setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: true,
+        /**
+         * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
+         * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
+         * output of a turn, which is the only marker the live stream carries.
+         */
+        markTurnStarted: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
         /**
@@ -1781,6 +1851,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         startOptimisticRun: (message?: string) => ({ message }),
         /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
+        /** Echoes a `/clear` boundary the backend just recorded against a finished run, which has no stream to send it back. */
+        pushConversationCleared: true,
         /** Union the products an answer was grounded in — accumulates across the whole session. */
         mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
         /** Latest-wins merge of git artifacts (PR url / branch / base / repo) a run exposes. */
@@ -1814,6 +1886,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 sseOpened: () => 'open',
                 sseReconnecting: () => 'reconnecting',
                 closeSse: () => 'closed',
+                // The sentinel tears the connection down without reconnecting, so the stream is no
+                // longer open — say so, rather than leaving a dead connection reading as healthy.
+                streamEnded: () => 'closed',
                 handleStreamError: () => 'error',
                 reset: () => 'idle',
             },
@@ -2040,6 +2115,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => false,
             },
         ],
+        // The latest run_started in the resume chain wins, matching the desktop client: the gate
+        // predicts the next run's agent, and after an agent rollback an earlier capable run must
+        // not authorize recording a boundary the current agent would ignore on resume (the UI
+        // would claim a clear that never happens). `reset` is deliberately not handled: a
+        // re-bootstrap replays the chain's run_started frames and re-derives it.
+        conversationClearSupported: [
+            false,
+            {
+                setConversationClearSupported: (_, { supported }) => supported,
+            },
+        ],
         turnComplete: [
             false,
             {
@@ -2047,8 +2133,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // A run emits `_posthog/run_started` once; a follow-up message on the same run starts
                 // a fresh turn with no new run_started frame, so a human message also reopens the
                 // turn — otherwise the thinking indicator would stay off for the whole follow-up.
+                // `pushHumanMessage` covers a send from this composer, `markTurnStarted` a turn that
+                // started some other way (Slack, another tab, a replayed history tail).
                 markRunStarted: () => false,
                 pushHumanMessage: () => false,
+                markTurnStarted: () => false,
                 reset: () => false,
             },
         ],
@@ -2098,6 +2187,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
         foldedThread: [
             (s) => [s.log, s.isBootstrapResumeRun],
             (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+        ],
+        latestTurnTraceId: [
+            (s) => [s.threadItems],
+            (threadItems: ThreadItem[]): string | null => {
+                // Trailer-derived, not the raw last separator: synthetic trailing separators
+                // (idle-resume/error frames) carry no trace id and are not turns.
+                const trailers = computeTurnTrailers(threadItems)
+                const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
+                return lastTurn?.traceId ?? null
+            },
         ],
         threadItems: [
             (s) => [s.foldedThread, s.showDebugLogs],
@@ -2429,6 +2528,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return
             }
 
+            // Every open starts a fresh connection. The end sentinel and the proxy re-mint budget
+            // belong to the connection that saw them, so a stale `streamEnded` must not leak into
+            // this one — it suppresses the drop handler, which leaves a dropped stream dead with no
+            // reconnect and no terminal refetch (the thread then waits on a turn nothing delivers).
+            // A stream that really is finished re-delivers the sentinel on this connection.
+            cache.streamEnded = false
+            cache.streamTokenRefreshes = 0
+            const previousRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (previousRun && previousRun.runId !== runId) {
+                // The cursor is a Redis id from the previous run's stream — it addresses nothing in
+                // this one, so resuming from it can skip this run's opening frames.
+                cache.lastEventId = undefined
+            }
             // Track the active run so the reconnect loop can refetch it on a drop.
             cache.activeRun = { taskId, runId }
 
@@ -2626,10 +2738,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.disposables.add(
                 (): (() => void) => {
                     const controller = new AbortController()
-                    liveStreamControllers.add(controller)
+                    // `startLatest: true` mirrors the reconnect path below: the resume actually happens
+                    // off `cache.lastEventId` via Last-Event-ID, so this only matters if no frame has
+                    // arrived yet.
+                    const entry: LiveStreamEntry = {
+                        controller,
+                        reopen: () => actions.openSseForRun({ taskId, runId, startLatest: true }),
+                    }
+                    liveStreamControllers.add(entry)
                     void streamRun(controller.signal)
                     return () => {
-                        liveStreamControllers.delete(controller)
+                        liveStreamControllers.delete(entry)
                         controller.abort()
                     }
                 },
@@ -2750,19 +2869,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-            // In full-auto (`bypassPermissions`) the user opted out of tool approvals entirely, so any
-            // relayed tool request is answered with its allow option — but questions and plan approvals
-            // still surface, since auto-answering those would pick an option on the user's behalf.
-            // Otherwise: persist/publish tools (dashboards, feature flags, surveys, hog functions,
-            // workflows) must still prompt when this run is a foreground stream (rendered in a surface
-            // the user is watching and can respond in), even though `defaultPermissionDecision` would
-            // auto-approve them as non-destructive. Background and headless runs keep auto-approving.
+            // Full-auto covers the task's selected project. Questions, plan approvals, and calls into
+            // connected projects still surface because the task did not authorize them.
             const fullAuto =
-                isFullAutoMode(values.currentMode) && !record.questions?.length && !isPlanPermissionRequest(record)
-            const isForegroundStream = values.foregroundStreamKeys.has(props.streamKey)
-            const forcePromptForForeground = !fullAuto && isForegroundStream && isPersistPromptTool(record)
+                isFullAutoMode(values.currentMode) &&
+                !record.questions?.length &&
+                !isPlanPermissionRequest(record) &&
+                !isConnectedProjectTool(record)
             const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
-            if (!replayedFromHistory && !forcePromptForForeground && decision === 'auto_allow') {
+            if (!replayedFromHistory && decision === 'auto_allow') {
                 const optionId = findAllowOptionId(record)
                 if (optionId) {
                     actions.autoApprovePermissionRequest(record, optionId)
@@ -2774,19 +2889,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
         autoApprovePermissionRequest: async ({ record, optionId }) => {
             // Pin it seen up front so a reconnect replay can't re-process the same request mid-POST.
             actions.markPermissionRequestSeen(record.requestId)
-            // A persist tool routed here because no foreground surface was registered yet may have
-            // raced a mounting surface's registration (the SSE frame can land before the layout
-            // effect flushes). Yield one macrotask and re-check; if the stream became foreground,
-            // surface the card instead of silently persisting. Plain `delay`, not a kea breakpoint —
-            // a breakpoint would let a second rapid frame cancel this listener pre-POST and stall
-            // the agent. Full-auto runs skip the re-check — they never prompt for persist tools.
-            if (!isFullAutoMode(values.currentMode) && isPersistPromptTool(record)) {
-                await delay(0)
-                if (values.foregroundStreamKeys.has(props.streamKey)) {
-                    actions.ingestPermissionRequest(record)
-                    return
-                }
-            }
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             const resolvedToolCall = resolveToolCall(record.rawToolCall)
             posthog.capture('permission_auto_approved', {
@@ -3002,11 +3104,29 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
             // log entry the projection renders in order.
             cache.turnStartedAtMs = Date.now()
+            // A send does NOT revive a dead stream, and reviving one is harder than it looks:
+            // `sseStatus: 'error'` covers a failed history bootstrap as well as an exhausted
+            // reconnect budget, and the bootstrap case has already dropped buffered frames whose
+            // ids advanced the resume cursor, so reopening from it silently skips them; a reopen
+            // also inherits the spent reconnect budgets, so the next drop gives up at once. A
+            // stream the durable sentinel closed cannot be revived at all — its Redis stream holds
+            // a completion entry the server stops at and refuses to write past.
             actions.appendEntries([
                 {
                     entry: {
                         type: 'notification',
                         notification: { method: '_client/human_message', params: { content } },
+                    },
+                    source: 'client',
+                },
+            ])
+        },
+        pushConversationCleared: () => {
+            actions.appendEntries([
+                {
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_posthog/conversation_cleared', params: {} },
                     },
                     source: 'client',
                 },
@@ -3091,6 +3211,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         cold_start: true,
                     })
                 }
+                actions.setConversationClearSupported(
+                    (notification.params as { conversationClear?: unknown } | undefined)?.conversationClear === true
+                )
                 cache.isBootstrapping = false
                 actions.markRunStarted()
                 return
@@ -3104,9 +3227,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (method === '_posthog/progress') {
                 const progress = (notification.params ?? {}) as PosthogProgressParams
-                actions.setCurrentProgress(
-                    stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
-                )
+                const status = normalizeProgressStatus(progress.status)
+                // A finished step is a milestone (the thread's progress card keeps it), not the current
+                // activity — clear it so the thinking line falls back to the rotating message instead of
+                // sticking on e.g. "Started agent" for the rest of the turn.
+                if (status === 'completed' || status === 'failed') {
+                    actions.setCurrentProgress(null)
+                } else {
+                    actions.setCurrentProgress(
+                        stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
+                    )
+                }
                 return
             }
             // The agent-server persists the permission lifecycle to the run log — pending approvals
@@ -3155,6 +3286,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // unattached optimistic stream has no task id and records nothing — its send path marks
             // sent keys directly.
             if (isPosthogNotification(notification, '_posthog/user_message')) {
+                actions.markTurnStarted()
                 if (values.bootstrappedTaskId) {
                     const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
                     if (lines.length > 0) {
@@ -3166,7 +3298,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (method?.startsWith('_posthog/')) {
                 // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification
                 // → rendered by the projection. _posthog/console, _posthog/sandbox_output,
-                // _posthog/git_checkpoint, … → no UI. No side effect either way.
+                // other internal events → no UI. No side effect either way.
                 return
             }
             // The session/new request carries the run's starting permission mode in its meta. Seed the
@@ -3198,6 +3330,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
             // Chunked frames are skipped: a partial text could truncate a block mid-line.
             if (isSessionUpdateUserMessage(update)) {
+                actions.markTurnStarted()
                 if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
                     const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
                     if (lines.length > 0) {
@@ -3208,6 +3341,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (!isKnownSessionUpdate(update)) {
                 return
+            }
+            // The agent producing output is the only marker of a new turn this client can rely on when the
+            // turn was started from outside its own composer. Such a follow-up is queued on the run, which
+            // emits no second `run_started`, and neither wire form of the user turn fills the gap: the live
+            // stream never carries one, and the persisted one is written when the message is received, so a
+            // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
+            // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
+            if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+                actions.markTurnStarted()
             }
             if (update.sessionUpdate === 'current_mode_update') {
                 actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))

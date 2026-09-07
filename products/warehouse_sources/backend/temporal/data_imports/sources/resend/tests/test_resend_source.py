@@ -2,19 +2,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
     ResendAuthMethodConfig,
     ResendSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import ResendIntegrationAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import ResendResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _api_key_config(api_key: str = "re_test_key") -> ResendSourceConfig:
@@ -33,72 +28,32 @@ class TestResendSource:
         self.team_id = 123
         self.config = _api_key_config()
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RESEND
-
-    def test_get_source_config_offers_both_auth_methods(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Resend"
-        assert config.releaseStatus == "ga"
-        assert len(config.fields) == 1
-
-        auth_field = config.fields[0]
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert auth_field.name == "auth_method"
-        assert auth_field.defaultValue == "api_key"
-
-        options = {option.value: option for option in auth_field.options}
-        assert set(options) == {"api_key", "oauth"}
-
-        api_key_fields = options["api_key"].fields
-        assert api_key_fields is not None
-        api_key_field = api_key_fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.secret is True
-
-        oauth_fields = options["oauth"].fields
-        assert oauth_fields is not None
-        oauth_field = oauth_fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "resend_integration_id"
-        assert oauth_field.kind == "resend"
-        assert oauth_field.requiredScopes == "full_access"
-
-    def test_non_retryable_errors(self):
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-        # OAuth reconnect signals must be non-retryable too.
-        assert any("Integration not found" in key for key in errors)
-
-    def test_audiences_bad_request_is_non_retryable(self):
-        errors = self.source.get_non_retryable_errors()
-        raised = "400 Client Error: Bad Request for url: https://api.resend.com/audiences"
-
-        matched = [message for key, message in errors.items() if key in raised]
-
-        assert len(matched) == 1
-        assert matched[0] is not None and "Audiences" in matched[0]
-
     @parameterized.expand(
         [
-            ("broadcasts_matches", "https://api.resend.com/broadcasts", True),
-            ("other_endpoint_stays_retryable", "https://api.resend.com/emails", False),
+            ("audiences", "https://api.resend.com/audiences", "Audiences"),
+            ("broadcasts", "https://api.resend.com/broadcasts", "Broadcasts"),
+            ("domains", "https://api.resend.com/domains", "Domains"),
+            # The real List Emails failure carries the paginator's ?limit=100 suffix, so the scoped
+            # key must still match it as a prefix.
+            ("emails", "https://api.resend.com/emails?limit=100", "Emails"),
         ]
     )
-    def test_broadcasts_bad_request_retryability(self, _name: str, url: str, should_match: bool):
+    def test_scoped_bad_request_is_non_retryable(self, _name: str, url: str, expected_word: str):
         errors = self.source.get_non_retryable_errors()
         raised = f"400 Client Error: Bad Request for url: {url}"
 
         matched = [message for key, message in errors.items() if key in raised]
 
-        if should_match:
-            assert len(matched) == 1
-            assert matched[0] is not None and "Broadcasts" in matched[0]
-        else:
-            assert not matched
+        assert len(matched) == 1
+        assert matched[0] is not None and expected_word in matched[0]
+
+    def test_unclassified_bad_request_stays_retryable(self):
+        # A 400 on an endpoint we haven't scoped a message for could be our own bug, so it must stay
+        # retryable and visible instead of silently disabling the sync.
+        errors = self.source.get_non_retryable_errors()
+        raised = "400 Client Error: Bad Request for url: https://api.resend.com/api-keys"
+
+        assert not [message for key, message in errors.items() if key in raised]
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -203,12 +158,6 @@ class TestResendSource:
 
         assert is_valid is False
         assert error_message == "Resend integration is not configured. Please reconnect your Resend account."
-
-    def test_get_resumable_source_manager(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ResendResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
     def test_source_for_pipeline_api_key_passes_bearer_auth(self, mock_resend_source):

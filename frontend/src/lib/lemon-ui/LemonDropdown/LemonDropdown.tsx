@@ -1,4 +1,4 @@
-import React, { MouseEventHandler, useContext, useRef, useState } from 'react'
+import React, { MouseEventHandler, useContext, useEffect, useRef, useState } from 'react'
 
 import { Popover, PopoverOverlayContext, PopoverProps } from '../Popover'
 
@@ -18,6 +18,7 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'vis
     closeOnClickInside?: boolean
     /** @default 'click' */
     trigger?: 'click' | 'hover'
+    hoverOpenDelayMs?: number
     children: React.ReactElement<
         Record<string, any> & {
             onClick: MouseEventHandler
@@ -38,6 +39,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             onMouseLeaveInside,
             closeOnClickInside = true,
             trigger = 'click',
+            hoverOpenDelayMs = 0,
             children,
             startVisible,
             ...popoverProps
@@ -51,6 +53,23 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
 
         const floatingRef = useRef<HTMLDivElement>(null)
         const referenceRef = useRef<HTMLSpanElement>(null)
+        const hoverOpenTimeoutRef = useRef<number | null>(null)
+
+        const clearHoverOpenTimeout = (): void => {
+            if (hoverOpenTimeoutRef.current !== null) {
+                window.clearTimeout(hoverOpenTimeoutRef.current)
+                hoverOpenTimeoutRef.current = null
+            }
+        }
+
+        useEffect(
+            () => () => {
+                if (hoverOpenTimeoutRef.current !== null) {
+                    window.clearTimeout(hoverOpenTimeoutRef.current)
+                }
+            },
+            []
+        )
 
         const effectiveVisible = visible ?? localVisible
 
@@ -94,6 +113,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             >
                 {React.cloneElement(children, {
                     onClick: (e: React.MouseEvent): void => {
+                        clearHoverOpenTimeout()
                         setVisible(!effectiveVisible)
                         children.props.onClick?.(e)
                         if (parentPopoverLevel > -1) {
@@ -104,10 +124,19 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     },
                     onMouseEnter: (): void => {
                         if (trigger === 'hover') {
-                            setVisible(true)
+                            clearHoverOpenTimeout()
+                            if (hoverOpenDelayMs > 0) {
+                                hoverOpenTimeoutRef.current = window.setTimeout(() => {
+                                    hoverOpenTimeoutRef.current = null
+                                    setVisible(true)
+                                }, hoverOpenDelayMs)
+                            } else {
+                                setVisible(true)
+                            }
                         }
                     },
                     onMouseLeave: (e: React.MouseEvent): void => {
+                        clearHoverOpenTimeout()
                         const relatedTarget = e.relatedTarget
                         if (
                             trigger === 'hover' &&

@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -24,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftclarity import (
     MicrosoftClaritySourceConfig,
 )
@@ -60,6 +57,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error": "Microsoft Clarity rejected the request. Check the reporting window and breakdown dimensions on this source and reconnect.",
             "401 Client Error": "Your Microsoft Clarity API token is invalid or expired. Generate a new token in Clarity under Settings -> Data Export and reconnect.",
             "403 Client Error": "This Microsoft Clarity API token is not authorized for this project.",
             "429 Client Error": "The Microsoft Clarity daily quota (10 requests per project) has been used up. Try again after the quota resets.",

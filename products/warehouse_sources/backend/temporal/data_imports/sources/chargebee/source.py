@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.chargebee import (
     ChargebeeResumeConfig,
     chargebee_source,
@@ -32,10 +28,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargebee import (
     ChargebeeSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# The site name is interpolated into https://{site_name}.chargebee.com, so it must be a bare DNS
+# subdomain: alphanumerics and hyphens, starting alphanumeric. This keeps outbound traffic pinned
+# to *.chargebee.com (a value with a scheme, dot, or path can't build another host). Digits are
+# allowed; a letters-only check rejected valid site names like "acme2024".
+_SITE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 
 @SourceRegistry.register
@@ -80,9 +83,12 @@ class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConf
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        subdomain_regex = re.compile("^[a-zA-Z-]+$")
-        if not subdomain_regex.match(config.site_name):
-            return False, "Chargebee site name is incorrect"
+        if not _SITE_NAME_RE.match(config.site_name):
+            return (
+                False,
+                "That doesn't look like a Chargebee site name. Enter just the site name "
+                "(the 'acme' in 'acme.chargebee.com'), not the full URL.",
+            )
 
         if validate_chargebee_credentials(config.api_key, config.site_name):
             return True, None

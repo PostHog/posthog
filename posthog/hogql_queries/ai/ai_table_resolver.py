@@ -76,6 +76,7 @@ def query_ai_events(
     query_type: str,
     *,
     fall_back_to_events: bool = False,
+    fallback_placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     modifiers: HogQLQueryModifiers | None = None,
     limit_context: LimitContext | None = None,
@@ -97,6 +98,9 @@ def query_ai_events(
     - ``fall_back_to_events=False`` (default): an events row would be useless to the caller,
       so events is probed only to classify the miss — raising :class:`AIEventsExpiredError`
       (the data aged past the TTL) or :class:`AIEventsNotFoundError` (it never existed).
+
+    ``fallback_placeholders`` lets callers keep predicates required by shared events out of
+    the dedicated table query. They use the ai_events schema and are rewritten before execution.
 
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
@@ -127,7 +131,10 @@ def query_ai_events(
 
         events_schema = use_new_events_schema(team.pk)
         events_query = rewrite_query_for_events_table(query)
-        events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
+        fallback_source_placeholders = fallback_placeholders if fallback_placeholders is not None else placeholders
+        events_placeholders = {
+            key: rewrite_expr_for_events_table(value) for key, value in fallback_source_placeholders.items()
+        }
         events_kwargs = {
             **kwargs,
             "context": HogQLContext(
@@ -156,7 +163,11 @@ def query_ai_events(
         raise AIEventsNotFoundError(f"AI events for {query_type} were not found")
 
 
-# Canonical Python list. Node.js mirror: nodejs/src/ingestion/ai/process-ai-event.ts
+# Query-routing list: event types whose full history lives in the dedicated ai_events table.
+# The ingestion list (nodejs/src/ingestion/pipelines/ai/ai-event-types.ts) additionally
+# contains the AI meta-events ($ai_tag, summaries, eval reports); they are excluded here
+# because ai_events lacks their full history, so their queries must stay on the shared
+# events table to avoid misreading the missing rows as expired data.
 AI_EVENT_NAMES = frozenset(
     {
         "$ai_generation",

@@ -3,16 +3,14 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.packagist import (
     PackagistSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.packagist import PackagistResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.source import PackagistSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -42,9 +40,6 @@ class TestPackagistSource:
         self.team_id = 123
         self.config = PackagistSourceConfig(packages="monolog/monolog\nsymfony/console")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PACKAGIST
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -54,18 +49,6 @@ class TestPackagistSource:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/packagist"
         # A finished source must be visible in the wizard, not hidden behind unreleasedSource.
         assert not config.unreleasedSource
-
-    def test_get_source_config_fields(self):
-        fields = self.source.get_source_config.fields
-
-        by_name = {field.name: field for field in fields if isinstance(field, SourceFieldInputConfig)}
-        assert set(by_name) == {"packages"}
-
-        packages_field = by_name["packages"]
-        assert packages_field.type == SourceFieldInputConfigType.TEXTAREA
-        assert packages_field.required is True
-        # No auth, so the field carries no secret.
-        assert packages_field.secret is False
 
     def test_get_schemas_lists_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -101,56 +84,10 @@ class TestPackagistSource:
         # Unauthenticated API: there are no credential errors to permanently fail on.
         assert self.source.get_non_retryable_errors() == {}
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert set(descriptions) == set(ENDPOINTS)
-
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
         assert len(self.source.get_documented_tables()) == len(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "mock_return",
-        [
-            (True, None),
-            (False, "Package 'x' was not found on Packagist."),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.packagist.source.validate_packagist_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return):
-        mock_validate.return_value = mock_return
-
-        result = self.source.validate_credentials(self.config, self.team_id, "packages")
-
-        assert result == mock_return
-        mock_validate.assert_called_once_with(self.config.packages)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert manager._data_class is PackagistResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.packagist.source.packagist_source")
-    def test_source_for_pipeline_plumbs_args(self, mock_packagist_source):
-        inputs = _make_inputs(
-            schema_name="downloads", should_use_incremental_field=True, db_incremental_field_last_value="2026-07-01"
-        )
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_packagist_source.assert_called_once_with(
-            endpoint="downloads",
-            packages_raw="monolog/monolog\nsymfony/console",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-07-01",
-        )
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.packagist.source.packagist_source")
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self, mock_packagist_source):

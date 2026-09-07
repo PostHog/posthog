@@ -12,10 +12,14 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
+from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
+from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -31,15 +35,19 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
     _parse_artefact_content,
+    _parse_stored_charts,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
+from products.signals.backend.temporal.summary import MarkReportReadyInput, mark_report_ready_activity
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.models import Task  # tach-ignore
 
 
 @pytest_asyncio.fixture
@@ -98,6 +106,67 @@ def _build_research_output() -> ReportResearchOutput:
     )
 
 
+def _chart() -> ReportChart:
+    return ReportChart(
+        chart_id="signups-drop",
+        title="Daily signups",
+        query={
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "user_signed_up"}]},
+        },
+    )
+
+
+def _build_research_output_with_chart() -> ReportResearchOutput:
+    output = _build_research_output()
+    return output.model_copy(update={"charts": [_chart()]})
+
+
+def _build_research_output_with_duplicate_chart_ids() -> ReportResearchOutput:
+    dupe = _chart()
+    return _build_research_output().model_copy(
+        update={"charts": [dupe, dupe.model_copy(update={"title": "Same id, different chart"})]}
+    )
+
+
+_EXISTING_CHART = {
+    "chart_id": "existing",
+    "title": "Existing chart",
+    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+}
+
+
+async def _run_activity_with_output(
+    monkeypatch, ateam, report, output, *, charts_enabled=True, repo_selection_as_of=None
+):
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
+        lambda team_id: 1,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
+        lambda team_id: charts_enabled,
+    )
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        return output
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
+        fake_run_multi_turn_research,
+    )
+    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+        return await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+                repo_selection_as_of=repo_selection_as_of,
+            )
+        )
+
+
 def _build_signals() -> list[SignalData]:
     now = datetime.now(UTC)
     return [
@@ -126,7 +195,7 @@ def _build_signals() -> list[SignalData]:
 @pytest.mark.django_db
 async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
     )
     monkeypatch.setattr(
@@ -157,7 +226,7 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: previous,
     )
 
@@ -198,7 +267,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
         return previous
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         flaky_load,
     )
 
@@ -215,7 +284,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 @pytest.mark.django_db
 async def test_select_repository_activity_no_repo(monkeypatch, ateam):
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
     )
     monkeypatch.setattr(
@@ -259,7 +328,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
     )
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
     )
 
@@ -306,7 +375,10 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         fake_run_multi_turn_research,
     )
 
-    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.report_generation.reviewer_telemetry.posthoganalytics.capture") as mock_capture,
+    ):
         result = await run_agentic_report_activity(
             RunAgenticReportInput(
                 team_id=ateam.id,
@@ -319,6 +391,21 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         )
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
+
+        # Scoped to the reviewer events on purpose: patching `capture` on one module patches the
+        # shared `posthoganalytics` module, so every other event this activity fires lands in the
+        # same mock. This test owns the reviewer contract only.
+        reviewer_calls = [
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"].startswith("signals_suggested_reviewers")
+        ]
+        # The findings cite no commits, so no reviewers artefact is written; the run must say why.
+        assert [call["event"] for call in reviewer_calls] == ["signals_suggested_reviewers_unresolved"]
+        unresolved_props = reviewer_calls[0]["properties"]
+        assert unresolved_props["report_id"] == str(report.id)
+        assert unresolved_props["outcome"] == "no_commit_hashes"
+        assert unresolved_props["finding_count"] == 2
         assert result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
         assert result.priority == Priority.P1
         assert result.already_addressed is False
@@ -354,10 +441,281 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
             "task_id": None,
+            "autostart_eligible": True,
         }
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_keeps_reviewer_selection_written_mid_run(monkeypatch, ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    as_of = datetime.now(UTC)
+    reviewer = await sync_to_async(User.objects.create)(email=f"reviewer-{random.randint(1, 99999)}@example.com")
+    # A wrong-repo dismissal cleared the selection after this run resolved its own. The reviewer's
+    # row must stay the newest one — settle-time auto-start reads the report's current artefacts.
+    await database_sync_to_async(SignalReportArtefact.append_status)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=RepoSelectionResult(repository=None, reason="cleared by a reviewer", autostart_eligible=False),
+        attribution=ArtefactAttribution.from_user(reviewer.id),
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
+
+    selections = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            ).order_by("created_at")
+        )
+    )()
+    assert [json.loads(selection.content)["repository"] for selection in selections] == [None]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_detects_task_attributed_wrong_repo_dismissal(monkeypatch, ateam):
+    # An agent dismissing a report as wrong_repo through the MCP surface attributes the dismissal to
+    # its task, so the `dismissal` artefact carries a null created_by. The supersede guard must still
+    # detect it off the dismissal artefact; keying only off a user-attributed repo_selection row
+    # would miss it, and the run would bury the correction with its stale selection.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    as_of = datetime.now(UTC)
+    task = await database_sync_to_async(Task.objects.create)(team=ateam, title="agent", description="d")
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=Dismissal(
+            reason=DISMISSAL_REASON_WRONG_REPO,
+            selected_repository="posthog/posthog",
+            corrected_repository="acme/other",
+        ),
+        attribution=ArtefactAttribution.from_task(str(task.id)),
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
+
+    # Superseded by the agent's correction: the run must not persist its own stale selection on top.
+    selections = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        )
+    )()
+    assert selections == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_hands_fleet_steering_to_the_research_session(monkeypatch, ateam):
+    # Resolving the team's steering and then not passing it to the session is the failure this
+    # whole path exists to prevent, and nothing downstream would report it: the run still produces
+    # a title, a summary, and both assessments, just without the feedback the team already gave.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+
+    def _leave_note() -> None:
+        with team_scope(ateam.id, canonical=True):
+            SignalScoutNote.objects.create(team=ateam, skill_name="", content="the checkout flow is frozen")
+
+    await database_sync_to_async(_leave_note)()
+
+    captured: dict = {}
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        captured.update(kwargs)
+        return _build_research_output()
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
+        lambda team_id: 1,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
+        fake_run_multi_turn_research,
+    )
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.report.posthoganalytics.capture") as mock_capture,
+    ):
+        await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+            )
+        )
+
+    assert "the checkout flow is frozen" in captured["steering_section"]
+    steering_events = [
+        call.kwargs
+        for call in mock_capture.call_args_list
+        if call.kwargs["event"] == "signals_research_steering_attached"
+    ]
+    assert len(steering_events) == 1
+    assert steering_events[0]["properties"]["notes_attached"] == 1
+    assert steering_events[0]["properties"]["dismissal_notes_attached"] == 0
+    # The memory protocol is rendered from the same posture the sandbox token is minted with, so a
+    # posture that stopped granting the scratchpad would silently drop the write half instead of
+    # telling the run to remember with a tool the MCP server has stripped.
+    assert grants_scratchpad_write(RESEARCH_MCP_SCOPES)
+    assert steering_events[0]["properties"]["memory_protocol"] is True
+    assert "scout-scratchpad-remember" in captured["steering_section"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retained(monkeypatch, ateam):
+    # A re-promotion that resolves nobody persists no empty list, so the earlier reviewers stay the
+    # report's live set. Firing `unresolved` here would make the latest-event-per-report read call a
+    # report reviewerless while its artefact still names someone.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps([{"github_login": "someone", "github_name": "Someone", "relevant_commits": []}]),
+    )
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
+        lambda team_id: 1,
+    )
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        return _build_research_output()
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
+        fake_run_multi_turn_research,
+    )
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.report_generation.reviewer_telemetry.posthoganalytics.capture") as mock_capture,
+    ):
+        await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(
+                    repository="posthog/posthog", reason="Single repository connected: posthog/posthog"
+                ),
+            )
+        )
+
+    # Reviewer events only: the shared `posthoganalytics` module means this mock also catches the
+    # other events the activity fires, and this test is about the reviewer contract.
+    assert [
+        call.kwargs["event"]
+        for call in mock_capture.call_args_list
+        if call.kwargs["event"].startswith("signals_suggested_reviewers")
+    ] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "name,charts_enabled,output_factory,expected",
+    [
+        # Opted-in + a valid chart → the JSON set to store.
+        ("enabled_non_empty", True, _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
+        # Not opted in → None (leave the column alone), even though the mocked run returned a chart.
+        ("disabled", False, _build_research_output_with_chart, None),
+        # Opted-in but the run authored no charts (optional field omitted / dropped) → None, never a
+        # wipe of whatever the report already showed.
+        ("enabled_empty", True, _build_research_output, None),
+        # Opted-in but the set busts the whole-set caps (duplicate id) → [] to clear, so a stale set
+        # can't sit under the new summary.
+        ("enabled_cap_bust", True, _build_research_output_with_duplicate_chart_ids, []),
+    ],
+)
+async def test_run_agentic_report_activity_resolves_charts_payload(
+    monkeypatch, ateam, name, charts_enabled, output_factory, expected
+):
+    # The activity resolves the charts payload but does not write it — the transition activity does,
+    # atomically with the title/summary (see test_mark_report_ready_activity_applies_charts). So we
+    # assert the resolved payload on the returned output rather than the report row.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
+    )
+
+    result = await _run_activity_with_output(
+        monkeypatch, ateam, report, output_factory(), charts_enabled=charts_enabled
+    )
+
+    if expected is None:
+        assert result.charts is None
+    else:
+        assert [{"chart_id": chart["chart_id"]} for chart in result.charts] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "name,charts,expected",
+    [
+        # A resolved set replaces the column, in the same transaction as the ready transition.
+        ("replace", [{"chart_id": "new", "title": "New", "query": {"kind": "InsightVizNode"}}], "replaced"),
+        # None means "leave alone" — the report keeps whatever it had.
+        ("leave_alone", None, "kept"),
+        # [] clears (the resolver's cap-bust signal) — a stale set must not survive under new prose.
+        ("clear", [], "cleared"),
+    ],
+)
+async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, expected):
+    # Charts land in the same transaction as the title/summary the ready transition writes, so a
+    # failure of that activity can never leave new charts under stale prose.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        charts=[_EXISTING_CHART],
+    )
+
+    await mark_report_ready_activity(
+        MarkReportReadyInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            title="Title",
+            summary="Summary",
+            processed_signal_count=2,
+            charts=charts,
+        )
+    )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).charts)()
+    if expected == "replaced":
+        assert [chart["chart_id"] for chart in stored] == ["new"]
+    elif expected == "kept":
+        assert stored == [_EXISTING_CHART]
+    else:
+        assert stored == []
 
 
 @pytest.mark.asyncio
@@ -437,6 +795,16 @@ def test_parse_artefact_content_raises_on_incompatible_schema():
     )
     with pytest.raises(ValueError, match="incompatible with the current ActionabilityAssessment schema"):
         _parse_artefact_content(ActionabilityAssessment, artefact, "report-1")
+
+
+def test_parse_stored_charts_skips_bad_rows_without_raising():
+    # A re-research loads a report's stored charts to show back to the agent. A row that no longer
+    # validates (a tightened schema, a legacy shape) must be dropped, not crash the re-promotion.
+    valid = _chart().model_dump(mode="json")
+    invalid = {"chart_id": "no-query"}  # missing required title/query
+    assert [chart.chart_id for chart in _parse_stored_charts([valid, invalid], "report-1")] == ["signups-drop"]
+    # A non-list (a legacy null / bad column value) is treated as no charts rather than raising.
+    assert _parse_stored_charts(None, "report-1") == []
 
 
 def _actionability(explanation: str) -> ActionabilityAssessment:

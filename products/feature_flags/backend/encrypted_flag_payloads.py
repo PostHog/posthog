@@ -7,6 +7,9 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 from posthog.auth import PersonalAPIKeyAuthentication
 
+# Must remain a JSON-parseable string (note the embedded quotes): merged-state filters
+# validation substitutes this sentinel for stored ciphertext before structural validation,
+# so a non-JSON value here would 400 every filters PATCH on every encrypted-payloads flag.
 REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
 
 

@@ -8,24 +8,14 @@ import { PathCleanFilterAddItemButton } from 'lib/components/PathCleanFilters/Pa
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFiltersTable } from 'lib/components/PathCleanFilters/PathCleanFiltersTable'
 import { PathCleaningRulesDebugger } from 'lib/components/PathCleanFilters/PathCleaningRulesDebugger'
+import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { isValidRegexp } from 'lib/utils/regexp'
+import { PathCleaningSuggestionsBanner } from 'scenes/settings/environment/PathCleaningSuggestionsBanner'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, PathCleaningFilter } from '~/types'
-
-const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): string => {
-    return filters.reduce((text, filter) => {
-        // If for some reason we don't have a valid RegExp, don't attempt to clean the path
-        if (!isValidRegexp(filter.regex ?? '')) {
-            return text
-        }
-
-        return text.replace(new RegExp(filter.regex ?? '', 'gi'), filter.alias ?? '')
-    }, path)
-}
 
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const [testValue, setTestValue] = useState('')
@@ -55,7 +45,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
         )
     }
 
-    const cleanedTestPath = cleanPathWithRegexes(testValue, currentTeam.path_cleaning_filters ?? [])
+    const cleanedTestPath = applyPathCleaning(testValue, currentTeam.path_cleaning_filters ?? [])
     const readableTestPath = parseAliasToReadable(cleanedTestPath)
 
     const updateFilters = (filters: PathCleaningFilter[]): void => {
@@ -72,6 +62,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
 
     return (
         <>
+            <PathCleaningSuggestionsBanner />
             <div className="flex flex-col gap-4">
                 <PathCleanFiltersTable filters={currentTeam.path_cleaning_filters || []} setFilters={updateFilters} />
                 <div>

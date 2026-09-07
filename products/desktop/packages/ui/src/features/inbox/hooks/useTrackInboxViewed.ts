@@ -1,0 +1,74 @@
+import { buildInboxViewedProperties } from "@posthog/core/inbox/engagement";
+import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { track } from "@posthog/ui/shell/analytics";
+import { useEffect, useRef } from "react";
+
+/**
+ * Fires `INBOX_VIEWED` once per inbox visit, after the report list settles,
+ * with the counts the user sees on load (tab badges, total, ready, and the
+ * priority/actionability breakdown of the visible reports).
+ *
+ * Mounted from `InboxView` for the legacy tabbed inbox, so it fires once per
+ * visit and survives tab switches. The sectioned reports inbox tracks from its
+ * existing list and count data to avoid mounting these legacy queries.
+ */
+export function useTrackInboxViewed(options?: { enabled?: boolean }): void {
+  const enabled = options?.enabled ?? true;
+  const {
+    scopedReports,
+    totalCount,
+    counts,
+    scope,
+    isSuccess,
+    countsReady,
+    sourceProductFilter,
+    priorityFilter,
+    searchQuery,
+    // The badge counts come from their own requests, so opt in here too or the
+    // event records a zero the user never saw.
+  } = useInboxAllReports({ enabled, withReportsCount: true });
+
+  const firedRef = useRef(false);
+  useEffect(() => {
+    if (!enabled || firedRef.current) return;
+    // Gate on a successful load, not just `!isLoading`: an errored initial
+    // request also leaves `isLoading` false with an empty list, and `firedRef`
+    // would then lock in a bogus empty-inbox view that a later refetch can't fix.
+    if (!isSuccess) return;
+    // The event carries the tab badges and fires once, so a list that settles
+    // ahead of the count requests would lock in counts of zero.
+    if (!countsReady) return;
+    firedRef.current = true;
+    track(
+      ANALYTICS_EVENTS.INBOX_VIEWED,
+      buildInboxViewedProperties({
+        visibleReports: scopedReports,
+        totalCount,
+        tabCounts: counts,
+        filters: {
+          surface: "desktop",
+          sourceProductFilter,
+          priorityFilter,
+          searchQuery,
+          scope: inboxReviewerScopeValue(scope),
+          // The legacy tabbed inbox has no report-state filter control.
+          reportStateFilter: [],
+          defaultReportStateFilter: [],
+        },
+      }),
+    );
+  }, [
+    isSuccess,
+    countsReady,
+    scopedReports,
+    totalCount,
+    counts,
+    scope,
+    sourceProductFilter,
+    priorityFilter,
+    searchQuery,
+    enabled,
+  ]);
+}

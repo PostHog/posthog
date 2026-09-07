@@ -2,29 +2,23 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    McpAnalyticsFeedbackCreateBody,
-    McpAnalyticsMissingCapabilitiesCreateBody,
-    McpAnalyticsSessionsGenerateIntentParams,
-    McpAnalyticsSessionsGenerateIntentQueryParams,
-    McpAnalyticsSessionsListQueryParams,
-    McpAnalyticsSessionsToolCallsParams,
-    McpAnalyticsSessionsToolCallsQueryParams,
-} from '@/generated/mcp_analytics/api'
+import * as orvalSchemas from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const McpAnalyticsIntentClustersRecomputeSchema = z.object({})
+const McpAnalyticsIntentClustersRecomputeSchema = () => z.object({})
 
 const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
-    typeof McpAnalyticsIntentClustersRecomputeSchema,
+    ReturnType<typeof McpAnalyticsIntentClustersRecomputeSchema>,
     unknown
 > => ({
     name: 'mcp-analytics-intent-clusters-recompute',
-    schema: McpAnalyticsIntentClustersRecomputeSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRecomputeSchema>) => {
+    schema: McpAnalyticsIntentClustersRecomputeSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof McpAnalyticsIntentClustersRecomputeSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -34,36 +28,45 @@ const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
     },
 })
 
-const McpAnalyticsIntentClustersRetrieveSchema = z.object({})
+const McpAnalyticsIntentClustersRetrieveSchema = () => {
+    const McpAnalyticsIntentClustersRetrieveQueryParams = orvalSchemas.McpAnalyticsIntentClustersRetrieveQueryParams()
+    return McpAnalyticsIntentClustersRetrieveQueryParams
+}
 
 const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
-    typeof McpAnalyticsIntentClustersRetrieveSchema,
+    ReturnType<typeof McpAnalyticsIntentClustersRetrieveSchema>,
     Schemas.MCPIntentClusterSnapshot[]
 > => ({
     name: 'mcp-analytics-intent-clusters-retrieve',
-    schema: McpAnalyticsIntentClustersRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRetrieveSchema>) => {
+    schema: McpAnalyticsIntentClustersRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsIntentClustersRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPIntentClusterSnapshot[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/`,
+            query: {
+                tool: params.tool,
+            },
         })
         return result
     },
 })
 
-const McpAnalyticsSessionsGenerateIntentSchema = McpAnalyticsSessionsGenerateIntentParams.omit({
-    project_id: true,
-}).extend(McpAnalyticsSessionsGenerateIntentQueryParams.shape)
+const McpAnalyticsSessionsGenerateIntentSchema = () => {
+    const McpAnalyticsSessionsGenerateIntentParams = orvalSchemas.McpAnalyticsSessionsGenerateIntentParams()
+    const McpAnalyticsSessionsGenerateIntentQueryParams = orvalSchemas.McpAnalyticsSessionsGenerateIntentQueryParams()
+    return McpAnalyticsSessionsGenerateIntentParams.omit({ project_id: true }).extend(
+        McpAnalyticsSessionsGenerateIntentQueryParams.shape
+    )
+}
 
 const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
-    typeof McpAnalyticsSessionsGenerateIntentSchema,
+    ReturnType<typeof McpAnalyticsSessionsGenerateIntentSchema>,
     Schemas.MCPSessionIntent
 > => ({
     name: 'mcp-analytics-sessions-generate-intent',
-    schema: McpAnalyticsSessionsGenerateIntentSchema,
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsGenerateIntentSchema>) => {
+    schema: McpAnalyticsSessionsGenerateIntentSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsSessionsGenerateIntentSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPSessionIntent>({
             method: 'POST',
@@ -76,15 +79,18 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsListSchema = McpAnalyticsSessionsListQueryParams
+const McpAnalyticsSessionsListSchema = () => {
+    const McpAnalyticsSessionsListQueryParams = orvalSchemas.McpAnalyticsSessionsListQueryParams()
+    return McpAnalyticsSessionsListQueryParams
+}
 
 const mcpAnalyticsSessionsList = (): ToolBase<
-    typeof McpAnalyticsSessionsListSchema,
+    ReturnType<typeof McpAnalyticsSessionsListSchema>,
     WithPostHogUrl<Schemas.PaginatedMCPSessionList>
 > => ({
     name: 'mcp-analytics-sessions-list',
-    schema: McpAnalyticsSessionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsListSchema>) => {
+    schema: McpAnalyticsSessionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsSessionsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMCPSessionList>({
             method: 'GET',
@@ -102,17 +108,21 @@ const mcpAnalyticsSessionsList = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
-    McpAnalyticsSessionsToolCallsQueryParams.shape
-)
+const McpAnalyticsSessionsToolCallsSchema = () => {
+    const McpAnalyticsSessionsToolCallsParams = orvalSchemas.McpAnalyticsSessionsToolCallsParams()
+    const McpAnalyticsSessionsToolCallsQueryParams = orvalSchemas.McpAnalyticsSessionsToolCallsQueryParams()
+    return McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
+        McpAnalyticsSessionsToolCallsQueryParams.shape
+    )
+}
 
 const mcpAnalyticsSessionsToolCalls = (): ToolBase<
-    typeof McpAnalyticsSessionsToolCallsSchema,
+    ReturnType<typeof McpAnalyticsSessionsToolCallsSchema>,
     WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
 > => ({
     name: 'mcp-analytics-sessions-tool-calls',
-    schema: McpAnalyticsSessionsToolCallsSchema,
-    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsToolCallsSchema>) => {
+    schema: McpAnalyticsSessionsToolCallsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpAnalyticsSessionsToolCallsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
             method: 'GET',
@@ -127,19 +137,22 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
     },
 })
 
-const McpFeedbackSubmitSchema = McpAnalyticsFeedbackCreateBody.omit({
-    mcp_client_name: true,
-    mcp_client_version: true,
-    mcp_protocol_version: true,
-    mcp_transport: true,
-    mcp_session_id: true,
-    mcp_trace_id: true,
-})
+const McpFeedbackSubmitSchema = () => {
+    const McpAnalyticsFeedbackCreateBody = orvalSchemas.McpAnalyticsFeedbackCreateBody()
+    return McpAnalyticsFeedbackCreateBody.omit({
+        mcp_client_name: true,
+        mcp_client_version: true,
+        mcp_protocol_version: true,
+        mcp_transport: true,
+        mcp_session_id: true,
+        mcp_trace_id: true,
+    })
+}
 
-const mcpFeedbackSubmit = (): ToolBase<typeof McpFeedbackSubmitSchema, Schemas.MCPAnalyticsSubmission> => ({
+const mcpFeedbackSubmit = (): ToolBase<ReturnType<typeof McpFeedbackSubmitSchema>, Schemas.MCPAnalyticsSubmission> => ({
     name: 'mcp-feedback-submit',
-    schema: McpFeedbackSubmitSchema,
-    handler: async (context: Context, params: z.infer<typeof McpFeedbackSubmitSchema>) => {
+    schema: McpFeedbackSubmitSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpFeedbackSubmitSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.attempted_tool !== undefined) {
@@ -163,22 +176,25 @@ const mcpFeedbackSubmit = (): ToolBase<typeof McpFeedbackSubmitSchema, Schemas.M
     },
 })
 
-const McpMissingCapabilityReportSchema = McpAnalyticsMissingCapabilitiesCreateBody.omit({
-    mcp_client_name: true,
-    mcp_client_version: true,
-    mcp_protocol_version: true,
-    mcp_transport: true,
-    mcp_session_id: true,
-    mcp_trace_id: true,
-})
+const McpMissingCapabilityReportSchema = () => {
+    const McpAnalyticsMissingCapabilitiesCreateBody = orvalSchemas.McpAnalyticsMissingCapabilitiesCreateBody()
+    return McpAnalyticsMissingCapabilitiesCreateBody.omit({
+        mcp_client_name: true,
+        mcp_client_version: true,
+        mcp_protocol_version: true,
+        mcp_transport: true,
+        mcp_session_id: true,
+        mcp_trace_id: true,
+    })
+}
 
 const mcpMissingCapabilityReport = (): ToolBase<
-    typeof McpMissingCapabilityReportSchema,
+    ReturnType<typeof McpMissingCapabilityReportSchema>,
     Schemas.MCPAnalyticsSubmission
 > => ({
     name: 'mcp-missing-capability-report',
-    schema: McpMissingCapabilityReportSchema,
-    handler: async (context: Context, params: z.infer<typeof McpMissingCapabilityReportSchema>) => {
+    schema: McpMissingCapabilityReportSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpMissingCapabilityReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.attempted_tool !== undefined) {
@@ -259,6 +275,10 @@ const PropertyOperator = z.enum([
     'is_not',
     'icontains',
     'not_icontains',
+    'starts_with',
+    'not_starts_with',
+    'ends_with',
+    'not_ends_with',
     'regex',
     'not_regex',
     'gt',
@@ -291,7 +311,7 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
@@ -383,7 +403,7 @@ const LogEntryPropertyFilter = z.object({
 
 const GroupPropertyFilter = z.object({
     group_key_names: z.record(z.string(), z.string()).optional(),
-    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
+    group_type_index: z.union([z.number().int(), z.null()]).optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -407,7 +427,7 @@ const FlagPropertyFilter = z.object({
         .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
         .default('flag_evaluates_to'),
     type: z.literal('flag').describe('Feature flag dependency').default('flag'),
-    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+    value: z.union([z.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
 })
 
 const HogQLPropertyFilter = z.object({
@@ -500,6 +520,54 @@ const WorkflowVariablePropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const BehavioralEventSource = z.enum(['events', 'actions'])
+
+const TimeUnitType = z.enum(['day', 'week', 'month', 'year'])
+
+const InlineBehavioralType = z.enum(['performed_event', 'performed_event_multiple'])
+
+const BehavioralPropertyFilter = z.object({
+    event_filters: z
+        .array(
+            z.union([
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+            ])
+        )
+        .describe(
+            'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups'
+        )
+        .optional(),
+    event_type: BehavioralEventSource,
+    explicit_datetime: z
+        .string()
+        .describe('Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval')
+        .optional(),
+    explicit_datetime_to: z.string().optional(),
+    key: z.string().describe("Event name, or action id when event_type is 'actions'"),
+    label: z.string().optional(),
+    negation: z.coerce
+        .boolean()
+        .describe(
+            'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
+        )
+        .optional(),
+    operator: PropertyOperator.describe('Count comparison for performed_event_multiple, defaults to exact').optional(),
+    operator_value: z.coerce.number().int().describe('Count threshold for performed_event_multiple').optional(),
+    time_interval: TimeUnitType.optional(),
+    time_value: z.coerce.number().int().describe('Relative time window size, paired with time_interval').optional(),
+    type: z
+        .literal('behavioral')
+        .describe(
+            "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
+        )
+        .default('behavioral'),
+    value: InlineBehavioralType,
+})
+
 const AnyPropertyFilter = z.union([
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -524,6 +592,7 @@ const AnyPropertyFilter = z.union([
     RevenueAnalyticsPropertyFilter,
     AccountCustomPropertyFilter,
     WorkflowVariablePropertyFilter,
+    BehavioralPropertyFilter,
 ])
 
 const MCPHarnessBreakdownQuery = z.object({
@@ -616,6 +685,20 @@ const MCPToolDescriptionsQuery = z.object({
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
+const integer = z.coerce.number().int()
+
+const MCPMissingCapabilitiesQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPMissingCapabilitiesQuery').default('MCPMissingCapabilitiesQuery'),
+    limit: integer.describe('Page size; defaults to 100, capped at 500.').optional(),
+    offset: integer
+        .describe(
+            "Reports to skip before returning results. Combine with limit to page through them; the response's has_next flag indicates whether more remain."
+        )
+        .optional(),
+    search: z.string().describe('Case-insensitive substring match over the report text.').optional(),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
@@ -668,5 +751,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-tool-descriptions',
         schema: MCPToolDescriptionsQuery,
         kind: 'MCPToolDescriptionsQuery',
+    }),
+    'query-mcp-missing-capabilities': createQueryWrapper({
+        name: 'query-mcp-missing-capabilities',
+        schema: MCPMissingCapabilitiesQuery,
+        kind: 'MCPMissingCapabilitiesQuery',
     }),
 }

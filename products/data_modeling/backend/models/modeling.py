@@ -24,6 +24,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -460,7 +461,9 @@ def _select_queries_with_scope(
     return result
 
 
-def get_parents_from_model_query(team: Team, model_name: str, model_query: str) -> set[str]:
+def get_parents_from_model_query(
+    team: Team, model_name: str, model_query: str, database: Database | None = None
+) -> set[str]:
     """Get parents from a given query.
 
     The parents of a query are any names in the `FROM` clause of the query.
@@ -474,6 +477,7 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
         model_name: The name of the saved query being parsed; used as the
             initial view so cycles back to it are detected.
         model_query: The HogQL query string to parse.
+        database: An optional prebuilt database to reuse for dependency resolution.
     """
     hogql_query = parse_select(model_query)
     context = HogQLContext(
@@ -481,6 +485,7 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
         team=team,
         enable_select_queries=True,
     )
+    context.database = database
     if context.database is None:
         # Internal DAG parsing (no user); bypass warehouse HogQL access control so parent-table
         # resolution sees every referenced table/view.
@@ -489,6 +494,7 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
             modifiers=context.modifiers,
             team=context.team,
             bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
 
     resolver = BoundedResolver(context=context, dialect="hogql", initial_view_name=model_name)
@@ -786,7 +792,11 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
         # Internal model-path resolution (no user); bypass warehouse HogQL access control.
-        return Database.create_for(team=team, bypass_warehouse_access_control=True)
+        return Database.create_for(
+            team=team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable

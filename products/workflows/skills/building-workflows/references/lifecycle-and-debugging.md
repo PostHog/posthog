@@ -8,6 +8,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 
 - `workflows-create` — create a workflow. Always created as a `draft`.
 - `workflows-patch-graph` — **the way to edit a workflow's graph.** An ordered, id-addressed op list (`update_action`, `add_action`, `remove_action`, `add_edge`, `remove_edge`, `replace_action_edges`) applied atomically; `update_action` deep-merges (a `null` leaf deletes a key). Returns the full updated graph, so no re-fetch. On an active workflow, patches stage a draft (published with `workflows-publish`) instead of changing what's running.
+- `workflows-patch-action-email` — **the way to edit the email inside a `function_email` step.** The template patch's design ops (id-addressed Unlayer blocks) plus an `email_patch` merge for subject/preheader/text/recipients; HTML is re-rendered server-side so it can't go stale. Stages a draft on active workflows, same as `workflows-patch-graph`.
 - `workflows-update` — **fallback editor.** Top-level metadata a graph patch can't express (renaming), or an escape hatch to replace the whole workflow when `workflows-patch-graph` won't land a change. On an active workflow, content fields stage a draft; name/description apply live.
 - `workflows-enable` — draft → `active`. It starts running on real people, so test first and get the user's explicit approval before enabling. Later changes stage as drafts and take effect only on publish.
 - `workflows-publish` — apply an active workflow's staged draft to its live config. Call without `confirm` first: it echoes `in_flight_runs` + `draft_updated_at` and changes nothing. Get the user's go-ahead, then confirm with that exact `draft_updated_at` (409 = draft changed under you; re-read).
@@ -18,7 +19,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 
 **Test & inspect**
 
-- `workflows-test-run` — runs **one step at a time**, it does not traverse the whole graph in one call. Omit `current_action_id` (or set it to the trigger) to run the first step; the result gives you `nextActionId`, which you pass as `current_action_id` on the next call. Walk the workflow step by step this way; to test a specific branch, set `current_action_id` to that node. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Pass test data via `globals` (`{event, person, groups}`). Async actions (HTTP/email/SMS) mocked by default; `mock_async_functions=false` fires real side effects. Returns the step's execution trace. `use_draft=true` tests an active workflow's staged draft instead of its live config — always do this before `workflows-publish`.
+- `workflows-test-run` — runs **one step at a time**, it does not traverse the whole graph in one call. Omit `current_action_id` (or set it to the trigger) to run the first step; the result gives you `nextActionId`, which you pass as `current_action_id` on the next call. Walk the workflow step by step this way; to test a specific branch, set `current_action_id` to that node. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Pass test data via `globals` (`{event, person, groups}`), shaped like the trigger's real payload: an `event` trigger needs an event matching its filters, and an `internal-event` trigger needs an event named in its `filters.events` (for the Slack trigger, a `$slack_message_received` event with the Slack property bag) and no person (see [graph-schema.md](graph-schema.md)), best copied from a past run via `workflows-get-invocation`. The trigger step evaluates filters for `event`, `internal-event`, and warehouse-row triggers; `status=skipped` means this payload would not fire the trigger. Fix a fabricated payload to match the trigger; treat a skip on a real, copied payload as a broken trigger filter instead. Other trigger types pass any payload through. Async actions (HTTP/email/SMS) mocked by default; `mock_async_functions=false` fires real side effects. Returns the step's execution trace. `use_draft=true` tests an active workflow's staged draft instead of its live config — always do this before `workflows-publish`.
 - `workflows-logs` — execution log entries (timestamp, level DEBUG/LOG/INFO/WARN/ERROR, message). Filter by level, text, time range, limit.
 
 **Batch & schedules**
@@ -36,10 +37,11 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-list-invocations` — per-recipient outcomes (one per person/event): status, error_kind/error_message, distinct_id, person_id, timings. Filter `status=failed`.
 - `workflows-get-invocation` — a single invocation incl. `invocation_globals` (the raw triggering payload that ran). The broad→narrow drill-down (global-stats → stats → invocations → get-invocation → logs) is in [SKILL.md](../SKILL.md).
 
-**Discover function templates** (for `function` nodes and webhook/manual/tracking_pixel triggers)
+**Discover function templates** (for `function` nodes)
 
 - `cdp-function-templates-list` — the live catalog of function templates (filter `type=destination`). Source of truth for which integrations exist; don't hardcode template ids.
 - `cdp-function-templates-retrieve` — one template's full detail including its `inputs_schema`. Read this before building a `function` node's `inputs`.
+- Don't come here for `webhook` / `manual` / `tracking_pixel` triggers or `function_email` / `function_sms` / `function_push` steps — those take fixed literal template ids that this catalog never lists. See [graph-schema.md](graph-schema.md).
 
 **Email templates** (compose and edit with the `designing-email-templates` skill)
 

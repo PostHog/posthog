@@ -720,7 +720,7 @@ Safe pattern requires:
                 reason="RunSQL with DROP is dangerous",
                 details={"sql": sql},
             )
-        elif "UPDATE" in sql or "DELETE" in sql:
+        elif re.search(r"\b(?:UPDATE|DELETE)\b", sql):
             # Check for developer override for small tables
             if override:
                 return OperationRisk(

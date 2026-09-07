@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { STRUCTURED_CONTENT_ONLY_TEXT } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -11,6 +12,8 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
+    describeApiValidationError,
+    describeExecCommand,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
@@ -18,6 +21,7 @@ import {
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
@@ -295,7 +299,7 @@ describe('exec tool', () => {
             )
         })
 
-        it('propagates the UI resource URI and exec brand when the inner tool has a UI app and consumer is posthog-code', async () => {
+        it('keeps UI data in structuredContent (not _meta) when the tool has no formatted table', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
@@ -307,19 +311,21 @@ describe('exec tool', () => {
                 __execBuiltPayload?: true
             }
 
-            // Text content still includes the TOON-formatted result for model context
-            expect(result.content[0]!.text).toContain('id: 1')
-            // structuredContent is dropped; the UI data (with analytics) rides on _meta.
-            expect(result.structuredContent).toBeUndefined()
-            const appData = result._meta[APP_DATA_META_KEY] as {
+            // Text content points at structuredContent instead of repeating the result
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            // With no compact table to protect, the app payload stays in the standard
+            // structuredContent field (with analytics) rather than being duplicated under
+            // the non-standard `_meta` app-data key.
+            const structured = result.structuredContent as {
                 id: number
                 _analytics: { distinctId: string; toolName: string }
             }
-            expect(appData.id).toBe(1)
-            expect(appData._analytics).toEqual({
+            expect(structured.id).toBe(1)
+            expect(structured._analytics).toEqual({
                 distinctId: 'test-distinct-id',
                 toolName: 'mock-tool',
             })
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
             // _meta on the response exposes the UI resource URI to clients that
             // only see the `exec` tool registered (single-exec mode). Both the
             // new nested key and the legacy flat key are emitted for
@@ -372,7 +378,7 @@ describe('exec tool', () => {
             }
         )
 
-        it('re-homes UI data onto _meta and gives the model TOON text even when there is no formatted override', async () => {
+        it('carries the payload once — in structuredContent — when there is no formatted override', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 handler: async () => ({
@@ -387,11 +393,14 @@ describe('exec tool', () => {
                 _meta: { [key: string]: unknown }
             }
 
-            // Without a compact table the model reads TOON text, never verbose structuredContent.
-            expect(result.structuredContent).toBeUndefined()
-            expect(result.content[0]!.text).toContain('_posthogUrl')
-            const appData = result._meta[APP_DATA_META_KEY] as { results: unknown }
-            expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            // With no compact table there is nothing smaller to put in the text channel, so
+            // the payload stays in the standard structuredContent field and the text carries
+            // a pointer — neither a second copy in text nor one under the `_meta` key.
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(result.content[0]!.text).not.toContain('_posthogUrl')
+            const structured = result.structuredContent as { results: unknown }
+            expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
         })
 
         // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
@@ -1099,6 +1108,22 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('reminds agents to inspect the catalog before matching data-domain tools', async () => {
+            const exec = createExec([
+                makeMockTool({ name: 'metric-list' }),
+                makeMockTool({ name: 'metric-describe' }),
+                makeMockTool({ name: 'data-catalog-metric-run' }),
+                makeMockTool({ name: 'billing-usage-get', title: 'Get billable usage' }),
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+
+            expect(result.matches).toEqual(['billing-usage-get'])
+            expect(result.hint).toContain('metric-list')
+            expect(result.hint).toContain('metric-describe')
+            expect(result.hint).toContain('data-catalog-metric-run')
+        })
+
         it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
             // /create dashboard insight/i matches no tool literally; routing to
             // ranked search is the whole point of this command.
@@ -1148,6 +1173,77 @@ describe('exec tool', () => {
             const exec = createExec([makeMockTool()])
             await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
                 /invalid regex pattern/i
+            )
+        })
+    })
+
+    describe('flag-gated tool redirects', () => {
+        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
+
+        it('names the successor a flag retired the tool for', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /retired[\s\S]*notebooks-create-markdown/
+            )
+            await expect(exec.handler(mockContext, { command: 'info notebooks-create' })).rejects.toThrow(
+                /notebooks-create-markdown/
+            )
+        })
+
+        it('reports a gated tool with no successor as not enabled, not as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-add-cell', supersededBy: [] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.not.toThrow(
+                /Unknown tool/
+            )
+        })
+
+        // A successor behind its own gate is no more callable than the tool it replaced,
+        // so pointing at it would send the agent on a second dead-end round trip.
+        it('falls back to the not-enabled message when no declared successor is registered', async () => {
+            const exec = createExec([makeMockTool()], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+        })
+
+        // The hint is free text, so an author can name a tool that is behind its own
+        // gate here. Held to the same rule as the successors, or the redirect trades
+        // one dead end for another.
+        it.each<[string, string, boolean]>([
+            ['a tool the catalog serves', 'Pair it with notebooks-create-markdown for the new shape.', true],
+            ['a tool this connection cannot serve', 'Read the notebook with notebooks-get first.', false],
+            ['a hyphenated word that is not a tool', 'The revamped notebooks are cell-based.', true],
+        ])('holds a hint naming %s to the same reachability rule', async (_case, redirectHint, kept) => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [
+                    { name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'], redirectHint },
+                ],
+            })
+
+            const message = await exec.handler(mockContext, { command: 'call notebooks-create {}' }).then(
+                () => '',
+                (error: Error) => error.message
+            )
+
+            expect(message).toContain('is retired on this PostHog connection')
+            expect(message.includes(redirectHint)).toBe(kept)
+        })
+
+        it('still reports a name we do not own as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toThrow(
+                /Unknown tool[\s\S]*search not-a-posthog-tool/
             )
         })
     })
@@ -1247,6 +1343,56 @@ describe('exec tool', () => {
             ['   '],
         ])('returns undefined for "%s"', (command) => {
             expect(parseExecCallInnerToolName(command)).toBeUndefined()
+        })
+    })
+
+    describe('describeExecCommand', () => {
+        const isKnownToolName = (name: string): boolean => ['execute-sql', 'query-trends', 'my-tool'].includes(name)
+
+        // The verb/target pair is what separates schema discovery from tool search
+        // from a mistyped verb in analytics. Flag handling differs per verb, so a
+        // parser regression silently collapses the funnel back into one bucket.
+        it.each([
+            ['tools', 'tools', undefined],
+            ['search query-', 'search', undefined],
+            ['info execute-sql', 'info', 'execute-sql'],
+            ['info --json execute-sql', 'info', 'execute-sql'],
+            ['schema query-trends series', 'schema', 'query-trends'],
+            // `info` matches the whole remainder as an exact tool name, so a
+            // trailing token makes the lookup fail — telemetry must mirror the
+            // dispatcher's rejection, not credit the valid first token.
+            ['info execute-sql extra', 'info', 'unrecognized'],
+            ['call my-tool {"a":1}', 'call', 'my-tool'],
+            ['call --json --confirm my-tool {}', 'call', 'my-tool'],
+            ['  info   execute-sql  ', 'info', 'execute-sql'],
+            // A removed tool is still one of our own names, so the redirect it
+            // triggers stays diagnosable.
+            ['call query-run {}', 'call', 'query-run'],
+            // Verb present, target absent: nothing to record for the tool, but the
+            // verb still is.
+            ['info', 'info', undefined],
+            ['call', 'call', undefined],
+            ['', undefined, undefined],
+        ])('describes "%s" as verb=%s target=%s', (command, expectedVerb, expectedTarget) => {
+            expect(describeExecCommand(command, isKnownToolName)).toEqual({
+                verb: expectedVerb,
+                ...(expectedTarget !== undefined ? { targetTool: expectedTarget } : {}),
+            })
+        })
+
+        // Both fields reach analytics, and a token the grammar rejected is caller
+        // text — sanitizing its charset would leave an identifier-shaped secret
+        // intact, so it is replaced outright. Same value-free constraint
+        // `describeValidationError` holds for schema rejections.
+        it.each([
+            ['an unknown verb', 'sk-live-abc123 {"a":1}', { verb: 'unrecognized' }],
+            ['an unresolvable call target', 'call sk-live-abc123 {}', { verb: 'call', targetTool: 'unrecognized' }],
+            ['an unresolvable info target', 'info sk-live-abc123', { verb: 'info', targetTool: 'unrecognized' }],
+        ])('records a sentinel instead of %s', (_label, command, expected) => {
+            const shape = describeExecCommand(command, isKnownToolName)
+
+            expect(shape).toEqual(expected)
+            expect(JSON.stringify(shape)).not.toContain('sk-live-abc123')
         })
     })
 
@@ -1356,7 +1502,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
             expect(detail.inputKeys).toEqual(['organizationId'])
             // Never record input values — the raw uuid must not appear anywhere.
@@ -1369,10 +1515,111 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
-            expect(detail.fields).toContain('projectId:invalid_type')
+            expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
+        })
+
+        // `invalid_type` alone conflates an omitted parameter with one sent under the
+        // right name but the wrong shape — the two dominant rejection classes, and
+        // they need different fixes (aliasing vs coercion/envelope). The received
+        // type is what separates them.
+        it.each([
+            ['omitted entirely', {}, 'id:invalid_type:undefined'],
+            ['sent as the wrong primitive', { id: 42 }, 'id:invalid_type:number'],
+            ['sent as an envelope object', { id: { value: 'x' } }, 'id:invalid_type:object'],
+            ['sent as an array', { id: ['x'] }, 'id:invalid_type:array'],
+            ['sent as null', { id: null }, 'id:invalid_type:null'],
+        ])('distinguishes a required param %s', (_label, input, expected) => {
+            const schema = z.object({ id: z.string() })
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input as Record<string, unknown>, schema).fields).toEqual([
+                expected,
+            ])
+        })
+
+        // The received type is only meaningful for the type-shaped codes; appending it
+        // to every code would bloat the descriptor and say nothing (`too_big:string`).
+        it('omits the received type for a code the type does not explain', () => {
+            const schema = z.object({ description: z.string().max(3) })
+            const input = { description: 'far too long' }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['description:too_big'])
+        })
+
+        // A malformed array produces one issue per element. Collapsing indices keeps
+        // them a single descriptor — otherwise they fill the 20-descriptor cap with
+        // restatements of one defect and evict the genuinely different field that
+        // failed after them, which is the information the event exists to carry.
+        it('collapses array indices so one bad array cannot evict other failed fields', () => {
+            const schema = z.object({
+                series: z.array(z.object({ event: z.string() })),
+                dateRange: z.string(),
+            })
+            const input = {
+                series: Array.from({ length: 50 }, () => ({ event: 123 })),
+                dateRange: 456,
+            }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+
+            expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
+        })
+
+        // The full issue path is what distinguishes a flattened envelope from a bad
+        // discriminator, but under an open record (`generate-app-url`'s `params`) the
+        // path's own segments are the caller's keys. Masking them keeps the field that
+        // held the bad value visible without recording anything the caller chose.
+        it('masks a path segment the schema never declared', () => {
+            const schema = z.object({
+                url: z.string(),
+                params: z.record(z.string(), z.string()),
+            })
+            const input = { url: '/project/2', params: { 'sk-live-abc123': 42 } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const detail = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+
+            expect(detail.fields).toEqual(['params.*:invalid_type:number'])
+            expect(JSON.stringify(detail)).not.toContain('sk-live-abc123')
+        })
+
+        // Nested schema fields are ours, so they must survive the mask — otherwise
+        // every descriptor collapses to `*` and the reason the PR widened the path
+        // (telling `query:invalid_union` apart from `query.kind:invalid_type`) is lost.
+        it('keeps a declared nested path intact', () => {
+            const schema = z.object({ query: z.object({ kind: z.literal('TrendsQuery') }) })
+            const input = { query: { kind: 'trends' } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['query.kind:invalid_value'])
+        })
+    })
+
+    describe('describeApiValidationError', () => {
+        // API-layer rejections carried no structured field at all, so they could only
+        // be reached by string-parsing $mcp_error_message. Same format as the schema
+        // path so a single query spans both.
+        it.each([
+            ['name', 'required', 'name:required'],
+            ['series.0.event', 'invalid', 'series.N.event:invalid'],
+            [undefined, 'invalid', '(root):invalid'],
+            ['name', undefined, 'name:unknown'],
+        ])('describes attr=%s code=%s as %s', (attr, code, expected) => {
+            expect(describeApiValidationError(attr, code)).toEqual([expected])
+        })
+
+        it('bounds an over-long attr to the shared key-length cap', () => {
+            expect(describeApiValidationError('a'.repeat(200), 'invalid')[0]).toBe(`${'a'.repeat(64)}:invalid`)
         })
     })
 
@@ -1401,6 +1648,199 @@ describe('exec tool', () => {
 
             expect(message).toMatch(/parameter "tags": /)
             expect(message).not.toContain('undefined')
+        })
+
+        // A tool whose whole payload sits under one required object is the shape
+        // agents flatten most often, and zod strips the misplaced keys — so
+        // "sent everything, unwrapped" and "sent nothing" both arrive as a bare
+        // `missing required parameter`. These lock in the disambiguation.
+        describe('a required object parameter the caller flattened', () => {
+            const wrapperSchema = z.object({
+                query: z.object({
+                    dateRange: z.object({ date_from: z.string() }).optional(),
+                    orderBy: z.enum(['latest', 'earliest']).optional(),
+                    limit: z.number().optional(),
+                }),
+            })
+
+            const formatFor = (input: unknown): string => {
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('query-logs', result.error!, input, wrapperSchema)
+            }
+
+            it('tells the caller to nest the fields it sent at the top level', () => {
+                const message = formatFor({ dateRange: { date_from: '-1h' }, limit: 10 })
+
+                expect(message).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {...}}'
+                )
+            })
+
+            it('still identifies the nesting when the nested fields have their own errors', () => {
+                // Without this the caller fixes `orderBy`, resends flattened, and
+                // fails again on the same ambiguous message.
+                const message = formatFor({ orderBy: 'newest', limit: 10 })
+
+                expect(message).toContain('resend them as {"query": {...}}')
+            })
+
+            it.each([
+                ['an empty input, which is a caller that sent nothing', {}],
+                ['keys the nested schema does not declare', { nonsense: 1, alsoNonsense: 2 }],
+                ['a non-object input', 'just a string'],
+            ])('does not claim a nesting mistake for %s', (_label, input) => {
+                expect(formatFor(input)).not.toContain('resend them')
+            })
+
+            it('names only schema-declared fields, never the values the caller sent', () => {
+                const message = formatFor({ dateRange: { date_from: 'secret-value' } })
+
+                expect(message).not.toContain('secret-value')
+            })
+
+            it('keeps the bare message when the caller gives no input or schema to compare', () => {
+                const input = { dateRange: { date_from: '-1h' } }
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('query-logs', result.error!)).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query'
+                )
+            })
+
+            describe('a required parameter missing while undeclared keys were sent', () => {
+                const SOME_UUID = '00000000-0000-4000-8000-000000000000'
+
+                const formatFor = (toolName: string, input: unknown): string => {
+                    const tool = GENERATED_TOOL_MAP[toolName]!()
+                    const result = tool.schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return formatInputValidationError(toolName, result.error!, input, tool.schema)
+                }
+
+                it.each([
+                    ['vision-scanners-get', 'scanner_id', 'replay scanner'],
+                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
+                    expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
+                        `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
+                    )
+                })
+
+                it('does not tell the caller to resend a scanner id as an observation id', () => {
+                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `id` has no format constraint. Matching the two by name suffix would
+                    // advise reusing a value that identifies a different entity.
+                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+
+                    expect(message).toContain('"scanner_id"')
+                    expect(message).not.toContain('resend')
+                    expect(message).not.toContain('as "id"')
+                })
+
+                it('does not name a value the caller sent', () => {
+                    expect(formatFor('vision-scanners-get', { scanner_id: SOME_UUID })).not.toContain(SOME_UUID)
+                })
+
+                it('stays quiet when every key the caller sent is a real field of the tool', () => {
+                    // `vision-scanners-observations-get` declares `scanner_id`, so nothing
+                    // was dropped: the caller omitted the observation id rather than
+                    // having a key silently discarded.
+                    expect(formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })).toBe(
+                        'Invalid input for "vision-scanners-observations-get": missing required parameter: id (A UUID string identifying this replay observation.)'
+                    )
+                })
+
+                it('names no ignored keys for a caller that sent nothing at all', () => {
+                    expect(formatFor('vision-scanners-get', {})).toBe(
+                        'Invalid input for "vision-scanners-get": missing required parameter: id (A UUID string identifying this replay scanner.)'
+                    )
+                })
+
+                it('says nothing was ignored when the schema rejected the keys instead', () => {
+                    // This tool's schema is strict, so `hash` was refused rather than dropped.
+                    expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash'
+                    )
+                })
+
+                it('caps how many keys it names so the analytics message stays bounded', () => {
+                    const input = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`junk_${i}`, i]))
+                    const message = formatFor('vision-scanners-get', input)
+
+                    expect(message.match(/junk_/g)).toHaveLength(5)
+                })
+            })
+
+            it('fires for the real generated query-logs tool, not just a stand-in schema', () => {
+                // Guards the assumption behind this whole branch: that the shipped
+                // tool really does wrap its payload in one required `query` object.
+                const tool = GENERATED_TOOL_MAP['query-logs']!()
+                const input = { dateRange: { date_from: '-1h' }, limit: 10 }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
+                    'resend them as {"query": {...}}'
+                )
+            })
+        })
+
+        // A caller that omits an identifier usually never held one, so a rejection
+        // naming only the field sends it back to retry the same empty call. These
+        // lock in that the field's own description rides along with the rejection.
+        describe('a missing parameter whose schema documents where the value comes from', () => {
+            const formatFor = (schema: ZodObjectAny, input: unknown): string => {
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('some-tool', result.error!, input, schema)
+            }
+
+            it('tells the caller which tool returns the identifier it omitted', () => {
+                const schema = z.object({ short_id: z.string().describe('Get it from `notebooks-list`.') })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id (Get it from `notebooks-list`.)'
+                )
+            })
+
+            it('names the field alone when its schema documents nothing', () => {
+                const schema = z.object({ short_id: z.string() })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id'
+                )
+            })
+
+            it('caps a long description so the analytics error message stays bounded', () => {
+                const schema = z.object({ short_id: z.string().describe('word '.repeat(100)) })
+                const message = formatFor(schema, {})
+
+                expect(message.length).toBeLessThan(300)
+                expect(message).toContain('...)')
+            })
+
+            it('leaves a nested miss alone, since that field is not the one to fill next', () => {
+                const schema = z.object({
+                    query: z.object({ limit: z.number().describe('How many rows to return.') }),
+                })
+
+                expect(formatFor(schema, { query: {} })).toBe(
+                    'Invalid input for "some-tool": missing required parameter: query.limit'
+                )
+            })
+
+            it('fires for the real generated notebooks-retrieve tool, not just a stand-in schema', () => {
+                // The failure this whole branch exists for: agents call the shipped
+                // tool with no short_id, so its rejection has to name notebooks-list.
+                const tool = GENERATED_TOOL_MAP['notebooks-retrieve']!()
+                const result = tool.schema.safeParse({}, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('notebooks-retrieve', result.error!, {}, tool.schema)).toContain(
+                    '`notebooks-list`'
+                )
+            })
         })
     })
 })

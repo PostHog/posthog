@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -74,7 +75,7 @@ def _free_tier_subscription_limit() -> int:
 # Max length of the prompt snippet used as an AI subscription's display name when it has no title.
 AI_PROMPT_DISPLAY_MAX_LEN = 60
 
-RRULE_WEEKDAY_MAP = {
+DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME = {
     "monday": MO,
     "tuesday": TU,
     "wednesday": WE,
@@ -88,7 +89,7 @@ WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
 
 
 @dataclass
-class SubscriptionResourceInfo:
+class SubscriptionResource:
     kind: str
     name: str
     url: str
@@ -105,6 +106,7 @@ class Subscription(ModelActivityMixin, models.Model):
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
+        TEAMS = "teams", "Microsoft Teams"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
@@ -210,6 +212,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
+    delivery_config = models.JSONField(default=dict)
 
     class Meta:
         indexes = [
@@ -283,12 +286,23 @@ class Subscription(ModelActivityMixin, models.Model):
             interval=interval,
             dtstart=start_date,
             until=until_date,
-            bysetpos=bysetpos if byweekday else None,
+            bysetpos=bysetpos if byweekday and frequency == Subscription.SubscriptionFrequency.MONTHLY else None,
             byweekday=to_rrule_weekdays(byweekday) if byweekday else None,
         )
 
     @staticmethod
     def _compute_next_delivery_date(*, from_dt: Optional[datetime] = None, **rrule_fields: Any) -> Optional[datetime]:
+        interval = rrule_fields.get("interval") or 1
+        byweekday = rrule_fields.get("byweekday")
+        start_date = rrule_fields.get("start_date")
+        if (
+            rrule_fields.get("frequency") == Subscription.SubscriptionFrequency.DAILY
+            and interval % 7 == 0
+            and byweekday
+            and start_date
+            and start_date.strftime("%A").lower() not in byweekday
+        ):
+            return None
         # Buffer of 15 minutes since we might run a bit early — never schedule into the past.
         now = timezone.now() + timedelta(minutes=15)
         return Subscription._build_rrule(**rrule_fields).after(dt=max(from_dt or now, now), inc=False)
@@ -405,21 +419,21 @@ class Subscription(ModelActivityMixin, models.Model):
         return None
 
     @property
-    def resource_info(self) -> Optional[SubscriptionResourceInfo]:
+    def resource_info(self) -> Optional[SubscriptionResource]:
         if not self._has_resource:
             return None
         match self.resource_type:
             case self.ResourceType.INSIGHT if self.insight:
-                return SubscriptionResourceInfo(
+                return SubscriptionResource(
                     "Insight",
                     f"{self.insight.name or self.insight.derived_name}",
                     self.insight.url,
                 )
             case self.ResourceType.DASHBOARD if self.dashboard:
-                return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
+                return SubscriptionResource("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
             case self.ResourceType.AI_PROMPT:
                 ai_name = self.title or (self.prompt or "").strip()[:AI_PROMPT_DISPLAY_MAX_LEN] or "AI report"
-                return SubscriptionResourceInfo("AI", ai_name, self.url or "")
+                return SubscriptionResource("AI", ai_name, self.url or "")
         return None
 
     @property
@@ -428,6 +442,20 @@ class Subscription(ModelActivityMixin, models.Model):
         if info is not None:
             return info.name
         return self.title or "Subscription"
+
+    @property
+    def recipient_label(self) -> str:
+        """Names the destination in `RecipientResult.recipient` and in the
+        `SubscriptionDelivery.target_value` snapshot, both of which the API returns. A webhook URL
+        authorizes a post to the channel on its own, so only its host is recorded.
+        """
+        if self.target_type != self.SubscriptionTarget.TEAMS:
+            return self.target_value
+        try:
+            host = (urlparse(self.target_value).hostname or "").lower()
+        except ValueError:
+            host = ""
+        return host or "webhook"
 
     @property
     def summary(self):
@@ -443,7 +471,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
             summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{human_frequency}"
 
-            if self.byweekday and self.bysetpos:
+            if self.frequency == self.SubscriptionFrequency.MONTHLY and self.byweekday and self.bysetpos:
                 human_bysetpos = {
                     1: "first",
                     2: "second",
@@ -458,6 +486,18 @@ class Subscription(ModelActivityMixin, models.Model):
                 else:
                     day_label = "day"
                 summary += f" on the {human_bysetpos} {day_label}"
+            elif self.byweekday and (
+                self.frequency != self.SubscriptionFrequency.DAILY
+                or set(self.byweekday) != set(DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME)
+            ):
+                if set(self.byweekday) == WEEKDAY_SET:
+                    summary += " on weekdays"
+                else:
+                    day_labels = [day.capitalize() for day in self.byweekday]
+                    if len(day_labels) == 1:
+                        summary += f" on {day_labels[0]}"
+                    else:
+                        summary += f" on {', '.join(day_labels[:-1])} and {day_labels[-1]}"
             return summary
         except KeyError as e:
             capture_exception(e)
@@ -478,6 +518,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
             "ai_window_mode": self.ai_window_mode if self.resource_type == self.ResourceType.AI_PROMPT else None,
+            "post_all_insights_in_main_message": self.delivery_config.get("post_all_insights_in_main_message", False),
         }
         # For insight subscriptions, attribute the subscribed insight's query type (e.g. TrendsQuery,
         # FunnelsQuery) using the same keys as the "insight created/updated" events, so subscriptions
@@ -536,7 +577,7 @@ def log_subscription_activity(
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
-    return {RRULE_WEEKDAY_MAP.get(x) for x in weekday}
+    return {DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME.get(x) for x in weekday}
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:

@@ -10,6 +10,7 @@ from boto3 import client
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +29,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def head_object(self, bucket: str, file_key: str) -> Optional[dict]:
+        pass
+
+    @abc.abstractmethod
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
         pass
 
     @abc.abstractmethod
@@ -106,6 +111,9 @@ class UnavailableStorage(ObjectStorageClient):
     def head_object(self, bucket: str, file_key: str):
         return None
 
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        raise ObjectStorageError("object storage is unavailable")
+
     def get_presigned_url(
         self,
         bucket: str,
@@ -176,6 +184,22 @@ class ObjectStorage(ObjectStorageClient):
         except Exception as e:
             logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
             return None
+
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        try:
+            return self.aws_client.head_object(Bucket=bucket, Key=file_key)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if error_code in {"404", "NoSuchKey", "NotFound"} or status_code == 404:
+                return None
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
+        except Exception as e:
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
 
     def get_presigned_url(
         self,
@@ -433,6 +457,10 @@ def object_storage_client() -> ObjectStorageClient:
         s3_config = Config(
             signature_version="s3v4",
             connect_timeout=1,
+            # Bounds socket inactivity, not total transfer time, so slow-but-flowing large
+            # objects still complete; the botocore default leaves callers blocked for 60s
+            # when the store accepts a connection but stops sending bytes.
+            read_timeout=5,
             retries={"max_attempts": 1},
         )
         aws_client = client(
@@ -531,8 +559,8 @@ def read_object(
     return object_storage_client().read_object(bucket, file_name, missing_ok=missing_ok)
 
 
-def list_objects(prefix: str) -> Optional[list[str]]:
-    return object_storage_client().list_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
+    return object_storage_client().list_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
 
 
 def copy_objects(source_prefix: str, target_prefix: str) -> int:
@@ -559,9 +587,10 @@ def get_presigned_url(
     expiration: int = 3600,
     content_type: Optional[str] = None,
     content_disposition: Optional[str] = None,
+    bucket: str | None = None,
 ) -> Optional[str]:
     return object_storage_client().get_presigned_url(
-        bucket=settings.OBJECT_STORAGE_BUCKET,
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
         file_key=file_key,
         expiration=expiration,
         content_type=content_type,
@@ -600,21 +629,48 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
     return _accelerated_presigned_client
 
 
-def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[dict]:
+@frozen
+class PresignedPostPair:
+    """Presigned POSTs for one upload.
+
+    The primary targets the transfer-acceleration endpoint when it is configured and
+    presigning succeeds, and the fallback then targets the standard endpoint, for
+    clients whose network blocks the accelerate domain. Otherwise the primary is a
+    standard-endpoint POST and the fallback is None.
+    """
+
+    primary: Optional[dict]
+    fallback: Optional[dict]
+
+
+def get_presigned_post_pair(file_key: str, conditions: list[Any], expiration: int = 3600) -> PresignedPostPair:
     accelerated = _get_accelerated_presigned_client()
     if accelerated:
         try:
-            return accelerated.generate_presigned_post(
+            primary = accelerated.generate_presigned_post(
                 settings.OBJECT_STORAGE_BUCKET, file_key, Conditions=conditions, ExpiresIn=expiration
+            )
+            return PresignedPostPair(
+                primary=primary,
+                fallback=get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration),
             )
         except Exception as e:
             logger.exception("object_storage.get_accelerated_presigned_post_failed", file_name=file_key, error=e)
             capture_exception(e)
-    return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
+    return PresignedPostPair(
+        primary=get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration),
+        fallback=None,
+    )
 
 
 def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
     return object_storage_client().head_object(file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET)
+
+
+def head_object_strict(file_key: str, bucket: str | None = None) -> Optional[dict]:
+    return object_storage_client().head_object_strict(
+        file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET
+    )
 
 
 def health_check() -> bool:

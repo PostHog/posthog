@@ -78,9 +78,10 @@ export interface MinimalFeatureFlagApi {
  * * `general-availability` - general availability
  * * `archived` - archived
  */
-export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
+export type EarlyAccessFeatureStageEnumApi =
+    (typeof EarlyAccessFeatureStageEnumApi)[keyof typeof EarlyAccessFeatureStageEnumApi]
 
-export const StageEnumApi = {
+export const EarlyAccessFeatureStageEnumApi = {
     Draft: 'draft',
     Concept: 'concept',
     Alpha: 'alpha',
@@ -97,6 +98,7 @@ export const StageEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -109,6 +111,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -173,11 +176,8 @@ export interface EarlyAccessFeatureApi {
      * * `beta` - beta
      * * `general-availability` - general availability
      * * `archived` - archived */
-    stage: StageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    stage: EarlyAccessFeatureStageEnumApi
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload: EarlyAccessFeatureApiPayload
@@ -234,11 +234,8 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
      * * `beta` - beta
      * * `general-availability` - general availability
      * * `archived` - archived */
-    stage: StageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    stage: EarlyAccessFeatureStageEnumApi
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
     /** Arbitrary JSON metadata associated with this feature. */
     payload?: unknown
@@ -296,11 +293,8 @@ export interface PatchedEarlyAccessFeatureApi {
      * * `beta` - beta
      * * `general-availability` - general availability
      * * `archived` - archived */
-    stage?: StageEnumApi
-    /**
-     * URL to external documentation for this feature. Shown to users in the opt-in UI.
-     * @maxLength 800
-     */
+    stage?: EarlyAccessFeatureStageEnumApi
+    /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload?: PatchedEarlyAccessFeatureApiPayload

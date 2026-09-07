@@ -29,7 +29,9 @@ OMNISEND_ENDPOINTS: dict[str, OmnisendEndpointConfig] = {
     "campaigns": OmnisendEndpointConfig(
         name="campaigns",
         path="/campaigns",
-        data_key="campaigns",
+        # `/campaigns` is the one v3 list endpoint that nests its rows under the singular
+        # `campaign` key; every other resource uses the plural `<resource>` convention.
+        data_key="campaign",
         primary_key="campaignID",
         partition_key="createdAt",
     ),

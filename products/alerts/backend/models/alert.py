@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import models
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -163,16 +163,18 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
-    # When enabled and the alert transitions to FIRING, an investigation agent runs
-    # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
+    # When enabled, an investigation agent runs on each firing check, up to three per
+    # firing episode, and writes its findings to a linked Notebook. Only effective for
+    # detector-based (anomaly) alerts. See posthog/temporal/alerts/investigation.py for
+    # the trigger logic.
     investigation_agent_enabled = models.BooleanField(default=False)
 
-    # When enabled (and investigation_agent_enabled is on), notification dispatch is
-    # held until the investigation agent produces a verdict — and suppressed if the
-    # verdict is false_positive. A safety-net Temporal workflow force-notifies after a
-    # grace period if the investigation stalls, so users can never silently miss a
-    # real fire. See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
+    # When enabled (and investigation_agent_enabled is on), the episode's first fire is
+    # held until the investigation agent produces a verdict, and suppressed if the
+    # verdict is false_positive. Later fires of the episode notify without waiting. A
+    # safety-net Temporal workflow force-notifies after a grace period if the
+    # investigation stalls, so users can never silently miss a real fire.
+    # See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
     investigation_gates_notifications = models.BooleanField(default=False)
 
     # What to do with an "inconclusive" verdict when notifications are gated.
@@ -209,46 +211,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 "email", flat=True
             )
         )
-
-    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
-        """Returns list of field names that were modified (for use with update_fields)."""
-        updated: list[str] = []
-        if reset_state:
-            self.state = AlertState.NOT_FIRING
-            updated.append("state")
-        self.next_check_at = None
-        updated.append("next_check_at")
-        return updated
-
-    def save(self, *args, **kwargs) -> None:
-        if not self.enabled:
-            # When disabling an alert, set the state to not firing
-            self.state = AlertState.NOT_FIRING
-            if "update_fields" in kwargs:
-                kwargs["update_fields"].append("state")
-
-        super().save(*args, **kwargs)
-
-    def snooze(self, *, until: datetime) -> AlertCheck:
-        """Snooze this alert until the given time, recording an audit AlertCheck row.
-
-        The check is created *after* save() so it reflects whatever actually got persisted —
-        save() forces a disabled alert's state back to NOT_FIRING, and the audit row must not
-        claim SNOOZED for an alert that was in fact left NOT_FIRING.
-        """
-        with transaction.atomic():
-            self.state = AlertState.SNOOZED
-            self.snoozed_until = until
-            self.save(update_fields=["state", "snoozed_until"])
-
-            return AlertCheck.objects.create(
-                alert_configuration=self,
-                calculated_value=None,
-                condition=self.condition,
-                targets_notified={},
-                state=self.state,
-                error=None,
-            )
 
     def _get_event_properties(self) -> dict:
         detector_config = self.detector_config or {}
@@ -296,6 +258,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "calculation_interval": self.calculation_interval,
             "is_high_frequency_interval": self.is_high_frequency_interval,
             "enabled": self.enabled,
+            "investigation_agent_enabled": self.investigation_agent_enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,
             "has_threshold": has_threshold,
@@ -473,6 +436,8 @@ class AlertCheck(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     calculated_value = models.FloatField(null=True, blank=True)
     condition = models.JSONField(default=dict)  # Snapshot of the condition at the time of the check
+    # {} = no delivery. For legacy reasons "users" holds email addresses only;
+    # "destinations" holds the other channels' receipts (see AlertDelivery).
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
@@ -518,6 +483,12 @@ class AlertCheck(UUIDTModel):
 
     def __str__(self) -> str:
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
+
+    @property
+    def has_delivery_receipts(self) -> bool:
+        """True when this row was written by record_alert_delivery (which always sets
+        the "destinations" key); legacy rows only carry configured recipients."""
+        return "destinations" in (self.targets_notified or {})
 
     @classmethod
     def clean_up_old_checks(cls) -> int:

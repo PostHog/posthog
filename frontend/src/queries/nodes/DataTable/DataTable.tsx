@@ -89,6 +89,7 @@ import {
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
+    taxonomicSessionFilterToHogQL,
 } from '~/queries/utils'
 import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
 import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
@@ -135,6 +136,11 @@ const eventGroupTypes = [
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
 const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
+const sessionGroupTypes = [
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.SessionProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+]
 
 // Stable empty-rows reference: a fresh `[]` per render would defeat row memoization downstream.
 const NO_ROWS: DataTableRow[] = []
@@ -175,12 +181,15 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        maxPaginationRows: context?.dataTableMaxPaginationRows,
         limitContext: context?.limitContext,
     }
     const {
         response,
         responseLoading,
         responseError,
+        responseErrorObject,
+        queryId,
         queryCancelled,
         nextDataLoading,
         newDataLoading,
@@ -256,6 +265,7 @@ export function DataTable({
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const recordingColumnShown =
         showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+    const hideRecordingButton = recordingColumnShown || context?.hideRecordingButton
 
     const allColumns = useMemo(
         () =>
@@ -312,7 +322,11 @@ export function DataTable({
         [contextRowPropsFn, rowFillFractionIndex]
     )
 
-    const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
+    const groupTypes = isActorsQuery(query.source)
+        ? personGroupTypes
+        : isSessionsQuery(query.source)
+          ? sessionGroupTypes
+          : eventGroupTypes
 
     // Memoized so the columns array keeps its identity between data refreshes: LemonTable derives
     // column groups from it and passes those to every memoized TableRow, so a per-render rebuild
@@ -405,7 +419,9 @@ export function DataTable({
                                                 onChange={(v, g) => {
                                                     const hogQl = isActorsQuery(query.source)
                                                         ? taxonomicPersonFilterToHogQL(g, v)
-                                                        : taxonomicEventFilterToHogQL(g, v)
+                                                        : isSessionsQuery(query.source)
+                                                          ? taxonomicSessionFilterToHogQL(g, v)
+                                                          : taxonomicEventFilterToHogQL(g, v)
                                                     if (
                                                         setQuery &&
                                                         hogQl &&
@@ -531,7 +547,9 @@ export function DataTable({
                                                         ? taxonomicPersonFilterToHogQL(g, v)
                                                         : isGroupsQuery(query.source)
                                                           ? taxonomicGroupFilterToHogQL(g, v)
-                                                          : taxonomicEventFilterToHogQL(g, v)
+                                                          : isSessionsQuery(query.source)
+                                                            ? taxonomicSessionFilterToHogQL(g, v)
+                                                            : taxonomicEventFilterToHogQL(g, v)
                                                     if (
                                                         setQuery &&
                                                         hogQl &&
@@ -573,7 +591,9 @@ export function DataTable({
                                                         ? taxonomicPersonFilterToHogQL(g, v)
                                                         : isGroupsQuery(query.source)
                                                           ? taxonomicGroupFilterToHogQL(g, v)
-                                                          : taxonomicEventFilterToHogQL(g, v)
+                                                          : isSessionsQuery(query.source)
+                                                            ? taxonomicSessionFilterToHogQL(g, v)
+                                                            : taxonomicEventFilterToHogQL(g, v)
                                                     if (
                                                         setQuery &&
                                                         hogQl &&
@@ -770,7 +790,7 @@ export function DataTable({
                           return (
                               <EventRowActions
                                   event={(result as any[])[columnsInResponse.indexOf('*')]}
-                                  hideRecordingButton={recordingColumnShown}
+                                  hideRecordingButton={hideRecordingButton}
                               />
                           )
                       }
@@ -793,7 +813,7 @@ export function DataTable({
                         )
                     }
                   : undefined,
-        [eventActionsColumnShown, columnsInResponse, recordingColumnShown, sourceFeatures]
+        [eventActionsColumnShown, columnsInResponse, hideRecordingButton, sourceFeatures]
     )
 
     const setQuerySource = useCallback(
@@ -983,6 +1003,10 @@ export function DataTable({
             secondRowRight.push(editorButton)
         }
     }
+
+    const compactToolbarLeft = [...(showFirstRow ? firstRowLeft : []), ...(showSecondRow ? secondRowLeft : [])]
+    const compactToolbarRight = [...(showFirstRow ? firstRowRight : []), ...(showSecondRow ? secondRowRight : [])]
+
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -990,22 +1014,51 @@ export function DataTable({
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
-                    {showFirstRow && (
-                        <div className="flex gap-2 items-center flex-wrap">
-                            {firstRowLeft}
-                            {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
-                            {firstRowRight}
-                        </div>
-                    )}
-                    {showSavedFilters && uniqueKey && (
-                        <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
-                    )}
-                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                    {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
-                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
-                            <div className="flex gap-2 items-center">{secondRowLeft}</div>
-                            <div className="flex gap-2 items-center">{secondRowRight}</div>
-                        </div>
+                    {context?.compactDataTableToolbar ? (
+                        <>
+                            {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    {compactToolbarLeft}
+                                    {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
+                                        <div className="flex-1" />
+                                    ) : null}
+                                    {compactToolbarRight}
+                                </div>
+                            ) : null}
+                            {showSavedFilters && uniqueKey ? (
+                                <DataTableSavedFilters
+                                    uniqueKey={String(uniqueKey)}
+                                    query={query}
+                                    setQuery={setQuery}
+                                />
+                            ) : null}
+                        </>
+                    ) : (
+                        <>
+                            {showFirstRow && (
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    {firstRowLeft}
+                                    {firstRowLeft.length > 0 && firstRowRight.length > 0 ? (
+                                        <div className="flex-1" />
+                                    ) : null}
+                                    {firstRowRight}
+                                </div>
+                            )}
+                            {showSavedFilters && uniqueKey && (
+                                <DataTableSavedFilters
+                                    uniqueKey={String(uniqueKey)}
+                                    query={query}
+                                    setQuery={setQuery}
+                                />
+                            )}
+                            {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
+                            {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
+                                <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
+                                    <div className="flex gap-2 items-center">{secondRowLeft}</div>
+                                    <div className="flex gap-2 items-center">{secondRowRight}</div>
+                                </div>
+                            )}
+                        </>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
@@ -1025,6 +1078,8 @@ export function DataTable({
                                 className="DataTable"
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
+                                tableLayout={context?.tableLayout}
+                                tableStyle={context?.tableStyle}
                                 embedded={embedded}
                                 key={
                                     [...(columnsInResponse ?? []), ...columnsInQuery].join(
@@ -1042,7 +1097,10 @@ export function DataTable({
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}
-                                                excludeDetail
+                                                queryId={responseErrorObject?.queryId ?? queryId}
+                                                titleStatus={responseErrorObject?.status}
+                                                // A cancel is the user's own action: no apology or bug-report guidance
+                                                excludeDetail={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
@@ -1064,6 +1122,7 @@ export function DataTable({
                                             detail={context?.emptyStateDetail}
                                             icon={context?.emptyStateIcon}
                                             sampleDataVariant="table"
+                                            insightProps={insightProps}
                                         />
                                     )
                                 }

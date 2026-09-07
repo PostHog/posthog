@@ -7,9 +7,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.settings import (
     RAILWAY_API_URL,
     RAILWAY_ENDPOINTS,
@@ -55,6 +55,13 @@ def _raise_for_graphql_errors(payload: dict[str, Any]) -> None:
         # Stable prefix matched by `get_non_retryable_errors` — Railway returns auth failures
         # as HTTP 200 + a GraphQL error, so there is no 401 status to key off.
         raise Exception(f"Railway API error: Not Authorized. GraphQL errors: {messages}")
+    if "Problem processing request" in messages:
+        # Railway's generic internal-error message, also returned as HTTP 200 + a GraphQL error.
+        # Their support forum confirms it's usually a transient backend hiccup, so retry it like
+        # the 429/5xx statuses below rather than aborting the whole sync on the first occurrence.
+        raise RailwayRetryableError(
+            f"Railway API error (retryable): Problem processing request. GraphQL errors: {messages}"
+        )
     raise Exception(f"Railway GraphQL error: {messages}")
 
 

@@ -8,10 +8,15 @@ import {
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
+    InsightsThresholdBounds,
     MetricsAlertConfig,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
+
+import type { AlertDeliveryApi } from './generated/api.schemas'
+
+export type AlertCheckDelivery = AlertDeliveryApi
 
 export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig
 
@@ -99,10 +104,14 @@ export interface AnomalyPoint {
 
 export type InvestigationInconclusiveAction = 'notify' | 'suppress'
 
+export type AlertThreshold = Omit<InsightThreshold, 'bounds'> & {
+    bounds?: InsightsThresholdBounds | null
+}
+
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
-    threshold: { configuration: InsightThreshold }
+    threshold: { configuration: AlertThreshold }
     enabled: boolean
     insight: QueryBasedInsightModel
     config: AlertConfig
@@ -129,6 +138,7 @@ export interface AlertCheck {
     created_at: string
     calculated_value: number | null
     state: AlertState
+    error?: { code?: string; message?: string } | null
     targets_notified: boolean
     anomaly_scores?: (number | null)[] | null
     triggered_points?: number[] | null
@@ -141,6 +151,7 @@ export interface AlertCheck {
     investigation_notebook_short_id?: string | null
     notification_sent_at?: string | null
     notification_suppressed_by_agent?: boolean
+    deliveries: AlertCheckDelivery[] | null
 }
 
 export interface AlertType extends AlertTypeBase {

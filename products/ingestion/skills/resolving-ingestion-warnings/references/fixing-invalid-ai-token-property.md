@@ -14,7 +14,7 @@ Token counts must arrive as plain numbers. The usual sources of bad values:
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with `type: invalid_ai_token_property`. The sample details name the exact `property`, the received `value`, and its `valueType` — that's usually the whole diagnosis.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'invalid_ai_token_property' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. The `details` JSON names the exact `property`, the received `value`, and its `valueType` — that's usually the whole diagnosis.
 2. Find where the LLM provider's usage data is mapped onto the `$ai_*` properties (manual capture or instrumentation wrapper) and check the types.
 
 ## Fix
@@ -36,4 +36,4 @@ Guard the missing-usage case (streamed/failed responses): omit the property rath
 
 ## Verify
 
-Re-run a generation, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm token counts and costs appear for new traces (`posthog:query-llm-traces-list`).
+Re-run a generation, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'invalid_ai_token_property'`, `timestamp` after your fix) — no new occurrences — and confirm token counts and costs appear for new traces (`posthog:query-llm-traces-list`).

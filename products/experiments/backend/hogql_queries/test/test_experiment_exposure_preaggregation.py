@@ -67,17 +67,17 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         return cast(ExperimentQueryResponse, runner.calculate())
 
     def _build_lazy_computation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
-        exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
-            experiment.exposure_criteria
+        exposure_params = get_exposure_config_params_for_builder(
+            experiment.exposure_criteria, experiment.team, experiment.start_date
         )
         as_of = experiment.end_date or datetime.now(UTC)
         date_range = experiment_window(experiment, self.team, as_of)
         return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=feature_flag.key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=[v["key"] for v in feature_flag.variants],
             date_range_query=QueryDateRange(
                 date_range=date_range, team=self.team, interval=IntervalType.DAY, now=as_of

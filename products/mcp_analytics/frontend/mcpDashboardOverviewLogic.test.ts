@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -16,10 +17,8 @@ import {
     type BucketRow,
     buildDailyActivity,
     buildKPIs,
-    buildKpiWindow,
     buildToolDailySeries,
     deltaPct,
-    lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
@@ -82,6 +81,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'opencode',
             'Kiro',
             'Desktop Commander',
+            'PostHog CLI',
         ]
 
         it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
@@ -216,65 +216,6 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(result.successes).toHaveLength(bucketKeys.length)
             expect(result.errors).toHaveLength(bucketKeys.length)
             expect(result.successes).toEqual([0, 5, 0])
-        })
-    })
-
-    describe('lastBucketIsInProgress', () => {
-        const tz = 'UTC'
-        const keys = ['2026-06-27 00:00:00', '2026-06-28 00:00:00', '2026-06-29 00:00:00']
-
-        it('flags the tail when the last bucket is the interval containing now', () => {
-            const now = dayjs.tz('2026-06-29 09:15:00', tz)
-            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
-        })
-
-        it('leaves the tail solid when the window ends in the past', () => {
-            const now = dayjs.tz('2026-07-05 09:15:00', tz)
-            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(false)
-        })
-
-        it('does not dash when there is no segment to dash', () => {
-            const now = dayjs.tz('2026-06-29 09:15:00', tz)
-            expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
-            expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
-        })
-    })
-
-    describe('buildKpiWindow', () => {
-        it.each([
-            ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
-            ['2024-01-01', '2024-01-31', 'day', '2024-01-01 00:00:00', '2023-12-01'],
-        ])(
-            'extends [%s, %s] back to an equal-length prior window with cutoff at the selected start',
-            (dateFrom, dateTo, interval, expectedCutoff, expectedPriorStart) => {
-                const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC', interval as 'day')
-                expect(window.currentStartBucket).toBe(expectedCutoff)
-                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
-            }
-        )
-
-        it('rolls an hour-level range from now and steps the prior window back equally', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:30:00Z'))
-            try {
-                // "-1h" resolves to the trailing hour; prior window is the hour before that.
-                const window = buildKpiWindow({ dateFrom: '-1h', dateTo: null }, 'UTC', 'minute')
-                expect(window.currentStartBucket).toBe('2026-06-18 11:30:00')
-                expect(dayjs(window.dateFrom).toISOString()).toBe('2026-06-18T10:29:00.000Z')
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('resolves the relative -7d default against now', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                const window = buildKpiWindow({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
-                expect(window.currentStartBucket).toBe('2026-06-11 00:00:00')
-                // doubled window: prior 8 day-buckets before the cutoff
-                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe('2026-06-03')
-            } finally {
-                jest.useRealTimers()
-            }
         })
     })
 
@@ -413,6 +354,39 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('kpiIncompleteTail', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+        })
+
+        // Reads the sparkline's own labels rather than the zero-filled axis: on a day with no calls
+        // yet the KPI series stops at yesterday, which is settled, so dashing its last point would
+        // mark a complete bucket as in progress.
+        it('tracks the KPI sparkline labels, not the chart axis', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucket = (daysAgo: number): string =>
+                dayjs().tz(logic.values.timezone).subtract(daysAgo, 'day').startOf('day').format(BUCKET_FORMAT)
+            const row = (daysAgo: number): BucketRow => ({
+                bucket: bucket(daysAgo),
+                sessions: 3,
+                tool_calls: 30,
+                errors: 1,
+                p95: 100,
+            })
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(1), row(0)], bucket(1)))
+            expect(logic.values.kpiIncompleteTail).toBe(true)
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(3), row(2)], bucket(3)))
+            expect(logic.values.kpiIncompleteTail).toBe(false)
+        })
+    })
+
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -451,6 +425,22 @@ describe('mcpDashboardOverviewLogic', () => {
                 sparklineLabels: [],
                 goodDirection: 'up',
             })
+        })
+
+        // A bare dateTrunc returns a typed DateTime that the query API stamps with the project's UTC
+        // offset, which the client reads back as an instant and converts, shifting the bucket away
+        // from the wall-clock keys it joins and compares against (an empty activity chart and a
+        // skewed KPI split on any non-UTC project). Pins the toString on all three bucketed queries.
+        it('renders every bucketed query with a stringified dateTrunc', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucketed = mockApi.query.mock.calls
+                .map((call) => (call[0] as any).query)
+                .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
+            expect(bucketed).toHaveLength(1)
+            expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
         })
 
         it('reloads every tile when the date filter changes', async () => {

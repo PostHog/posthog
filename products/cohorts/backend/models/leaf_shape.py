@@ -1,6 +1,7 @@
 import json
 import hashlib
 from collections.abc import Iterator
+from enum import StrEnum
 from typing import NamedTuple
 
 _I32_MIN = -(2**31)
@@ -81,17 +82,23 @@ def _hash_keys(keys: list[list[object]]) -> str:
     return hashlib.sha256(json.dumps(serialized, separators=(",", ":")).encode()).hexdigest()
 
 
-def _extract_leaf_shape_keys(filters: dict | None, *, behavioral_only: bool) -> list[list[object]]:
+class _LeafShapeMode(StrEnum):
+    FULL = "full"
+    BEHAVIORAL_ONLY = "behavioral_only"
+    PERSON_ONLY = "person_only"
+
+
+def _extract_leaf_shape_keys(filters: dict | None, *, mode: _LeafShapeMode) -> list[list[object]]:
     if not filters or not (properties := filters.get("properties")):
         return []
 
     keys: list[list[object]] = []
     for leaf in walk_filter_leaves(properties):
         leaf_type = leaf.get("type")
-        if leaf_type == "person" and not behavioral_only:
+        if leaf_type == "person" and mode != _LeafShapeMode.BEHAVIORAL_ONLY:
             if (condition_hash := leaf.get("conditionHash")) is not None:
                 keys.append(["person", condition_hash])
-        elif leaf_type == "behavioral":
+        elif leaf_type == "behavioral" and mode != _LeafShapeMode.PERSON_ONLY:
             if (condition_hash := leaf.get("conditionHash")) is not None:
                 keys.append(
                     [
@@ -108,7 +115,7 @@ def _extract_leaf_shape_keys(filters: dict | None, *, behavioral_only: bool) -> 
                         ),
                     ]
                 )
-        elif leaf_type == "cohort" and not behavioral_only:
+        elif leaf_type == "cohort" and mode == _LeafShapeMode.FULL:
             keys.append(["cohort", leaf.get("value"), bool(leaf.get("negation", False))])
     return keys
 
@@ -120,9 +127,14 @@ def extract_leaf_shape_hash(filters: dict | None) -> str:
     `LeafStateKey::for_behavioral` uses a 16-byte digest of one leaf. Keep these fields in lockstep:
     behavioral leaves via `BehavioralLeafKey`; person conditionHash; cohort value and negation.
     """
-    return _hash_keys(_extract_leaf_shape_keys(filters, behavioral_only=False))
+    return _hash_keys(_extract_leaf_shape_keys(filters, mode=_LeafShapeMode.FULL))
 
 
 def extract_behavioral_leaf_shape_hash(filters: dict | None) -> str:
     """Fingerprint only the leaf inputs backed by behavioral event state."""
-    return _hash_keys(_extract_leaf_shape_keys(filters, behavioral_only=True))
+    return _hash_keys(_extract_leaf_shape_keys(filters, mode=_LeafShapeMode.BEHAVIORAL_ONLY))
+
+
+def extract_person_leaf_shape_hash(filters: dict | None) -> str:
+    """Fingerprint only person-property condition hashes."""
+    return _hash_keys(_extract_leaf_shape_keys(filters, mode=_LeafShapeMode.PERSON_ONLY))

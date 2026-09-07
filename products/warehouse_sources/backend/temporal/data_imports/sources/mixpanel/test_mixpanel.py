@@ -255,6 +255,7 @@ class TestValidateCredentials:
             ("unauthorized", 401, None, False),
             ("forbidden_at_create", 403, None, True),
             ("forbidden_with_schema", 403, "export", False),
+            ("bad_request", 400, None, False),
             ("unexpected", 500, None, False),
         ]
     )
@@ -268,6 +269,15 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
+
+    def test_bad_request_points_at_the_project_id(self) -> None:
+        # A 400 used to fall through and surface the raw status code, which is not actionable.
+        session = MagicMock()
+        session.post.return_value = FakeResponse(status_code=400)
+        with patch.object(mp, "make_tracked_session", return_value=session):
+            ok, error = validate_credentials("us", "user", "secret", "123")
+        assert ok is False
+        assert error is not None and "project ID" in error
 
     def test_network_error_returns_failure(self) -> None:
         session = MagicMock()
@@ -399,6 +409,35 @@ class TestExportStreamRetry:
         assert {c.kwargs["params"]["from_date"] for c in mock_request.call_args_list} == {"2024-01-01"}
         mock_sleep.assert_called_once()
         # Cursor only advances once the day finally completes.
+        assert [s.from_date for s in manager.saved] == ["2024-01-02"]
+
+    def test_retries_day_when_stream_ends_in_a_non_event_line(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        truncated = FakeResponse(lines=[self._line("i1"), b"terminated early"])
+        succeeding = FakeResponse(lines=[self._line("i1"), self._line("i2")])
+        with (
+            patch.object(mp, "_request", side_effect=[truncated, succeeding]) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            batches = list(
+                mp._iter_export(
+                    "us",
+                    "u",
+                    "s",
+                    "123",
+                    LOGGER,
+                    manager,  # type: ignore[arg-type]
+                    start_date=day,
+                    end_date=day,
+                    api_version=MIXPANEL_API_VERSION_V1,
+                )
+            )
+
+        rows = [row for batch in batches for row in batch]
+        assert [r["$insert_id"] for r in rows] == ["i1", "i2"]
+        assert mock_request.call_count == 2
+        mock_sleep.assert_called_once()
         assert [s.from_date for s in manager.saved] == ["2024-01-02"]
 
     def test_gives_up_after_max_attempts(self) -> None:

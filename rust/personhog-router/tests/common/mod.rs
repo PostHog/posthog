@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dashmap::DashMap;
@@ -22,8 +23,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -446,15 +446,6 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
-    async fn delete_personless_distinct_ids_batch_for_team(
-        &self,
-        _request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
-    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
-        Ok(Response::new(
-            DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count: 0 },
-        ))
-    }
-
     async fn split_person(
         &self,
         _request: Request<SplitPersonRequest>,
@@ -632,6 +623,7 @@ pub fn create_test_person() -> Person {
         is_identified: true,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: false,
     }
 }
 
@@ -646,17 +638,32 @@ pub fn create_test_person() -> Person {
 /// stamps the header, not just that the body arrives intact.
 pub struct TestLeaderService {
     persons: DashMap<(i64, i64), Person>,
-    /// When true, writes are rejected with FailedPrecondition, mimicking
-    /// a leader whose partition is write-fenced for a handoff.
-    fenced: bool,
+    /// While true, writes are rejected with FailedPrecondition, mimicking
+    /// a leader whose partition is write-fenced for a handoff. Shared and
+    /// runtime-toggleable so tests can clear the fence mid-drain, the way
+    /// a real fence clears in watch-propagation time.
+    fenced: Arc<AtomicBool>,
+    /// The lifecycle operation holding this person, if any. Unlike the
+    /// partition fence above this one names its holder, which is the fact
+    /// the refusal has to carry all the way back to the caller.
+    person_fence_op: Arc<Mutex<Option<String>>>,
 }
 
 impl TestLeaderService {
     pub fn new() -> Self {
         Self {
             persons: DashMap::new(),
-            fenced: false,
+            fenced: Arc::new(AtomicBool::new(false)),
+            person_fence_op: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Refuse every write for this person the way the leader refuses one
+    /// held by a lifecycle operation: FAILED_PRECONDITION carrying the
+    /// fence keys and the holding op's id.
+    pub fn person_fenced_by(self, op_id: &str) -> Self {
+        *self.person_fence_op.lock().unwrap() = Some(op_id.to_string());
+        self
     }
 
     pub fn with_person(self, person: Person) -> Self {
@@ -664,9 +671,15 @@ impl TestLeaderService {
         self
     }
 
-    pub fn fenced(mut self) -> Self {
-        self.fenced = true;
+    pub fn fenced(self) -> Self {
+        self.fenced.store(true, Ordering::SeqCst);
         self
+    }
+
+    /// Handle for flipping the fence after the service has been moved
+    /// into the server.
+    pub fn fence_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.fenced)
     }
 }
 
@@ -686,6 +699,40 @@ fn require_partition_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
 
 #[tonic::async_trait]
 impl PersonHogLeader for TestLeaderService {
+    async fn fence_person(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::FencePersonRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonResponse>, Status> {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
+    async fn release_fence(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::ReleaseFenceRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFenceResponse>, Status> {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
+    async fn fold_person_document(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::FoldPersonDocumentRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FoldPersonDocumentResponse>, Status>
+    {
+        require_partition_metadata(&request)?;
+        // Mimics the real leader's fail-closed mark refusal: a definitive
+        // FAILED_PRECONDITION marked as semantic, which the router must
+        // deliver rather than bounce.
+        let mut status =
+            Status::failed_precondition("op holds no live target mark for this person");
+        status.metadata_mut().insert(
+            personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY,
+            "fold-unverified".parse().expect("static slug parses"),
+        );
+        Err(status)
+    }
+
     async fn get_person(
         &self,
         request: Request<GetPersonRequest>,
@@ -712,10 +759,22 @@ impl PersonHogLeader for TestLeaderService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         require_partition_metadata(&request)?;
         let req = request.into_inner();
-        if self.fenced {
+        if self.fenced.load(Ordering::SeqCst) {
             return Err(Status::failed_precondition(
                 "partition is fenced for handoff; writes are rejected",
             ));
+        }
+        if let Some(op_id) = self.person_fence_op.lock().unwrap().clone() {
+            let mut status = Status::failed_precondition("person is held by a lifecycle operation");
+            // The real leader carries the op-type string here, never a
+            // boolean; see fenced_status in personhog-leader/src/fence.rs.
+            status
+                .metadata_mut()
+                .insert("x-person-fenced", "merge".parse().unwrap());
+            status
+                .metadata_mut()
+                .insert("x-person-fenced-op-id", op_id.parse().unwrap());
+            return Err(status);
         }
         let key = (req.team_id, req.person_id);
 
@@ -759,7 +818,23 @@ impl PersonHogLeader for TestLeaderService {
 pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    serve_test_leader(listener, service);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
 
+/// Start the test leader on a specific address. Used by tests that
+/// reserve an address up front so the backend can dial it — and fail at
+/// the transport layer — before the leader exists.
+pub async fn start_test_leader_at(addr: SocketAddr, service: TestLeaderService) {
+    let listener = TcpListener::bind(addr)
+        .await
+        .expect("reserved leader address must be bindable");
+    serve_test_leader(listener, service);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+}
+
+fn serve_test_leader(listener: TcpListener, service: TestLeaderService) {
     tokio::spawn(async move {
         Server::builder()
             .add_service(
@@ -769,10 +844,6 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
             .await
             .unwrap();
     });
-
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    addr
 }
 
 // ============================================================
@@ -796,11 +867,6 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
 }
 
 fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<LeaderBackend> {
-    let retry_config = RetryConfig {
-        max_retries: 1,
-        initial_backoff_ms: 1,
-        max_backoff_ms: 1,
-    };
     let mut routing = HashMap::new();
     for p in 0..num_partitions {
         routing.insert(p, "leader-0".to_string());
@@ -815,10 +881,71 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
-            retry_config,
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))
+}
+
+/// A leader backend whose pod answers once and is then unreachable: the
+/// resolver hands out the real address for the first resolution and a dead
+/// port after it. Models a leader that refuses a request and then dies,
+/// which is the only way to follow one bounce reason with another.
+fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<LeaderBackend> {
+    let mut routing = HashMap::new();
+    for p in 0..num_partitions {
+        routing.insert(p, "leader-0".to_string());
+    }
+    let routing_table = Arc::new(RwLock::new(routing));
+    let leader_url = format!("http://{}", leader_addr);
+    let resolutions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let address_resolver: Arc<dyn Fn(&str) -> Option<String> + Send + Sync> =
+        Arc::new(move |_pod_name| {
+            if resolutions.fetch_add(1, Ordering::SeqCst) == 0 {
+                Some(leader_url.clone())
+            } else {
+                // Reserved-for-documentation address, so nothing can be listening.
+                Some("http://192.0.2.1:1".to_string())
+            }
+        });
+    Arc::new(LeaderBackend::new(
+        routing_table,
+        address_resolver,
+        LeaderBackendConfig {
+            num_partitions,
+            timeout: Duration::from_millis(200),
+        },
+        StashTable::with_bounds(usize::MAX, usize::MAX),
+    ))
+}
+
+/// Raw proxy router whose leader answers one request and is then gone.
+pub async fn start_test_router_raw_with_dying_leader(
+    replica_addr: SocketAddr,
+    leader_addr: SocketAddr,
+    num_partitions: u32,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let proxy = RawProxyService::new(
+        make_replica_backend(replica_addr),
+        Some(make_dying_leader_backend(leader_addr, num_partitions)),
+        RetryConfig {
+            max_retries: 1,
+            initial_backoff_ms: 1,
+            max_backoff_ms: 1,
+        },
+        4 * 1024 * 1024,
+        0,
+    );
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(proxy)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
 }
 
 /// Start a raw proxy router (replica only, no leader).

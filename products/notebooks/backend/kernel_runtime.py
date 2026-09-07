@@ -22,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
 from posthog.redis import get_client
 
+from products.notebooks.backend.compute_pricing import get_default_compute_preset
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -33,6 +34,12 @@ from products.tasks.backend.facade.sandbox import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Hard lifetime of a notebook kernel sandbox, used when the notebook sets no
+# `kernel_idle_timeout_seconds`. A kernel serves one interactive session, so nobody waits on it
+# once the tab closes and this TTL is what reclaims it. The task-agent default
+# (`SANDBOX_TTL_SECONDS`) is longer because it has to outlast an unattended agent run.
+NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 
 
 @dataclass
@@ -229,11 +236,13 @@ class KernelRuntimeSession:
 
 
 def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
+    default_preset = get_default_compute_preset()
     sandbox_config = SandboxConfig(
         name=f"notebook-kernel-{notebook.short_id}",
         template=SandboxTemplate.NOTEBOOK_BASE,
-        cpu_cores=1,
-        memory_gb=2,
+        cpu_cores=default_preset.cpu_cores,
+        memory_gb=default_preset.memory_gb,
+        ttl_seconds=NOTEBOOK_KERNEL_TTL_SECONDS,
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores
@@ -772,6 +781,11 @@ class KernelRuntimeService:
         connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
         kernel_id = f"kernel-{runtime.id}"
         sandbox_config = build_notebook_sandbox_config(notebook)
+        # Record the shape this sandbox gets, so the price can describe what is running rather
+        # than what the notebook is configured for. The two diverge until a restart.
+        runtime.provisioned_cpu_cores = sandbox_config.cpu_cores
+        runtime.provisioned_memory_gb = sandbox_config.memory_gb
+        runtime.save(update_fields=["provisioned_cpu_cores", "provisioned_memory_gb"])
         sandbox_class = self._get_sandbox_class(backend)
         try:
             sandbox = sandbox_class.create(sandbox_config)

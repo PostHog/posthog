@@ -7,6 +7,7 @@ const pathsWithoutProjectId = [
     'me',
     'instance',
     'organization',
+    'billing',
     'preflight',
     'login',
     'signup',
@@ -25,7 +26,7 @@ const pathsWithoutProjectId = [
 // The startsWith(exactPath + '/') check below also exempts nested staff tools from
 // other products, e.g. the cohorts staff tools at /feature_flags/staff/cohorts —
 // renaming this path affects them too.
-const exactPathsWithoutProjectId = ['/feature_flags/staff']
+const exactPathsWithoutProjectId = ['/feature_flags/staff', '/experiments/staff']
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 

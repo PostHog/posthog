@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -10,7 +11,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlPieGraph } from './SqlPieGraph'
 
 let cleanupJsdom: () => void
@@ -41,7 +42,7 @@ const yData = (data: (number | null)[]): AxisSeries<number | null>[] => [
     },
 ]
 
-const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): LineGraphProps => ({
+const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): SqlChartProps => ({
     xData,
     yData: yData(data),
     visualizationType: ChartDisplayType.ActionsPie,
@@ -149,13 +150,35 @@ describe('SqlPieGraph', () => {
         expect(sliceLabelLines()).toEqual([])
     })
 
-    it('renders the side legend with per-slice values and shares', () => {
-        // The legend is plain DOM (rendered for both responsive layouts), so it needs no canvas paint.
+    it("renders quill's legend with one row per slice", () => {
+        // The legend is plain DOM outside the canvas, so it needs no canvas paint.
         render(<SqlPieGraph {...baseProps({ showLegend: true }, [60, 40, 0, 0])} />)
 
-        expect(screen.getAllByText('alpha').length).toBeGreaterThan(0)
-        expect(screen.getAllByText('60.0%').length).toBeGreaterThan(0)
-        expect(screen.getAllByText('40.0%').length).toBeGreaterThan(0)
+        expect(document.querySelector('[data-attr="hog-chart-pie-legend"]')).toBeInTheDocument()
+        expect(screen.getByText('alpha')).toBeInTheDocument()
+        expect(screen.getByText('beta')).toBeInTheDocument()
+    })
+
+    it('restores all slices when the legend is hidden after isolating one', async () => {
+        const chartSettings: ChartSettings = { showLegend: true, pie: { sliceContent: 'labels', showTotal: true } }
+        const { rerender } = render(<SqlPieGraph {...baseProps(chartSettings, [60, 40, 0, 0])} />)
+        const user = userEvent.setup()
+
+        await waitForSlices()
+        await user.click(within(document.querySelector('[data-attr="hog-chart-pie-legend"]')!).getByText('alpha'))
+
+        await waitFor(() => {
+            expect(sliceLabelLines()).toEqual([['alpha']])
+            expect(screen.getByText('60')).toBeInTheDocument()
+        })
+
+        rerender(<SqlPieGraph {...baseProps({ ...chartSettings, showLegend: false }, [60, 40, 0, 0])} />)
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-attr="hog-chart-pie-legend"]')).not.toBeInTheDocument()
+            expect(sliceLabelLines()).toEqual([['alpha'], ['beta']])
+            expect(screen.getByText('100')).toBeInTheDocument()
+        })
     })
 
     it('shows the empty state when there are no positive values', () => {
@@ -180,10 +203,10 @@ describe('SqlPieGraph', () => {
             />
         )
 
-        const swatchColors = Array.from(document.querySelectorAll<HTMLElement>('.LemonColorGlyph')).map(
-            (el) => el.style.color
-        )
-        expect(screen.getAllByText('first').length).toBeGreaterThan(0)
+        const swatchColors = Array.from(
+            document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-legend"] span[aria-hidden="true"]')
+        ).map((el) => el.style.backgroundColor)
+        expect(screen.getByText('first')).toBeInTheDocument()
         expect(swatchColors).toContain('rgb(170, 0, 0)')
         expect(swatchColors).toContain('rgb(0, 170, 0)')
     })

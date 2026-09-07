@@ -13,9 +13,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from .constants import DEFAULT_LIMIT, PAGINATION_EXTRA, UNIFIED_CONVERSION_GOALS_CTE_ALIAS, to_marketing_analytics_data
 from .conversion_goals_aggregator import ConversionGoalsAggregator
@@ -84,6 +85,9 @@ class NonIntegratedConversionsTableQueryRunner(
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            # These group by high-cardinality campaign dimensions, so let the GROUP BY spill
+            # to disk rather than hit the memory limit.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         results = response.results or []
@@ -116,7 +120,7 @@ class NonIntegratedConversionsTableQueryRunner(
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            error=self._conversion_goal_error,
         )
 
     def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:

@@ -25,15 +25,21 @@ permissions:
     contents: read
     # Pull the pinned hclexp image from ghcr for the live-schema convergence gate.
     packages: read
+    # Download the migrated-schema artifact produced by ci-backend.yml on master.
+    actions: read
 
 jobs:
     multinode-migration-smoke:
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
-        # The job applies every Postgres and ClickHouse migration from scratch, so its
-        # runtime grows with the migration count: ~20 minutes in June 2026, past 25 by
-        # July, ~27 minutes as of this bump. Raise further if it keeps creeping up.
-        timeout-minutes: 30
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        # The common path primes Postgres from the master schema artifact. The
+        # fallback applies every Django migration from scratch and grows with the
+        # migration count, so the timeout is sized for the fallback. Raise it if
+        # migrate keeps creeping up.
+        timeout-minutes: 40
         env:
             DEBUG: '1'
             MULTINODE_CLICKHOUSE: '1'
@@ -52,9 +58,9 @@ jobs:
             # posthog_asyncmigration / posthog_instancesetting. Skip it so the
             # smoke can run against a schema-only Postgres dump.
             SKIP_ASYNC_MIGRATIONS_SETUP: '1'
-            # If the "Restore Postgres schema cache" step below succeeds, this
-            # file exists and the smoke script primes Postgres from it instead
-            # of running a full `manage.py migrate`. Cache miss → file absent →
+            # If the "Fetch master schema dump" step below succeeds, this file
+            # exists and the smoke script primes Postgres from it instead of
+            # running a full `manage.py migrate`. No artifact → file absent →
             # script falls back to migrate automatically.
             PRIME_POSTGRES_FROM: schema.sql.gz
             # The chschema build used by the live-schema convergence gate is pinned in
@@ -62,25 +68,10 @@ jobs:
             HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  # Needed for `git merge-base HEAD^2 origin/master` so we can key
-                  # the Postgres schema cache by the PR's merge base, matching
-                  # the producer in ci-backend.yml.
-                  fetch-depth: 1000
-                  filter: blob:none
-
-            - name: Fetch current PR base for schema cache key
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              # actions/checkout only populates the synthetic PR merge ref; the
-              # base ref has to be fetched explicitly for `git merge-base` to
-              # resolve it.
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
             - name: Add multinode hostnames to /etc/hosts
               run: |
-                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs kafka zookeeper" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium kafka zookeeper" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -97,34 +88,45 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Compute Postgres schema cache key
-              id: schema-key
-              if: github.event_name == 'pull_request'
+            - name: Fetch master schema dump
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  # ci-backend.yml's "Validate migrations" job dumps the post-PR
-                  # schema and caches it keyed by master SHA. PR jobs key off the
-                  # merge base so they restore the dump produced by the commit
-                  # their branch diverged from.
-                  # fetch-depth: 1000 on checkout bounds how far back the
-                  # merge base can be found; older divergence yields an empty
-                  # result and the graceful fallback to `migrate` below.
-                  BASE_SHA=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  # Always emit a key so the restore runs; when the exact branch-point
-                  # SHA is unknown, the bare prefix lets restore-keys fall back to the
-                  # most recent cached master schema (any valid schema works — the smoke
-                  # only needs Postgres bootable, migrate_clickhouse doesn't touch it).
-                  echo "key=posthog-schema-master-${BASE_SHA}" >> "$GITHUB_OUTPUT"
-
-            - name: Restore Postgres schema cache
-              if: github.event_name == 'pull_request'
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: ${{ steps.schema-key.outputs.key }}
-                  restore-keys: |
-                      posthog-schema-master-
+                  # ci-backend.yml's "Validate migrations" job uploads the post-migrate
+                  # schema as the migrated-schema artifact on every master push, held
+                  # for the retention-days set on that upload step. The scan below stays
+                  # well inside that window because master pushes are far more frequent.
+                  # The Actions cache also holds it, but the repo's 10 GB LRU pool evicts
+                  # the dump within minutes, so the artifact is the reliable source. Any
+                  # recent master schema works, because the smoke only needs Postgres
+                  # bootable and migrate_clickhouse doesn't touch it.
+                  # Resolve the artifact through successful master runs of
+                  # ci-backend.yml rather than the repo-wide artifact list, so only
+                  # that workflow's uploads are ever trusted. Paths-filtered master
+                  # pushes can succeed without producing the artifact, hence the scan.
+                  # Any failure here degrades to the full-migrate fallback in the
+                  # smoke script (PRIME_POSTGRES_FROM stays absent).
+                  RUN_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-backend.yml/runs?branch=master&event=push&status=success&per_page=10" \
+                      --jq '.workflow_runs[].id' || true)
+                  ARTIFACT_ID=""
+                  for RUN_ID in $RUN_IDS; do
+                      ARTIFACT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?name=migrated-schema" \
+                          --jq '[.artifacts[] | select(.expired | not)][0].id // empty' || true)
+                      if [ -n "$ARTIFACT_ID" ]; then
+                          echo "using migrated-schema artifact ${ARTIFACT_ID} from master run ${RUN_ID}"
+                          break
+                      fi
+                  done
+                  if [ -z "$ARTIFACT_ID" ]; then
+                      echo "::warning::no migrated-schema artifact in recent successful master ci-backend runs; falling back to full migrate"
+                      exit 0
+                  fi
+                  if ! { gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > migrated-schema.zip \
+                      && unzip -o migrated-schema.zip schema.sql.gz \
+                      && gunzip -t schema.sql.gz; }; then
+                      echo "::warning::migrated-schema artifact ${ARTIFACT_ID} unusable; falling back to full migrate"
+                      rm -f schema.sql.gz
+                  fi
 
             - name: Log in to ghcr.io
               uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0

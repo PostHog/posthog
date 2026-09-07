@@ -28,6 +28,9 @@ leaky-bucket = "1.1.2" # Arguably we should just implement this, but :shrug:
 moka.workspace = true
 serde.workspace = true
 rand.workspace = true
+chrono.workspace = true
+aws-config.workspace = true
+aws-sdk-dynamodb.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

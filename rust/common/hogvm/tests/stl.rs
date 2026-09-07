@@ -8,6 +8,12 @@ use serde_json::{json, Value};
 
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
 const OP_CALL_GLOBAL: i64 = 2;
+const OP_EQ: i64 = 11;
+const OP_NOT_EQ: i64 = 12;
+const OP_GT: i64 = 13;
+const OP_GT_EQ: i64 = 14;
+const OP_LT: i64 = 15;
+const OP_LT_EQ: i64 = 16;
 const OP_STRING: i64 = 32;
 const OP_INTEGER: i64 = 33;
 const OP_RETURN: i64 = 38;
@@ -57,6 +63,33 @@ fn call_str(name: &str, arg: &str) -> Value {
 }
 
 #[test]
+fn sortable_semver_arrays_support_every_comparison_operation() {
+    // Tilde, caret, and wildcard ranges compile to a lower-bound GT_EQ and an upper-bound LT.
+    let cases = [
+        ("equals", OP_EQ, "1.2.3", "1.2.3", true),
+        ("equals", OP_EQ, "1.2.3", "1.2.4", false),
+        ("not equals", OP_NOT_EQ, "1.2.3", "1.2.4", true),
+        ("not equals", OP_NOT_EQ, "1.2.3", "1.2.3", false),
+        ("greater than", OP_GT, "2.0.0", "1.9.9", true),
+        ("greater than", OP_GT, "1.9.9", "2.0.0", false),
+        ("greater than or equal", OP_GT_EQ, "2.0.0", "2.0.0", true),
+        ("greater than or equal", OP_GT_EQ, "1.9.9", "2.0.0", false),
+        ("less than", OP_LT, "2.9.0", "2.10.0", true),
+        ("less than", OP_LT, "2.10.0", "2.10.0", false),
+        ("less than or equal", OP_LT_EQ, "2.10.0", "2.10.0", true),
+        ("less than or equal", OP_LT_EQ, "2.10.1", "2.10.0", false),
+    ];
+
+    for (label, operation, left, right, expected) in cases {
+        let mut comparison = call("sortableSemver", &[str_lit(right)]);
+        comparison.extend(call("sortableSemver", &[str_lit(left)]));
+        comparison.push(json!(operation));
+
+        assert_eq!(run(comparison), json!(expected), "{left} {label} {right}");
+    }
+}
+
+#[test]
 fn crypto_and_encoding_known_answers() {
     // Known-answer vectors — these are RFC/spec fixed, so they pin both our wiring and the
     // md-5 / sha2 / base64 dependencies to the correct output.
@@ -67,12 +100,86 @@ fn crypto_and_encoding_known_answers() {
             "hello",
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
         ),
+        (
+            "sha1Hex",
+            "hello",
+            "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",
+        ),
+        ("sha1Hex", "abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
+        ("sha1Hex", "", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
         ("base64Encode", "hello", "aGVsbG8="),
         ("base64Decode", "aGVsbG8=", "hello"),
     ];
     for (name, input, expected) in cases {
         assert_eq!(call_str(name, input), json!(expected), "{name}({input:?})");
     }
+}
+
+#[test]
+fn hmac_sha1_matches_rfc_2202_vectors() {
+    // RFC 2202 HMAC-SHA1 test vectors. A two-element chain is a plain HMAC of key and message, so
+    // these pin the sha1 dependency and the chain wiring to the standard answers.
+    let key_0b = "\u{0b}".repeat(20);
+    let key_0c = "\u{0c}".repeat(20);
+    let cases: [(&str, &str, &str); 3] = [
+        (
+            &key_0b,
+            "Hi There",
+            "b617318655057264e28bc0b6fb378c8ef146be00",
+        ),
+        (
+            "Jefe",
+            "what do ya want for nothing?",
+            "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79",
+        ),
+        (
+            &key_0c,
+            "Test With Truncation",
+            "4c1a03424b55e07fe7f27be1d58bb9324a9a5a04",
+        ),
+    ];
+    for (key, message, expected) in cases {
+        let arr = collection(OP_ARRAY, &[str_lit(key), str_lit(message)]);
+        assert_eq!(
+            run(call("sha1HmacChainHex", &[arr])),
+            json!(expected),
+            "sha1HmacChainHex([key, {message:?}])"
+        );
+    }
+}
+
+#[test]
+fn hmac_sha1_chain_rekeys_and_encodes() {
+    // Three or more elements re-key each step with the previous raw digest, and the optional
+    // second argument selects the encoding — both must match the Python and Node implementations.
+    let data = || {
+        collection(
+            OP_ARRAY,
+            &[
+                str_lit("1"),
+                str_lit("string"),
+                str_lit("more"),
+                str_lit("keys"),
+            ],
+        )
+    };
+    let cases: &[(&str, &str)] = &[
+        ("hex", "e559ff0c3fc9c9e13a5b5d78fcd722b4f7ec6a9a"),
+        ("base64", "5Vn/DD/JyeE6W114/NcitPfsapo="),
+        ("base64url", "5Vn_DD_JyeE6W114_NcitPfsapo"),
+    ];
+    for (encoding, expected) in cases {
+        assert_eq!(
+            run(call("sha1HmacChain", &[data(), str_lit(encoding)])),
+            json!(expected),
+            "sha1HmacChain(data, {encoding:?})"
+        );
+    }
+    // No encoding argument defaults to hex, matching sha1HmacChainHex.
+    assert_eq!(
+        run(call("sha1HmacChain", &[data()])),
+        run(call("sha1HmacChainHex", &[data()]))
+    );
 }
 
 #[test]

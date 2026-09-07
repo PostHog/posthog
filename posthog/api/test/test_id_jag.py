@@ -23,6 +23,7 @@ from django.utils import timezone
 import jwt
 from cryptography.hazmat.primitives import serialization
 from oauth2_provider.utils import jwk_from_pem
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.id_jag import (
@@ -35,7 +36,8 @@ from posthog.api.id_jag import (
 )
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User as UserModel
@@ -48,6 +50,7 @@ _AS_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
 _IDP_ISSUER = "https://idp.example.com"
 _VERIFIED_DOMAIN = "example.com"
 _PROVIDER_NAME = _VERIFIED_DOMAIN
+_IDP_CONFIG_NAME = "Example IdP"
 _SITE_URL = "https://posthog.test"
 _AUTH_SERVER_URL = _SITE_URL
 _RESOURCE_URL = _SITE_URL
@@ -122,10 +125,10 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             domain=_VERIFIED_DOMAIN,
             verified_at=timezone.now(),
         )
-        domain.identity_provider_config = IdentityProviderConfig.objects.create(
-            organization=cls.organization, id_jag_issuer_url=_IDP_ISSUER
+        config = IdentityProviderConfig.objects.create(
+            organization=cls.organization, name=_IDP_CONFIG_NAME, id_jag_issuer_url=_IDP_ISSUER
         )
-        domain.save()
+        LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
 
     def setUp(self) -> None:
         super().setUp()
@@ -468,10 +471,12 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             domain="bigco.example",
             verified_at=timezone.now(),
         )
-        attacker_domain.identity_provider_config = IdentityProviderConfig.objects.create(
+        attacker_config = IdentityProviderConfig.objects.create(
             organization=attacker_org, id_jag_issuer_url=_IDP_ISSUER
         )
-        attacker_domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=attacker_domain, identity_provider_config=attacker_config
+        )
 
         # Victim user whose email is on the attacker's verified domain but who
         # belongs to a completely unrelated org.
@@ -633,7 +638,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # ID-JAG is opt-in per domain. With `id_jag_issuer_url` cleared, an
         # otherwise valid ID-JAG must be rejected — the org hasn't bound an IdP yet.
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        config = domain.identity_provider_config
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
         config.id_jag_issuer_url = None
         config.save()
 
@@ -649,7 +654,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # The IdP binding is exact-match on the issuer URL — even a sibling IdP
         # that happens to know the same user is rejected unless explicitly bound.
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        config = domain.identity_provider_config
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
         config.id_jag_issuer_url = "https://idp.example.com"
         config.save()
 
@@ -661,17 +666,19 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # that the domain isn't bound at all.
         self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
-    def test_issuer_match_is_slash_normalized(self) -> None:
-        # Store the issuer without trailing slash; ID-JAG carries one. The
-        # comparison must succeed because we rstrip on both sides — otherwise
-        # legitimate IdPs that always include a trailing slash on `iss` would
-        # be impossible to bind.
+    @parameterized.expand(
+        [
+            (_IDP_ISSUER, f"{_IDP_ISSUER}/"),
+            (f"{_IDP_ISSUER}///", _IDP_ISSUER),
+        ]
+    )
+    def test_issuer_match_is_slash_normalized(self, configured_issuer: str, assertion_issuer: str) -> None:
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        config = domain.identity_provider_config
-        config.id_jag_issuer_url = _IDP_ISSUER
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
+        config.id_jag_issuer_url = configured_issuer
         config.save()
 
-        assertion = _make_id_jag(issuer=_IDP_ISSUER + "/")
+        assertion = _make_id_jag(issuer=assertion_issuer)
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
@@ -681,7 +688,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # arguments passed to `_get_jwks_client` rather than reasserting the
         # signature (the mock already returns our test public key).
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        config = domain.identity_provider_config
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
         config.id_jag_jwks_url = "https://idp.example.com/keys.json"
         config.save()
 
@@ -701,7 +708,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_allowed_clients_permits_listed_client_id(self) -> None:
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        config = domain.identity_provider_config
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
         config.id_jag_allowed_clients = ["client_first", "client_second"]
         config.save()
 
@@ -711,7 +718,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_allowed_clients_rejects_unlisted_client_id(self) -> None:
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
-        config = domain.identity_provider_config
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
         config.id_jag_allowed_clients = ["client_first", "client_second"]
         config.save()
 
@@ -754,14 +761,14 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_issue_access_token_helper(self) -> None:
         assertion = _make_id_jag()
-        token, granted, expires_in = issue_access_token(
+        issued_access_token = issue_access_token(
             assertion, requested_scope="feature_flag:read", request_client_id=_RESOURCE_CLIENT_ID
         )
-        self.assertEqual(granted, ["feature_flag:read"])
-        self.assertEqual(expires_in, 300)
+        self.assertEqual(issued_access_token.granted_scopes, ["feature_flag:read"])
+        self.assertEqual(issued_access_token.expires_in_seconds, 300)
         # Token decodable with the AS public key.
         jwt.decode(
-            token,
+            issued_access_token.access_token,
             _public_key_for(_AS_PRIVATE_KEY_PEM),
             algorithms=["RS256"],
             audience=_RESOURCE_URL,
@@ -1018,3 +1025,18 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self.client.get(f"/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json()["id"], self.team.id)
+
+    @parameterized.expand([("/api/projects/@current/",), ("/api/environments/@current/",)])
+    def test_denies_current_lookup_outside_the_tokens_organization(self, url: str) -> None:
+        # A project transfer between organizations leaves `current_team` naming the moved project
+        # while `current_organization` still names the organization the token was minted for. The
+        # `@current` lookup must answer from the token's organization, not from that stale pair.
+        _, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        token = self._mint_access_token(scope="project:read")
+        resp = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)

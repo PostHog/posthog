@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     InvalidIdentifierError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    PrunedColumns,
     compute_projected_columns,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
@@ -205,24 +206,24 @@ class TestFilterDwhColumnsByEnabledColumns:
 
 class TestPruneEnabledColumns:
     def test_none_passes_through(self) -> None:
-        assert prune_enabled_columns(None, {"id", "email"}) == (None, [])
+        assert prune_enabled_columns(None, {"id", "email"}) == PrunedColumns(kept=None, removed=[])
 
     def test_drops_missing_columns(self) -> None:
-        kept, removed = prune_enabled_columns(["id", "email", "ghost"], {"id", "email"})
-        assert kept == ["id", "email"]
-        assert removed == ["ghost"]
+        pruned = prune_enabled_columns(["id", "email", "ghost"], {"id", "email"})
+        assert pruned.kept == ["id", "email"]
+        assert pruned.removed == ["ghost"]
 
     def test_empty_list_passes_through(self) -> None:
-        assert prune_enabled_columns([], {"id", "email"}) == ([], [])
+        assert prune_enabled_columns([], {"id", "email"}) == PrunedColumns(kept=[], removed=[])
 
     def test_all_kept_when_all_present(self) -> None:
-        kept, removed = prune_enabled_columns(["id", "email"], {"id", "email", "name"})
-        assert kept == ["id", "email"]
-        assert removed == []
+        pruned = prune_enabled_columns(["id", "email"], {"id", "email", "name"})
+        assert pruned.kept == ["id", "email"]
+        assert pruned.removed == []
 
     def test_preserves_caller_order(self) -> None:
-        kept, _ = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
-        assert kept == ["email", "id", "name"]
+        pruned = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
+        assert pruned.kept == ["email", "id", "name"]
 
 
 class TestProjectArrowColumns:

@@ -1,6 +1,10 @@
 import { ComponentType } from 'react'
 
+import { IconArrowRight } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import { GenericIssueRenderer } from './renderers/GenericIssueRenderer'
 import { SdkOutdatedRenderer } from './renderers/SdkOutdatedRenderer'
@@ -60,11 +64,37 @@ const PipelineFailureRenderer = ({ issue }: { issue: HealthIssue }): JSX.Element
     )
 }
 
+const PathCleaningSuggestionsRenderer = ({ issue }: { issue: HealthIssue }): JSX.Element => {
+    const rules: { regex?: string; alias?: string; match_count?: number }[] = issue.payload.rules ?? []
+    const sampledCount = issue.payload.sampled_path_count
+    return (
+        <div className="text-xs bg-surface-secondary rounded p-2 mt-1 space-y-1">
+            {rules.map((rule, index) => (
+                <div key={index} className="flex flex-wrap items-center gap-2 font-mono">
+                    <code className="bg-fill-primary px-1 rounded">{rule.regex}</code>
+                    <IconArrowRight />
+                    <code className="bg-fill-primary px-1 rounded">{rule.alias}</code>
+                    {rule.match_count != null && (
+                        <span className="text-muted font-sans">
+                            groups {rule.match_count}
+                            {sampledCount ? ` of your top ${sampledCount}` : ''} paths
+                        </span>
+                    )}
+                </div>
+            ))}
+            <Link to={urls.settings('environment-product-analytics', 'path-cleaning')} className="font-medium">
+                Review and apply in settings
+            </Link>
+        </div>
+    )
+}
+
 const HEALTH_ISSUE_RENDERERS: Record<string, ComponentType<{ issue: HealthIssue }>> = {
     sdk_outdated: SdkOutdatedRenderer,
     ingestion_warning: IngestionWarningRenderer,
     external_data_failure: PipelineFailureRenderer,
     materialized_view_failure: PipelineFailureRenderer,
+    path_cleaning_suggestions: PathCleaningSuggestionsRenderer,
 }
 
 export const getIssueRenderer = (kind: string): ComponentType<{ issue: HealthIssue }> => {

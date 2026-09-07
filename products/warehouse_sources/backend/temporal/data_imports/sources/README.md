@@ -75,7 +75,7 @@ We have a bunch of examples already in the sources directory of how we build up 
 - It's okay to yield items one at a time if that's how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
 - If you are returning a `pyarrow.Table` object, then please make sure that there is a reasonable limit on how many rows that get held in memory. For most of our sources, we limit this to either 200 MiB or 5,000 rows.
 
-We have some helper methods for returning a `pyarrow.Table` from the source, such as `table_from_iterator()` and `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`. The pipeline will ultimately convert everything to a `pyarrow.Table` using these methods
+We have some helper methods for returning a `pyarrow.Table` from the source, such as `table_from_iterator()` and `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`. The pipeline will ultimately convert everything to a `pyarrow.Table` using these methods
 
 #### `primary_keys`
 
@@ -93,7 +93,10 @@ If you can request how many rows are about to be imported (this is usually more 
 
 #### `has_duplicate_primary_keys`
 
-Also optional, setting this to `True` will stop the pipeline from syncing any data and give the user feedback that they can't sync until they no longer have duplicate primary keys. Again, this is more of a problem with database sources than API backed sources. But, the point of this is to ensure we don't try to merge incremental data with duplicate merge keys as this blows up the memory usage of our pods and kills them with OOM errors.
+Also optional, setting this to `True` will stop the pipeline from syncing any data and give the user feedback that they can't sync until they no longer have duplicate primary keys.
+This is for the case where duplicates signal a likely mistake the user can fix — e.g. a database source fell back to a declared key that turns out not to be unique on the live table, so a merge would silently keep an arbitrary row per key instead of the one the user expects.
+
+Don't set this for a source whose primary key is inherently non-unique by design and isn't user-configurable — e.g. an aggregated report API whose dimensions can collide on blank values (Adjust, AppsFlyer, Clari, Pingdom's alerts endpoint). There's no key the user could pick instead, so blocking the sync leaves it permanently unusable. The pipeline already dedupes a batch on its primary key before merging (keeping the last occurrence), which is exactly the right behavior for that case, so just leave `has_duplicate_primary_keys` unset and let the sync proceed normally.
 
 ### Partitioning
 
@@ -130,9 +133,10 @@ If your source uses OAuth (SourceFieldOauthConfig):
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
+2. **Integration Kind**: Add your integration to the `posthog/models/integration/` package.
+   Its `__init__.py` only re-exports the public surface, so edit the defining modules below.
 
-   **a) Add to `IntegrationKind` enum:**
+   **a) Add to the `IntegrationKind` enum in `model.py`:**
 
    ```python
    class IntegrationKind(models.TextChoices):
@@ -140,7 +144,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
        YOUR_SOURCE = "your-source"
    ```
 
-   **b) Add to `OauthIntegration.supported_kinds` list:**
+   **b) Add to the `OauthIntegration.supported_kinds` list in `oauth.py`:**
 
    ```python
    supported_kinds = [
@@ -149,7 +153,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
    ]
    ```
 
-   **c) Add OAuth config in `oauth_config_for_kind()` method:**
+   **c) Add OAuth config in the `oauth_config_for_kind()` method, also in `oauth.py`:**
 
    ```python
    elif kind == "your-source":

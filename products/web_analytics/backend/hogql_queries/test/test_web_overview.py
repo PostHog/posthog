@@ -47,6 +47,9 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
+    FirstPageviewAttributionTestMixin,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
     WebOverviewPreAggregatedQueryBuilder,
@@ -54,7 +57,7 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 
 
 @snapshot_clickhouse_queries
-class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
     def _create_events(self, data, event="$pageview"):
@@ -137,6 +140,24 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.calculate()
             WebOverviewQueryResponse.model_validate(response)
             return response
+
+    def test_first_pageview_attribution_rewrites_session_filters(self):
+        self._seed_ssr_poisoned_session()
+
+        def visitors_for_paid_search(flag_on):
+            with self._patch_first_pageview_flag(flag_on), freeze_time(self.QUERY_TIMESTAMP):
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+                    properties=[
+                        SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+                    ],
+                    modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
+                )
+                results = WebOverviewQueryRunner(team=self.team, query=query).calculate().results
+                return next(item.value for item in results if item.key == "visitors")
+
+        assert visitors_for_paid_search(flag_on=True) == 1
+        assert not visitors_for_paid_search(flag_on=False)
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_overview_query(
@@ -1015,6 +1036,34 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("today_by_hour", "dStart", IntervalType.HOUR),
+            ("month_to_date_by_day", "mStart", IntervalType.DAY),
+            ("last_7_days_by_hour", "-7d", IntervalType.HOUR),
+        ]
+    )
+    @freeze_time("2024-05-16T14:20:00Z")
+    def test_compare_window_is_sized_to_the_elapsed_current_period(
+        self, _name: str, date_from: str, interval: IntervalType
+    ) -> None:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from=date_from),
+                interval=interval,
+                properties=[],
+                compareFilter=CompareFilter(compare=True),
+            ),
+        )
+
+        current = runner.query_date_range
+        previous = runner.query_compare_to_date_range
+        assert previous is not None
+
+        assert previous.date_to() - previous.date_from() == current.date_to() - current.date_from()
+        assert previous.date_to() < current.date_from()
+
+    @parameterized.expand(
+        [
             # (name, hours_delta, explicit_date_to, expected_is_recent)
             ("1_hour_no_explicit_date_to", 1, False, True),
             ("6_hours_no_explicit_date_to", 6, False, True),
@@ -1295,7 +1344,7 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         with (
             override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=allowlist),
             patch(
-                "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.posthoganalytics.feature_enabled",
+                "products.web_analytics.backend.hogql_queries.first_pageview_flag.posthoganalytics.feature_enabled",
                 **flag_mock_kwargs,
             ),
         ):

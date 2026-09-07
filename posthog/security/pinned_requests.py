@@ -6,6 +6,8 @@ so a rebinding DNS record can pass validation and still connect internally.
 ``PinnedIPAdapter`` closes that window by connecting to the exact IPs that were
 validated, and ``pinned_request`` packages the validate → pin → send sequence
 for callers that make one-shot requests to externally controlled URLs.
+``pinned_session`` exposes the same sequence for callers that need to stream a
+response, which requires the session to outlive the request call.
 
 Redirects are never followed automatically — a redirect target has not been
 validated. Callers that need to follow one must re-enter ``pinned_request``
@@ -14,6 +16,8 @@ with the new URL so every hop is validated and pinned.
 
 import ipaddress
 import urllib.parse as urlparse
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import idna
 import requests
@@ -24,6 +28,28 @@ from posthog.security.url_validation import validate_url_and_pin_ips
 
 class SSRFBlockedError(Exception):
     """URL failed SSRF validation. The message is the block reason."""
+
+
+def select_pinned_ip(
+    pinned_ips: set[ipaddress.IPv4Address | ipaddress.IPv6Address],
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Choose which validated address to pin, preferring IPv4.
+
+    Pinning replaces the resolver's own address selection, so picking an arbitrary member of the
+    set can hand back an AAAA record on a host with no IPv6 route. That fails outright with
+    "Network is unreachable" instead of falling back to the A record the way getaddrinfo ordering
+    would, which is what happens on IPv4-only CI runners and in IPv4-only clusters. Within a family
+    the lowest address wins, so a host with several records pins the same one every time and a
+    failure reproduces instead of arriving intermittently as set iteration order shifts.
+
+    Returns None for an empty set, meaning the caller should pin nothing.
+    """
+    ipv4 = [ip for ip in pinned_ips if ip.version == 4]
+    if ipv4:
+        return min(ipv4, key=lambda ip: int(ip))
+    if pinned_ips:
+        return min(pinned_ips, key=lambda ip: int(ip))
+    return None
 
 
 def _canonical_host(hostname: str) -> str:
@@ -124,6 +150,35 @@ class PinnedIPAdapter(HTTPAdapter):
                 conn.conn_kw["server_hostname"] = original  # ty: ignore[invalid-assignment]
 
 
+@contextmanager
+def pinned_session(url: str) -> Iterator[requests.Session]:
+    """Yield a session whose connections are pinned to ``url``'s validated IPs.
+
+    Raises ``SSRFBlockedError`` when the URL fails validation. Callers own the
+    request and must pass ``allow_redirects=False`` — a redirect target has not
+    been validated, so following one must re-enter this helper. Prefer
+    ``pinned_request`` unless you need to stream the response, which requires the
+    session to outlive the call.
+    """
+    verdict = validate_url_and_pin_ips(url)
+    if not verdict.allowed:
+        raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
+
+    adapter = PinnedIPAdapter()
+    hostname = (urlparse.urlparse(url).hostname or "").lower()
+    chosen_ip = select_pinned_ip(verdict.pinned_ips)
+    if chosen_ip is not None:
+        adapter.pin(hostname, chosen_ip)
+
+    session = requests.Session()
+    session.mount("http://", adapter)  # nosemgrep: request-session-with-http
+    session.mount("https://", adapter)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
 def pinned_request(
     method: str,
     url: str,
@@ -138,19 +193,5 @@ def pinned_request(
     validation and lets ``requests.RequestException`` propagate on transport
     failures.
     """
-    allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
-    if not allowed:
-        raise SSRFBlockedError(reason or "URL blocked by SSRF protection")
-
-    adapter = PinnedIPAdapter()
-    hostname = (urlparse.urlparse(url).hostname or "").lower()
-    if pinned_ips:
-        adapter.pin(hostname, next(iter(pinned_ips)))
-
-    session = requests.Session()
-    session.mount("http://", adapter)  # nosemgrep: request-session-with-http
-    session.mount("https://", adapter)
-    try:
+    with pinned_session(url) as session:
         return session.request(method, url, headers=headers, json=json, timeout=timeout, allow_redirects=False)
-    finally:
-        session.close()

@@ -34,12 +34,14 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 from ..facade.enums import RelationshipStatus
+from ..metrics import record_relationship_probe, relationship_probe_outcome_for
 from ..models import RelationshipProposal
 from .analytics import (
     RELATIONSHIP_ACCEPTED_EVENT,
@@ -168,56 +170,64 @@ def _probe_join(
     proposal: RelationshipProposal, user: Optional[User], *, existing_join: Optional[DataWarehouseJoin]
 ) -> None:
     """Prove the join works by running SELECT {joined_field} FROM {source} LIMIT 10 through it."""
+    try:
+        _execute_probe(proposal, user, existing_join=existing_join)
+    except ValidationError:
+        record_relationship_probe("join_invalid")
+        raise
+    except (ExposedHogQLError, ExposedCHQueryError) as e:
+        record_relationship_probe(relationship_probe_outcome_for(e))
+        raise ValidationError({"join": f"The join does not work: {e}"})
+    except Exception as e:
+        record_relationship_probe(relationship_probe_outcome_for(e))
+        capture_exception(e)
+        raise ValidationError({"join": "The join could not be validated against the data."})
+    record_relationship_probe("ok")
+
+
+def _execute_probe(
+    proposal: RelationshipProposal, user: Optional[User], *, existing_join: Optional[DataWarehouseJoin]
+) -> None:
     database = Database.create_for(team_id=proposal.team_id, user=user)
     from_field = get_join_field_chain(proposal.source_table_key)
     to_field = get_join_field_chain(proposal.joining_table_key)
     if from_field is None or to_field is None:
         raise ValidationError({"keys": "Join keys must be field expressions."})
 
-    try:
-        source_table = database.get_table(proposal.source_table_name)
-        joining_table = database.get_table(proposal.joining_table_name)
-        existing_field = source_table.fields.get(proposal.field_name)
-        if existing_field is not None and existing_join is None:
-            raise ValidationError(
-                {"field_name": f"'{proposal.field_name}' is already a field on '{proposal.source_table_name}'."}
-            )
-        # Mirror the resolver selection Database uses when it materializes the real join, so the
-        # probe exercises the same code path -- otherwise an experiments-optimized join is probed with
-        # the plain equality resolver and an invalid experiments_timestamp_key survives review.
-        configuration = proposal.configuration if isinstance(proposal.configuration, dict) else {}
-        use_experiments = bool(proposal.joining_table_name == "events" and configuration.get("experiments_optimized"))
-        source_table.fields["_catalog_probe"] = LazyJoin(
-            from_field=from_field,
-            to_field=to_field,
-            join_table=joining_table,
-            resolver=DATA_WAREHOUSE_EXPERIMENTS if use_experiments else DATA_WAREHOUSE,
-            resolver_params=data_warehouse_resolver_params(
-                source_table_key=proposal.source_table_key,
-                joining_table_key=proposal.joining_table_key,
-                joining_table_name=proposal.joining_table_name,
-                configuration=proposal.configuration,
-                override_join_type="INNER JOIN",
-            ),
+    source_table = database.get_table(proposal.source_table_name)
+    joining_table = database.get_table(proposal.joining_table_name)
+    existing_field = source_table.fields.get(proposal.field_name)
+    if existing_field is not None and existing_join is None:
+        raise ValidationError(
+            {"field_name": f"'{proposal.field_name}' is already a field on '{proposal.source_table_name}'."}
         )
-        validation_query = parse_select(
-            "SELECT {to_field} FROM {source_table_name} LIMIT 10",
-            placeholders={
-                "to_field": ast.Field(chain=["_catalog_probe", *to_field]),
-                "source_table_name": parse_expr(proposal.source_table_name),
-            },
-        )
-        tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
-        execute_hogql_query(
-            query=validation_query, team=proposal.team, context=HogQLContext(database=database, user=user)
-        )
-    except ValidationError:
-        raise
-    except ExposedHogQLError as e:
-        raise ValidationError({"join": f"The join does not work: {e}"})
-    except Exception as e:
-        capture_exception(e)
-        raise ValidationError({"join": "The join could not be validated against the data."})
+    # Mirror the resolver selection Database uses when it materializes the real join, so the
+    # probe exercises the same code path -- otherwise an experiments-optimized join is probed with
+    # the plain equality resolver and an invalid experiments_timestamp_key survives review.
+    configuration = proposal.configuration if isinstance(proposal.configuration, dict) else {}
+    use_experiments = bool(proposal.joining_table_name == "events" and configuration.get("experiments_optimized"))
+    source_table.fields["_catalog_probe"] = LazyJoin(
+        from_field=from_field,
+        to_field=to_field,
+        join_table=joining_table,
+        resolver=DATA_WAREHOUSE_EXPERIMENTS if use_experiments else DATA_WAREHOUSE,
+        resolver_params=data_warehouse_resolver_params(
+            source_table_key=proposal.source_table_key,
+            joining_table_key=proposal.joining_table_key,
+            joining_table_name=proposal.joining_table_name,
+            configuration=proposal.configuration,
+            override_join_type="INNER JOIN",
+        ),
+    )
+    validation_query = parse_select(
+        "SELECT {to_field} FROM {source_table_name} LIMIT 10",
+        placeholders={
+            "to_field": ast.Field(chain=["_catalog_probe", *to_field]),
+            "source_table_name": parse_expr(proposal.source_table_name),
+        },
+    )
+    tag_queries(product=Product.DATA_CATALOG, feature=Feature.QUERY)
+    execute_hogql_query(query=validation_query, team=proposal.team, context=HogQLContext(database=database, user=user))
 
 
 def _acquire_accessor_lock(proposal: RelationshipProposal) -> None:

@@ -25,6 +25,7 @@ export function ThemeMenu(): JSX.Element {
     return (
         <Menu.SubmenuRoot>
             <Menu.SubmenuTrigger
+                openOnHover={false}
                 render={
                     <ButtonPrimitive menuItem data-attr="more-menu-theme-button">
                         <IconPalette />

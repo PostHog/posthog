@@ -7,7 +7,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { TopHog, TopHogComponent } from '~/ingestion/framework/tophog'
 import { HealthCheckResult, PluginServerService } from '~/types'
@@ -20,7 +20,10 @@ type MessageInput = { message: Message }
 type MessageContext = { message: Message }
 
 export interface IngestionBatchingPipeline {
-    feed(elements: OkResultWithContext<MessageInput, MessageContext>[]): Promise<FeedResult>
+    feed(
+        elements: OkResultWithContext<MessageInput, MessageContext>[],
+        batchContext: Record<never, never>
+    ): Promise<FeedResult>
     next(): Promise<BatchResult<unknown> | null>
 }
 
@@ -163,9 +166,11 @@ class KafkaBatchHandler {
             this.logBatchStart(messages)
         }
 
-        const batch = messages.map((message) => createOkContext({ message }, { message }))
+        const batch = messages.map((message) =>
+            createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+        )
 
-        const feedResult = await this.pipeline.feed(batch)
+        const feedResult = await this.pipeline.feed(batch, {})
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }

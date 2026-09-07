@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wordpress import (
     WordpressSourceConfig,
 )
@@ -59,7 +56,7 @@ class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConf
             name=SchemaExternalDataSourceType.WORDPRESS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="WordPress",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync posts, pages, comments, media, categories, tags, and users from a self-hosted WordPress site via the core REST API (`/wp-json/wp/v2`).
 
 Enter your site URL (for example `https://example.com`). Public, published content syncs without credentials.
@@ -109,7 +106,19 @@ To sync private content or authenticate, create an [Application Password](https:
             # a security or caching plugin) can't be turned into rows by retrying. Matches the stable
             # prefix RESTClientNonRetryableError uses, not the variable URL that follows.
             "Non-JSON response from": "The WordPress site returned a non-JSON response (for example an HTML error, login, or maintenance page) instead of data. Confirm the REST API is enabled and reachable at this URL and isn't blocked by a security or caching plugin, then try again.",
+            # The site's TLS certificate doesn't cover its own hostname — common on shared hosting
+            # platforms whose default certificate doesn't include the customer's custom domain. The
+            # cert is wrong every time, not just this request, so retrying can't help. Match the
+            # exception class name that `ssl_match_hostname.match_hostname` raises, not the hostname
+            # or cert names that follow it in the message.
+            "CertificateError": "The WordPress site's TLS certificate doesn't match its domain. This is often caused by a hosting platform's default certificate not covering a custom domain. Ask your hosting provider to install a certificate for this domain, then try again.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Raised by get_rows()'s fetch_page for a 429/5xx response, only once its own tenacity
+        # retry budget (5 attempts with backoff) is already exhausted. The status code and URL
+        # that follow are variable, so match the stable prefix only.
+        return {"WordPress API error (retryable):"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.canonical_descriptions import (

@@ -290,14 +290,14 @@ describe('mergeNotebookMarkdownChanges', () => {
         const result = mergeNotebookMarkdownChanges({
             baseMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"day"}} />',
             localMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"week"}} title="Weekly" />',
-            remoteMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"day"}} hideFilters={true} />',
+            remoteMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"day"}} hideResults={true} />',
         })
 
         // The query object changed only locally and the other props only remotely - all merge.
         expect(result.conflicts).toEqual([])
         expect(result.mergedMarkdown).toContain('"interval":"week"')
         expect(result.mergedMarkdown).toContain('title="Weekly"')
-        expect(result.mergedMarkdown).toContain('hideFilters')
+        expect(result.mergedMarkdown).toContain('hideResults')
     })
 })
 

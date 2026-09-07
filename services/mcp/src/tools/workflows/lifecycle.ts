@@ -6,7 +6,7 @@ import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
-const LifecycleSchema = HogFlowsPartialUpdateParams.omit({ project_id: true })
+const LifecycleSchema = HogFlowsPartialUpdateParams().omit({ project_id: true })
 
 type LifecycleParams = z.infer<typeof LifecycleSchema>
 type LifecycleResult = WithPostHogUrl<Schemas.HogFlow>

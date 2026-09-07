@@ -8,10 +8,10 @@ import { LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
@@ -26,9 +26,9 @@ import { BillingNoAccess } from './BillingNoAccess'
 import { billingUsageLogic } from './billingUsageLogic'
 
 export function BillingUsage(): JSX.Element {
-    const { minimumBillingAccessLevel } = useValues(billingLogic)
+    const { minimumUsageSpendReadAccessLevel } = useValues(billingLogic)
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: minimumBillingAccessLevel,
+        minimumAccessLevel: minimumUsageSpendReadAccessLevel,
         scope: RestrictionScope.Organization,
     })
     const logic = billingUsageLogic({ syncWithUrl: true })
@@ -39,6 +39,7 @@ export function BillingUsage(): JSX.Element {
         dateFrom,
         dateTo,
         billingUsageResponseLoading,
+        billingUsageError,
         dateOptions,
         excludeEmptySeries,
         finalHiddenSeries,
@@ -50,7 +51,6 @@ export function BillingUsage(): JSX.Element {
         billingPeriodMarkers,
     } = useValues(logic)
     const { startExport } = useActions(exportsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const {
         setFilters,
         setDateRange,
@@ -103,7 +103,7 @@ export function BillingUsage(): JSX.Element {
                             value={filters.usage_types || []}
                             onChange={(value) => setFilters({ usage_types: value })}
                             placeholder="All products"
-                            options={getUsageTypeOptions(featureFlags)}
+                            options={getUsageTypeOptions()}
                             allowCustomValues={false}
                         />
                     </div>
@@ -208,6 +208,8 @@ export function BillingUsage(): JSX.Element {
                         </div>
                     </div>
                 </div>
+
+                {billingUsageError && <LemonBanner type="warning">{billingUsageError.detail}</LemonBanner>}
 
                 {showSeries && (
                     <BillingLineGraph

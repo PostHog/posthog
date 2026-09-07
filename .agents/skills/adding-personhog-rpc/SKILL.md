@@ -59,6 +59,19 @@ See [references/proto-conventions.md](references/proto-conventions.md) for messa
 The service and replica protos must both declare the RPC with identical signature.
 The router delegates from service → replica (or leader) transparently.
 
+### Leader RPCs must be safe under at-least-once delivery
+
+A leader-path request can be delivered more than once: clients retry `UNAVAILABLE` after ambiguous failures,
+and the router internally replays fence- and transport-bounced requests.
+Every leader RPC must therefore converge under redelivery —
+read-only lookups, merges that re-apply to the same state, tombstone-style deletes, max-merge version floors —
+or carry explicit operation identity so duplicates can be detected.
+Note the precise contract: a convergent merge still loses to interleaving
+(a replay can clobber a same-field write another caller made in between);
+that residual is accepted today and closes with operation identity (see `personhog-leader`'s README).
+An RPC that neither converges nor carries identity (an unguarded increment, an append) must not be added.
+If the operation you need fits neither shape, redesign it to carry an idempotency key before defining the proto.
+
 ## Step 2: generate client stubs
 
 ### Python
@@ -81,8 +94,11 @@ cd nodejs && pnpm run generate:personhog-proto
 
 Then update:
 
-- `nodejs/src/ingestion/personhog/client.ts` — add a wrapper method matching the pattern of existing methods
-- `nodejs/src/ingestion/personhog/client.test.ts` — add a default stub to `SERVICE_DEFAULTS` for the new RPC
+- `nodejs/src/common/personhog/groups.ts` or `persons.ts` — add a wrapper method to the
+  matching operations class (`PersonHogGroupOperations` / `PersonHogPersonOperations`),
+  following the pattern of existing methods. `client.ts` only constructs and exposes
+  these operation objects; it holds no RPC wrappers itself.
+- `nodejs/src/common/personhog/client.test.ts` — add a default stub to `SERVICE_DEFAULTS` for the new RPC
 
 ### Rust
 
@@ -140,6 +156,7 @@ cargo test -p personhog-router
 - [ ] Query uses an existing index (no seq scans)
 - [ ] Proto messages added to `types/v1/<domain>.proto`
 - [ ] RPC added to both `service.proto` and `replica.proto` (and `leader.proto` if needed)
+- [ ] Leader RPCs only: operation is safe under at-least-once delivery (convergent under redelivery — read-only, re-appliable merge, tombstone, max-merge — or carries explicit operation identity)
 - [ ] Python stubs generated, `proto/__init__.py` updated, `client.py` method added, `fake_client.py` updated
 - [ ] Node.js stubs generated, `client.test.ts` SERVICE_DEFAULTS updated
 - [ ] Rust storage trait + postgres impl + service handler + router wiring all implemented

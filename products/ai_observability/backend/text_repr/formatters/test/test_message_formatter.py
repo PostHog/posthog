@@ -4,6 +4,9 @@ Tests for message_formatter.py - message input/output formatting logic.
 Tests cover multiple LLM provider formats, tool calls, truncation, and edge cases.
 """
 
+from parameterized import parameterized
+
+from ..constants import MISSING_REASONING_NOTE, MISSING_TOOL_OUTPUT_NOTE, MISSING_TOOLS_NOTE
 from ..message_formatter import (
     extract_text_content,
     extract_tool_calls_from_content,
@@ -290,7 +293,7 @@ class TestFormatToolCalls:
             {"function": {"name": "func1", "arguments": '{"arg": "val"}'}},
             {"function": {"name": "func2", "arguments": ""}},  # Empty string, not "{}"
         ]
-        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
+        lines = format_tool_calls(tool_calls)
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
@@ -302,7 +305,7 @@ class TestFormatToolCalls:
             {"name": "func1", "args": {"arg": "val"}},
             {"name": "func2", "args": None},
         ]
-        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
+        lines = format_tool_calls(tool_calls)
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
@@ -313,6 +316,14 @@ class TestFormatToolCalls:
         lines = format_tool_calls([])
         # Empty list still shows "Tool calls: 0"
         assert len(lines) > 0 or lines == []
+
+    def test_tolerates_string_and_malformed_entries(self):
+        """A string entry, or a non-dict `function`, must not raise `'str' has no attribute 'get'`."""
+        tool_calls = ["raw string call", {"function": "not a dict"}, {"name": "func", "args": {"a": 1}}]
+        lines = format_tool_calls(tool_calls)
+        result = "\n".join(lines)
+        assert "raw string call" in result
+        assert "func(a=1)" in result
 
 
 class TestFormatInputMessages:
@@ -363,6 +374,19 @@ class TestFormatInputMessages:
         # Should have truncation marker
         truncation_marker_found = any("TRUNCATED" in line for line in lines)
         assert truncation_marker_found
+
+    @parameterized.expand(
+        [
+            ("dict", {"name": "user"}),
+            ("list", ["user"]),
+        ]
+    )
+    def test_non_string_role_still_renders_the_message(self, _name, role):
+        messages = [{"role": role, "content": "Hello"}]
+
+        result = "\n".join(format_input_messages(messages))
+
+        assert "Hello" in result
 
 
 class TestFormatOutputMessages:
@@ -486,3 +510,204 @@ class TestEdgeCases:
         lines = format_input_messages("")
         # Empty string should be treated as no input
         assert len(lines) == 0
+
+
+class TestResponsesApiItems:
+    @parameterized.expand(
+        [
+            (
+                "custom_tool_call",
+                {
+                    "call_id": "call_1",
+                    "input": "const r = await tools.foo(); text(r)",
+                    "name": "exec",
+                    "status": "completed",
+                    "type": "custom_tool_call",
+                },
+                ["exec(const r = await tools.foo(); text(r))"],
+            ),
+            (
+                "custom_tool_call_with_json_like_input",
+                {"call_id": "call_1", "input": '{"a": 1}', "name": "exec", "type": "custom_tool_call"},
+                ['exec({"a": 1})'],
+            ),
+            (
+                "custom_tool_call_output",
+                {
+                    "call_id": "call_1",
+                    "output": [{"text": "channel|sessions\nDirect|21800", "type": "input_text"}],
+                    "type": "custom_tool_call_output",
+                },
+                ["Direct|21800"],
+            ),
+            (
+                "function_call",
+                {
+                    "call_id": "call_2",
+                    "name": "execute_sql",
+                    "arguments": '{"query": "select 1"}',
+                    "type": "function_call",
+                },
+                ['execute_sql(query="select 1")'],
+            ),
+            (
+                "function_call_output",
+                {
+                    "call_id": "call_2",
+                    "output": [{"text": "event|c_7d\nnot_found|4", "type": "input_text"}],
+                    "type": "function_call_output",
+                },
+                ["not_found|4"],
+            ),
+            (
+                "reasoning",
+                {"type": "reasoning", "summary": [{"text": "Checking the error rate.", "type": "summary_text"}]},
+                ["Checking the error rate."],
+            ),
+            (
+                "string_output",
+                {"call_id": "call_3", "output": "London", "type": "function_call_output"},
+                ["London"],
+            ),
+            (
+                "unrecognized_item_type",
+                {"id": "f1", "status": "completed", "whatever": [1, 2], "type": "some_future_call"},
+                ["some_future_call() (completed)", '"whatever"'],
+            ),
+            (
+                "builtin_web_search_call",
+                {"id": "ws1", "status": "completed", "type": "web_search_call"},
+                ["web_search_call() (completed)"],
+            ),
+            (
+                "builtin_code_interpreter_call",
+                {"id": "ci1", "status": "completed", "code": 'print("hi")', "type": "code_interpreter_call"},
+                ["code_interpreter_call() (completed)", "print"],
+            ),
+            (
+                "builtin_mcp_call",
+                {"id": "m1", "name": "get_thing", "arguments": '{"x": 1}', "output": "done", "type": "mcp_call"},
+                ["get_thing(x=1)", "done"],
+            ),
+        ]
+    )
+    def test_renders_payload_held_outside_content(self, _name, message, expected):
+        result = "\n".join(format_input_messages([message]))
+        for fragment in expected:
+            assert fragment in result
+
+    @parameterized.expand(
+        [
+            ("empty_list", {"call_id": "call_1", "type": "function_call_output", "output": []}),
+            ("explicit_none", {"call_id": "call_1", "type": "function_call_output", "output": None}),
+            ("key_absent", {"call_id": "call_1", "type": "function_call_output"}),
+            ("empty_string", {"call_id": "call_1", "type": "function_call_output", "output": ""}),
+        ]
+    )
+    def test_tool_output_without_payload_says_so(self, _name, message):
+        result = "\n".join(format_input_messages([message]))
+        assert MISSING_TOOL_OUTPUT_NOTE in result
+
+    @parameterized.expand(
+        [
+            ("short_list_is_expanded", 2, ["AVAILABLE TOOLS: 2", "tool_0()"]),
+            ("long_list_collapses_to_a_count", 7, ["[+] AVAILABLE TOOLS: 7"]),
+        ]
+    )
+    def test_additional_tools_catalog_is_summarized(self, _name, tool_count, expected):
+        message = {
+            "role": "developer",
+            "type": "additional_tools",
+            "tools": [{"name": f"tool_{i}", "description": "Does a thing."} for i in range(tool_count)],
+        }
+        result = "\n".join(format_input_messages([message], {"include_markers": False}))
+        for fragment in expected:
+            assert fragment in result
+
+    def test_additional_tools_without_a_catalog_says_so(self):
+        result = "\n".join(format_input_messages([{"role": "developer", "type": "additional_tools"}]))
+        assert MISSING_TOOLS_NOTE in result
+
+    def test_oversized_item_field_is_summarized_rather_than_embedded(self):
+        message = {"id": "img", "status": "completed", "type": "image_generation_call", "result": "A" * 200_000}
+        result = "\n".join(format_input_messages([message]))
+        assert "200,000 chars not shown" in result
+        assert "A" * 3_000 not in result
+
+    def test_message_keyed_by_type_keeps_its_tool_calls(self):
+        message = {"type": "assistant", "tool_calls": [{"function": {"name": "search", "arguments": '{"q": "x"}'}}]}
+        result = "\n".join(format_input_messages([message]))
+        assert "Tool calls: 1" in result
+        assert 'search(q="x")' in result
+
+    def test_anthropic_tool_use_uses_the_existing_block_renderer(self):
+        choices = [{"type": "tool_use", "id": "t1", "name": "get_weather", "input": {"city": "Paris"}}]
+        result = "\n".join(format_output_messages(None, choices))
+        assert 'get_weather(city="Paris")' in result
+
+    def test_empty_responses_output_falls_back_to_string_output(self):
+        result = "\n".join(format_output_messages("the model refused", {"object": "response", "output": []}))
+        assert "OUTPUT:" in result
+        assert "the model refused" in result
+
+    def test_reasoning_without_summary_says_so(self):
+        message = {"type": "reasoning", "encrypted_content": "gAAAA", "summary": []}
+        result = "\n".join(format_input_messages([message]))
+        assert MISSING_REASONING_NOTE in result
+
+    def test_legacy_choice_objects_still_route_to_the_message_path(self):
+        choices = [{"index": 0, "message": {"role": "assistant", "content": "Hi"}, "finish_reason": "stop"}]
+        result = "\n".join(format_output_messages(None, choices))
+        assert "[1] ASSISTANT" in result
+        assert "Hi" in result
+
+    def test_falsey_tool_output_is_not_reported_as_missing(self):
+        message = {"call_id": "call_1", "output": 0, "type": "function_call_output"}
+        result = "\n".join(format_input_messages([message]))
+        assert "0" in result
+        assert MISSING_TOOL_OUTPUT_NOTE not in result
+
+    def test_top_level_output_items_are_rendered(self):
+        output_choices = [
+            {"call_id": "c1", "name": "get_weather", "arguments": '{"city": "Paris"}', "type": "function_call"},
+            {"call_id": "c1", "output": "22C, sunny", "type": "function_call_output"},
+        ]
+        result = "\n".join(format_output_messages(None, output_choices))
+        assert 'get_weather(city="Paris")' in result
+        assert "22C, sunny" in result
+
+    def test_responses_output_object_is_unwrapped(self):
+        output_choices = {
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {"type": "reasoning", "summary": [{"text": "Time to query.", "type": "summary_text"}]},
+                {
+                    "call_id": "c9",
+                    "input": "text(1)",
+                    "name": "exec",
+                    "status": "completed",
+                    "type": "custom_tool_call",
+                },
+            ],
+        }
+        result = "\n".join(format_output_messages(None, output_choices))
+        assert "OUTPUT:" in result
+        assert "Time to query." in result
+        assert "exec(text(1))" in result
+
+    def test_chat_completions_messages_are_unaffected(self):
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi", "tool_calls": [{"function": {"name": "test", "arguments": ""}}]},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "Hello" in result
+        assert "Tool calls: 1" in result
+        assert "test()" in result
+
+    def test_plain_text_blocks_are_not_labelled(self):
+        messages = [{"role": "user", "content": [{"type": "input_text", "text": "Run the scout"}]}]
+        result = "\n".join(format_input_messages(messages))
+        assert "Run the scout" in result
+        assert "[INPUT_TEXT]" not in result

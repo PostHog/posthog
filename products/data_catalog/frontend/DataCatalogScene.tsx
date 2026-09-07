@@ -1,8 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -10,44 +12,67 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 
+import { certificationsLogic } from './certificationsLogic'
 import { NewMetricModal } from './components/NewMetricModal'
+import { buildDataCatalogAgentContext, DATA_CATALOG_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
+import { dataCatalogEmptyState } from './emptyState/dataCatalogEmptyState'
 import { metricsLogic } from './metricsLogic'
+import { relationshipsLogic } from './relationshipsLogic'
+import { CertificationsTab } from './tabs/CertificationsTab'
 import { MetricsTab } from './tabs/MetricsTab'
+import { RelationshipsTab } from './tabs/RelationshipsTab'
 
 export const scene: SceneExport = {
     component: DataCatalogScene,
     logic: dataCatalogSceneLogic,
     productKey: ProductKey.DATA_CATALOG,
+    emptyState: dataCatalogEmptyState,
 }
 
-function TabPlaceholder({ label }: { label: string }): JSX.Element {
-    return <p className="text-secondary">{label} are coming soon.</p>
+function TabLabel({ label, count }: { label: string; count: number }): JSX.Element {
+    return (
+        <span className="flex items-center gap-1">
+            {label}
+            {count > 0 && <LemonBadge.Number count={count} status="primary" size="small" />}
+        </span>
+    )
 }
 
 export function DataCatalogScene(): JSX.Element {
     const { activeTab } = useValues(dataCatalogSceneLogic)
     const { setActiveTab } = useActions(dataCatalogSceneLogic)
-    const { openNewMetricModal } = useActions(metricsLogic)
+    const { proposedCount: metricsPending } = useValues(metricsLogic)
+    const { pendingCount: relationshipsPending } = useValues(relationshipsLogic)
+    const { proposedCount: certificationsPending } = useValues(certificationsLogic)
+    const { openNewMetricModal: openMetricModal } = useActions(metricsLogic)
+    const contextItems = useMemo(() => buildDataCatalogAgentContext(activeTab), [activeTab])
+
+    useSceneAgentPanel({
+        sceneKey: 'data-catalog',
+        contextItems,
+        headlines: DATA_CATALOG_AGENT_HEADLINES,
+    })
 
     const tabs: LemonTab<DataCatalogTab>[] = [
         {
             key: 'metrics',
-            label: 'Metrics',
+            label: <TabLabel label="Metrics" count={metricsPending} />,
             content: <MetricsTab />,
             link: urls.dataCatalog(),
         },
         {
             key: 'relationships',
-            label: 'Relationships',
-            content: <TabPlaceholder label="Relationships" />,
+            label: <TabLabel label="Relationships" count={relationshipsPending} />,
+            content: <RelationshipsTab />,
             link: urls.dataCatalog('relationships'),
         },
         {
             key: 'certifications',
-            label: 'Certifications',
-            content: <TabPlaceholder label="Certifications" />,
+            label: <TabLabel label="Certifications" count={certificationsPending} />,
+            content: <CertificationsTab />,
             link: urls.dataCatalog('certifications'),
         },
     ]
@@ -64,7 +89,7 @@ export function DataCatalogScene(): JSX.Element {
                             type="primary"
                             size="small"
                             icon={<IconPlusSmall />}
-                            onClick={openNewMetricModal}
+                            onClick={openMetricModal}
                             data-attr="data-catalog-new-metric-button"
                         >
                             New metric

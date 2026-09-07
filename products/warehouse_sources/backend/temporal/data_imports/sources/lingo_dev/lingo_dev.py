@@ -4,7 +4,6 @@ from typing import Any, Optional
 from requests import Request
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -18,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.settings import (
     LINGO_DEV_BASE_URL,
     LINGO_DEV_ENDPOINTS,

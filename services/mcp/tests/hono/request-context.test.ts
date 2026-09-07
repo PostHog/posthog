@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
     const mockMe = vi.fn()
-    const mockApiClientCtor = vi.fn().mockImplementation(function () {
+    const mockApiClientCtor = vi.fn().mockImplementation(function (config) {
         return {
+            config,
             users: () => ({ me: mockMe }),
         }
     })
@@ -119,6 +120,55 @@ describe('RequestContext', () => {
             await ctx.getDistinctId()
 
             expect(mockApiClientCtor.mock.calls[0]![0].oauthClientName).toBe(expected)
+        })
+
+        it('forwards the session client identity after the API client already exists', async () => {
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ mcpClientName: undefined }))
+            await ctx.getContext()
+
+            ctx.setMcpContexts(
+                {
+                    authMethod: 'personal_api_key',
+                    mcpClientName: undefined,
+                },
+                {
+                    mcpClientName: 'external-claims-smoke-a',
+                    mcpClientVersion: '1.0',
+                    mcpProtocolVersion: '2025-03-26',
+                }
+            )
+
+            const api = mockApiClientCtor.mock.results[0]!.value
+            expect(api.config).toMatchObject({
+                mcpClientName: 'external-claims-smoke-a',
+                mcpClientVersion: '1.0',
+                mcpProtocolVersion: '2025-03-26',
+            })
+        })
+
+        it('uses the session client identity when API construction happens later', async () => {
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ mcpClientName: undefined }))
+            ctx.setMcpContexts(
+                {
+                    authMethod: 'personal_api_key',
+                    mcpClientName: undefined,
+                },
+                {
+                    mcpClientName: 'external-claims-smoke-b',
+                    mcpClientVersion: '2.0',
+                    mcpProtocolVersion: '2025-03-26',
+                }
+            )
+
+            await ctx.getContext()
+
+            expect(mockApiClientCtor.mock.calls[0]![0]).toMatchObject({
+                mcpClientName: 'external-claims-smoke-b',
+                mcpClientVersion: '2.0',
+                mcpProtocolVersion: '2025-03-26',
+            })
         })
     })
 
@@ -252,6 +302,7 @@ describe('RequestContext', () => {
             )
             ctx.setMcpContexts(
                 {
+                    authMethod: 'personal_api_key',
                     sessionId: 'sess-1',
                     mcpClientName: 'Claude Desktop',
                     mcpClientVersion: '2.0',
@@ -319,20 +370,6 @@ describe('RequestContext', () => {
         it('returns the same cache instance on repeated access', () => {
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
             expect(ctx.cache).toBe(ctx.cache)
-        })
-
-        it('keeps MCP session cache entries on the default 7 day TTL', async () => {
-            const redis = spyRedis()
-            const ctx = new RequestContext(redis, env, makeProps({ mcpSessionId: 'mcp-session-1' }))
-
-            await ctx.sessionCache.set('mcpClientName', 'claude-code')
-
-            expect(redis.set).toHaveBeenCalledWith(
-                expect.stringMatching(/^mcp:session:/),
-                JSON.stringify('claude-code'),
-                'EX',
-                7 * 24 * 60 * 60
-            )
         })
 
         it('keeps token cache entries on the default 7 day TTL', async () => {

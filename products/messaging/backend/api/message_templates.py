@@ -1,7 +1,7 @@
 from copy import deepcopy
 from typing import Any
 
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -15,6 +15,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.cdp.validation import build_html_wrap_design
 
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
@@ -142,6 +143,11 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"content": {"email": {"subject": "Subject is required for email templates."}}}
             )
+        # Programmatically authored templates often supply html without a design, which the
+        # visual editor can't open. Wrap the html in a single custom HTML block; the stored
+        # html stays untouched, so nothing about the sent email changes.
+        if email and email.get("html") and not email.get("design"):
+            email["design"] = build_html_wrap_design(email["html"])
         # Design-only saves get their html rendered server-side (the send path uses html
         # verbatim). A submitted html is trusted as-is — that's the visual editor's own export.
         if email and email.get("design") and not email.get("html"):
@@ -172,17 +178,19 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         return instance
 
 
-DESIGN_OPERATION_TYPES = [
-    "update_content",
-    "update_column",
-    "update_row",
-    "update_body",
-    "add_content",
-    "remove_content",
-    "move_content",
-    "add_row",
-    "remove_row",
-]
+class EmailTemplateDesignOperation(models.TextChoices):
+    UPDATE_CONTENT = "update_content", "update_content"
+    UPDATE_COLUMN = "update_column", "update_column"
+    UPDATE_ROW = "update_row", "update_row"
+    UPDATE_BODY = "update_body", "update_body"
+    ADD_CONTENT = "add_content", "add_content"
+    REMOVE_CONTENT = "remove_content", "remove_content"
+    MOVE_CONTENT = "move_content", "move_content"
+    ADD_ROW = "add_row", "add_row"
+    REMOVE_ROW = "remove_row", "remove_row"
+
+
+DESIGN_OPERATION_TYPES = list(EmailTemplateDesignOperation.values)
 
 # Per-op required fields, validated in DesignOperationSerializer.validate so a malformed op is rejected
 # before any are applied (the whole batch is atomic).

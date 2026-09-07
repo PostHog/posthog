@@ -9,17 +9,18 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langfuse import (
     LangfuseSourceConfig,
 )
@@ -33,8 +34,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     validate_credentials as validate_langfuse_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LANGFUSE_API_VERSION_V1,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -43,6 +47,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://langfuse.com/docs/api-and-data-platform/features/public-api"
+
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
+    # Langfuse is retiring its v1 public read endpoints at the (undated) v4 cutover. The source
+    # already reads Langfuse's current route for every resource that has one, so both labels share
+    # one wire and v1-pinned rows keep working — v1 is deprecated advisory-only (no vendor sunset
+    # date). `traces`/`sessions` have no lossless v2 replacement (v2 returns observation rows, not
+    # trace/session objects), so their cutover is a documented manual migration, not an auto repin.
+    deprecated_versions = (VersionDeprecation(version=LANGFUSE_API_VERSION_V1),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -113,6 +126,20 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             # PAGE_LIMIT_ERROR is intentionally absent: it is retryable, so a huge sync resumes
             # from its checkpoint on the next attempt instead of failing permanently.
             REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows`'s tenacity retry already retries a 429/422/5xx (the "Langfuse API error
+        # (retryable)" sentinel), a dropped connection, and a read timeout up to MAX_RETRIES. Once
+        # that budget exhausts, urllib3 wraps the failure as "Max retries exceeded with url" (with
+        # the read timeout nested inside as its cause), and Temporal retries the whole activity from
+        # the saved pagination checkpoint, so the failure is transient and self-recovering. The host
+        # is customer-controlled (self-hosted Langfuse), so match only the stable, host-independent
+        # parts of the message.
+        return {
+            "Langfuse API error (retryable)",
+            "Read timed out",
+            "Max retries exceeded with url",
         }
 
     def get_schemas(

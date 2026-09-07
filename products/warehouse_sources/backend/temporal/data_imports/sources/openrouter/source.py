@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
     OpenRouterSourceConfig,
 )
@@ -66,7 +63,7 @@ class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeC
             name=SchemaExternalDataSourceType.OPEN_ROUTER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenRouter",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenRouter API key to pull your OpenRouter usage and account data into the PostHog Data warehouse.
 
 Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, organization members, and workspaces tables can sync. A regular inference key can only read the models and providers catalogs.""",

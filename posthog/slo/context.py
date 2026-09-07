@@ -54,9 +54,14 @@ class SloSpec:
     # can weight each event by 1/sample_rate to reconstruct the true rate.
     sample_rate: float = 1.0
 
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.sample_rate <= 1.0):
+            raise ValueError(f"SloSpec sample_rate must be between 0 and 1, got {self.sample_rate}")
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=False)
 class SloHandle:
+    operation: SloOperation | None = None
     completion_properties: dict[str, JsonValue] = dataclasses.field(default_factory=dict)
     outcome_override: SloOutcome | None = None
 
@@ -120,7 +125,7 @@ def slo_operation(
     a no-exception path as an SLO failure.
     """
 
-    handle = SloHandle()
+    handle = SloHandle(operation=spec.operation)
     base_properties = dict(properties or {})
     base_properties["correlation_id"] = str(uuid4())
     # One coin flip per operation: started+completed share fate, so a sampled

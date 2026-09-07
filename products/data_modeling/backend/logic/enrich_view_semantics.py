@@ -87,9 +87,16 @@ def _view_columns(saved_query: DataWarehouseSavedQuery) -> list[dict[str, Any]]:
     return result
 
 
+def _has_sampleable_rows(saved_query: DataWarehouseSavedQuery) -> bool:
+    """The prepare step links the table before the succeed activity asks this, while the run's job is
+    still Running, so the link is the one fact that is true on the first success. It is also a column,
+    which keeps the save-signal path free of queries."""
+    return saved_query.table_id is not None
+
+
 def compute_enrichment_hash(saved_query: DataWarehouseSavedQuery) -> str:
     """Fingerprint the inputs that would change the descriptions: query text, column set, and whether a
-    row sample is available. The `sample_bit` flips once the view is first materialized (table + last run),
+    row sample is available. The `sample_bit` flips once the view is first materialized (a backing table is linked),
     so descriptions upgrade exactly once with real row data rather than staying at the definition-only pass.
     """
     query = saved_query.query or {}
@@ -97,7 +104,7 @@ def compute_enrichment_hash(saved_query: DataWarehouseSavedQuery) -> str:
     column_pairs = sorted(
         (name, _clickhouse_type(column_meta)) for name, column_meta in (saved_query.columns or {}).items()
     )
-    sample_bit = "sampled" if (saved_query.table_id and saved_query.last_run_at) else "unsampled"
+    sample_bit = "sampled" if _has_sampleable_rows(saved_query) else "unsampled"
     payload = json.dumps([query_str, column_pairs, sample_bit], sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -155,16 +162,15 @@ def _get_row_sample(saved_query: DataWarehouseSavedQuery) -> list[dict[str, str]
     Only call this for materialized views — running the raw view query for an unmaterialized view is
     unbounded cost. `saved_query.name` is validated to a strict identifier, so it's safe to interpolate.
     """
-    from posthog.api.services.query import process_query_dict  # noqa: PLC0415 — heavy HogQL/query stack
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
-    from posthog.hogql_queries.query_runner import ExecutionMode  # noqa: PLC0415
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — heavy HogQL/query stack
 
-    query = {"kind": "HogQLQuery", "query": f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"}
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
+
+    query = f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"
     try:
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(
-                saved_query.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            )
+            # Safe to bypass: it only samples a view the team owns, to generate column descriptions.
+            response = execute_hogql_query(query, team=saved_query.team, bypass_warehouse_access_control=True)
     except Exception as e:
         capture_exception(e)
         return []
@@ -370,7 +376,7 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         business_context = get_team_business_context(team)
         lineage = _gather_lineage(team, saved_query, query_str)
         # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
-        row_sample = _get_row_sample(saved_query) if (saved_query.table_id and saved_query.last_run_at) else []
+        row_sample = _get_row_sample(saved_query) if _has_sampleable_rows(saved_query) else []
         prompt = build_bounded_view_enrichment_prompt(
             view_name=saved_query.name,
             query_definition=query_str,

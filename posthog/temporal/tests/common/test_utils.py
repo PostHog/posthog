@@ -3,7 +3,13 @@ import inspect
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.common.utils import close_db_connections, make_sync_retryable_with_exponential_backoff
+from django.db import InterfaceError, InternalError, OperationalError
+
+from posthog.temporal.common.utils import (
+    close_db_connections,
+    make_sync_retryable_with_exponential_backoff,
+    retry_on_db_connection_drop,
+)
 
 
 def test_make_sync_retryable_with_exponential_backoff_called_max_attempts():
@@ -189,3 +195,81 @@ def test_close_db_connections_preserves_sync_signature_for_temporal():
     assert not inspect.iscoroutinefunction(wrapped)
     assert wrapped.__name__ == "fn"
     assert wrapped.__annotations__ == {"value": int, "return": str}
+
+
+CLOSE_DB_CONNECTIONS_TARGET = "posthog.temporal.common.utils._close_db_connections"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OperationalError("the connection is closed"),
+        InterfaceError("connection already closed"),
+        InternalError("cannot execute UPDATE in a read-only transaction"),
+    ],
+)
+def test_retry_on_db_connection_drop_retries_once_then_succeeds(error):
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise error
+        return "ok"
+
+    with patch(CLOSE_DB_CONNECTIONS_TARGET) as mock_close:
+        assert retry_on_db_connection_drop(operation) == "ok"
+
+    assert calls == 2
+    mock_close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OperationalError("the connection is closed"),
+        InterfaceError("connection already closed"),
+        InternalError("cannot execute UPDATE in a read-only transaction"),
+    ],
+)
+def test_retry_on_db_connection_drop_raises_after_second_failure(error):
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        raise error
+
+    with pytest.raises(type(error)):
+        retry_on_db_connection_drop(operation)
+
+    assert calls == 2
+
+
+def test_retry_on_db_connection_drop_does_not_retry_unrelated_errors():
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        raise ValueError("not a connection error")
+
+    with pytest.raises(ValueError):
+        retry_on_db_connection_drop(operation)
+
+    assert calls == 1
+
+
+def test_retry_on_db_connection_drop_does_not_retry_unrelated_internal_errors():
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        raise InternalError("current transaction is aborted, commands ignored until end of transaction block")
+
+    with pytest.raises(InternalError):
+        retry_on_db_connection_drop(operation)
+
+    assert calls == 1

@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { hasRecentAIEvents } from './aiEvents'
+import { hasRecentAIEvents, pollRecentAIEvents } from './aiEvents'
 
 describe('aiEventsUtils', () => {
     beforeEach(() => {
@@ -204,6 +204,29 @@ describe('aiEventsUtils', () => {
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(false)
+        })
+    })
+
+    describe('pollRecentAIEvents', () => {
+        // One sequential test: the page-load cache is module state, so ordering within a single
+        // test is the only way to exercise failure, dedupe, and cache without cross-test coupling.
+        it('resolves false on failure, dedupes concurrent checks, then caches a hit for the page load', async () => {
+            const listSpy = jest.spyOn(api.eventDefinitions, 'list').mockRejectedValueOnce(new Error('network down'))
+            jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+            await expect(pollRecentAIEvents()).resolves.toBe(false)
+            expect(listSpy).toHaveBeenCalledTimes(1)
+
+            listSpy.mockResolvedValue({
+                results: [{ id: '1', name: '$ai_generation', last_seen_at: dayjs().subtract(1, 'day').toISOString() }],
+                count: 1,
+            } as any)
+            const [first, second] = await Promise.all([pollRecentAIEvents(), pollRecentAIEvents()])
+            expect(first).toBe(true)
+            expect(second).toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(2)
+
+            await expect(pollRecentAIEvents()).resolves.toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(2)
         })
     })
 })

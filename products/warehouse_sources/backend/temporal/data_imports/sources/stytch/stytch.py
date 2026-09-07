@@ -7,9 +7,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.settings import (
     STYTCH_ENDPOINTS,
     StytchEndpointConfig,
@@ -24,6 +24,11 @@ PAGE_SIZE = 500
 MEMBER_SEARCH_ORG_CHUNK_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
+# Stytch surfaces its own search-query timeout as a 400 with this `error_type` (query complexity
+# can push search latency up to ~9s per Stytch's docs) rather than a 5xx, but it's the same
+# transient, self-recovering condition as one — worth the same in-process backoff, not a
+# permanent client error.
+TRANSIENT_ERROR_TYPES = {"search_timeout"}
 
 
 class StytchRetryableError(Exception):
@@ -125,6 +130,12 @@ def _request(
             error_type = response.json().get("error_type", "unknown")
         except Exception:
             error_type = "unknown"
+
+        if error_type in TRANSIENT_ERROR_TYPES:
+            raise StytchRetryableError(
+                f"Stytch API error (retryable): status={response.status_code}, error_type={error_type}, url={url}"
+            )
+
         logger.error(f"Stytch API error: status={response.status_code}, error_type={error_type}, url={url}")
         raise StytchAPIError(f"Stytch API error: status={response.status_code}, error_type={error_type}, url={url}")
 

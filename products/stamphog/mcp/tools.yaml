@@ -9,60 +9,6 @@ feature: stamphog
 url_prefix: /stamphog
 ui_apps: {}
 tools:
-    stamphog-digest-channels-create:
-        operation: stamphog_digest_channels_create
-        enabled: true
-        scopes:
-            - stamphog:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create stamphog digest channel
-        description: >
-            Route an audience's daily merged-PR digest to a Slack channel. Requires `audience_key`,
-            `slack_integration_id` (must be a Slack integration belonging to this team), and `slack_channel_id`.
-        feature_flag: stamphog
-    stamphog-digest-channels-delete:
-        operation: stamphog_digest_channels_destroy
-        enabled: true
-        scopes:
-            - stamphog:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete stamphog digest channel
-        description: >
-            Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning can't
-            recreate and re-post it) rather than hard-deleting it — equivalent to `stamphog-digest-channels-update` with
-            `enabled: false`.
-        feature_flag: stamphog
-    stamphog-digest-channels-list:
-        operation: stamphog_digest_channels_list
-        enabled: true
-        scopes:
-            - stamphog:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List stamphog digest channels
-        description: >
-            List Slack destinations for the daily merged-PR digest in this project. Each channel is keyed by
-            `audience_key` (e.g. a repo or team bucket) and reports how it was resolved (manual, name match, repo policy
-            config) and whether it's currently enabled.
-        feature_flag: stamphog
-    stamphog-digest-channels-partial-update:
-        operation: stamphog_digest_channels_partial_update
-        enabled: false
-    stamphog-digest-channels-retrieve:
-        operation: stamphog_digest_channels_retrieve
-        enabled: false
-    stamphog-digest-channels-update:
-        operation: stamphog_digest_channels_update
-        enabled: false
     stamphog-digest-runs-list:
         operation: stamphog_digest_runs_list
         enabled: true
@@ -75,9 +21,10 @@ tools:
         list: true
         title: List stamphog digest runs
         description: >
-            List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single
-            channel's history. Each run reports its status, how many merged PRs it summarized, and the Slack message
-            timestamp it posted to. The rendered summary text itself lives only in the Slack post.
+            List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team
+            slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status,
+            how many merged PRs it summarized, and the Slack message timestamp. Filter by `slack_channel_id` to see one
+            channel's history. The rendered summary text lives only in the Slack post.
         feature_flag: stamphog
     stamphog-digest-runs-retrieve:
         operation: stamphog_digest_runs_retrieve
@@ -93,8 +40,12 @@ tools:
             destructive: false
             idempotent: true
         title: Get stamphog pull request
-        description: |
-            Get a single pull request by id, including its repository, title, author, head branch, and merge details.
+        description:
+            Get one pull request record from stamphog (PostHog's automated PR review and merged-PR digest) by its
+            internal UUID — the `id` returned by `stamphog-pull-requests-list`, not the GitHub PR number. Returns the
+            repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use
+            `stamphog-pull-requests-list` with `pr_number`. For CI status or merge-timing analytics on a PR, use the
+            engineering analytics `pull-requests` or `pr-lifecycle` tools instead.
         feature_flag: stamphog
     stamphog-pull-requests-list:
         operation: stamphog_pull_requests_list

@@ -5,6 +5,7 @@ from unittest.mock import patch
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
@@ -158,6 +159,60 @@ class TestTable(BaseTest):
 
         with pytest.raises(QueryError, match="Direct Postgres tables cannot be printed into ClickHouse SQL"):
             definition.to_printed_clickhouse(context=None)
+
+    @parameterized.expand(
+        [
+            (
+                "direct",
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSource.AccessMethod.DIRECT,
+                DirectClickHouseTable,
+            ),
+            (
+                "synced",
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                HogQLDataWarehouseTable,
+            ),
+            # Both ClickHouse source types share the "clickhouse" engine, so both must resolve alike.
+            (
+                "direct_cloud",
+                ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSource.AccessMethod.DIRECT,
+                DirectClickHouseTable,
+            ),
+            (
+                "synced_cloud",
+                ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                HogQLDataWarehouseTable,
+            ),
+        ]
+    )
+    def test_clickhouse_table_is_direct_only_for_a_direct_source(
+        self, _name: str, source_type: str, access_method: str, expected_type: type
+    ):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix="Readable Name",
+            access_method=access_method,
+            job_inputs={"database": "mydb"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="events",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        assert isinstance(table.hogql_definition(), expected_type)
 
     def test_direct_mysql_table_uses_physical_schema_and_table_options(self):
         source = ExternalDataSource.objects.create(
@@ -464,6 +519,26 @@ class TestTable(BaseTest):
 
     @parameterized.expand(
         [
+            ("backtick", "id`"),
+            ("backslash", "id\\"),
+            ("newline", "id\n"),
+            ("carriage_return", "id\r"),
+            ("null_byte", "id\0"),
+        ]
+    )
+    def test_get_columns_rejects_unquotable_column_names(self, _name: str, column_name: str):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [[column_name, "String"]]
+            with pytest.raises(Exception, match="PostHog can't use the column name"):
+                table.get_columns()
+
+    @parameterized.expand(
+        [
             ("get_columns", "id,Int64\n"),
             ("get_count", "42\n"),
         ]
@@ -577,7 +652,26 @@ class TestTable(BaseTest):
             [IntegerDatabaseField(name="id", nullable=False)],
         )
 
-    def test_hogql_definition_column_name_hyphen(self):
+    @parameterized.expand(
+        [
+            (
+                "hyphen",
+                "timestamp-dash",
+                "`id` String, `timestamp-dash` DateTime64(3, 'UTC')",
+            ),
+            (
+                "backtick_closing_the_identifier",
+                "x` String DEFAULT hostName(), y",
+                "`id` String, `x`` String DEFAULT hostName(), y` DateTime64(3, 'UTC')",
+            ),
+            (
+                "backslash",
+                "a\\b",
+                "`id` String, `a\\\\b` DateTime64(3, 'UTC')",
+            ),
+        ]
+    )
+    def test_hogql_definition_quotes_special_column_names(self, _name: str, column_name: str, expected_structure: str):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="bla",
@@ -586,15 +680,15 @@ class TestTable(BaseTest):
             team=self.team,
             columns={
                 "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-                "timestamp-dash": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                column_name: {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
             },
             credential=credential,
         )
 
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert list(definition.fields.keys()) == ["id", "timestamp-dash"]
-        assert definition.structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
+        assert list(definition.fields.keys()) == ["id", column_name]
+        assert definition.structure == expected_structure
 
     def test_complex_type_with_array_nested_datetime_fields(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -948,7 +1042,7 @@ class TestTable(BaseTest):
                 "access_denied",
                 "DB::Exception: Access Denied: while reading key: some/path/file.parquet",
                 499,
-                "Access was denied when reading the provided file",
+                "s3:GetObject",
             ),
             (
                 "no_such_bucket",

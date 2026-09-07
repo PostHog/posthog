@@ -9,6 +9,7 @@ from products.signals.backend.report_charts import (
     MAX_CHART_ID_LENGTH,
     MAX_CHART_TITLE_LENGTH,
     ReportChart,
+    chart_batch_error,
 )
 
 
@@ -232,3 +233,21 @@ class TestReportCharts(SimpleTestCase):
 
         with self.assertRaises(ValidationError):
             ReportChart.model_validate({"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode", **nested}})
+
+
+class TestChartBatchError(SimpleTestCase):
+    def _chart(self, chart_id: str) -> ReportChart:
+        return ReportChart(
+            chart_id=chart_id, title="t", query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        )
+
+    def test_accepts_a_set_with_distinct_ids(self) -> None:
+        assert chart_batch_error([self._chart("a"), self._chart("b")]) is None
+
+    def test_rejects_a_duplicate_chart_id(self) -> None:
+        # The inbox indexes a report's charts by id, so two under one id collapse to the last and a
+        # `chart:` reference draws the wrong query. Per-chart validation can't see this; the whole-set
+        # validator is the only guard on the pipeline authoring path.
+        error = chart_batch_error([self._chart("dupe"), self._chart("dupe")])
+        assert error is not None
+        assert "duplicate chart_id" in error

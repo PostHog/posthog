@@ -1,6 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
+import { template as createAccountTemplate } from './posthog-create-account.template'
 import { template as getAccountTemplate } from './posthog-get-account.template'
 import { template as tagAccountTemplate } from './posthog-tag-account.template'
 import { template as updateAccountPropertyTemplate } from './posthog-update-account-property.template'
@@ -17,6 +18,14 @@ describe('posthog customer analytics account templates', () => {
             inputs: { external_id: 'acme-1' },
             failurePrefix: 'Failed to fetch account (400):',
             successLog: 'Fetched account acme-1',
+        },
+        {
+            name: 'create account',
+            template: createAccountTemplate,
+            inputs: { external_id: 'acme-1' },
+            failurePrefix: 'Failed to create account (400):',
+            // A 200 means the account already existed — creation is a no-op.
+            successLog: 'Account acme-1 already exists — skipped creation',
         },
         {
             name: 'update account',
@@ -104,6 +113,71 @@ describe('posthog customer analytics account templates', () => {
             response = await tester.invokeFetchResponse(response.invocation, { status, body })
 
             expect(response.error).toEqual(expected)
+        })
+    })
+
+    describe('create account', () => {
+        const tester = new TemplateTester(createAccountTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        it('logs the created line on 201', async () => {
+            let response = await tester.invoke({ external_id: 'acme-1' })
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body).toEqual({ external_id: 'acme-1' })
+
+            response = await tester.invokeFetchResponse(response.invocation, {
+                status: 201,
+                body: { id: 'account-id', external_id: 'acme-1' },
+            })
+
+            expect(response.error).toBeUndefined()
+            expect(response.finished).toBe(true)
+            expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toContain(
+                'Created account acme-1'
+            )
+        })
+
+        it('fails with a descriptive error when the event has no group of the account group type', async () => {
+            const response = await tester.invoke({ external_id: '' })
+
+            expect(response.error).toEqual(
+                'Account external ID is required — the triggering event has no group of the configured account group type'
+            )
+        })
+    })
+
+    describe('update account property queued fetch body', () => {
+        const tester = new TemplateTester(updateAccountPropertyTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        it('sends an explicit property clear as API null', async () => {
+            const response = await tester.invoke({
+                external_id: 'acme-1',
+                properties: { '0197f9f0-0000-0000-0000-000000000000': { __posthog_clear_property: true } },
+            })
+
+            expect(response.error).toBeUndefined()
+            expect(response.finished).toBe(false)
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body.properties).toEqual({ '0197f9f0-0000-0000-0000-000000000000': null })
+        })
+
+        it('rejects a property template that resolves to null', async () => {
+            const response = await tester.invoke({
+                external_id: 'acme-1',
+                properties: { '0197f9f0-0000-0000-0000-000000000000': '{event.properties.plan}' },
+            })
+
+            expect(response.error).toContain("received null for property '0197f9f0-0000-0000-0000-000000000000'")
+            expect(response.invocation.queueParameters).toBeUndefined()
         })
     })
 

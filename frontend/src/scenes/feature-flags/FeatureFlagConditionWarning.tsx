@@ -19,7 +19,7 @@ export function FeatureFlagConditionWarning({
     className,
     evaluationRuntime = FeatureFlagEvaluationRuntime.ALL,
 }: FeatureFlagConditionWarningProps): JSX.Element | null {
-    const { warning } = useValues(featureFlagConditionWarningLogic({ properties, evaluationRuntime }))
+    const { warning, hasStaticCohort } = useValues(featureFlagConditionWarningLogic({ properties, evaluationRuntime }))
 
     if (!warning) {
         return null
@@ -27,11 +27,16 @@ export function FeatureFlagConditionWarning({
 
     return (
         <div
-            className={`flex items-center gap-2 text-xs p-2 rounded border border-warning-dark bg-warning-highlight${className ? ` ${className}` : ''}`}
+            className={`flex items-start gap-2 text-xs p-2 rounded border border-primary bg-surface-secondary text-secondary${className ? ` ${className}` : ''}`}
         >
-            <IconInfo className="text-base shrink-0 text-warning-dark" />
+            <IconInfo className="text-base shrink-0 text-muted mt-0.5" />
             <span>
-                Local evaluation unavailable ({warning}).{' '}
+                This flag works as normal. Only <strong>local evaluation</strong> in server-side SDKs is affected by
+                these conditions: {warning}. They are still evaluated through the PostHog API, just not from the SDK's
+                local cache.
+                {hasStaticCohort
+                    ? ' If you need local evaluation, target a dynamic (behavioral) cohort instead of a static one.'
+                    : ''}{' '}
                 <Link to="https://posthog.com/docs/feature-flags/local-evaluation#restriction-on-local-evaluation">
                     Learn more
                 </Link>

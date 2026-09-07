@@ -1,22 +1,25 @@
 import re
+import datetime
 from abc import abstractmethod
 from collections.abc import Sequence
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from posthog.models import Team, User
 
 from ee.hogai.llm import MaxChatAnthropic
+from ee.hogai.utils.anthropic import add_cache_control
 
-from .prompts import SYSTEM_PROMPT, USER_PROMPT
+from .prompts import FINAL_TURN_PROMPT, SUMMARIZATION_INSTRUCTION_PROMPT, SYSTEM_PROMPT
 
 
 class ConversationSummarizer:
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, conversation_start_dt: datetime.datetime | None = None):
         self._user = user
         self._team = team
+        self._conversation_start_dt = conversation_start_dt
 
     async def summarize(self, messages: Sequence[BaseMessage]) -> str:
         prompt = self._construct_messages(messages)
@@ -29,11 +32,21 @@ class ConversationSummarizer:
     def _get_model(self): ...
 
     def _construct_messages(self, messages: Sequence[BaseMessage]):
+        # The summarization instruction carries no per-conversation data, so it leads the prompt to
+        # keep the fixed prefix contiguous and identical between calls. Everything that changes per
+        # call follows it: the project context `MaxChatMixin` appends to the system block, then the
+        # conversation itself.
         return (
-            ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT)])
+            ChatPromptTemplate.from_messages([self._construct_system_message()])
             + messages
-            + ChatPromptTemplate.from_messages([("user", USER_PROMPT)])
+            # The conversation can end with an assistant message, which the Anthropic API rejects as
+            # a prefill. This turn keeps the request ending on a user message, and repeats the task
+            # after a conversation that can reach the full 400k-token window.
+            + ChatPromptTemplate.from_messages([("user", FINAL_TURN_PROMPT)])
         )
+
+    def _construct_system_message(self) -> BaseMessage:
+        return SystemMessage(content=f"{SYSTEM_PROMPT}\n\n{SUMMARIZATION_INSTRUCTION_PROMPT}")
 
     def _parse_xml_tags(self, message: str) -> str:
         """
@@ -56,25 +69,39 @@ class ConversationSummarizer:
 
 
 class AnthropicConversationSummarizer(ConversationSummarizer):
-    def __init__(self, team: Team, user: User, extend_context_window: bool | None = False):
-        super().__init__(team, user)
-        self._extend_context_window = extend_context_window
-
     def _get_model(self):
-        # Haiku has 200k token limit. Sonnet has 1M token limit (GA on claude-sonnet-4-6).
         return MaxChatAnthropic(
-            model="claude-sonnet-4-6" if self._extend_context_window else "claude-haiku-4-5",
+            # Sonnet 5 has a 1M token limit, so it can compact a conversation of any size we let
+            # grow. Haiku's 200k limit no longer covers CONVERSATION_WINDOW_SIZE.
+            model="claude-sonnet-5",
             streaming=False,
             stream_usage=False,
-            max_tokens=8192,
+            max_tokens=16384,
             disable_streaming=True,
+            # Sonnet 5 thinks by default, and `max_tokens` caps thinking plus response text
+            # together. A thinking overrun here would truncate the summary, which silently drops
+            # the conversation history it is supposed to preserve. The prompt already asks for an
+            # explicit `<analysis>` pass before `<summary>`, so the reasoning happens either way.
+            thinking={"type": "disabled"},
+            # Without this, `MaxChatMixin._get_project_org_user_variables` stamps the current
+            # wall-clock second into the injected context message.
+            conversation_start_dt=self._conversation_start_dt,
             user=self._user,
             team=self._team,
             billable=True,
         )
 
+    def _construct_system_message(self) -> BaseMessage:
+        # The 1h TTL outlives the 5m one between compactions, which are minutes to hours apart.
+        return add_cache_control(super()._construct_system_message(), ttl="1h")
+
     def _construct_messages(self, messages: Sequence[BaseMessage]):
-        """Removes cache_control headers."""
+        """Removes cache_control headers, so the only breakpoint is the one on the fixed prefix.
+
+        The agent marks the last message of the conversation it hands over, which would make
+        Anthropic write a cache entry for a ~400k-token prefix that no later call can read, because
+        each compaction sends a conversation only it has.
+        """
         messages_without_cache: list[BaseMessage] = []
         for message in messages:
             if isinstance(message.content, list):

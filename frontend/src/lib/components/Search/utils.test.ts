@@ -1,4 +1,6 @@
-import { filterSearchItems } from './utils'
+import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
+
+import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems, shouldSearchTickets } from './utils'
 
 interface TestItem {
     name: string
@@ -102,5 +104,54 @@ describe('filterSearchItems', () => {
             const results = filterSearchItems(items, 'xyzzyplugh')
             expect(results).toEqual([])
         })
+    })
+})
+
+// Cmd/Ctrl+Enter routes through this, so a false positive on an action item runs that action
+// instead of opening a background tab, which in the case of "Log out" ends the session.
+describe('canOpenInNewTab', () => {
+    const cases: [label: string, item: { id: string; href?: string; onSelect?: () => void }, expected: boolean][] = [
+        ['allows a plain navigable result', { id: 'insight-1', href: '/insights/1' }, true],
+        ['blocks an action-only result such as "Log out"', { id: 'misc-logout', onSelect: jest.fn() }, false],
+        [
+            'blocks an action that also carries an href',
+            { id: 'new-sql-query-tab', href: '/sql', onSelect: jest.fn() },
+            false,
+        ],
+        [
+            'blocks the theme row, which navigates but toggles instead',
+            { id: SETTINGS_THEME_ITEM_ID, href: '/settings/theme' },
+            false,
+        ],
+        ['blocks a result with nothing to open', { id: 'no-href' }, false],
+        ['blocks a result whose href is the placeholder', { id: 'starred-1', href: PLACEHOLDER_HREF }, false],
+    ]
+
+    it.each(cases)('%s', (_label, item, expected) => {
+        expect(canOpenInNewTab(item)).toBe(expected)
+    })
+})
+
+describe('shouldSearchTickets', () => {
+    it('waits for a query worth scanning message content for', () => {
+        expect(shouldSearchTickets('')).toBe(false)
+        expect(shouldSearchTickets('b')).toBe(false)
+        expect(shouldSearchTickets('bi')).toBe(false)
+        expect(shouldSearchTickets('bil')).toBe(true)
+        expect(shouldSearchTickets('  billing  ')).toBe(true)
+    })
+
+    // A number resolves to an indexed lookup by ticket number, so it is never too short.
+    it('always searches a ticket number', () => {
+        expect(shouldSearchTickets('7')).toBe(true)
+        expect(shouldSearchTickets('#7')).toBe(true)
+        expect(shouldSearchTickets('#')).toBe(false)
+    })
+
+    // The server drops an over-long search term, so sending one would answer a pasted log line
+    // with unfiltered tickets.
+    it('does not send a query the server would drop', () => {
+        expect(shouldSearchTickets('x'.repeat(200))).toBe(true)
+        expect(shouldSearchTickets('x'.repeat(201))).toBe(false)
     })
 })

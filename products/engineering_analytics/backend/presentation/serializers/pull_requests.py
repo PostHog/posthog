@@ -58,10 +58,14 @@ class PRLifecycleEventSerializer(DataclassSerializer):
     class Meta:
         dataclass = PRLifecycleEvent
         extra_kwargs = {
-            "kind": {"help_text": "Event kind: opened, ci_started, ci_finished, merged, or closed."},
+            "kind": {
+                "help_text": "Event kind: opened, ready_for_review, converted_to_draft, ci_started, "
+                "ci_finished, merged, or closed."
+            },
             "at": {"help_text": "When the event occurred."},
             "detail": {
-                "help_text": "Optional detail, e.g. workflow name and conclusion for CI events.",
+                "help_text": "Optional detail: workflow name and conclusion for CI events, the acting "
+                "user's login for draft/ready transitions.",
                 "allow_null": True,
             },
             "run_id": {
@@ -196,7 +200,7 @@ class CIStatusRollupSerializer(DataclassSerializer):
         extra_kwargs = {
             "runs": {"help_text": "Distinct workflows run on the PR's head SHA."},
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
-            "failing": {"help_text": "Latest runs that completed with conclusion 'failure' or 'timed_out'."},
+            "failing": {"help_text": "Latest runs that ended in failure, timeout, startup failure, or staleness."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
             "failing_workflows": {
                 "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
@@ -217,7 +221,7 @@ class PushCISampleSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "failed": {
-                "help_text": "True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.",
+                "help_text": "True when any latest-per-workflow run on this push ended in a decisive failure.",
             },
             "pending": {"help_text": "True when any latest-per-workflow run on this push hasn't completed yet."},
         }
@@ -245,6 +249,13 @@ class PullRequestListItemSerializer(DataclassSerializer):
             "open_to_merge_seconds": {
                 "help_text": "Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and "
                 "ready-for-review time). Null until merged.",
+                "allow_null": True,
+            },
+            "ready_to_merge_seconds": {
+                "help_text": "True ready-to-merge cycle time in seconds: merged_at minus the last observed "
+                "ready_for_review transition (only the last draft/ready switch counts), or minus created_at "
+                "for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life "
+                "isn't fully inside the synced issue-event window) - null never means zero.",
                 "allow_null": True,
             },
             "labels": {"help_text": "GitHub label names on the pull request."},

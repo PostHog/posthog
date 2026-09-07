@@ -15,22 +15,24 @@ from requests.exceptions import (
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 logger = logging.getLogger(__name__)
 
 # Convex deployments are served behind Cloudflare, which surfaces transient edge/origin
 # problems as the 52x family (520 Unknown Error, 521 Web Server Down, 522 Connection Timed
-# Out, 523 Origin Unreachable, 524 Timeout). These are retryable just like the standard 5xx
-# codes, but urllib3's default forcelist doesn't include them — so a single transient 520
-# would otherwise fail the whole sync. All Convex requests are idempotent GETs, so retrying
-# them is safe. Derive from DEFAULT_RETRY so backoff/total/allowed-methods stay in sync.
-_CLOUDFLARE_TRANSIENT_STATUSES = frozenset({520, 521, 522, 523, 524})
+# Out, 523 Origin Unreachable, 524 Timeout) plus 530, which Cloudflare emits for edge-side
+# DNS resolution hiccups reaching the origin (its 1xxx error subcodes). These are retryable
+# just like the standard 5xx codes, but urllib3's default forcelist doesn't include them —
+# so a single transient 520/530 would otherwise fail the whole sync. All Convex requests are
+# idempotent GETs, so retrying them is safe. Derive from DEFAULT_RETRY so backoff/total/
+# allowed-methods stay in sync.
+_CLOUDFLARE_TRANSIENT_STATUSES = frozenset({520, 521, 522, 523, 524, 530})
 _CONVEX_RETRY = DEFAULT_RETRY.new(
     status_forcelist=frozenset(DEFAULT_RETRY.status_forcelist) | _CLOUDFLARE_TRANSIENT_STATUSES
 )
@@ -128,12 +130,30 @@ def _convex_get(url: str, deploy_key: str, params: dict[str, Any], timeout: int)
     )
 
 
+class StreamingExportNotEnabledError(Exception):
+    """Raised when the Convex deployment's plan doesn't include streaming export access."""
+
+    pass
+
+
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
     # byComponent=true groups the response by component so non-default components are discoverable.
     response = _convex_get(
         url, deploy_key, {"deltaSchema": "true", "format": "json", "byComponent": "true"}, timeout=30
     )
+    if response.status_code == 400:
+        try:
+            error_data = response.json()
+        except ValueError:
+            error_data = {}
+        # A plain HTTPError's message never carries the response body, so without this the
+        # StreamingExportNotEnabled entry in get_non_retryable_errors can never match here -
+        # it only matched by accident via validate_credentials' own body parsing below.
+        if error_data.get("code") == "StreamingExportNotEnabled":
+            raise StreamingExportNotEnabledError(
+                "StreamingExportNotEnabled: streaming export requires the Convex Professional plan."
+            )
     response.raise_for_status()
     return response.json()
 
@@ -313,17 +333,13 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
     try:
         get_json_schemas(clean_url, deploy_key)
         return True, None
+    except StreamingExportNotEnabledError:
+        return (
+            False,
+            "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
+        )
     except HTTPError as e:
         if e.response is not None:
-            try:
-                error_data = e.response.json()
-                if error_data.get("code") == "StreamingExportNotEnabled":
-                    return (
-                        False,
-                        "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
-                    )
-            except Exception:
-                pass
             if e.response.status_code in (401, 403):
                 return False, "Invalid deploy key. Check your Convex deploy key and try again."
         # Any other status falls through to a generic message. Keep the raw error

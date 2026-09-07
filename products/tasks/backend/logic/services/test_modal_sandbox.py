@@ -1,13 +1,167 @@
+import shutil
+from pathlib import Path
+
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
 )
-from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
-from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate
+from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.logic.services.modal_sandbox import (
+    DEFAULT_MODAL_APP_NAME,
+    LOCAL_MODAL_AGENT_SHADOW_DIR,
+    LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+    LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
+    NOTEBOOK_MODAL_APP_NAME,
+    SELF_DRIVING_MODAL_APP_NAME,
+    STREAMLIT_MODAL_APP_NAME,
+    ModalSandbox,
+    _prepare_local_modal_build_context,
+)
+from products.tasks.backend.logic.services.sandbox import (
+    SELF_DRIVING_ORIGIN_PRODUCTS,
+    ExecutionResult,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    SandboxWorkload,
+    get_sandbox_class_for_backend,
+    workload_for_origin_product,
+)
+from products.tasks.backend.models import Task
+
+
+def test_destroy_updates_status_before_modal_termination_settles(mocker):
+    handle = MagicMock(object_id="sb-test")
+    handle.poll.return_value = None
+    mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+    sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+
+    sandbox.destroy()
+
+    assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+    handle.terminate.assert_called_once_with()
+
+
+class TestModalSandboxWriteFile:
+    def test_required_file_write_failure_raises(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        mocker.patch.object(
+            sandbox,
+            "write_file",
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=1, error="atomic_move"),
+        )
+
+        with pytest.raises(SandboxExecutionError, match="Failed to write required sandbox file") as error:
+            sandbox._write_required_file("/etc/agentsh/config.yaml", b"config")
+
+        assert error.value.context["sandbox_id"] == "sb-test"
+        assert error.value.context["path"] == "/etc/agentsh/config.yaml"
+        assert error.value.context["exit_code"] == "1"
+        assert error.value.context["write_stage"] == "atomic_move"
+
+    def test_uses_exec_fallback_before_atomic_move(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        handle.filesystem.write_bytes.side_effect = RuntimeError("fs tool failed")
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        execute = mocker.patch.object(
+            sandbox,
+            "execute",
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+            ],
+        )
+
+        result = sandbox.write_file("/tmp/credentials", b"token=value\x00")
+
+        assert result.exit_code == 0
+        assert execute.call_count == 2
+        assert "base64 -d >" in execute.call_args_list[0].args[0]
+        assert "dG9rZW49dmFsdWUA" in execute.call_args_list[0].args[0]
+        assert execute.call_args_list[1].args[0].startswith("mv ")
+
+    def test_uses_bounded_exec_path_when_timeout_is_set(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        execute = mocker.patch.object(
+            sandbox,
+            "execute",
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+            ],
+        )
+
+        sandbox.write_file("/tmp/credentials", b"token=value\x00", timeout_seconds=15)
+
+        handle.filesystem.write_bytes.assert_not_called()
+        assert all(call.kwargs["timeout_seconds"] == 15 for call in execute.call_args_list)
+
+    def test_chunks_large_exec_fallback_payloads(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        handle.filesystem.write_bytes.side_effect = RuntimeError("fs tool failed")
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        execute = mocker.patch.object(
+            sandbox,
+            "execute",
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0),
+        )
+
+        sandbox.write_file("/tmp/output", b"x" * 100_000)
+
+        write_commands = [call.args[0] for call in execute.call_args_list[:-1]]
+        assert len(write_commands) == 3
+        assert all(len(command) < 51_000 for command in write_commands)
+        assert [len(command.splitlines()[1]) for command in write_commands] == [50_000, 50_000, 33_336]
+
+    def test_returns_exec_fallback_failure(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        handle.filesystem.write_bytes.side_effect = RuntimeError("fs tool failed")
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        mocker.patch.object(
+            sandbox,
+            "execute",
+            return_value=ExecutionResult(stdout="", stderr="write failed", exit_code=1),
+        )
+
+        result = sandbox.write_file("/tmp/credentials", b"token=value\x00")
+
+        assert result.exit_code == 1
+        assert result.error == "exec_write"
+
+    def test_returns_atomic_move_failure(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        mocker.patch.object(
+            sandbox,
+            "execute",
+            side_effect=[
+                ExecutionResult(stdout="", stderr="move failed", exit_code=1),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+            ],
+        )
+
+        result = sandbox.write_file("/tmp/credentials", b"token=value\x00")
+
+        assert result.exit_code == 1
+        assert result.error == "atomic_move"
 
 
 @pytest.fixture
@@ -15,7 +169,7 @@ def patched_modal(mocker):
     fake_sandbox = MagicMock()
     fake_sandbox.object_id = "sb-test"
 
-    mocker.patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock())
+    mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
     mocker.patch(
         "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
         return_value=MagicMock(),
@@ -108,3 +262,126 @@ class TestModalSandboxDirectorySnapshotMount:
         wedged.terminate.assert_called_once()
         assert sandbox.id == "sb-fresh"
         assert sandbox.config.snapshot_restored is False
+
+
+class TestModalSandboxAppRouting:
+    PRODUCTION_APP_NAMES = frozenset(
+        {
+            DEFAULT_MODAL_APP_NAME,
+            NOTEBOOK_MODAL_APP_NAME,
+            STREAMLIT_MODAL_APP_NAME,
+            SELF_DRIVING_MODAL_APP_NAME,
+        }
+    )
+
+    @pytest.fixture
+    def app_lookup(self, mocker):
+        return mocker.patch("modal.App.lookup", return_value=MagicMock())
+
+    @pytest.mark.parametrize(
+        "template, workload, expected_app",
+        [
+            (SandboxTemplate.DEFAULT_BASE, SandboxWorkload.DEFAULT, DEFAULT_MODAL_APP_NAME),
+            (SandboxTemplate.DEFAULT_BASE, SandboxWorkload.SELF_DRIVING, SELF_DRIVING_MODAL_APP_NAME),
+            # Self-driving runs on the VM runtime stay in the self-driving app.
+            (SandboxTemplate.VM_BASE, SandboxWorkload.SELF_DRIVING, SELF_DRIVING_MODAL_APP_NAME),
+            # Product templates own their app regardless of workload.
+            (SandboxTemplate.NOTEBOOK_BASE, SandboxWorkload.SELF_DRIVING, NOTEBOOK_MODAL_APP_NAME),
+            (SandboxTemplate.STREAMLIT_BASE, SandboxWorkload.SELF_DRIVING, STREAMLIT_MODAL_APP_NAME),
+        ],
+    )
+    def test_app_resolution(self, app_lookup, template, workload, expected_app):
+        ModalSandbox._get_app_for_config(SandboxConfig(name="test", template=template, workload=workload))
+
+        app_lookup.assert_called_once_with(expected_app, create_if_missing=True)
+
+    def test_created_sandbox_is_booked_against_the_workload_app(self, mocker, app_lookup):
+        mocker.patch(
+            "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+            return_value=MagicMock(),
+        )
+        create = mocker.patch("modal.Sandbox.create", return_value=MagicMock(object_id="sb-test"))
+
+        ModalSandbox.create(SandboxConfig(name="test", workload=SandboxWorkload.SELF_DRIVING))
+
+        app_lookup.assert_any_call(SELF_DRIVING_MODAL_APP_NAME, create_if_missing=True)
+        assert create.call_args.kwargs["app"] is app_lookup.return_value
+
+    @pytest.mark.parametrize("backend", ["modal_docker", "modal_evals"])
+    @pytest.mark.parametrize(
+        "template",
+        [
+            SandboxTemplate.DEFAULT_BASE,
+            SandboxTemplate.VM_BASE,
+            SandboxTemplate.NOTEBOOK_BASE,
+            SandboxTemplate.STREAMLIT_BASE,
+        ],
+    )
+    @pytest.mark.parametrize("workload", [SandboxWorkload.DEFAULT, SandboxWorkload.SELF_DRIVING])
+    def test_local_and_eval_providers_never_resolve_a_production_app(self, app_lookup, backend, template, workload):
+        # Every app name has to be a class attribute for the provider subclasses to shadow it.
+        # A module constant read directly would leak local and eval boxes into a production app.
+        sandbox_cls = get_sandbox_class_for_backend(backend)
+        assert issubclass(sandbox_cls, ModalSandbox)
+
+        sandbox_cls._get_app_for_config(SandboxConfig(name="test", template=template, workload=workload))
+
+        assert app_lookup.call_args.args[0] not in self.PRODUCTION_APP_NAMES
+
+
+class TestSelfDrivingWorkloadMapping:
+    @pytest.mark.parametrize(
+        "origin_product, expected",
+        [
+            (Task.OriginProduct.SIGNAL_REPORT, SandboxWorkload.SELF_DRIVING),
+            (Task.OriginProduct.SIGNALS_SCOUT, SandboxWorkload.SELF_DRIVING),
+            (Task.OriginProduct.REVIEW_HOG, SandboxWorkload.SELF_DRIVING),
+            (Task.OriginProduct.USER_CREATED, SandboxWorkload.DEFAULT),
+            (Task.OriginProduct.SLACK, SandboxWorkload.DEFAULT),
+            (Task.OriginProduct.LOOP, SandboxWorkload.DEFAULT),
+            (None, SandboxWorkload.DEFAULT),
+        ],
+    )
+    def test_workload_for_origin_product(self, origin_product, expected):
+        value = origin_product.value if origin_product is not None else None
+
+        assert workload_for_origin_product(value) == expected
+
+    def test_every_self_driving_origin_is_a_real_origin_product(self):
+        # The set is held as strings to keep the sandbox layer model-free, so a renamed or
+        # removed OriginProduct would otherwise silently drop that product out of the fleet.
+        assert SELF_DRIVING_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
+
+
+class TestLocalModalBuildContext:
+    def test_base_context_carries_the_agent_shadow_sources(self):
+        # The base Dockerfile's first stage COPYs and builds the agent-shadow observer, so the
+        # trimmed DEBUG context must carry its sources or every local sandbox fails at image build.
+        _prepare_local_modal_build_context.cache_clear()
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.LocalSkillsCache"),
+            patch("products.tasks.backend.logic.services.modal_sandbox.populate_skills_directory"),
+        ):
+            _dockerfile_path, context_dir = _prepare_local_modal_build_context(SandboxTemplate.DEFAULT_BASE)
+        try:
+            root = Path(context_dir)
+            assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "go.mod").is_file()
+            assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "main.go").is_file()
+        finally:
+            shutil.rmtree(context_dir, ignore_errors=True)
+            _prepare_local_modal_build_context.cache_clear()
+
+    def test_notebook_context_carries_the_baked_kernel_package(self):
+        # DEBUG builds the notebook image from this trimmed context, not the repo root, so a
+        # Dockerfile COPY whose source is missing here fails the build and no notebook
+        # sandbox starts. The registry path in production never exercises it.
+        _prepare_local_modal_build_context.cache_clear()
+        _dockerfile_path, context_dir = _prepare_local_modal_build_context(SandboxTemplate.NOTEBOOK_BASE)
+        try:
+            root = Path(context_dir)
+            assert (root / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE).is_file()
+            assert (root / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR / "server.py").is_file()
+            assert not (root / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR / "__pycache__").exists()
+        finally:
+            shutil.rmtree(context_dir, ignore_errors=True)
+            _prepare_local_modal_build_context.cache_clear()

@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.cohorts.backend.models.leaf_shape import (
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
+    extract_person_leaf_shape_hash,
     walk_filter_leaves,
 )
 
@@ -86,6 +87,36 @@ class TestLeafShape(SimpleTestCase):
         self.assertEqual(
             extract_behavioral_leaf_shape_hash(self._filters(self._behavioral(), before)),
             extract_behavioral_leaf_shape_hash(self._filters(self._behavioral(), after)),
+        )
+
+    def test_person_hash_uses_only_hashed_person_leaves(self) -> None:
+        person = {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"}
+        baseline = extract_person_leaf_shape_hash(self._filters(person))
+
+        self.assertNotEqual(baseline, "")
+        self.assertEqual(
+            baseline,
+            extract_person_leaf_shape_hash(
+                self._filters(
+                    self._behavioral(),
+                    {"type": "cohort", "value": 42, "negation": False},
+                    {"type": "person", "conditionHash": None},
+                    person,
+                )
+            ),
+        )
+        self.assertNotEqual(
+            baseline,
+            extract_person_leaf_shape_hash(self._filters({"type": "person", "conditionHash": "bbbbbbbbbbbbbbbb"})),
+        )
+        self.assertEqual(extract_person_leaf_shape_hash(None), "")
+
+    def test_behavioral_edit_does_not_change_person_hash(self) -> None:
+        person = {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"}
+
+        self.assertEqual(
+            extract_person_leaf_shape_hash(self._filters(person, self._behavioral(time_value=7))),
+            extract_person_leaf_shape_hash(self._filters(person, self._behavioral(time_value=30))),
         )
 
     def test_numeric_fields_match_rust_integer_parsing(self) -> None:

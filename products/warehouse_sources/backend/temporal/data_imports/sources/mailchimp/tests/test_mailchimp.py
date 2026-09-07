@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Iterable
 from datetime import date, datetime
@@ -7,19 +8,26 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
-from requests.exceptions import ProxyError, RequestException
+from requests.exceptions import HTTPError, ProxyError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
+    MAX_RETRY_ATTEMPTS,
     MailchimpPaginator,
     MailchimpResumeConfig,
+    MailchimpRetryableError,
     _fetch_contacts_for_list,
     _format_incremental_value,
     _get_contacts_iterator,
+    _get_endpoint_iterator,
+    _get_with_retry,
+    _incremental_query_params,
     extract_data_center,
     mailchimp_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.source import MailchimpSource
 
 
 class TestExtractDataCenter:
@@ -98,6 +106,59 @@ class TestFormatIncrementalValue:
         assert _format_incremental_value("2024-01-15") == "2024-01-15"
 
 
+class TestGetWithRetry:
+    @pytest.mark.parametrize(
+        ("status_code", "expected_error", "expected_call_count"),
+        [
+            # `MAX_RETRY_ATTEMPTS` is baked into the decorator at import time (it wraps a
+            # top-level function, unlike the per-call nested functions other sources use), so
+            # a retryable status is retried the full budget rather than a patched-down count.
+            (429, MailchimpRetryableError, MAX_RETRY_ATTEMPTS),
+            (500, MailchimpRetryableError, MAX_RETRY_ATTEMPTS),
+            (401, HTTPError, 1),
+        ],
+    )
+    def test_errors_are_classified(self, status_code, expected_error, expected_call_count):
+        session = MagicMock()
+        session.get.return_value = _make_http_response({}, status_code=status_code)
+
+        with pytest.raises(expected_error):
+            _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/automations")
+
+        assert session.get.call_count == expected_call_count
+
+    @pytest.mark.parametrize(
+        ("status_code", "reason", "expected_prefix"),
+        [
+            (429, "Too Many Requests", "429 Client Error"),
+            (503, "Service Unavailable", "503 Server Error"),
+        ],
+    )
+    def test_retryable_error_keeps_raise_for_status_wording(self, status_code, reason, expected_prefix):
+        # A failure that outlives the retry budget is classified by message in `import_data_sync`
+        # (via `MailchimpSource.get_retryable_errors`), so the wrapper must reraise the wording
+        # `raise_for_status` produced rather than a phrasing of its own.
+        url = "https://us6.api.mailchimp.com/3.0/automations"
+        response = _make_http_response({}, status_code=status_code)
+        response.reason = reason
+        response.url = url
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(MailchimpRetryableError) as excinfo:
+            _get_with_retry(session, url)
+
+        assert str(excinfo.value).startswith(expected_prefix)
+        assert url in str(excinfo.value)
+
+    def test_success_returns_response_unchanged(self):
+        session = MagicMock()
+        response = _make_http_response({"total_items": 0}, status_code=200)
+        session.get.return_value = response
+
+        assert _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/lists") is response
+
+
 class TestMailchimpPaginator:
     def test_initial_state(self):
         paginator = MailchimpPaginator(page_size=100)
@@ -172,6 +233,7 @@ def _fake_manager(*, can_resume: bool = False, load_state: MailchimpResumeConfig
 
 def _build_response(members: list[dict[str, Any]], total_items: int) -> MagicMock:
     response = MagicMock()
+    response.status_code = 200
     response.json.return_value = {"members": members, "total_items": total_items}
     response.raise_for_status.return_value = None
     return response
@@ -412,8 +474,10 @@ class TestRestEndpointResumeBehavior:
             sent_params.append(dict(request.params))
             return next(response_iter)
 
+        # The REST path builds its own capture-disabled session in mailchimp_source and passes it
+        # into the config, so patch it at that origin rather than inside rest_client.
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
@@ -503,3 +567,374 @@ class TestRestEndpointResumeBehavior:
         reconstituted = MailchimpResumeConfig(**json.loads(as_json))
         assert reconstituted == cfg
         assert reconstituted.list_id is None
+
+
+def _routed_session(routes: dict[str, list[dict[str, Any]]]) -> tuple[Any, list[tuple[str, dict[str, Any]]]]:
+    """Session double serving canned JSON bodies keyed by API path, recording every call.
+
+    A path may map to several bodies; the nth request to it gets the nth body, and the last
+    body repeats once they run out.
+    """
+    calls: list[tuple[str, dict[str, Any]]] = []
+    seen: dict[str, int] = {}
+
+    def get(url: str, params: dict[str, Any] | None = None, timeout: int | None = None) -> MagicMock:
+        path = url.split("/3.0", 1)[1]
+        calls.append((path, dict(params or {})))
+
+        bodies = routes[path]
+        index = min(seen.get(path, 0), len(bodies) - 1)
+        seen[path] = seen.get(path, 0) + 1
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = bodies[index]
+        response.raise_for_status.return_value = None
+        return response
+
+    session = MagicMock()
+    session.get.side_effect = get
+    return session, calls
+
+
+def _patch_session(monkeypatch, session: Any) -> None:
+    monkeypatch.setattr(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp._mailchimp_session",
+        lambda *a, **k: session,
+    )
+
+
+class TestEndpointConfigInvariants:
+    @pytest.mark.parametrize("name", sorted(MAILCHIMP_ENDPOINTS))
+    def test_fan_out_path_placeholders_match_declared_parents(self, name: str) -> None:
+        # A placeholder with no matching parent raises KeyError at str.format() time — mid-sync,
+        # on that endpoint only. `contacts` is exempt: it formats its path in its own iterator.
+        config = MAILCHIMP_ENDPOINTS[name]
+        if name == "contacts":
+            return
+
+        placeholders = set(re.findall(r"\{(\w+)\}", config.path))
+        assert placeholders == {parent.inject_as for parent in config.parents}
+
+    @pytest.mark.parametrize("name", sorted(MAILCHIMP_ENDPOINTS))
+    def test_fan_out_primary_keys_include_every_parent_id(self, name: str) -> None:
+        # Child rows are pooled from every parent, so a key without the parent id is not unique
+        # table-wide and every later merge multi-matches the duplicates.
+        config = MAILCHIMP_ENDPOINTS[name]
+        for parent in config.parents:
+            assert parent.inject_as in config.primary_keys
+
+
+class TestIncrementalQueryParams:
+    @pytest.mark.parametrize(
+        ("endpoint", "field", "expected"),
+        [
+            # Guards the params the pre-existing endpoints have always sent.
+            ("campaigns", "create_time", {"since_create_time": "2024-01-02T03:04:05+00:00"}),
+            ("campaigns", "send_time", {"since_send_time": "2024-01-02T03:04:05+00:00"}),
+            ("reports", "send_time", {"since_send_time": "2024-01-02T03:04:05+00:00"}),
+            ("reports", "create_time", {}),
+            ("lists", None, {}),
+            ("automations", "create_time", {"since_create_time": "2024-01-02T03:04:05+00:00"}),
+            ("automations", "start_time", {"since_start_time": "2024-01-02T03:04:05+00:00"}),
+            ("templates", "date_created", {"since_date_created": "2024-01-02T03:04:05+00:00"}),
+            ("list_segments", "updated_at", {"since_updated_at": "2024-01-02T03:04:05+00:00"}),
+            ("list_segments", "created_at", {"since_created_at": "2024-01-02T03:04:05+00:00"}),
+            # No server-side filter available, so the endpoint stays on full refresh.
+            ("ecommerce_orders", "processed_at_foreign", {}),
+        ],
+    )
+    def test_field_maps_to_vendor_filter(self, endpoint: str, field: str | None, expected: dict[str, str]) -> None:
+        assert (
+            _incremental_query_params(
+                MAILCHIMP_ENDPOINTS[endpoint],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5),
+                incremental_field=field,
+            )
+            == expected
+        )
+
+    def test_no_filter_sent_when_incremental_is_off(self) -> None:
+        assert (
+            _incremental_query_params(
+                MAILCHIMP_ENDPOINTS["automations"],
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5),
+                incremental_field="create_time",
+            )
+            == {}
+        )
+
+
+class TestGenericEndpointIterator:
+    @pytest.mark.parametrize(
+        ("endpoint", "routes", "expected_paths", "expected_params"),
+        [
+            (
+                # count/offset endpoint: both params sent.
+                "list_activity",
+                {
+                    "/lists": [{"lists": [{"id": "l1"}], "total_items": 1}],
+                    "/lists/l1/activity": [{"activity": [{"day": "2024-01-01"}], "total_items": 1}],
+                },
+                ["/lists", "/lists/l1/activity"],
+                {"count": 1000, "offset": 0},
+            ),
+            (
+                # `count` is accepted but `offset` is not — sending it risks a 400.
+                "landing_pages",
+                {"/landing-pages": [{"landing_pages": [{"id": "p1"}], "total_items": 1}]},
+                ["/landing-pages"],
+                {"count": 1000},
+            ),
+            (
+                # No pagination params at all on this endpoint.
+                "verified_domains",
+                {"/verified-domains": [{"domains": [{"domain": "example.com"}], "total_items": 1}]},
+                ["/verified-domains"],
+                {},
+            ),
+        ],
+    )
+    def test_only_supported_pagination_params_are_sent(
+        self,
+        monkeypatch,
+        endpoint: str,
+        routes: dict[str, list[dict[str, Any]]],
+        expected_paths: list[str],
+        expected_params: dict[str, Any],
+    ) -> None:
+        session, calls = _routed_session(routes)
+        _patch_session(monkeypatch, session)
+
+        rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS[endpoint], _fake_manager()))
+
+        assert [path for path, _ in calls] == expected_paths
+        assert calls[-1][1] == expected_params
+        assert len(rows) == 1
+
+    def test_fan_out_injects_parent_id_onto_rows_the_api_omits(self, monkeypatch) -> None:
+        # /reports/{id}/locations rows carry no campaign_id, so without injection the
+        # primary key would collapse every campaign's regions onto each other.
+        session, calls = _routed_session(
+            {
+                "/reports": [{"reports": [{"id": "c1"}, {"id": "c2"}], "total_items": 2}],
+                "/reports/c1/locations": [{"locations": [{"country_code": "US", "region": "CA"}], "total_items": 1}],
+                "/reports/c2/locations": [{"locations": [{"country_code": "GB", "region": ""}], "total_items": 1}],
+            }
+        )
+        _patch_session(monkeypatch, session)
+
+        rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS["report_locations"], _fake_manager()))
+
+        assert rows == [
+            {"campaign_id": "c1", "country_code": "US", "region": "CA"},
+            {"campaign_id": "c2", "country_code": "GB", "region": ""},
+        ]
+        assert [path for path, _ in calls] == ["/reports", "/reports/c1/locations", "/reports/c2/locations"]
+
+    def test_two_level_fan_out_resolves_both_parents(self, monkeypatch) -> None:
+        session, calls = _routed_session(
+            {
+                "/lists": [{"lists": [{"id": "l1"}], "total_items": 1}],
+                "/lists/l1/segments": [{"segments": [{"id": 7}, {"id": 8}], "total_items": 2}],
+                "/lists/l1/segments/7/members": [{"members": [{"id": "m1"}], "total_items": 1}],
+                "/lists/l1/segments/8/members": [{"members": [{"id": "m2"}], "total_items": 1}],
+            }
+        )
+        _patch_session(monkeypatch, session)
+
+        rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS["list_segment_members"], _fake_manager()))
+
+        assert rows == [
+            {"id": "m1", "list_id": "l1", "segment_id": "7"},
+            {"id": "m2", "list_id": "l1", "segment_id": "8"},
+        ]
+        assert calls[-1][0] == "/lists/l1/segments/8/members"
+
+    def test_single_object_endpoint_yields_one_row_per_parent(self, monkeypatch) -> None:
+        session, _ = _routed_session(
+            {
+                "/campaigns": [{"campaigns": [{"id": "c1"}], "total_items": 1}],
+                "/campaigns/c1/content": [{"html": "<p>hi</p>", "plain_text": "hi"}],
+            }
+        )
+        _patch_session(monkeypatch, session)
+
+        rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS["campaign_content"], _fake_manager()))
+
+        assert rows == [{"campaign_id": "c1", "html": "<p>hi</p>", "plain_text": "hi"}]
+
+    def test_multi_page_child_checkpoints_each_page_against_its_parent(self, monkeypatch) -> None:
+        session, calls = _routed_session(
+            {
+                "/reports": [{"reports": [{"id": "c1"}], "total_items": 1}],
+                "/reports/c1/sent-to": [
+                    {"sent_to": [{"email_id": "e1"}], "total_items": 1500},
+                    {"sent_to": [{"email_id": "e2"}], "total_items": 1500},
+                ],
+            }
+        )
+        manager = _fake_manager()
+        _patch_session(monkeypatch, session)
+
+        rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS["report_sent_to"], manager))
+
+        assert [row["email_id"] for row in rows] == ["e1", "e2"]
+        assert [params.get("offset") for path, params in calls if path.endswith("/sent-to")] == [0, 1000]
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            MailchimpResumeConfig(offset=0, parent_ids=["c1"]),
+            MailchimpResumeConfig(offset=1000, parent_ids=["c1"]),
+        ]
+
+    def test_resume_skips_completed_parents_and_seeds_the_saved_offset(self, monkeypatch) -> None:
+        session, calls = _routed_session(
+            {
+                "/reports": [{"reports": [{"id": "c1"}, {"id": "c2"}], "total_items": 2}],
+                "/reports/c2/sent-to": [{"sent_to": [{"email_id": "e9"}], "total_items": 1001}],
+            }
+        )
+        _patch_session(monkeypatch, session)
+
+        rows = list(
+            _get_endpoint_iterator(
+                "key-us6",
+                MAILCHIMP_ENDPOINTS["report_sent_to"],
+                _fake_manager(can_resume=True, load_state=MailchimpResumeConfig(offset=1000, parent_ids=["c2"])),
+            )
+        )
+
+        assert [row["email_id"] for row in rows] == ["e9"]
+        assert [path for path, _ in calls] == ["/reports", "/reports/c2/sent-to"]
+        assert calls[-1][1]["offset"] == 1000
+
+    def test_checkpoint_for_a_vanished_parent_falls_back_to_a_fresh_run(self, monkeypatch) -> None:
+        # Honouring a checkpoint whose campaign no longer exists would skip every parent and
+        # sync nothing at all.
+        session, calls = _routed_session(
+            {
+                "/reports": [{"reports": [{"id": "c1"}], "total_items": 1}],
+                "/reports/c1/sent-to": [{"sent_to": [{"email_id": "e1"}], "total_items": 1}],
+            }
+        )
+        _patch_session(monkeypatch, session)
+
+        rows = list(
+            _get_endpoint_iterator(
+                "key-us6",
+                MAILCHIMP_ENDPOINTS["report_sent_to"],
+                _fake_manager(can_resume=True, load_state=MailchimpResumeConfig(offset=2000, parent_ids=["deleted"])),
+            )
+        )
+
+        assert [row["email_id"] for row in rows] == ["e1"]
+        assert calls[-1][1]["offset"] == 0
+
+    def test_incremental_filter_is_forwarded_to_the_child_request(self, monkeypatch) -> None:
+        session, calls = _routed_session(
+            {
+                "/lists": [{"lists": [{"id": "l1"}], "total_items": 1}],
+                "/lists/l1/segments": [{"segments": [{"id": 1}], "total_items": 1}],
+            }
+        )
+        _patch_session(monkeypatch, session)
+
+        list(
+            _get_endpoint_iterator(
+                "key-us6",
+                MAILCHIMP_ENDPOINTS["list_segments"],
+                _fake_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 5, 6, 7, 8, 9),
+                incremental_field="updated_at",
+            )
+        )
+
+        # The parent listing must stay unfiltered, or new segments on old audiences go missing.
+        assert calls[0] == ("/lists", {"count": 1000, "offset": 0})
+        assert calls[1][1]["since_updated_at"] == "2024-05-06T07:08:09+00:00"
+
+
+class TestSourceResponseForNewEndpoints:
+    def test_fan_out_endpoint_is_routed_away_from_the_rest_path(self, monkeypatch) -> None:
+        # Routing a fan-out endpoint through rest_api_resource would request the literal
+        # unformatted `/reports/{campaign_id}/locations` and 404.
+        session, calls = _routed_session(
+            {
+                "/reports": [{"reports": [{"id": "c1"}], "total_items": 1}],
+                "/reports/c1/locations": [{"locations": [{"country_code": "US", "region": ""}], "total_items": 1}],
+            }
+        )
+        _patch_session(monkeypatch, session)
+
+        response = mailchimp_source(
+            api_key="key-us6",
+            endpoint="report_locations",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_fake_manager(),
+        )
+        rows = list(cast(Iterable[Any], response.items()))
+
+        assert response.primary_keys == ["campaign_id", "country_code", "region"]
+        assert rows == [{"campaign_id": "c1", "country_code": "US", "region": ""}]
+        assert [path for path, _ in calls] == ["/reports", "/reports/c1/locations"]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_primary_keys", "expected_partition_keys"),
+        [
+            ("lists", ["id"], ["date_created"]),
+            ("contacts", ["list_id", "id"], None),
+            ("ecommerce_orders", ["store_id", "id"], ["processed_at_foreign"]),
+            ("verified_domains", ["domain"], None),
+            ("report_unsubscribed", ["campaign_id", "email_id"], ["timestamp"]),
+        ],
+    )
+    def test_primary_and_partition_keys_come_from_the_endpoint_config(
+        self,
+        endpoint: str,
+        expected_primary_keys: list[str],
+        expected_partition_keys: list[str] | None,
+    ) -> None:
+        response = mailchimp_source(
+            api_key="key-us6",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_fake_manager(),
+        )
+
+        assert response.primary_keys == expected_primary_keys
+        assert response.partition_keys == expected_partition_keys
+
+
+class TestMailchimpRetryableErrors:
+    @pytest.mark.parametrize(
+        ("name", "observed_error"),
+        [
+            (
+                "429",
+                "429 Client Error: Too Many Requests for url: "
+                "https://us15.api.mailchimp.com/3.0/lists/c825cb5a63/members?count=1000&offset=0",
+            ),
+            ("500", "500 Server Error: Internal Server Error for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("502", "502 Server Error: Bad Gateway for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("503", "503 Server Error: Service Unavailable for url: https://us15.api.mailchimp.com/3.0/lists"),
+        ],
+    )
+    def test_transient_errors_are_recognised_as_retryable(self, name: str, observed_error: str) -> None:
+        retryable_errors = MailchimpSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors), observed_error
+
+    @pytest.mark.parametrize(
+        ("name", "observed_error"),
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("403", "403 Client Error: Forbidden for url: https://us15.api.mailchimp.com/3.0/lists"),
+            ("invalid_key_format", "Invalid Mailchimp API key format. Expected format: key-dc"),
+        ],
+    )
+    def test_non_retryable_errors_do_not_match(self, name: str, observed_error: str) -> None:
+        retryable_errors = MailchimpSource().get_retryable_errors()
+        assert not any(key in observed_error for key in retryable_errors), observed_error

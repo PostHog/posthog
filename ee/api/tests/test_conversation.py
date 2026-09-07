@@ -37,7 +37,7 @@ from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAg
 
 from products.posthog_ai.backend.message_routing import SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 from ee.api.conversation import ConversationViewSet
 
@@ -1484,12 +1484,17 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
         m_session.return_value.open.assert_not_called()
 
-    def test_retrieve_other_users_sandbox_conversation_includes_task(self):
-        # Read follows the conversation (the share-by-link unit): a teammate handed the link reads its
-        # backing task too, even though a direct task read would hide a non-creator's task (task_visibility_q).
+    def test_retrieve_other_users_private_task_conversation_returns_404(self):
         teammate = User.objects.create_and_join(self.organization, "reader@posthog.com", "password")
+        channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=teammate,
+        )
         task = Task.objects.create(
             team=self.team,
+            channel=channel,
             title="t",
             description="secret description",
             repository="acme/widgets",
@@ -1507,9 +1512,7 @@ class TestConversationSandboxRoute(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["task"]["id"], str(task.id))
-        self.assertEqual(response.json()["task"]["repository"], "acme/widgets")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_open_other_users_conversation_rejected(self):
         # Write/send stays creator-only: a teammate can read the shared conversation but cannot provision

@@ -3,21 +3,23 @@ use serde_json::Value;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_cache_manager::CohortFetchError;
 use crate::cohorts::cohort_models::{
-    Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty,
+    Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty, MembershipStampPolicy,
 };
 use crate::database::get_connection_with_metrics;
-use crate::metrics::consts::{COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER};
-use crate::properties::property_matching::match_property;
+use crate::metrics::consts::{
+    COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER,
+    FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
+};
+use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
-use chrono_tz::Tz;
 use common_database::PostgresReader;
 use common_types::TeamId;
 
@@ -52,13 +54,60 @@ fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &
     }
 }
 
+/// Cohorts already warned about by `record_stamp_policy_divergence`, deduped as
+/// `WARNED_MALFORMED_COHORTS` above is. An `RwLock` because divergence is common rather
+/// than exceptional, so past the first warn every request takes only the read side.
+static WARNED_DIVERGENT_COHORTS: Lazy<RwLock<HashSet<(TeamId, CohortId)>>> =
+    Lazy::new(|| RwLock::new(HashSet::new()));
+
+/// Counts and logs a cohort the two membership stamp policies route differently. The
+/// counter carries no ids (cardinality), so the deduped log is the only place to learn
+/// which cohort diverged.
+pub(crate) fn record_stamp_policy_divergence(
+    cohort: &Cohort,
+    active_policy: MembershipStampPolicy,
+) {
+    let Some(divergence) = MembershipStampPolicy::divergence(cohort) else {
+        return;
+    };
+    common_metrics::inc(
+        FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
+        &[
+            ("direction".to_string(), divergence.as_label().to_string()),
+            (
+                "active_policy".to_string(),
+                active_policy.as_label().to_string(),
+            ),
+        ],
+        1,
+    );
+
+    if WARNED_DIVERGENT_COHORTS
+        .read()
+        .unwrap()
+        .contains(&(cohort.team_id, cohort.id))
+    {
+        return;
+    }
+    let mut warned = WARNED_DIVERGENT_COHORTS.write().unwrap();
+    if warned.insert((cohort.team_id, cohort.id)) {
+        tracing::warn!(
+            cohort_id = cohort.id,
+            team_id = cohort.team_id,
+            direction = divergence.as_label(),
+            active_policy = active_policy.as_label(),
+            "Membership stamp policies disagree on this cohort's realtime routing; the REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY flip would change it"
+        );
+    }
+}
+
 /// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
 const COHORT_COLUMNS: &str = r#"
     c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
     c.query, c.version, c.pending_version, c.count, c.is_calculating,
     c.is_static, c.errors_calculating, c.groups, c.created_by_id,
     c.cohort_type, c.last_backfill_person_properties_at, c.last_backfill_events_at,
-    c.condition_type
+    c.condition_type, c.last_realtime_cohort_calculation_at
 "#;
 
 impl Cohort {
@@ -268,7 +317,7 @@ impl InnerCohortProperty {
         &self,
         target_properties: &HashMap<String, Value>,
         cohort_matches: &HashMap<CohortId, bool>,
-        team_timezone: Tz,
+        matching_context: PropertyMatchingContext,
     ) -> Result<bool, FlagError> {
         match self.prop_type {
             CohortPropertyType::OR => {
@@ -278,7 +327,7 @@ impl InnerCohortProperty {
                         target_properties,
                         cohort_matches,
                         0,
-                        team_timezone,
+                        matching_context,
                     )? {
                         return Ok(true);
                     }
@@ -292,7 +341,7 @@ impl InnerCohortProperty {
                         target_properties,
                         cohort_matches,
                         0,
-                        team_timezone,
+                        matching_context,
                     )? {
                         return Ok(false);
                     }
@@ -309,7 +358,7 @@ fn evaluate_cohort_item(
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
     depth: usize,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     if depth > MAX_COHORT_FILTER_DEPTH {
         return Err(FlagError::CohortFiltersParsingError);
@@ -320,10 +369,10 @@ fn evaluate_cohort_item(
             target_properties,
             cohort_matches,
             depth,
-            team_timezone,
+            matching_context,
         ),
         CohortValuesItem::Filter(filter) => {
-            evaluate_cohort_filter(filter, target_properties, cohort_matches, team_timezone)
+            evaluate_cohort_filter(filter, target_properties, cohort_matches, matching_context)
         }
         // A known filter type that's otherwise malformed; fail loud rather than
         // silently resolving to non-match (see `traverse_item`).
@@ -338,7 +387,7 @@ fn evaluate_cohort_filter(
     filter: &PropertyFilter,
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     if filter.is_cohort() {
         // Handle cohort membership check with negation
@@ -350,7 +399,7 @@ fn evaluate_cohort_filter(
         Ok(evaluate_property_with_negation(
             filter,
             target_properties,
-            team_timezone,
+            matching_context,
         ))
     }
 }
@@ -366,7 +415,7 @@ fn evaluate_cohort_values(
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
     depth: usize,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     match values.prop_type.as_str() {
         "OR" => {
@@ -376,7 +425,7 @@ fn evaluate_cohort_values(
                     target_properties,
                     cohort_matches,
                     depth + 1,
-                    team_timezone,
+                    matching_context,
                 )? {
                     return Ok(true);
                 }
@@ -390,7 +439,7 @@ fn evaluate_cohort_values(
                     target_properties,
                     cohort_matches,
                     depth + 1,
-                    team_timezone,
+                    matching_context,
                 )? {
                     return Ok(false);
                 }
@@ -408,10 +457,10 @@ fn evaluate_cohort_values(
 fn evaluate_property_with_negation(
     filter: &PropertyFilter,
     target_properties: &HashMap<String, Value>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> bool {
     let property_result =
-        match_property(filter, target_properties, false, team_timezone).unwrap_or(false);
+        match_property(filter, target_properties, false, matching_context).unwrap_or(false);
 
     // Apply negation if specified
     if filter.negation.unwrap_or(false) {
@@ -427,7 +476,7 @@ fn evaluate_single_cohort(
     cohort: &Cohort,
     target_properties: &HashMap<String, Value>,
     evaluation_results: &HashMap<CohortId, bool>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     // Get the filters for this cohort
     let filters = match &cohort.filters {
@@ -444,7 +493,7 @@ fn evaluate_single_cohort(
     // Use our evaluation method that respects OR/AND structure
     cohort_property
         .properties
-        .evaluate(target_properties, evaluation_results, team_timezone)
+        .evaluate(target_properties, evaluation_results, matching_context)
         .inspect_err(|_| record_malformed_cohort_filter(cohort.id, cohort.team_id, "evaluation"))
 }
 
@@ -453,7 +502,7 @@ pub fn evaluate_dynamic_cohorts(
     target_properties: &HashMap<String, Value>,
     cohorts: &[Cohort],
     static_cohort_matches: &HashMap<CohortId, bool>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     // First check if this is a static cohort
     let initial_cohort = cohorts
@@ -484,7 +533,7 @@ pub fn evaluate_dynamic_cohorts(
             return Ok(());
         }
 
-        *result = evaluate_single_cohort(cohort, target_properties, results, team_timezone)?;
+        *result = evaluate_single_cohort(cohort, target_properties, results, matching_context)?;
         Ok(())
     })?;
 
@@ -551,8 +600,26 @@ impl DependencyProvider for Cohort {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cohorts::cohort_models::CohortType;
     use crate::utils::test_utils::TestContext;
+    use chrono_tz::Tz;
     use serde_json::json;
+
+    fn evaluate_dynamic_cohorts(
+        initial_cohort_id: CohortId,
+        target_properties: &HashMap<String, Value>,
+        cohorts: &[Cohort],
+        static_cohort_matches: &HashMap<CohortId, bool>,
+        team_timezone: Tz,
+    ) -> Result<bool, FlagError> {
+        super::evaluate_dynamic_cohorts(
+            initial_cohort_id,
+            target_properties,
+            cohorts,
+            static_cohort_matches,
+            PropertyMatchingContext::new(team_timezone, false),
+        )
+    }
 
     #[tokio::test]
     async fn test_list_from_pg() {
@@ -664,6 +731,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         // This should not fail even though the filters are malformed
@@ -693,6 +761,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let dependencies = static_cohort_empty_filters.extract_dependencies().unwrap();
@@ -719,6 +788,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         // This should fail because it's dynamic and the filters are malformed
@@ -766,6 +836,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         }
     }
 
@@ -815,6 +886,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         // Create a dynamic cohort (cohort 20) that depends on the static cohort
@@ -851,6 +923,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let cohorts = vec![static_cohort, dynamic_cohort];
@@ -947,6 +1020,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let cohorts = vec![cohort];
@@ -1021,6 +1095,7 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         };
 
         let cohorts = vec![cohort_with_negation];
@@ -1114,7 +1189,67 @@ mod tests {
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
             condition_type: None,
+            last_realtime_cohort_calculation_at: None,
         }
+    }
+
+    #[test]
+    fn test_dynamic_cohort_exact_matching_preserves_legacy_behavior_without_rollout() {
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"key": "enabled", "type": "person", "value": false, "operator": "exact", "negation": true}
+                    ]
+                }
+            }),
+        );
+        let target_properties = HashMap::from([("enabled".to_string(), json!("banana"))]);
+
+        assert!(!super::evaluate_dynamic_cohorts(
+            1,
+            &target_properties,
+            std::slice::from_ref(&cohort),
+            &HashMap::new(),
+            PropertyMatchingContext::new(Tz::UTC, false),
+        )
+        .unwrap());
+        assert!(super::evaluate_dynamic_cohorts(
+            1,
+            &target_properties,
+            &[cohort],
+            &HashMap::new(),
+            PropertyMatchingContext::new(Tz::UTC, true),
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn test_record_stamp_policy_divergence_only_records_divergent_cohorts() {
+        let behavioral = json!({
+            "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+        });
+        let routed = |id| {
+            let mut cohort = create_dynamic_cohort_with_filters(id, json!({}));
+            cohort.cohort_type = Some(CohortType::Realtime);
+            cohort.condition_type = Some(behavioral.clone());
+            cohort
+        };
+
+        let mut divergent = routed(987_654);
+        divergent.last_backfill_person_properties_at = Some(chrono::Utc::now());
+        record_stamp_policy_divergence(&divergent, MembershipStampPolicy::AnyBackfillStamp);
+        record_stamp_policy_divergence(&divergent, MembershipStampPolicy::AnyBackfillStamp);
+
+        let mut agreed = routed(987_655);
+        agreed.last_backfill_events_at = Some(chrono::Utc::now());
+        record_stamp_policy_divergence(&agreed, MembershipStampPolicy::AnyBackfillStamp);
+
+        let warned = WARNED_DIVERGENT_COHORTS.read().unwrap();
+        assert!(warned.contains(&(divergent.team_id, divergent.id)));
+        assert!(!warned.contains(&(agreed.team_id, agreed.id)));
     }
 
     #[test]

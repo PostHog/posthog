@@ -190,7 +190,7 @@ mod test {
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    use crate::test_utils::create_test_context;
+    use crate::{modes::processing::config::ProcessingConfig, teams::TeamManager};
 
     use super::{evaluate_grouping_rules, GroupingRule};
 
@@ -234,7 +234,7 @@ mod test {
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_grouping_rules(db: PgPool) {
-        let ctx = create_test_context(db).await;
+        let team_manager = TeamManager::new(&ProcessingConfig::init_with_defaults().unwrap());
 
         let test_team_id = 1;
         let props = test_props(JsonValue::from("test_value"));
@@ -242,26 +242,19 @@ mod test {
         let rule = get_test_rule();
         let expected_rule_id = rule.id;
         // Insert the rule, so we skip the DB lookup
-        ctx.team_manager
-            .grouping_rules
-            .insert(test_team_id, vec![rule]);
+        team_manager.grouping_rules.insert(test_team_id, vec![rule]);
 
         let matched =
-            evaluate_grouping_rules(&ctx.posthog_pool, test_team_id, &ctx.team_manager, || {
-                Ok(props.clone())
-            })
-            .await
-            .unwrap();
+            evaluate_grouping_rules(&db, test_team_id, &team_manager, || Ok(props.clone()))
+                .await
+                .unwrap();
         assert_eq!(matched.expect("rule should match").id, expected_rule_id);
 
         // Insert a different value - simply removing the value would cause the rule to be disabled, since it
         // tries to access an undefined global
         let props = test_props(JsonValue::from("no_match"));
 
-        let matched =
-            evaluate_grouping_rules(&ctx.posthog_pool, test_team_id, &ctx.team_manager, || {
-                Ok(props)
-            })
+        let matched = evaluate_grouping_rules(&db, test_team_id, &team_manager, || Ok(props))
             .await
             .unwrap();
 

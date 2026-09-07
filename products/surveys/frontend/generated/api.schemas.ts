@@ -13,9 +13,9 @@
  * * `external_survey` - external survey
  * * `api` - api
  */
-export type SurveyTypeApi = (typeof SurveyTypeApi)[keyof typeof SurveyTypeApi]
+export type SurveyTypeEnumApi = (typeof SurveyTypeEnumApi)[keyof typeof SurveyTypeEnumApi]
 
-export const SurveyTypeApi = {
+export const SurveyTypeEnumApi = {
     Popover: 'popover',
     Widget: 'widget',
     ExternalSurvey: 'external_survey',
@@ -93,6 +93,7 @@ export interface MinimalFeatureFlagApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -105,6 +106,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -139,10 +141,10 @@ export interface UserBasicApi {
  * * `week` - week
  * * `month` - month
  */
-export type ResponseSamplingIntervalTypeEnumApi =
-    (typeof ResponseSamplingIntervalTypeEnumApi)[keyof typeof ResponseSamplingIntervalTypeEnumApi]
+export type SurveySamplingIntervalTypeEnumApi =
+    (typeof SurveySamplingIntervalTypeEnumApi)[keyof typeof SurveySamplingIntervalTypeEnumApi]
 
-export const ResponseSamplingIntervalTypeEnumApi = {
+export const SurveySamplingIntervalTypeEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -170,7 +172,7 @@ export interface SurveyApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** @nullable */
     schedule?: string | null
     readonly linked_flag: MinimalFeatureFlagApi
@@ -334,7 +336,7 @@ export interface SurveyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -382,9 +384,9 @@ export interface PaginatedSurveyListApi {
  * * `recurring` - recurring
  * * `always` - always
  */
-export type ScheduleEnumApi = (typeof ScheduleEnumApi)[keyof typeof ScheduleEnumApi]
+export type SurveyScheduleEnumApi = (typeof SurveyScheduleEnumApi)[keyof typeof SurveyScheduleEnumApi]
 
-export const ScheduleEnumApi = {
+export const SurveyScheduleEnumApi = {
     Once: 'once',
     Recurring: 'recurring',
     Always: 'always',
@@ -408,6 +410,10 @@ export const PropertyGroupTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -423,6 +429,10 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -434,7 +444,7 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyGenericSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -446,7 +456,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -458,6 +468,10 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -481,7 +495,7 @@ export const ExistenceOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyExistsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -493,7 +507,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -522,7 +536,7 @@ export const DateOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyDateSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -534,7 +548,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -577,7 +591,7 @@ export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertySemverSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -589,7 +603,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -624,7 +638,7 @@ export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -636,7 +650,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -684,7 +698,7 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -730,7 +744,7 @@ export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -1109,22 +1123,22 @@ export type SurveyQuestionInputSchemaApi =
     | SurveyMultipleChoiceQuestionSchemaApi
 
 /**
+ * * `regex` - regex
+ * * `not_regex` - not_regex
  * * `exact` - exact
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
- * * `regex` - regex
- * * `not_regex` - not_regex
  */
-export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
+export type SurveyMatchTypeEnumApi = (typeof SurveyMatchTypeEnumApi)[keyof typeof SurveyMatchTypeEnumApi]
 
-export const StringMatchOperatorEnumApi = {
+export const SurveyMatchTypeEnumApi = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
 } as const
 
 export interface SurveyConditionEventValueSchemaApi {
@@ -1168,7 +1182,7 @@ export interface SurveyConditionsSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains */
-    urlMatchType?: StringMatchOperatorEnumApi
+    urlMatchType?: SurveyMatchTypeEnumApi
     events?: SurveyEventsConditionSchemaApi
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
@@ -1180,7 +1194,7 @@ export interface SurveyConditionsSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains */
-    deviceTypesMatchType?: StringMatchOperatorEnumApi
+    deviceTypesMatchType?: SurveyMatchTypeEnumApi
     /** The variant of the feature flag linked to this survey. */
     linkedFlagVariant?: string
 }
@@ -1237,12 +1251,12 @@ export interface SurveyAppearanceSchemaApi {
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
     readonly id: string
     /**
-     * Survey name.
+     * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name: string
-    /** Survey description. */
+    /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
     description?: string
     /** Survey type.
      *
@@ -1250,13 +1264,13 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * * `widget` - widget
      * * `external_survey` - external survey
      * * `api` - api */
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
      * * `always` - always */
-    schedule?: ScheduleEnumApi | null
+    schedule?: SurveyScheduleEnumApi | null
     readonly linked_flag: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1441,7 +1455,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1477,7 +1491,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** @nullable */
     schedule?: string | null
     readonly linked_flag: MinimalFeatureFlagApi
@@ -1643,7 +1657,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1674,12 +1688,12 @@ export interface SurveySerializerCreateUpdateOnlyApi {
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     readonly id?: string
     /**
-     * Survey name.
+     * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name?: string
-    /** Survey description. */
+    /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
     description?: string
     /** Survey type.
      *
@@ -1687,13 +1701,13 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * * `widget` - widget
      * * `external_survey` - external survey
      * * `api` - api */
-    type?: SurveyTypeApi
+    type?: SurveyTypeEnumApi
     /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
      * * `always` - always */
-    schedule?: ScheduleEnumApi | null
+    schedule?: SurveyScheduleEnumApi | null
     readonly linked_flag?: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1878,7 +1892,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -2142,6 +2156,10 @@ export interface SurveyGlobalStatsResponseApi {
 export type SurveysListParams = {
     archived?: boolean
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[]
@@ -2158,6 +2176,14 @@ export type SurveysListParams = {
      */
     search?: string
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -2165,6 +2191,14 @@ export type SurveysListParams = {
      */
     type?: SurveysListType
 }
+
+export type SurveysListStatus = (typeof SurveysListStatus)[keyof typeof SurveysListStatus]
+
+export const SurveysListStatus = {
+    Complete: 'complete',
+    Draft: 'draft',
+    Running: 'running',
+} as const
 
 export type SurveysListType = (typeof SurveysListType)[keyof typeof SurveysListType]
 

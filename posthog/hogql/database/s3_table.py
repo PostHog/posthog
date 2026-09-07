@@ -1,6 +1,7 @@
 import re
+from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -11,6 +12,98 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.clickhouse.client.escape import substitute_params
+
+_AWS_S3_ENDPOINT_RE = re.compile(r"s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?")
+_AWS_S3_VIRTUAL_HOST_RE = re.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?)")
+_AWS_REGION_RE = re.compile(r"(?:^|[.-])(?P<region>[a-z]{2,4}(?:-[a-z0-9]+)+-\d)(?:\.|$)")
+_AZURE_BLOB_HOST_SUFFIX = ".blob.core.windows.net"
+_FORMAT_LABELS = {
+    "CSV": "CSV",
+    "CSVWithNames": "CSV with headers",
+    "JSONEachRow": "JSON",
+    "Delta": "Delta",
+    "DeltaS3Wrapper": "Delta",
+}
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckDBS3Source:
+    uri: str
+    scope: str
+    endpoint: str | None
+    region: str
+    use_ssl: bool
+    url_style: Literal["path", "vhost"]
+
+
+def _split_bucket_and_key(path: str) -> tuple[str, str] | None:
+    bucket, separator, key = path.lstrip("/").partition("/")
+    if not bucket or not separator or not key:
+        return None
+    return bucket, key
+
+
+def _scope_for_s3_uri(uri: str) -> str:
+    wildcard_positions = [position for token in ("*", "?", "[") if (position := uri.find(token)) >= 0]
+    return uri[: min(wildcard_positions)] if wildcard_positions else uri
+
+
+def _region_for_aws_endpoint(endpoint: str) -> str:
+    match = _AWS_REGION_RE.search(endpoint)
+    return match.group("region") if match else "us-east-1"
+
+
+def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
+    parsed = urlparse(url)
+    if parsed.scheme == "s3":
+        if not parsed.netloc or not parsed.path.lstrip("/"):
+            return None
+        uri = f"s3://{parsed.netloc}/{parsed.path.lstrip('/')}"
+        return DuckDBS3Source(
+            uri=uri,
+            scope=_scope_for_s3_uri(uri),
+            endpoint=None,
+            region="us-east-1",
+            use_ssl=True,
+            url_style="vhost",
+        )
+
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        return None
+
+    hostname = parsed.hostname.lower()
+    if hostname.endswith(_AZURE_BLOB_HOST_SUFFIX):
+        return None
+
+    endpoint = hostname if parsed.port is None else f"{hostname}:{parsed.port}"
+    key = parsed.path.lstrip("/")
+    virtual_host_match = _AWS_S3_VIRTUAL_HOST_RE.fullmatch(hostname)
+    if virtual_host_match is not None:
+        bucket = virtual_host_match.group("bucket")
+        aws_endpoint = virtual_host_match.group("endpoint")
+        endpoint = aws_endpoint if parsed.port is None else f"{aws_endpoint}:{parsed.port}"
+        url_style: Literal["path", "vhost"] = "vhost"
+        region = _region_for_aws_endpoint(aws_endpoint)
+    else:
+        location = _split_bucket_and_key(parsed.path)
+        if location is None:
+            return None
+        bucket, key = location
+        url_style = "path"
+        region = _region_for_aws_endpoint(hostname) if _AWS_S3_ENDPOINT_RE.fullmatch(hostname) else "us-east-1"
+
+    if not key:
+        return None
+
+    uri = f"s3://{bucket}/{key}"
+    return DuckDBS3Source(
+        uri=uri,
+        scope=_scope_for_s3_uri(uri),
+        endpoint=endpoint,
+        region=region,
+        use_ssl=parsed.scheme == "https",
+        url_style=url_style,
+    )
 
 
 def build_function_call(
@@ -192,6 +285,31 @@ class S3Table(FunctionCallTable):
             context=context,
             table_size_mib=self.table_size_mib,
         )
+
+    def to_printed_duckdb(self, context: HogQLContext) -> str:
+        if self.format != "Parquet":
+            format_label = _FORMAT_LABELS.get(self.format, self.format)
+            raise ExposedHogQLError(
+                "DuckLake currently supports Parquet self-managed tables only. "
+                f"Support for {format_label} is coming soon. "
+                "Use Parquet or run the query without DuckLake for now."
+            )
+
+        source = parse_duckdb_s3_source(self.url)
+        if source is None:
+            hostname = urlparse(self.url).hostname
+            if hostname is not None and hostname.lower().endswith(_AZURE_BLOB_HOST_SUFFIX):
+                raise ExposedHogQLError(
+                    "DuckLake currently supports S3-compatible self-managed sources only. "
+                    "Support for Azure Blob Storage is coming soon. "
+                    "Run the query without DuckLake for now."
+                )
+            raise ExposedHogQLError(
+                "DuckLake currently supports S3-compatible self-managed sources only. "
+                "Use an S3-compatible URL or run the query without DuckLake for now."
+            )
+
+        return f"read_parquet({context.add_value(source.uri)}, hive_partitioning = false)"
 
 
 class DataWarehouseTable(S3Table):

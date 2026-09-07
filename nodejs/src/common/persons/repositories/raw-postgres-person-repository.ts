@@ -14,7 +14,7 @@ import {
     TeamId,
 } from '~/types'
 
-import { InternalPersonWithDistinctId } from './person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from './person-repository'
 
 export interface RawPostgresPersonRepository {
     fetchPerson(
@@ -60,6 +60,20 @@ export interface RawPostgresPersonRepository {
     /** Batched deletePerson for folded merges; all persons must belong to one team. */
     deletePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]>
 
+    /** See PersonRepository.claimLifecycleMarks. */
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        tx?: TransactionClient
+    ): Promise<void>
+
+    /** See PersonRepository.releaseLifecycleMarks. */
+    releaseLifecycleMarks(opId: string, teamId: number, tx?: TransactionClient): Promise<void>
+
+    /** See PersonRepository.isPersonLive. */
+    isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
+
     addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -89,8 +103,6 @@ export interface RawPostgresPersonRepository {
     ): Promise<Map<string, number>>
 
     fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]>
-    addPersonlessDistinctId(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
-    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
 
     personPropertiesSize(personId: string, teamId: number): Promise<number>
 

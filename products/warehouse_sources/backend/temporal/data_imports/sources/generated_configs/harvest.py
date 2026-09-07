@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class HarvestSourceConfig(config.Config):
-    pass
+    account_id: str
+    access_token: str

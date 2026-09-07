@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType, ExportedData } from '~/exporter/types'
@@ -7,7 +7,10 @@ import __dataTableEvents from '../../mocks/fixtures/api/projects/team_id/insight
 import __dataTableHogQL from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
 import __lifecycle from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
 import __retention from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import __sqlLineChart from '../../mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json'
 import __stickiness from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+import __trendsLine from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { Exporter } from '../Exporter'
 
@@ -90,4 +93,51 @@ export const SQLInsightNoResults: Story = {
             result: null,
         },
     },
+}
+
+/** Mirrors the 800px viewport the image exporter renders ad-hoc query exports in (see
+ * `_insight_query_screenshot_width`). Without it the test runner's shrink-to-fit root leaves the
+ * responsive chart canvas nothing to fill, collapsing the chart to the width of its axis labels. */
+const adhocExportViewport: Decorator = (StoryFn): JSX.Element => <div className="w-[800px]">{StoryFn()}</div>
+
+const adhocExportParameters = {
+    testOptions: { waitForSelector: '.ExportedInsight canvas' },
+}
+
+/** Ad-hoc query image export (`export_context.source`) — a query rendered from inlined results, with no saved insight. */
+export const AdhocQueryExport: Story = {
+    args: {
+        type: ExportType.Image,
+        query: (__trendsLine as any).query,
+        query_results: { results: (__trendsLine as any).result },
+    },
+    decorators: [adhocExportViewport],
+    parameters: adhocExportParameters,
+}
+
+export const AdhocSqlChartExport: Story = {
+    args: {
+        type: ExportType.Image,
+        query: (__sqlLineChart as any).query,
+        query_results: {
+            results: (__sqlLineChart as any).result,
+            columns: (__sqlLineChart as any).columns,
+            types: (__sqlLineChart as any).types,
+            hogql: (__sqlLineChart as any).hogql,
+        },
+    },
+    decorators: [adhocExportViewport],
+    parameters: adhocExportParameters,
+}
+
+/** Multi-series ad-hoc export with `?legend=true` — the horizontal exporter legend below the chart, never the in-chart side legend. */
+export const AdhocQueryExportWithLegend: Story = {
+    args: {
+        type: ExportType.Image,
+        query: (__trendsBarBreakdown as any).query,
+        query_results: { results: (__trendsBarBreakdown as any).result },
+        legend: true,
+    },
+    decorators: [adhocExportViewport],
+    parameters: adhocExportParameters,
 }

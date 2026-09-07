@@ -11,7 +11,7 @@ from parameterized import parameterized
 from products.annotations.backend.api.annotation_context import resolve_snapshot_date_range
 from products.annotations.backend.models.annotation import Annotation
 from products.exports.backend.temporal.subscriptions.snapshot_activities import _load_annotations_section
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _snap_with_range(date_from: str | None, date_to: str | None) -> dict:

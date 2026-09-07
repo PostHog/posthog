@@ -1,13 +1,4 @@
 database "posthog" {
-  table "ai_events" {
-    extend = "_ai_events_columns"
-    engine "distributed" {
-      cluster_name    = "ai_events"
-      remote_database = "posthog"
-      remote_table    = "sharded_ai_events"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
-    }
-  }
   table "kafka_ai_events_json" {
     column "uuid" {
       type = "UUID"
@@ -46,10 +37,10 @@ database "posthog" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ai_events_json'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ai_events_json"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
   table "sharded_ai_events" {

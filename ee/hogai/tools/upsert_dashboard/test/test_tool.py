@@ -27,7 +27,7 @@ from posthog.schema import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager
@@ -136,7 +136,7 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         dashboard = await Dashboard.objects.aget(name="URL Dashboard")
-        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        expected_url = f"/dashboard/{dashboard.id}"
         self.assertIn(f"Dashboard URL: {expected_url}", result)
         self.assertNotIn("/dashboards/", result)
 
@@ -159,7 +159,7 @@ class TestUpsertDashboardTool(BaseTest):
 
         result, _ = await tool._arun_impl(action)
 
-        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        expected_url = f"/dashboard/{dashboard.id}"
         self.assertIn(f"Dashboard URL: {expected_url}", result)
         self.assertNotIn("/dashboards/", result)
 

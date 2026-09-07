@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
     DatabricksImplementation,
     clean_databricks_host,
@@ -512,6 +512,8 @@ class TestDatabricksSource:
             # Workspace IP ACL rejection — matched on the stable phrase, ignoring the appended IP
             # address and workspace id.
             "Error during request to server: : Source IP address: 44.208.188.173 is blocked by Databricks IP ACL for workspace: 1557520918149316. ",
+            # Workspace-level entitlement missing on the connecting user/service principal.
+            "Error during request to server: : This API is disabled for users without the databricks-sql-access or workspace-consume entitlements. Contact your administrator for more information.. ",
         ],
     )
     def test_permanent_failures_are_non_retryable(self, source, error_msg):
@@ -554,6 +556,12 @@ class TestDatabricksSource:
                 "IP access control list",
             ),
             ("[RESOURCE_DOES_NOT_EXIST] Warehouse abc123 does not exist.", "SQL warehouse"),
+            (
+                "Error during request to server: : This API is disabled for users without the"
+                " databricks-sql-access or workspace-consume entitlements. Contact your administrator"
+                " for more information.. ",
+                "entitlement",
+            ),
             ("something totally unexpected", "Could not connect to Databricks"),
         ],
     )

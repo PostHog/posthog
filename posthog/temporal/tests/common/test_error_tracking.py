@@ -186,6 +186,27 @@ class NonReportableActivityWorkflow:
         )
 
 
+@activity.defn
+async def expected_control_flow_activity(inputs: OptionallyFailingInputs) -> None:
+    # "EmbeddingServiceUnavailable" is a transport failure of the error-tracking embedding call
+    # that its workflow handles by failing open. The activity re-raises it and the interceptor,
+    # sitting outside the activity decorators, must not capture it a second time.
+    raise ApplicationError("embedding service unavailable", type="EmbeddingServiceUnavailable")
+
+
+@workflow.defn
+class ExpectedControlFlowActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            expected_control_flow_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
 @workflow.defn
 class DirectlyFailingWorkflow:
     @workflow.run
@@ -406,6 +427,36 @@ async def test_non_reportable_error_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "NonReportableActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_expected_control_flow_application_error_is_not_captured(temporal_client: Client):
+    """An ApplicationError whose type is in EXPECTED_CONTROL_FLOW_ERROR_TYPES (here the
+    error-tracking embedding transport failure) is expected control flow, not a defect. The
+    interceptor sits outside the activity decorators, so it must re-raise it without reporting it
+    to error tracking even when the activity already re-raised it uncaptured."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[ExpectedControlFlowActivityWorkflow],
+            activities=[expected_control_flow_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "ExpectedControlFlowActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,

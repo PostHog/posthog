@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaiads import (
     OpenAIAdsSourceConfig,
 )
@@ -98,6 +95,12 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
         return {
             f"for {OPENAI_ADS_BASE_URL}",
             f"from {OPENAI_ADS_BASE_URL}",
+            # A 400 response whose body labels itself `code=server_error` (appended by
+            # `_error_identity` in rest_client.py) is a backend blip on OpenAI's side reported
+            # through an unusual status code — 400s fall outside the 429/5xx range this client
+            # retries in-process, so the body is the only transience signal available. Trust it,
+            # the same way Meta Ads trusts its own documented error codes over raw HTTP status.
+            "code=server_error",
         }
 
     def get_schemas(

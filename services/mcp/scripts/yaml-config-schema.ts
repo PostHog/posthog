@@ -176,6 +176,14 @@ export const ToolConfigSchema = z
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
         /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
+        /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
          */
@@ -515,6 +523,10 @@ export const QueryWrapperToolConfigSchema = z
         /**
          * Override the URL enrichment prefix. When set, `_posthogUrl` uses
          * `{baseUrl}{url_prefix}` instead of the default `/insights/new#q=...`.
+         * Required for any query kind the insight editor can't render as an
+         * `InsightVizNode` source (TraceQuery, TracesQuery, ...), which would
+         * otherwise link to an empty insight. May contain `{param}` placeholders
+         * filled from the query body, e.g. `/ai-observability/traces/{traceId}`.
          */
         url_prefix: z.string().optional(),
         /**
@@ -531,6 +543,14 @@ export const QueryWrapperToolConfigSchema = z
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
+        /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

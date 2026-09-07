@@ -5,7 +5,6 @@ from typing import Any, Optional, cast
 
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.settings import (
     APITALLY_BASE_URL,
     APITALLY_ENDPOINTS,
@@ -33,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 @dataclasses.dataclass
@@ -163,6 +163,9 @@ def apitally_source(
                 child_endpoint=endpoint,
                 fanout=endpoint_config.fanout,
                 client_config=client_config,
+                # The Apps list wraps its rows in a `data` envelope; the parent must unwrap it so
+                # the fan-out can bind each app's `id` to the child's `app_id` path param.
+                parent_endpoint_extra={"data_selector": "data"},
                 path_format_values={},
                 team_id=team_id,
                 job_id=job_id,

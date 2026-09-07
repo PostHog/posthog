@@ -66,3 +66,37 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
 
 
 ENDPOINTS = tuple(POSTMARK_ENDPOINTS.keys())
+
+
+# --- Webhook ingestion -------------------------------------------------------------------
+#
+# Postmark's Bounce and SpamComplaint webhooks serialize the same bounce record the Bounce API
+# lists, field for field, so both feed the `bounces` table. The other triggers (Delivery, Open,
+# Click, SubscriptionChange) describe message events we have no table for, and inbound webhooks
+# are configured on the server rather than through the Webhooks API — neither is wired up.
+
+# Schemas that can be fed by pushed rows as well as the backfill.
+WEBHOOK_SCHEMA_NAMES = frozenset({"bounces"})
+
+# Schema name -> the `schema_mapping` key incoming deliveries are routed by.
+WEBHOOK_RESOURCE_MAP = {"bounces": "Bounce"}
+
+# Triggers we subscribe to. `IncludeContent` stays off so pushed rows carry the same fields the
+# Bounce API list response does (the raw dump is only available per-bounce).
+WEBHOOK_TRIGGERS: dict[str, dict[str, bool]] = {
+    "Bounce": {"Enabled": True, "IncludeContent": False},
+    "SpamComplaint": {"Enabled": True, "IncludeContent": False},
+}
+
+# Webhooks are per message stream. The `bounces` backfill doesn't pass `messagestream`, which
+# Postmark defaults to `outbound`, so subscribing the same stream keeps push and pull covering
+# the same rows.
+WEBHOOK_MESSAGE_STREAM = "outbound"
+
+# Postmark doesn't sign deliveries, but the Webhooks API lets us pin static headers onto a
+# webhook. `create_webhook` sets a generated secret here and the template requires it back.
+WEBHOOK_SECRET_HEADER = "x-posthog-webhook-secret"
+
+# Fields a webhook delivery carries that the Bounce API list response does not. `Metadata` holds
+# arbitrary user-defined keys, so keeping it would evolve the table schema on every new key.
+WEBHOOK_ONLY_FIELDS = ("Metadata", "Content")

@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter, UsageReporter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
@@ -23,6 +23,7 @@ use common_hypercache::{HyperCacheConfig, HyperCacheReader, S3Client};
 use common_redis::{
     Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
+use governor::clock;
 use lifecycle::{ComponentOptions, Handle, LivenessHandler, Manager, ReadinessHandler};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
@@ -113,6 +114,27 @@ pub async fn serve(
     // a real object store. Uses the `new_with_s3_client` testing seam on HyperCacheReader.
     flags_with_cohorts_s3: Option<Arc<dyn S3Client + Send + Sync>>,
 ) {
+    serve_with_rate_limiter_clock(
+        config,
+        listener,
+        rayon_dispatcher,
+        handles,
+        flags_with_cohorts_s3,
+        clock::DefaultClock::default(),
+    )
+    .await;
+}
+
+pub async fn serve_with_rate_limiter_clock<C>(
+    config: Config,
+    listener: TcpListener,
+    rayon_dispatcher: RayonDispatcher,
+    handles: LifecycleHandles,
+    flags_with_cohorts_s3: Option<Arc<dyn S3Client + Send + Sync>>,
+    rate_limiter_clock: C,
+) where
+    C: clock::Clock + Clone + Send + Sync + 'static,
+{
     // Configure compression based on environment variable
     let compression_config = if *config.redis_compression_enabled {
         let config = CompressionConfig::default();
@@ -303,6 +325,8 @@ pub async fn serve(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired on the Django writer side, which makes HyperCacheReader refuse read repair.
+    flags_hypercache_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -321,6 +345,18 @@ pub async fn serve(
             }
         };
 
+    // Read repair for the hypercaches that are read straight through to Redis on every
+    // request. Both feature_flags readers are left out: each carries a companion `:etag` key
+    // that a payload-only repair would leave stale, and FlagDefinitionsCache already absorbs
+    // repeat reads of a cold flags.json in process. team_metadata is left out too, below,
+    // for a different reason: it gates token authentication.
+    let read_repair_ttl_seconds =
+        if config.hypercache_read_repair_ttl_seconds == 0 || *config.skip_writes {
+            None
+        } else {
+            Some(config.hypercache_read_repair_ttl_seconds)
+        };
+
     // Create HyperCacheReader for team metadata at startup
     // Uses token-based lookup instead of team_id
     let team_redis_client = dedicated_redis_client
@@ -334,6 +370,12 @@ pub async fn serve(
         config.object_storage_bucket.clone(),
     );
     team_hypercache_config.token_based = true;
+    // Left out of read repair: a hit here is trusted as proof of a valid token (see
+    // get_team_from_cache_or_pg), with no Postgres re-check. Team deletion clears Redis
+    // before S3, so a request landing in that gap reads the deleted team from S3; repairing
+    // it would resurrect that team in Redis for up to the repair TTL, instead of the single
+    // stale response an unrepaired hit gives the one caller that landed in the gap.
+    team_hypercache_config.read_repair_ttl_seconds = None;
 
     if !config.object_storage_endpoint.is_empty() {
         team_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -362,6 +404,8 @@ pub async fn serve(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired, same as flags.json above.
+    flags_with_cohorts_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -407,6 +451,7 @@ pub async fn serve(
         config.object_storage_bucket.clone(),
     );
     config_hypercache_config.token_based = true;
+    config_hypercache_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {
         config_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -524,10 +569,20 @@ pub async fn serve(
         tokio_monitor.start_monitoring(tokio_monitor_handle).await;
     });
 
-    let billing_aggregator: Arc<BillingAggregator> =
-        BillingAggregator::start(redis_client.clone(), config.get_billing_aggregator_config());
+    let usage_reporter = UsageReporter::new(
+        &config.usage_ingestion_addr,
+        config.usage_ingestion_tls,
+        config.usage_ingestion_teams.clone(),
+        config.usage_ingestion_timeout_ms,
+    )
+    .expect("invalid usage-ingestion configuration");
+    let billing_aggregator: Arc<BillingAggregator> = BillingAggregator::start_with_usage_reporter(
+        redis_client.clone(),
+        config.get_billing_aggregator_config(),
+        usage_reporter,
+    );
 
-    let app = router::router(
+    let app = router::router_with_rate_limiter_clock(
         redis_client,
         dedicated_redis_client,
         database_pools,
@@ -550,6 +605,7 @@ pub async fn serve(
         cohort_membership_provider,
         billing_aggregator.clone(),
         config,
+        rate_limiter_clock,
     );
 
     tracing::info!(

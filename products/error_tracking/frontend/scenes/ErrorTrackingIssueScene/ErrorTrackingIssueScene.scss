@@ -1,6 +1,15 @@
 .ErrorTrackingIssue {
+    .ErrorTrackingIssue__search .quill-input-group {
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent);
+        border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+    }
+
     // Needed for the NotFound state inside SessionRecordingPlayer
     .NotFoundComponent {
         margin: 0 auto;
     }
+}
+
+:is(.dark, [theme='dark']) .ErrorTrackingIssue .ErrorTrackingIssue__search .quill-input-group {
+    border-color: color-mix(in oklab, var(--foreground) 15%, transparent);
 }

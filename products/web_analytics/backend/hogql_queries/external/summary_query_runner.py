@@ -33,14 +33,14 @@ class QueryResult:
 
 
 @dataclass
-class StatsData:
+class _TrafficStats:
     unique_visitors: int
     total_sessions: int
     total_pageviews: int
 
 
 @dataclass
-class BouncesData:
+class _BounceCounts:
     total_bounces: int
     bounce_sessions: int
 
@@ -164,23 +164,23 @@ class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
 
         return QueryResult(rows=rows)
 
-    def _parse_stats_data(self, stats_result: QueryResult) -> StatsData:
+    def _parse_stats_data(self, stats_result: QueryResult) -> _TrafficStats:
         row = stats_result.first_row()
         if len(row) < 3:
-            return StatsData(unique_visitors=0, total_sessions=0, total_pageviews=0)
+            return _TrafficStats(unique_visitors=0, total_sessions=0, total_pageviews=0)
 
-        return StatsData(
+        return _TrafficStats(
             unique_visitors=int(row[0]) if row[0] else 0,
             total_sessions=int(row[1]) if row[1] else 0,
             total_pageviews=int(row[2]) if row[2] else 0,
         )
 
-    def _parse_bounces_data(self, bounces_result: QueryResult) -> BouncesData:
+    def _parse_bounces_data(self, bounces_result: QueryResult) -> _BounceCounts:
         row = bounces_result.first_row()
         if len(row) < 2:
-            return BouncesData(total_bounces=0, bounce_sessions=0)
+            return _BounceCounts(total_bounces=0, bounce_sessions=0)
 
-        return BouncesData(
+        return _BounceCounts(
             total_bounces=int(row[0]) if row[0] else 0,
             bounce_sessions=int(row[1]) if row[1] else 0,
         )

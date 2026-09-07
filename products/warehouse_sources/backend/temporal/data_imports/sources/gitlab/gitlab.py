@@ -9,11 +9,11 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import (
     GITLAB_ENDPOINTS,
     GitLabEndpointConfig,
@@ -189,6 +189,18 @@ def validate_credentials(
         return False, "Missing personal access token"
     if not project or not project.strip():
         return False, "Missing project id or path"
+
+    # GitLab addresses a project by its numeric id or a group/project path. A pasted URL, a bare
+    # group name, or a stray leading, trailing, or doubled slash otherwise URL-encodes into a
+    # nonsense path, 404s, and gets reported as "not found or not accessible with this token", which
+    # points the user at the token rather than the format.
+    project_ref = project.strip()
+    segments = project_ref.split("/")
+    if not project_ref.isdigit() and ("://" in project_ref or len(segments) < 2 or not all(segments)):
+        return (
+            False,
+            "Enter the project as group/project (for example, mygroup/myproject) or its numeric project ID, not a full URL.",
+        )
 
     host_only = _host_only(host)
     if not host_only:

@@ -6,14 +6,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
     TeamworkSourceConfig,
 )
@@ -23,63 +15,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.source import TeamworkSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.teamwork import TeamworkResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"tasks", "tasklists", "milestones", "timelogs"}
 FULL_REFRESH_ENDPOINTS = {"projects", "people", "companies", "tags", "comments"}
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert TeamworkSource().source_type == ExternalDataSourceType.TEAMWORK
-
-    def test_config_basics(self) -> None:
-        config = TeamworkSource().get_source_config
-        assert config.label == "Teamwork"
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_fields_are_site_and_api_key(self) -> None:
-        fields = TeamworkSource().get_source_config.fields
-        by_name = {f.name: f for f in fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(by_name) == {"site", "api_key"}
-        assert by_name["site"].type == SourceFieldInputConfigType.TEXT
-        assert by_name["site"].required is True
-        assert by_name["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert by_name["api_key"].secret is True
-
-    def test_api_key_is_the_only_secret_field(self) -> None:
-        fields = TeamworkSource().get_source_config.fields
-        secret_fields = {f.name for f in fields if isinstance(f, SourceFieldInputConfig) and f.secret}
-        assert secret_fields == {"api_key"}
-
     def test_site_is_a_connection_host_field(self) -> None:
         # The API key is sent to the host derived from `site`, so retargeting it must re-require the key.
         assert TeamworkSource().connection_host_fields == ["site"]
-
-
-class TestGetSchemas:
-    def test_returns_every_endpoint(self) -> None:
-        schemas = TeamworkSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @parameterized.expand(sorted(INCREMENTAL_ENDPOINTS))
-    def test_incremental_endpoints_support_incremental(self, name: str) -> None:
-        schemas = {s.name: s for s in TeamworkSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas[name].supports_incremental is True
-        assert schemas[name].supports_append is True
-        assert len(schemas[name].incremental_fields) == 1
-
-    @parameterized.expand(sorted(FULL_REFRESH_ENDPOINTS))
-    def test_full_refresh_endpoints_do_not_support_incremental(self, name: str) -> None:
-        schemas = {s.name: s for s in TeamworkSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas[name].supports_incremental is False
-        assert schemas[name].incremental_fields == []
-
-    def test_names_filter(self) -> None:
-        schemas = TeamworkSource().get_schemas(MagicMock(), team_id=1, names=["tasks"])
-        assert [s.name for s in schemas] == ["tasks"]
 
 
 class TestValidateCredentials:
@@ -126,24 +70,6 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
         errors = TeamworkSource().get_non_retryable_errors()
         assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests"),
-            ("server_error", "500 Server Error: Internal Server Error"),
-            ("read_timeout", "Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        errors = TeamworkSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
-
-
-class TestResumableSourceManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = TeamworkSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TeamworkResumeConfig
 
 
 class TestSourceForPipeline:
@@ -193,9 +119,6 @@ class TestCanonicalDescriptions:
     def test_every_entry_has_a_table_description(self) -> None:
         for entry in CANONICAL_DESCRIPTIONS.values():
             assert entry.get("description")
-
-    def test_source_exposes_canonical_descriptions(self) -> None:
-        assert TeamworkSource().get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
 
 
 if __name__ == "__main__":

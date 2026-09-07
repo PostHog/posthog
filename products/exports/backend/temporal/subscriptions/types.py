@@ -2,9 +2,56 @@ import uuid
 import typing
 import dataclasses
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.slo.types import SloConfig
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
+# Type names of these failures never appear in recipient-facing copy. When a safe code and message
+# exist, they are available to query-access owners; this mask only governs the legacy fallback that
+# has no persisted details. The type still lands in diagnostics, logs, and error tracking.
+UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
+
+
+class QueryErrorDetails(typing.TypedDict):
+    """A failed query's type paired with its optional safe code and message."""
+
+    type: typing.Optional[str]
+    code: typing.Optional[str]
+    message: typing.Optional[str]
+
+
+def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDetails]:
+    """Return stable details for an explicitly safe query exception in a wrapped exception chain."""
+    seen: set[int] = set()
+    current: typing.Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, ExposedHogQLError) or getattr(type(current), "user_safe", False) is True:
+            code = getattr(current, "code_name", None)
+            if not isinstance(code, str):
+                get_codes = getattr(current, "get_codes", None)
+                code = get_codes() if callable(get_codes) else None
+
+            raw_detail = getattr(current, "detail", None)
+            message = str(raw_detail) if isinstance(raw_detail, str) else str(current)
+            if isinstance(code, str) and message:
+                return {
+                    "type": type(current).__name__,
+                    "code": code,
+                    "message": message.replace("\x00", ""),
+                }
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return None
+
+
+def safe_error_message(exc: BaseException) -> typing.Optional[str]:
+    """Owner-safe snippet of a query exception, or None when its text may carry team-scoped data.
+
+    Uses the single classifier above so every consumer shares the same allowlist, wrapped-chain
+    handling, and NUL stripping. Everything else returns None and callers use a generic fallback.
+    """
+    details = safe_query_error_details(exc)
+    return details["message"] if details else None
 
 
 class DeliveryStatus:
@@ -18,6 +65,30 @@ class DeliveryStatus:
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class ExportAssetPreparationStatus:
+    READY = "ready"
+    NO_EXPORTABLE_INSIGHTS = "no_exportable_insights"
+
+
+class NoExportableInsightsReason:
+    DASHBOARD_DELETED = "dashboard_deleted"
+    EMPTY_DASHBOARD = "empty_dashboard"
+    MISSING_RESOURCE = "missing_resource"
+    SELECTED_INSIGHTS_NO_LONGER_AVAILABLE = "selected_insights_no_longer_available"
+
+
+class NoExportableInsightsContext(typing.TypedDict):
+    reason: str
+    resource_type: str
+    available_insight_count: int
+    selected_insight_count: int
+
+
+class NoExportableInsightsErrorDetails(NoExportableInsightsContext):
+    message: str
+    type: str
 
 
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
@@ -34,9 +105,13 @@ AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
 # Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
 # after the fact. Written alongside the markdown; never shipped to recipients.
 AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+# Top-level delivery error type for a report whose generated queries all failed. Shared with the
+# serializer's query-access scrub so a rename cannot accidentally expose query-derived details.
+AI_REPORT_QUERY_FAILURE_TYPE = "AIReportQueryFailure"
 # The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
+AI_REPORT_CHARTS_KEY = "ai_report_charts"
 
 
 class SubscriptionTriggerType:
@@ -47,12 +122,12 @@ class SubscriptionTriggerType:
     """
 
     SCHEDULED = "scheduled"  # Regular cron-based delivery
-    TARGET_CHANGE = "target_change"  # Target changed (previous_value is the old target)
+    SUBSCRIPTION_CHANGE = "target_change"  # An API create or edit triggered an immediate delivery.
     MANUAL = "manual"  # User clicked "Test delivery"
 
 
 @dataclasses.dataclass
-class SubscriptionInfo:
+class DueSubscription:
     subscription_id: int
     team_id: int
     distinct_id: str
@@ -76,7 +151,8 @@ class FetchDueSubscriptionsActivityInputs:
 @dataclasses.dataclass
 class CreateExportAssetsInputs:
     subscription_id: int
-    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
+    max_asset_count: int | None = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment activity payloads expire.
     previous_value: typing.Optional[str] = None
     # When set, the activity persists the per-insight snapshot directly onto
     # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
@@ -99,6 +175,10 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    available_insight_count: int = 0
+    selected_insight_count: int = 0
+    status: str = ExportAssetPreparationStatus.READY
+    failure_context: NoExportableInsightsContext | None = None
 
 
 @dataclasses.dataclass
@@ -106,8 +186,10 @@ class DeliverSubscriptionInputs:
     subscription_id: int
     exported_asset_ids: list[int]
     total_insight_count: int
-    is_new_subscription_target: bool = False
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove these legacy keys in a follow-up after this PR is fully deployed and pre-deployment activity payloads expire.
     previous_value: typing.Optional[str] = None
+    is_new_subscription_target: bool | None = None
     invite_message: typing.Optional[str] = None
     change_summary: typing.Optional[str] = None
     summary_skipped_over_budget: bool = False
@@ -121,9 +203,11 @@ class ProcessSubscriptionWorkflowInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment workflow payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     # Lets HandleSubscriptionValueChangeWorkflow route AI-prompt subs to
     # ProcessAISubscriptionWorkflow. Passed by the API from the loaded instance.
@@ -143,10 +227,12 @@ class TrackedSubscriptionInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
+    previous_target_value: typing.Optional[str] = None
+    # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment workflow payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
 
@@ -159,6 +245,9 @@ class RecipientResult:
     recipient: str
     status: RecipientResultStatus
     error: typing.Optional[dict[str, str]] = None  # {"message": str, "type": str}
+    # Owner-safe failure reason; None when the raw error may carry team-scoped/internal detail.
+    # The UI renders this (or a generic fallback), never error.message.
+    human_readable_error: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -174,7 +263,7 @@ class GenerateAIReportInputs:
     delivery_id: uuid.UUID
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GenerateAIReportResult:
     """Outcome of the generation phase. `aborted` signals a terminal pre-delivery
     failure (consent revoked, prompt invalid) that already auto-disabled the
@@ -191,28 +280,49 @@ class GenerateAIReportResult:
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
     failed_step_count: int = 0
     total_step_count: int = 0
+    # Kept for Temporal histories written before query_errors existed. New results derive it in
+    # __post_init__ so callers only provide the richer representation.
     query_error_types: list[str] = dataclasses.field(default_factory=list)
+    target_type: str = ""
+    query_errors: list[QueryErrorDetails] = dataclasses.field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.query_error_types and self.query_errors:
+            self.query_error_types = sorted({error["type"] for error in self.query_errors if error["type"]})
 
     @property
     def all_queries_failed(self) -> bool:
         # Single source of truth for the "fully degraded" judgement, so callers don't re-derive it.
         return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
 
-    def failure_error(self) -> dict[str, str]:
-        # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
-        # error-type names only (query_error_types are exception class names), never raw query content.
-        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
+    def failure_error(self) -> dict[str, typing.Any]:
+        all_error_types = set(self.query_error_types)
+        all_error_types.update(error["type"] for error in self.query_errors if error["type"])
+        disclosed_types = sorted(t for t in all_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES)
+        detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""
         subject = (
             "The query the AI generated"
             if self.total_step_count == 1
             else f"All {self.total_step_count} queries the AI generated"
         )
-        return {
+        error: dict[str, typing.Any] = {
             "message": f"{subject} failed to run{detail}, so the report could not be computed.",
-            "type": "AIReportQueryFailure",
+            "type": AI_REPORT_QUERY_FAILURE_TYPE,
         }
 
-    def delivered_status(self) -> tuple[str, typing.Optional[dict[str, str]]]:
+        safe_errors: list[dict[str, str]] = []
+        for query_error in self.query_errors:
+            error_type = query_error["type"]
+            code = query_error["code"]
+            message = query_error["message"]
+            if error_type and code and message:
+                safe_errors.append({"type": error_type, "code": code, "message": message})
+        if safe_errors:
+            error["code"] = safe_errors[0]["code"]
+            error["details"] = safe_errors
+        return error
+
+    def delivered_status(self) -> tuple[str, typing.Optional[dict[str, typing.Any]]]:
         # Status to record once the report shipped: a fully-degraded report (every query failed) is FAILED
         # with its failure detail — recording it COMPLETED would misrepresent an empty report. Partial
         # failures stay COMPLETED. Owns this mapping so the workflow can't diverge from the judgement above.
@@ -222,7 +332,7 @@ class GenerateAIReportResult:
 
 
 @dataclasses.dataclass
-class SubscriptionAbortInfo:
+class DeliveryAbort:
     """Returned by `validate_subscription_for_delivery` when the workflow should abort.
     `failed_recipient` is populated only when this run auto-disabled the sub
     (workflow records FAILED). None means already-disabled — idempotency redispatch."""
@@ -253,7 +363,7 @@ class UpdateDeliveryRecordInputs:
     status: str
     exported_asset_ids: typing.Optional[list[int]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
-    error: typing.Optional[dict[str, typing.Any]] = None
+    error: typing.Optional[dict[str, typing.Any] | NoExportableInsightsErrorDetails] = None
     change_summary: typing.Optional[str] = None
     finished: bool = False
 

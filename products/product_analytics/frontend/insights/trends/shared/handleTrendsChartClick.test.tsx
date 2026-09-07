@@ -108,6 +108,30 @@ describe('handleTrendsChartClick', () => {
         }
     )
 
+    it('forwards a formula-series click (action: null) to context.onDataPointClick instead of the modal', () => {
+        // Formula results carry no `action`, so the generic drill-down can't attribute them to a series
+        // (it silently falls back to series 0). Products embedding formula charts rely on their
+        // onDataPointClick handler winning here, with the day read from the top-level `days`.
+        const openPersonsModal = jest.fn()
+        const onDataPointClick = jest.fn()
+        const trendResult = makeTrendResult({
+            action: null,
+            label: 'Yes rate',
+            days: ['2024-06-10', '2024-06-11', '2024-06-12'],
+        })
+        const deps = makeDeps({
+            openPersonsModal,
+            indexedResults: [trendResult],
+            context: { onDataPointClick },
+        })
+
+        handleTrendsChartClick(keyFor(trendResult), 1, deps)
+
+        expect(openPersonsModal).not.toHaveBeenCalled()
+        expect(onDataPointClick).toHaveBeenCalledTimes(1)
+        expect(onDataPointClick).toHaveBeenCalledWith(expect.objectContaining({ day: '2024-06-11' }), expect.anything())
+    })
+
     it('passes indexedResults[0] (not the clicked dataset) as the second arg to onDataPointClick', () => {
         // Legacy parity with ActionsLineGraph — the second arg is always the first
         // result, regardless of which series was clicked. Locking this in so a refactor

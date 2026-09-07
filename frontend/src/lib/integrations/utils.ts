@@ -18,16 +18,20 @@ import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconGoogleAnalytics from 'public/services/google_analytics.png'
+import IconGoogleCalendar from 'public/services/google_calendar.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconInstagram from 'public/services/instagram.png'
 import IconIntercom from 'public/services/intercom.png'
 import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconPardot from 'public/services/pardot.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconReddit from 'public/services/reddit.png'
+import IconRedshift from 'public/services/redshift.png'
 import IconS3Compatible from 'public/services/s3-compatible.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -37,6 +41,33 @@ import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
+import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
+
+/**
+ * Where a user started an integration connect flow. Reported as the `surface` property on
+ * `integration_connect_clicked`, so these strings are frozen — renaming one silently splits a
+ * funnel that already counts the old value.
+ *
+ * A connect can start from many places, and only some of them are a first connection: the
+ * `*_reconnect` and `settings_manage` values cover flows that begin with an integration already
+ * in place, which a conversion metric wants to exclude.
+ */
+export type IntegrationConnectSurface =
+    | 'settings'
+    | 'settings_manage'
+    | 'settings_link_existing'
+    | 'integration_landing_page'
+    | 'pipeline_config'
+    | 'error_banner_reconnect'
+    | 'missing_scopes_reconnect'
+    | 'warehouse_source_reconnect'
+    | 'onboarding_wizard'
+    | 'inbox_welcome'
+    | 'signals_agent_setup'
+    | 'task_composer'
+    | 'visual_review_settings'
+    | 'install_approved_banner'
+    | 'unavailable_banner_reconnect'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -47,6 +78,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
     'google-analytics': IconGoogleAnalytics,
+    'google-calendar': IconGoogleCalendar,
     'google-search-console': IconGoogleSearchConsole,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
@@ -58,6 +90,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     github: IconGitHub,
     gitlab: IconGitLab,
     'meta-ads': IconMetaAds,
+    instagram: IconInstagram,
     twilio: IconTwilio,
     clickup: IconClickUp,
     'reddit-ads': IconReddit,
@@ -69,14 +102,17 @@ export const ICONS: Record<IntegrationKind, any> = {
     firebase: IconFirebase,
     jira: IconJira,
     'pinterest-ads': IconPinterest,
+    pardot: IconPardot,
     'customerio-app': IconCustomerIO,
     'customerio-webhook': IconCustomerIO,
     'customerio-track': IconCustomerIO,
     apns: IconApple,
     postgresql: IconPostgres,
     'aws-s3': IconAwsS3,
+    'aws-redshift': IconRedshift,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
+    'youtube-analytics': IconYouTubeAnalytics,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
@@ -93,6 +129,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Ads'
         case 'google-analytics':
             return 'Google Analytics'
+        case 'google-calendar':
+            return 'Google Calendar'
         case 'google-search-console':
             return 'Google Search Console'
         case 'google-cloud-service-account':
@@ -121,8 +159,13 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'PostgreSQL'
         case 'aws-s3':
             return 'AWS S3'
+        // Named after the batch export destination users already see, not the `aws-` kind prefix.
+        case 'aws-redshift':
+            return 'Redshift'
         case 's3-compatible':
             return 'S3-compatible storage'
+        case 'youtube-analytics':
+            return 'YouTube Analytics'
         default:
             return capitalizeFirstLetter(kind)
     }

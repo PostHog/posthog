@@ -12,3 +12,8 @@ SUPPORTED_LANGUAGES = {lang["code"]: lang["label"] for lang in _languages_list}
 DEFAULT_TARGET_LANGUAGE = "en"
 
 TRANSLATION_MODEL = "gpt-4.1-mini"
+
+# `translate_text` makes a single attempt, so this is the whole wall clock a user waits behind the
+# spinner rather than a per-attempt budget. It has to cover a text as long as the 10,000 character
+# cap the request serializer enforces, while still returning inside the proxy's request timeout.
+TRANSLATION_TIMEOUT_SECONDS = 45.0

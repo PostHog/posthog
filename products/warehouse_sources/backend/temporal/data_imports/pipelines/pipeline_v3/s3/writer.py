@@ -8,9 +8,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    unify_schemas_with_text_fallback,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_s3_write_duration_metric,
     get_s3_write_errors_metric,
@@ -51,6 +55,28 @@ def build_schema_dict(schema: pa.Schema) -> dict:
         ],
         "pandas_metadata": schema.pandas_metadata,
     }
+
+
+def _is_transient_s3_write_error(exc: BaseException) -> bool:
+    # s3fs translates most S3-side write failures (IncompleteBody, InternalError,
+    # SlowDown/ServiceUnavailable, ...) into a plain OSError. PermissionError,
+    # FileNotFoundError, and TimeoutError are also OSError subclasses but signal
+    # non-transient causes (bad credentials, deleted bucket) that retrying won't fix,
+    # so only the exact base type is treated as retryable here.
+    return type(exc) is OSError
+
+
+@retry(
+    retry=retry_if_exception(_is_transient_s3_write_error),
+    stop=stop_after_attempt(4),
+    wait=wait_exponential_jitter(initial=1, max=10),
+    reraise=True,
+)
+def _write_parquet_to_s3(
+    s3: s3fs.S3FileSystem, s3_path: str, pa_table: pa.Table, compression: ParquetCompression
+) -> None:
+    with s3.open(s3_path, "wb") as f:
+        pq.write_table(pa_table, f, compression=compression)
 
 
 class S3BatchWriter:
@@ -103,8 +129,7 @@ class S3BatchWriter:
         write_start = time.perf_counter()
         try:
             s3_path_without_protocol = strip_s3_protocol(s3_path)
-            with self._s3.open(s3_path_without_protocol, "wb") as f:
-                pq.write_table(pa_table, f, compression=self._compression)
+            _write_parquet_to_s3(self._s3, s3_path_without_protocol, pa_table, self._compression)
         except Exception as e:
             if activity.in_activity():
                 get_s3_write_errors_metric(type(e).__name__).add(1)
@@ -120,7 +145,11 @@ class S3BatchWriter:
         if self._schema is None:
             self._schema = pa_table.schema
         else:
-            self._schema = pa.unify_schemas([self._schema, pa_table.schema])
+            # Batches infer their own types, so one run's column can land int64 in an early batch and
+            # double in a later one (whole vs fractional values). Permissive promotion widens to the
+            # common type; flips promotion can't reconcile (string vs int64) fall back to text
+            # instead of raising ArrowTypeError.
+            self._schema = unify_schemas_with_text_fallback([self._schema, pa_table.schema], self._logger)
 
         self._logger.debug(
             f"Batch {batch_index} written successfully",

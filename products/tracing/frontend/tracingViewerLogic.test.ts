@@ -1,8 +1,11 @@
+import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span } from './types'
 
@@ -58,5 +61,26 @@ describe('tracingViewerLogic', () => {
 
         expect(logic.values.selectedTraceId).toBe('trace-x')
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
+    })
+
+    describe('closeTrace', () => {
+        // The attribute buttons in the drawer queue their query for when the drawer closes.
+        // Without this, closing the drawer would silently drop the filter the user just added.
+        it('flushes a filter refresh queued by the drawer buttons', async () => {
+            tracingFiltersLogic().actions.addFilter('http.method', 'GET')
+            expect(tracingFiltersLogic().values.hasDeferredFilterRefresh).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.closeTrace()
+            }).toDispatchActions(['refreshDeferredFilters'])
+        })
+
+        it('does not dispatch a refresh when no filter was queued', async () => {
+            expect(tracingFiltersLogic().values.hasDeferredFilterRefresh).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.closeTrace()
+            }).toNotHaveDispatchedActions(['refreshDeferredFilters'])
+        })
     })
 })

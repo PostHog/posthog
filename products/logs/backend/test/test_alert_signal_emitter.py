@@ -6,6 +6,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.logs.backend.alert_signal_emitter import (
+    AlertSignalAction,
     NotifiedAlert,
     build_signal_description,
     build_signal_extra,
@@ -16,7 +17,7 @@ from products.logs.backend.alert_state_machine import NotificationAction
 from products.signals.backend.contracts import LogsAlertStateChangeSignalExtra
 
 
-def _notified(action: str = "firing") -> NotifiedAlert:
+def _notified(action: AlertSignalAction = "firing") -> NotifiedAlert:
     return NotifiedAlert(
         alert_id="11111111-1111-1111-1111-111111111111",
         team_id=7,

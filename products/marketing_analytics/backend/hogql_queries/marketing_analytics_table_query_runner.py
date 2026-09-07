@@ -14,9 +14,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from .constants import (
     BASE_COLUMN_MAPPING,
@@ -88,6 +89,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             context=self._shared_hogql_context,
+            # These group by high-cardinality campaign dimensions, so let the GROUP BY spill
+            # to disk rather than hit the memory limit.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         results = response.results or []
@@ -119,7 +123,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            error=self._conversion_goal_error,
         )
 
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:

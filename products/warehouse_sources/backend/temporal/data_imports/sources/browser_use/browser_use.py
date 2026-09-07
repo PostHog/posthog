@@ -3,10 +3,10 @@ from typing import Any, Optional
 
 from requests import Request, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.settings import (
-    BROWSER_USE_ENDPOINTS,
+    BROWSER_USE_API_VERSION_V3,
     BrowserUseEndpointConfig,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -22,15 +22,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
-BROWSER_USE_BASE_URL = "https://api.browser-use.com/api/v3"
+BROWSER_USE_API_HOST = "https://api.browser-use.com"
 API_KEY_HEADER = "X-Browser-Use-API-Key"
+
+
+def _base_url(api_version: str) -> str:
+    # The version is a URL path segment; auth and host are identical across versions.
+    return f"{BROWSER_USE_API_HOST}/api/{api_version}"
+
+
+# v3 base URL, kept as a module constant: it's what the credential probe and non-retryable error
+# matcher pin to (both are host-scoped, so v3 stands in for every version there).
+BROWSER_USE_BASE_URL = _base_url(BROWSER_USE_API_VERSION_V3)
 
 
 @dataclasses.dataclass
 class BrowserUseResumeConfig:
-    # Next 1-indexed page/pageNumber to fetch for a top-level list endpoint. None for fan-out.
+    # Next 1-indexed page/pageNumber to fetch for an offset-paged top-level endpoint. None otherwise.
     page: int | None = None
+    # Next opaque keyset cursor for a v4 top-level endpoint (sessions, runs). None otherwise.
+    cursor: str | None = None
     # Legacy fan-out bookmark fields (session id + `after` message cursor). Kept with defaults so
     # state saved before the framework migration still parses; such state restarts the fan-out
     # fresh (merge dedupes the re-pulled rows on the [sessionId, id] primary key).
@@ -157,11 +170,74 @@ class BrowserUseMessagesPaginator(BasePaginator):
         return f"BrowserUseMessagesPaginator(after={self._after})"
 
 
-# Params the two list-pagination styles use: (page param, page-size param, total-items body key).
+class BrowserUseKeysetPaginator(BasePaginator):
+    """Keyset cursor pagination for the v4 list endpoints (`GET /sessions`, `GET /runs`).
+
+    The cursor is an opaque server token echoed back in the body as ``nextCursor`` (not the last
+    row's id, unlike ``BrowserUseMessagesPaginator``), and ``hasMore`` is the stop signal — a page
+    with rows but ``hasMore: false`` terminates.
+    """
+
+    def __init__(self, cursor_param: str = "cursor", next_cursor_key: str = "nextCursor") -> None:
+        super().__init__()
+        self.cursor_param = cursor_param
+        self.next_cursor_key = next_cursor_key
+        self._cursor: Optional[str] = None
+
+    def _inject(self, request: Request) -> None:
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor
+
+    def init_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        has_more = False
+        next_cursor: Any = None
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                has_more = bool(body.get("hasMore"))
+                next_cursor = body.get(self.next_cursor_key)
+        except Exception:
+            has_more = False
+
+        if has_more and next_cursor:
+            self._cursor = str(next_cursor)
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = str(cursor)
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"BrowserUseKeysetPaginator(cursor={self._cursor})"
+
+
+# Params the offset-paging styles use: (page param, page-size param, total-items body key).
 _PAGINATION_PARAMS: dict[str, tuple[str, str, str]] = {
     "page": ("page", "page_size", "total"),
     "pageNumber": ("pageNumber", "pageSize", "totalItems"),
 }
+
+
+def _list_size_param(config: BrowserUseEndpointConfig) -> str:
+    # The page-size query param name for a list endpoint, keyed off its pagination style.
+    if config.pagination == "keyset":
+        return "limit"
+    return _PAGINATION_PARAMS[config.pagination][1]
 
 
 def _make_session(api_key: str) -> Session:
@@ -173,9 +249,9 @@ def _make_session(api_key: str) -> Session:
     return make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
 
 
-def _client_config(api_key: str) -> ClientConfig:
+def _client_config(api_key: str, base_url: str) -> ClientConfig:
     return {
-        "base_url": BROWSER_USE_BASE_URL,
+        "base_url": base_url,
         "headers": {"Accept": "application/json"},
         # Auth via the framework config so the key is registered for log redaction.
         "auth": {"type": "api_key", "api_key": api_key, "name": API_KEY_HEADER, "location": "header"},
@@ -184,6 +260,17 @@ def _client_config(api_key: str) -> ClientConfig:
 
 
 def _list_endpoint_resource(config: BrowserUseEndpointConfig) -> EndpointResource:
+    if config.pagination == "keyset":
+        return {
+            "name": config.name,
+            "endpoint": {
+                "path": config.path,
+                "params": {_list_size_param(config): config.page_size},
+                "data_selector": config.data_key,
+                "paginator": BrowserUseKeysetPaginator(),
+            },
+        }
+
     page_param, size_param, total_key = _PAGINATION_PARAMS[config.pagination]
     return {
         "name": config.name,
@@ -214,12 +301,14 @@ def browser_use_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BrowserUseResumeConfig],
+    api_version: str,
 ) -> SourceResponse:
-    config = BROWSER_USE_ENDPOINTS[endpoint]
+    catalog = endpoints_for_version(api_version)
+    config = catalog[endpoint]
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key),
+        "client": _client_config(api_key, _base_url(api_version)),
         "resource_defaults": {},
         "resources": [],
     }
@@ -233,7 +322,7 @@ def browser_use_source(
             if state is not None:
                 resumable_source_manager.save_state(BrowserUseResumeConfig(fanout_state=state))
 
-        sessions_config = BROWSER_USE_ENDPOINTS["sessions"]
+        sessions_config = catalog["sessions"]
         rest_config["resources"] = [
             _list_endpoint_resource(sessions_config),
             {
@@ -261,13 +350,22 @@ def browser_use_source(
         )
         resource = next(r for r in resources if r.name == config.name)
     else:
-        initial_paginator_state = {"page": resume.page} if resume is not None and resume.page else None
+        # Keyset (v4) and offset (v3) top-level lists checkpoint different state shapes. Both hooks
+        # fire AFTER a page is yielded and persist only when a next page remains, so a crash
+        # re-yields the last page (merge dedupes) rather than skipping it.
+        initial_paginator_state: Optional[dict[str, Any]]
+        if config.pagination == "keyset":
+            initial_paginator_state = {"cursor": resume.cursor} if resume is not None and resume.cursor else None
 
-        def save_page_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            # Persist only when a next page remains; the hook fires AFTER a page is yielded so a
-            # crash re-yields the last page (merge dedupes) rather than skipping it.
-            if state and state.get("page") is not None:
-                resumable_source_manager.save_state(BrowserUseResumeConfig(page=int(state["page"])))
+            def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+                if state and state.get("cursor") is not None:
+                    resumable_source_manager.save_state(BrowserUseResumeConfig(cursor=str(state["cursor"])))
+        else:
+            initial_paginator_state = {"page": resume.page} if resume is not None and resume.page else None
+
+            def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+                if state and state.get("page") is not None:
+                    resumable_source_manager.save_state(BrowserUseResumeConfig(page=int(state["page"])))
 
         rest_config["resources"] = [_list_endpoint_resource(config)]
         resource = rest_api_resource(
@@ -275,7 +373,7 @@ def browser_use_source(
             team_id,
             job_id,
             None,
-            resume_hook=save_page_checkpoint,
+            resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
         )
 
@@ -295,12 +393,16 @@ def browser_use_source(
     )
 
 
-def validate_credentials(api_key: str) -> bool:
-    # The cheapest genuine token probe: list a single session. 200 means the key is accepted.
-    # The probe session shares the export path's capture/redirect posture (see _make_session).
+def validate_credentials(api_key: str, api_version: str) -> bool:
+    # The cheapest genuine token probe: list a single session on the pinned version. 200 means the
+    # key is accepted. `/sessions` exists in every version, and the size-param name is derived from
+    # that version's own config (v3 page_size, v4 limit). The probe session shares the export
+    # path's capture/redirect posture (see _make_session).
+    sessions = endpoints_for_version(api_version)["sessions"]
+    url = f"{_base_url(api_version)}{sessions.path}?{_list_size_param(sessions)}=1"
     ok, _status = validate_via_probe(
         lambda: _make_session(api_key),
-        f"{BROWSER_USE_BASE_URL}/sessions?page_size=1",
+        url,
         headers={API_KEY_HEADER: api_key, "Accept": "application/json"},
     )
     return ok

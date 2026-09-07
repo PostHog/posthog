@@ -31,11 +31,6 @@ from products.warehouse_sources.backend.models.custom_oauth2_integration import 
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SortMode,
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_adapter,
@@ -70,6 +65,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     resolve_request_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    SortMode,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
@@ -529,11 +529,26 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     return True, None
 
 
+_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
+
+def _has_leading_http_method(url: str) -> bool:
+    """True when a URL starts with an HTTP verb, e.g. a "POST https://..." pasted from API docs.
+    urlparse then reads no host, so the URL is rejected for a missing hostname it plainly has."""
+    head, _, rest = url.strip().partition(" ")
+    return bool(rest) and head.upper() in _HTTP_METHODS
+
+
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
     # validator can't be fooled into vetting a different host than the request reaches.
     hostname = _url_hostname(url)
     if not hostname:
+        if _has_leading_http_method(url):
+            return (
+                False,
+                "Remove the HTTP method from the URL and enter just the address (for example, https://api.example.com).",
+            )
         return False, f"URL {url!r} is missing a hostname"
     if is_cloud() and urlparse(url).scheme != "https":
         return False, f"URL {url!r} must use https:// on PostHog Cloud"
@@ -606,13 +621,18 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     the stored secret must not be able to redirect it to a server they control.
     Returns an empty set for anything unparseable — the caller treats "no hosts"
     as "nothing new", and a malformed manifest is rejected elsewhere.
+
+    Accepts both a JSON string and an already-parsed object — the same two shapes
+    `_assemble_manifest` takes — so a dict manifest can never slip past the gate as
+    "no hosts". Read-only: the object is inspected in place, never mutated.
     """
-    if not isinstance(manifest_json, str):
-        return frozenset()
-    try:
-        manifest = json.loads(manifest_json)
-    except json.JSONDecodeError:
-        return frozenset()
+    if isinstance(manifest_json, str):
+        try:
+            manifest = json.loads(manifest_json)
+        except json.JSONDecodeError:
+            return frozenset()
+    else:
+        manifest = manifest_json
     if not isinstance(manifest, dict):
         return frozenset()
 
@@ -781,7 +801,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             name=SchemaExternalDataSourceType.CUSTOM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
-            releaseStatus=ReleaseStatus.ALPHA,
+            # The generic HTTP/API connector. Match the terms people search when no named
+            # connector for their API exists yet.
+            keywords=["rest", "api", "http", "https", "rest api", "http api", "custom api", "endpoint"],
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
@@ -875,6 +898,17 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # is entirely manifest-driven, so a 400 is deterministic: the same request recurs on
             # every retry. Stop retrying and point at the config the user can actually change.
             "400 Client Error": "The upstream API rejected the request with HTTP 400. Check the resource's path, query params, and — for an incremental sync — the cursor's date format in the manifest, then try again.",
+            # A configured URL or resource path that doesn't exist. The request shape is
+            # manifest-driven, so the 404 recurs on every retry — stop and point at the config.
+            # The message omits the URL, which carries the customer's hostname.
+            "404 Client Error": "The upstream API returned HTTP 404 Not Found. Check that the base URL and the resource's path in the manifest are correct and that the endpoint exists, then try again.",
+            # A network proxy rejected the request before it reached the upstream API. On PostHog
+            # Cloud this is the egress proxy refusing a URL it isn't allowed to reach (a private or
+            # internal address); it can also be an upstream proxy in front of the customer's API
+            # demanding credentials. The manifest-driven request recurs identically on every retry,
+            # so stop and point at the manifest URLs. The message omits the URL, which carries the
+            # customer's hostname.
+            "407 Client Error": "A network proxy rejected the request before it reached the upstream API (HTTP 407). This usually means a URL in the manifest points at an address PostHog can't reach (for example a private or internal address), or the API sits behind a proxy that needs credentials. Check the URLs in the manifest, then try again.",
             # A schema points to a resource the manifest no longer defines (renamed or removed
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.
@@ -895,6 +929,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # stop and point at the config the user can change. Matches the stable prefix
             # RESTClientNonRetryableError uses, not the variable URL that follows.
             "Non-JSON response from": "The upstream API returned a non-JSON response (for example an HTML or plain-text error page) instead of data. Check that the resource's URL and path in the manifest point at a JSON API endpoint and that any required authentication is configured, then try again.",
+            # `_is_host_safe` raises this when a manifest's base_url, token_url, or resource
+            # host doesn't resolve via DNS — a hostname the customer typed wrong or a host
+            # that's no longer publicly reachable. Deterministic and permanent until the
+            # manifest is edited, so stop retrying. Match the stable prefix, not the
+            # customer's hostname that follows it.
+            "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -905,10 +945,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         API layer can redact them. This rebuilds the full config the REST
         engine consumes.
         """
-        try:
-            manifest = json.loads(config.manifest_json)
-        except json.JSONDecodeError as exc:
-            raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")
+        raw: Any = config.manifest_json
+        # `manifest_json` is declared as a JSON string, but the create/validate API can hand us an
+        # already-parsed object when a client submits the manifest as JSON rather than a JSON-encoded
+        # string. Accept both — deep-copy the object so the in-place secret injection below never
+        # writes credentials back into the caller's (persisted) config.
+        if isinstance(raw, str):
+            try:
+                manifest = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ManifestValidationError(
+                    f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})"
+                )
+        else:
+            manifest = copy.deepcopy(raw)
         # Structural validation only — no resource-graph checks. This runs on
         # every sync and schema listing of already-stored manifests, so a
         # graph problem on one resource must not take down the source's other
@@ -982,17 +1032,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             except CustomOAuth2Integration.DoesNotExist:
                 return False, OAUTH2_CREDENTIALS_GONE_MESSAGE
             except OAuth2AuthRequestError as exc:
-                auth_config = manifest.get("client", {}).get("auth", {})
-                injected_secrets = tuple(
-                    str(auth_config[key])
-                    for key in ("client_secret", "refresh_token", "access_token")
-                    if auth_config.get(key)
-                )
                 if exc.is_permanent:
-                    return False, _redact_secrets(
-                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
-                        injected_secrets,
-                    )
+                    return False, _oauth2_token_error_message(exc)
                 # Transient (429 / 5xx): don't block creation — the first real sync retries the mint.
                 return True, None
 
@@ -1015,10 +1056,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             return False, f"Invalid auth configuration: {exc}"
 
         # OAuth2 mints its access token lazily on the first request, so pre-mint it now —
-        # a bad client_secret / token_url then fails with a pointed "the OAuth2 token
-        # endpoint rejected the request: …" instead of a misleading "resource unreachable"
-        # on the first data probe. Minting before the probe session is built also lets the
-        # freshly-minted access token join that session's redaction set. A transient
+        # a bad client_secret / token_url then fails with a pointed credential message instead
+        # of a misleading "resource unreachable" on the first data probe. Minting before the
+        # probe session is built also lets the freshly-minted access token join that session's
+        # redaction set. A transient
         # (429 / 5xx) token error must not block creation — the first real sync retries —
         # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
         #
@@ -1035,11 +1076,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 probe_auth._obtain_token(timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
             except OAuth2AuthRequestError as exc:
                 if exc.is_permanent:
-                    # Strip the internal sync-time classifier marker — it's not user-facing copy.
-                    return False, _redact_secrets(
-                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
-                        auth_secret_values(probe_auth),
-                    )
+                    return False, _oauth2_token_error_message(exc)
                 # Transient (429 / 5xx): don't block creation — the first real sync retries the
                 # token exchange. Skip the data probe too: it has no minted token to authenticate
                 # with, so requests would re-invoke the auth (re-running the failing mint) and turn
@@ -1671,6 +1708,44 @@ OAUTH2_CREDENTIALS_GONE_MESSAGE = (
     "This source's stored OAuth2 credentials are no longer available. "
     "Re-enter the client secret and refresh token in the source settings to reconnect."
 )
+
+
+# A permanent token rejection carries the provider's own wording — an HTTP status, the OAuth2
+# error code, and a vendor description. None of that tells someone which field to change, so the
+# standard codes are mapped to the field they point at and everything else falls back to the whole
+# credential set. The raw text stays on the exception for the sync-time classifier.
+_OAUTH2_TOKEN_ERROR_MESSAGES: dict[str, str] = {
+    "invalid_client": (
+        "Your provider rejected the OAuth2 client ID or secret. "
+        "Check both values in your provider's app settings, then try again."
+    ),
+    "invalid_grant": (
+        "Your provider rejected the OAuth2 grant for this source. "
+        "Issue a new refresh token, or reconnect the source, then try again."
+    ),
+    "unauthorized_client": (
+        "Your provider does not let this OAuth2 app use the configured grant type. "
+        "Enable that grant type for the app, then try again."
+    ),
+    "invalid_scope": (
+        "Your provider rejected the OAuth2 scopes for this source. "
+        "Check the scopes match the ones your provider's app allows, then try again."
+    ),
+    "invalid_request": (
+        "Your provider rejected the OAuth2 token request. "
+        "Check the token URL, grant type, and any extra token parameters, then try again."
+    ),
+}
+
+_OAUTH2_TOKEN_ERROR_FALLBACK = (
+    "Your provider rejected the OAuth2 credentials for this source. "
+    "Check the client ID, secret, token URL, and grant type, then try again."
+)
+
+
+def _oauth2_token_error_message(exc: OAuth2AuthRequestError) -> str:
+    """User-facing copy for a permanent token-endpoint rejection."""
+    return _OAUTH2_TOKEN_ERROR_MESSAGES.get(exc.error_code or "", _OAUTH2_TOKEN_ERROR_FALLBACK)
 
 
 def _oauth2_row_config(auth: dict[str, Any]) -> dict[str, Any]:

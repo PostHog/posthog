@@ -27,7 +27,7 @@ The classic bugs: a `null`/`undefined` URL variable interpolated into the key, a
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with the specific `type` (or `q: 'heatmap'` to see all three). The `rejecting_*` samples include the offending `heatmapUrl` and `session_id`; `invalid_heatmap_data` samples carry the `event_uuid` of the event whose payload failed entirely. The `rejecting_*` types are debounced per session — each entry stands for a session's worth of skips.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('invalid_heatmap_data', 'rejecting_heatmap_data_with_invalid_url', 'rejecting_heatmap_data_with_invalid_items') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). In the `details` JSON, the `rejecting_*` entries include the offending `heatmapUrl` and `session_id`; `invalid_heatmap_data` entries carry the `event_uuid` of the event whose payload failed entirely (read via `JSONExtractString(details, 'heatmapUrl')` and friends). The `rejecting_*` types are debounced per session — each entry stands for a session's worth of skips.
 2. **Check the SDK version**: pull `$lib` / `$lib_version` from the affected sessions' events (`posthog:execute-sql` on the events table, filtered to the sampled session/distinct IDs) and compare against unaffected traffic. Warnings clustering on old posthog-js versions point to an outdated SDK producing a stale payload shape — the fix is an upgrade, not payload surgery. Mixed versions are common when some deploys/pages pin an old snippet.
 3. Find the producer: if the app uses a current stock posthog-js, check for anything that rewrites events in flight (a capture proxy, a `before_send` hook, a custom transport). If `$heatmap_data` is built by hand (custom canvas apps, mobile), inspect that construction against the shape above.
 
@@ -39,4 +39,4 @@ The classic bugs: a `null`/`undefined` URL variable interpolated into the key, a
 
 ## Verify
 
-Re-run the affected pages/flows, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the heatmap for the affected URLs starts accumulating data again.
+Re-run the affected pages/flows, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('invalid_heatmap_data', 'rejecting_heatmap_data_with_invalid_url', 'rejecting_heatmap_data_with_invalid_items')`, `timestamp` after your fix) — no new occurrences — and confirm the heatmap for the affected URLs starts accumulating data again.

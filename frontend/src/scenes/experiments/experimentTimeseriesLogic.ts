@@ -2,10 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, prop
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA } from 'lib/utils/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -20,8 +18,7 @@ import {
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
-import { COLORS } from './MetricsView/shared/colors'
-import { getMetricColors, getVariantInterval } from './MetricsView/shared/utils'
+import { getVariantInterval } from './MetricsView/shared/utils'
 import { getExperimentVariants } from './utils'
 
 export interface ProcessedTimeseriesDataPoint {
@@ -35,23 +32,13 @@ export interface ProcessedTimeseriesDataPoint {
     significant?: boolean
 }
 
-export interface ChartDataset extends Partial<ChartJsDataset<'line'>> {
-    label: string
-    data: (number | null)[]
-    borderColor: string
-    borderWidth: number
-    borderDash?: number[]
-    fill: boolean | string
-    tension: number
-    pointRadius: number
-}
-
 export interface ProcessedChartData {
     labels: string[]
-    datasets: ChartDataset[]
     processedData: ProcessedTimeseriesDataPoint[]
     /** When the timeseries was last computed (ISO string), shared across all data points. */
     computedAt: string | null
+    /** Color of the variant's line, from the experiment's stable variant order. */
+    variantColor: string
 }
 
 export interface ExperimentTimeseriesLogicProps {
@@ -157,8 +144,7 @@ export interface experimentTimeseriesLogicMeta {
         chartData: (
             processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
             timeseries: ExperimentMetricTimeseries | null,
-            experiment: Experiment,
-            metric: ExperimentMetricUnion | undefined
+            experiment: Experiment
         ) => (variantKey: string) => ProcessedChartData | null
     }
 }
@@ -362,17 +348,13 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
 
-        // Generate Chart.js-ready datasets
         chartData: [
-            (s, props) => [s.processedVariantData, s.timeseries, props.experiment, props.metric],
+            (s, props) => [s.processedVariantData, s.timeseries, props.experiment],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
                 timeseries: ExperimentMetricTimeseries | null,
-                experiment: Experiment,
-                metric: ExperimentMetric | undefined
+                experiment: Experiment
             ): ((variantKey: string) => ProcessedChartData | null) => {
-                // Swap positive/negative colors when the metric goal is "decrease"
-                const goalColors = getMetricColors(COLORS, metric?.goal)
                 return (variantKey: string) => {
                     const processedData = processedVariantData(variantKey)
                     if (processedData.length === 0) {
@@ -396,9 +378,6 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         firstMeaningfulIndex > 0 ? processedData.slice(firstMeaningfulIndex) : processedData
 
                     const labels = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.date)
-                    const values = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.value)
-                    const upperBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.upper_bound)
-                    const lowerBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.lower_bound)
 
                     // Get variant index from the experiment's stable variant order (flag-sourced)
                     let variantIndex = 0
@@ -409,110 +388,11 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     const variantColor = getSeriesColor(variantIndex)
 
-                    // Create a simple approach: just two datasets with segmented colors
-                    const datasets: ChartDataset[] = []
-
-                    // We use the same color for upper and lower bound lines for clear association with the variant line
-                    const boundLineColor = variantColor
-
-                    // Upper bounds dataset
-                    datasets.push({
-                        label: 'Upper bound',
-                        data: upperBounds,
-                        borderColor: boundLineColor,
-                        borderWidth: 1,
-                        fill: false,
-                        tension: 0,
-                        pointRadius: 0,
-                    })
-
-                    // Lower bounds dataset with significance-based fill
-                    datasets.push({
-                        label: 'Lower bound',
-                        data: lowerBounds,
-                        borderColor: boundLineColor,
-                        borderWidth: 1,
-                        fill: '-1',
-                        backgroundColor: (context: any) => {
-                            if (context.parsed) {
-                                const index = context.dataIndex
-                                const dataPoint = trimmedData[index]
-                                if (dataPoint?.significant) {
-                                    const isPositive = dataPoint.value !== null && dataPoint.value > 0
-                                    return isPositive
-                                        ? hexToRGBA(goalColors.positive, 0.15)
-                                        : hexToRGBA(goalColors.negative, 0.15)
-                                }
-                                return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
-                            }
-                            return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
-                        },
-                        segment: {
-                            backgroundColor: (ctx: any) => {
-                                const index = ctx.p0DataIndex
-                                const dataPoint = trimmedData[index]
-                                if (dataPoint?.significant) {
-                                    const isPositive = dataPoint.value !== null && dataPoint.value > 0
-                                    return isPositive
-                                        ? hexToRGBA(goalColors.positive, 0.15)
-                                        : hexToRGBA(goalColors.negative, 0.15)
-                                }
-                                return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
-                            },
-                        },
-                        tension: 0,
-                        pointRadius: 0,
-                    })
-
-                    // Main variant data (always on top) with segment styling for interpolated data
-                    datasets.push({
-                        label: 'Delta',
-                        data: values,
-                        borderColor: variantColor,
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0,
-                        pointRadius: 3,
-                        pointBackgroundColor: (context: any) => {
-                            if (context.parsed) {
-                                const index = context.dataIndex
-                                const dataPoint = trimmedData[index]
-                                // Use dimmed color for interpolated data points
-                                return dataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.5)
-                            }
-                            return variantColor
-                        },
-                        pointBorderColor: (context: any) => {
-                            if (context.parsed) {
-                                const index = context.dataIndex
-                                const dataPoint = trimmedData[index]
-                                // Use dimmed color for interpolated data points
-                                return dataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.5)
-                            }
-                            return variantColor
-                        },
-                        segment: {
-                            borderColor: (ctx: any) => {
-                                // The segment leads FROM p0 TO p1
-                                // Dim the color if the end point (p1) has no real data
-                                const endIndex = ctx.p1DataIndex
-                                const endDataPoint = trimmedData[endIndex]
-                                return endDataPoint?.hasRealData ? variantColor : hexToRGBA(variantColor, 0.5)
-                            },
-                            borderDash: (ctx: any) => {
-                                // Make it dashed if the end point (p1) has no real data
-                                const endIndex = ctx.p1DataIndex
-                                const endDataPoint = trimmedData[endIndex]
-                                return endDataPoint?.hasRealData ? [] : [5, 5]
-                            },
-                        },
-                    })
-
                     return {
                         labels,
-                        datasets,
                         processedData: trimmedData,
                         computedAt: timeseries?.computed_at ?? null,
+                        variantColor,
                     }
                 }
             },

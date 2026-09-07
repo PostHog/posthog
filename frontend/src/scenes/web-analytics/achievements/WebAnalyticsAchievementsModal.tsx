@@ -2,14 +2,17 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { type ComponentType, type ReactNode } from 'react'
 
-import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
+import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import * as coffeeRunPng from '@posthog/brand/hoggies/png/coffee-run'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as starPng from '@posthog/brand/hoggies/png/star'
 import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, HeartHog, StarHog, WavingHog } from 'lib/components/hedgehogs'
+import { WavingHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,9 +30,12 @@ import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
-const HedgehogChartHog = pngHoggie(chartHogPng)
+const HedgehogChart = pngHoggie(chartPng)
 const HedgehogCoffeeRun = pngHoggie(coffeeRunPng)
+const HedgehogExplorer = pngHoggie(explorerPng)
+const HedgehogHeart = pngHoggie(heartPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogStar = pngHoggie(starPng)
 
 const RING_TRACK_COLOR = 'var(--border)'
 const TIER_COLORS = [
@@ -56,14 +62,14 @@ const TRACK_META: Record<string, TrackMeta> = {
             `${humanFriendlyLargeNumber(n)} ${pluralize(n, 'day', 'days', false)} until "${next}"`,
     },
     loyalty: {
-        hog: HeartHog,
+        hog: HedgehogHeart,
         objective: 'Open Web analytics on many separate days over time.',
         unit: 'days',
         effortPhrase: (n, next) =>
             `Visit ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'day', 'days', false)} to reach "${next}"`,
     },
     explorer: {
-        hog: ExplorerHog,
+        hog: HedgehogExplorer,
         objective: 'Slice your data by adding a filter or opening a breakdown on the Web analytics dashboard.',
         unit: 'explorations',
         effortPhrase: (n, next) =>
@@ -77,13 +83,13 @@ const TRACK_META: Record<string, TrackMeta> = {
             `Watch ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'recording', 'recordings', false)} to reach "${next}"`,
     },
     conversions: {
-        hog: StarHog,
+        hog: HedgehogStar,
         objective: 'Set up conversion goals in Web analytics.',
         unit: 'conversions',
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more to reach "${next}"`,
     },
     traffic: {
-        hog: HedgehogChartHog,
+        hog: HedgehogChart,
         objective: 'Grow your pageviews. This climbs automatically as your site gets more traffic.',
         unit: 'pageviews',
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more pageviews until "${next}"`,

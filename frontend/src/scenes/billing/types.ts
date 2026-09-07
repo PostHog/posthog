@@ -12,21 +12,7 @@ export type BillingGaugeItemType = {
     value: number
 }
 
-export type BillingSectionId = 'overview' | 'usage' | 'spend'
-
-export type SeatStatus = 'active' | 'canceling' | 'pending' | 'pending_payment' | 'expired' | 'withdrawn'
-
-export interface SeatData {
-    id: string
-    user_distinct_id: string
-    product_key: string
-    plan_key: string
-    status: SeatStatus
-    end_reason: string | null
-    created_at: string | number
-    active_until: string | number | null
-    active_from: string | number | null
-}
+export type BillingSectionId = 'overview' | 'usage' | 'spend' | 'alerts'
 
 export interface BillingFilters {
     usage_types?: string[]

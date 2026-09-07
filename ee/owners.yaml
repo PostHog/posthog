@@ -1,7 +1,7 @@
 version: 1
 owners: []
 rules:
-    - match: ['/api/billing.py', '/billing/']
+    - match: ['/api/billing.py', '/api/test/test_billing.py', '/billing/']
       owners: team-billing
     - match: '/clickhouse/materialized_columns/'
       owners: team-analytics-platform

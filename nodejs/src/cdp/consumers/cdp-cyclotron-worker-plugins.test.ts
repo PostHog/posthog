@@ -8,7 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { RetryError } from '~/plugin-scaffold'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import {
@@ -52,10 +52,9 @@ describe('CdpCyclotronWorkerPlugins', () => {
             dump: () => Promise.resolve(),
         })
 
-        await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
         const mockJobQueue = createMockJobQueue()
         mockJobQueue.queueInvocationResults.mockResolvedValue(undefined)
         processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub), mockJobQueue)
@@ -125,7 +124,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
             await processor.processBatch([invocation])
 
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
-            expect(forSnapshot(jest.mocked(intercomPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
+            expect(
+                forSnapshot(jest.mocked(intercomPlugin.onEvent!).mock.calls[0][0], {
+                    overrides: { team_id: '<TEAM_ID>' },
+                })
+            ).toMatchInlineSnapshot(`
                 {
                   "$set": undefined,
                   "$set_once": undefined,
@@ -135,11 +138,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   "properties": {
                     "email": "test@posthog.com",
                   },
-                  "team_id": 2,
+                  "team_id": "<TEAM_ID>",
                   "timestamp": "2025-01-01T00:00:00.000Z",
                   "uuid": "<REPLACED-UUID-0>",
                 }
-            `)
+                `)
 
             expect(mockFetch).toHaveBeenCalledTimes(2)
             expect(forSnapshot(mockFetch.mock.calls[0])).toMatchInlineSnapshot(`
@@ -208,7 +211,9 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 },
             ])
 
-            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
+            expect(
+                forSnapshot(mockProducerObserver.getProducedKafkaMessages(), { overrides: { team_id: '<TEAM_ID>' } })
+            ).toMatchSnapshot()
         })
     })
 })

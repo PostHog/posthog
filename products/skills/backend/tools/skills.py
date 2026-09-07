@@ -7,11 +7,13 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
 
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
+    LLMSkillDescriptionTooLongError,
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
@@ -110,7 +112,8 @@ UPDATE_SKILL_DESCRIPTION = """Publish a new version of an existing skill. Any fi
 # Other writable fields
 - `description`, `license`, `compatibility`, `allowed_tools`, `metadata`.
 - `file_edits`: per-file find/replace patches. Each entry targets one existing file by `path` with its own `edits`
-  list. Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files."""
+  list. Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files.
+- `version_description`: a short note on what changed and why — it is shown in the skill's version history."""
 
 
 ARCHIVE_SKILL_DESCRIPTION = """Archive every active version of a skill by name. This hides the skill from default lists and cannot be
@@ -144,7 +147,8 @@ class GetSkillFileArgs(BaseModel):
 class CreateSkillArgs(BaseModel):
     name: str = Field(description="Kebab-case skill name. <=64 chars. Must be unique within the team.")
     description: str = Field(
-        description="Short summary explaining what the skill does and when agents should pick it. <=4096 chars.",
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
+        description="Short summary explaining what the skill does and when agents should pick it. <=1024 chars.",
     )
     body: str = Field(description="SKILL.md instructions as markdown. Treated as system instructions when invoked.")
     license: str | None = Field(default=None, description="Optional license string (e.g. 'MIT').")
@@ -182,7 +186,11 @@ class UpdateSkillArgs(BaseModel):
             "Each entry: {old, new}. 'old' must match exactly once. Mutually exclusive with 'body'."
         ),
     )
-    description: str | None = Field(default=None, description="Optional new description.")
+    description: str | None = Field(
+        default=None,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
+        description="Optional new description. <=1024 chars.",
+    )
     license: str | None = Field(default=None, description="Optional new license.")
     compatibility: str | None = Field(default=None, description="Optional new compatibility string.")
     allowed_tools: list[str] | None = Field(default=None, description="Optional replacement for allowed_tools.")
@@ -193,6 +201,10 @@ class UpdateSkillArgs(BaseModel):
             "Per-file find/replace edits. Each entry: {path, edits: [{old, new}, ...]}. "
             "Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files."
         ),
+    )
+    version_description: str | None = Field(
+        default=None,
+        description="Optional note (max 400 chars) on what changed and why. Shown in the skill's version history.",
     )
 
 
@@ -248,6 +260,8 @@ def _publish_error_message(err: Exception, skill_name: str) -> str:
         )
     if isinstance(err, LLMSkillFileLimitError):
         return f"Skill '{skill_name}' has reached the maximum of {err.max_count} bundled files."
+    if isinstance(err, LLMSkillDescriptionTooLongError):
+        return f"Shorten the description for skill '{skill_name}' to {err.max_length} characters before creating a new version."
     if isinstance(err, LLMSkillEditError):
         detail = err.message
         if err.edit_index is not None:
@@ -383,6 +397,11 @@ class CreateLLMSkillTool(MaxTool):
         metadata: dict[str, Any] | None = None,
         files: list[dict[str, str]] | None = None,
     ) -> tuple[str, None]:
+        # The tool calls create_skill directly, which skips the serializer's name validation, so a
+        # reserved name would persist a skill whose /skills/<name> page is taken by a tab route.
+        if name.lower() in RESERVED_SKILL_NAMES:
+            raise MaxToolFatalError(f"'{name}' is a reserved name and cannot be used for a skill.")
+
         try:
             skill = await database_sync_to_async(create_skill)(
                 self._team,
@@ -402,6 +421,8 @@ class CreateLLMSkillTool(MaxTool):
             raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")
         except LLMSkillFileLimitError as err:
             raise MaxToolFatalError(f"Cannot attach more than {err.max_count} bundled files to a skill.")
+        except LLMSkillDescriptionTooLongError as err:
+            raise MaxToolFatalError(f"Shorten the skill description to {err.max_length} characters before creating it.")
 
         return (
             f"Created skill '{skill.name}' at v{skill.version}. It is now discoverable via `list_llm_skills`.",
@@ -429,6 +450,7 @@ class UpdateLLMSkillTool(MaxTool):
         allowed_tools: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         file_edits: list[dict[str, Any]] | None = None,
+        version_description: str | None = None,
     ) -> tuple[str, None]:
         if body is not None and edits is not None:
             raise MaxToolFatalError("Pass either `body` or `edits`, not both.")
@@ -448,12 +470,14 @@ class UpdateLLMSkillTool(MaxTool):
                 files=None,
                 file_edits=file_edits,
                 base_version=base_version,
+                version_description=(version_description or "").strip() or None,
             )
         except (
             LLMSkillNotFoundError,
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
             LLMSkillEditError,
         ) as err:
             raise MaxToolFatalError(_publish_error_message(err, skill_name))

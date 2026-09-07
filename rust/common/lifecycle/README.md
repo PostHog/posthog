@@ -118,7 +118,7 @@ All options except `name` have sensible defaults.
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `ComponentOptions::new()`           | Base options with defaults for all fields.                                                                                                                                                                                             | —                                                                  |
 | `.is_observability(bool)`           | Mark as an observability handle (e.g. metrics server). Shut down *after* all standard components finish. Cannot combine with `with_liveness_deadline`. (see test `observability_handle_shuts_down_after_standard_handles`)              | `false`                                                            |
-| `.is_advisory(bool)`               | Mark as advisory. Participates in health monitoring (gauge, `is_healthy()`) but stalls do NOT trigger shutdown. Monitor does not wait for advisory handles during shutdown. Requires `with_liveness_deadline`. Cannot combine with `is_observability`. (see test `advisory_handle_stall_does_not_trigger_shutdown`) | `false` |
+| `.is_advisory(bool)`               | Mark as advisory. Participates in health monitoring (gauge, `is_healthy()`) but neither stalls nor death trigger shutdown. Monitor does not wait for advisory handles during shutdown. Requires `with_liveness_deadline`. Cannot combine with `is_observability`. (see test `advisory_handle_stall_does_not_trigger_shutdown`) | `false` |
 | `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`)                                                                            | `None` — waits indefinitely (bounded by `global_shutdown_timeout`). Observability handles default to `1s` if unset. |
 | `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or the health monitor considers it stalled. After `stall_threshold` consecutive stalled checks, the manager triggers global shutdown. (see test `stall_triggers_shutdown`) | `None` — no health monitoring                                      |
 | `.with_stall_threshold(n)`          | Number of consecutive stalled health checks before the manager triggers global shutdown. Set higher for tolerance of transient hiccups. Only meaningful with `with_liveness_deadline`. (see test `stall_threshold_allows_recovery`)    | `1` — immediate shutdown on first stall                            |
@@ -366,7 +366,7 @@ guard.wait().await?;
 
 ## Advisory handles
 
-Advisory handles (`is_advisory(true)`) participate in health monitoring — the health poll task updates their `lifecycle_component_healthy` gauge and their `is_healthy()` flag — but stalls do **not** trigger global shutdown.
+Advisory handles (`is_advisory(true)`) participate in health monitoring — the health poll task updates their `lifecycle_component_healthy` gauge and their `is_healthy()` flag — but neither a stall nor the component's death triggers global shutdown.
 The monitor does not wait for advisory handles during shutdown.
 
 ### When to use
@@ -378,10 +378,10 @@ The canonical example is `FallbackSink`: it needs to know if the primary Kafka s
 
 - **Health gauge updates**: The poll task still writes `lifecycle_component_healthy` for advisory handles — dashboards see the same metrics as standard handles.
 - **`is_healthy()` works**: Returns the poll task's latest health assessment via a shared `AtomicBool` (~1ns read). Starts `true` (Starting state is healthy). Flips to `false` after `stall_threshold` consecutive stalled/unhealthy polls. Flips back on recovery. Lags behind `report_healthy()` by up to `health_poll_interval`.
-- **Stall counting without shutdown**: Stall counts are tracked the same as standard handles — `stall_threshold` gates when `is_healthy()` flips to `false`. The only difference is that advisory handles never send `ComponentEvent::Failure`, so they never trigger global shutdown.
+- **Stall counting without shutdown**: Stall counts are tracked the same as standard handles — `stall_threshold` gates when `is_healthy()` flips to `false`. The health poll task never sends `ComponentEvent::Failure` for an advisory handle, so a stall alone never triggers global shutdown. Note that `signal_failure()` remains callable and *does* trigger shutdown — it is an explicit act by the component author, not a health signal.
 - **Not waited on during shutdown**: Advisory handles are not in the component maps, so the monitor's drain phases ignore them. The app shuts down as soon as all standard (and observability) components finish.
 - **Standard shutdown token**: Advisory handles receive the standard `shutdown_token`, so `shutdown_recv()` and `is_shutting_down()` work normally for cooperative cleanup.
-- **Drop guard**: Events from advisory handle drops are sent to the monitor channel but harmlessly ignored (no entry in component maps).
+- **Drop guard**: Dropping an advisory handle during normal operation sends `ComponentEvent::Died`, which the monitor logs and ignores rather than shutting down. This covers a best-effort component that fails to construct, returns early, or whose task panics. (see tests `advisory_handle_drop_during_normal_operation_does_not_trigger_shutdown`, `panic_in_advisory_task_does_not_trigger_shutdown`)
 - **Requires `with_liveness_deadline`**: The health poll task needs a deadline to evaluate. Registration panics without it.
 - **Cannot combine with `is_observability`**: Advisory and observability are mutually exclusive.
 - **Cannot use `with_graceful_shutdown`**: Advisory handles are not in the component maps, so graceful shutdown timeouts would be silently ignored. Registration panics if both are set.

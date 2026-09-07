@@ -1,4 +1,6 @@
-import { AlertConditionType, InsightThreshold, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+
+import type { AlertThreshold } from '../types'
 
 // PERCENTAGE thresholds are stored as a 0–1 fraction and shown ×100; ABSOLUTE ones store the raw
 // percent. These helpers keep the on-screen number stable across that boundary and round the
@@ -26,9 +28,9 @@ export const rescaleThresholdBound = (value: number | undefined, toType: Insight
 }
 
 export function thresholdForUnitChange(
-    configuration: InsightThreshold,
+    configuration: AlertThreshold,
     targetType: InsightThresholdType
-): InsightThreshold {
+): AlertThreshold {
     if (configuration.type === targetType) {
         return configuration
     }
@@ -43,10 +45,10 @@ export function thresholdForUnitChange(
 }
 
 export function thresholdForConditionChange(
-    configuration: InsightThreshold,
+    configuration: AlertThreshold,
     conditionType: AlertConditionType,
     forcePercentageForRelative: boolean
-): InsightThreshold {
+): AlertThreshold {
     let targetType = configuration.type
     if (conditionType === AlertConditionType.ABSOLUTE_VALUE) {
         targetType = InsightThresholdType.ABSOLUTE

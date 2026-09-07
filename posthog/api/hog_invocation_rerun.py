@@ -31,7 +31,7 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
     window_start = serializers.DateTimeField(required=True, help_text="Inclusive lower bound on `scheduled_at` (UTC).")
     window_end = serializers.DateTimeField(required=True, help_text="Exclusive upper bound on `scheduled_at` (UTC).")
     status = serializers.ListField(
-        child=serializers.ChoiceField(choices=["running", "succeeded", "failed"]),
+        child=serializers.ChoiceField(choices=["running", "succeeded", "failed", "canceled"]),
         required=False,
         help_text="Restrict to invocations whose latest status is one of these. Defaults to ['failed'].",
     )
@@ -39,6 +39,15 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout').",
+    )
+    error_message_contains = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Restrict to invocations whose error_message contains this substring (case-insensitive). "
+            "Use to isolate one failure mode when error_kind is too coarse (most app-level errors "
+            "share the 'hog_error' kind)."
+        ),
     )
     max_attempts = serializers.IntegerField(
         required=False,

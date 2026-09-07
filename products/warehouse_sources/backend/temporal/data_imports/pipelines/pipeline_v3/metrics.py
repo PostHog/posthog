@@ -32,12 +32,6 @@ def get_s3_write_errors_metric(error_type: str) -> MetricCounter:
     )
 
 
-def get_kafka_flush_failures_metric() -> MetricCounter:
-    return activity.metric_meter().create_counter(
-        "warehouse_producer_kafka_flush_failures_total", "Total Kafka flush failures"
-    )
-
-
 def get_pipeline_run_duration_metric(
     team_id: str, source_type: str, sync_type: str, status: str
 ) -> MetricHistogramFloat:

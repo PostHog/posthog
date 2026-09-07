@@ -7,6 +7,8 @@ import {
     IconCopy,
     IconDownload,
     IconEndpoints,
+    IconGraph,
+    IconImage,
     IconPencil,
     IconPeople,
     IconPlusSmall,
@@ -20,6 +22,7 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
@@ -28,6 +31,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -48,7 +52,13 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -60,6 +70,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
@@ -83,12 +94,22 @@ export function InsightSceneMenuBar({
 
 function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const theInsightLogic = insightLogic(insightLogicProps)
-    const { insightProps, insight, hasDashboardItemId, canEditInsight, isSavingTags } = useValues(theInsightLogic)
+    const { insightProps, insight, hasDashboardItemId, canEditInsight, isSavingTags, insightDuplicating } =
+        useValues(theInsightLogic)
     const { duplicateInsight, deleteInsight, setInsightMetadata } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
-    const { query, hogQL, exportContext, hogQLVariables, canEditInSqlEditor, showQueryEditor, showDebugPanel } =
-        useValues(theInsightDataLogic)
+    const {
+        query,
+        hogQL,
+        exportContext,
+        hogQLVariables,
+        canEditInSqlEditor,
+        showQueryEditor,
+        showDebugPanel,
+        insightDataLoading,
+        insightDataError,
+    } = useValues(theInsightDataLogic)
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(theInsightDataLogic)
 
     const { insightMode, dashboardId } = useValues(insightSceneLogic)
@@ -101,6 +122,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { openTerraformModal, openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { copyImage, downloadImage } = useActions(captureImageLogic)
+    const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
 
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -109,7 +132,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
     // Creating an export requires editor access to the export resource.
-    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+    const exportAssetAccessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Export,
         AccessControlLevel.Editor
     )
@@ -120,10 +143,26 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
+    // Only an InsightViz renders the results card the browser-side capture targets. Anything else
+    // still goes through the server-side PNG render.
+    const canCaptureImage = isInsightVizNode(query)
+    const captureTarget = {
+        selector: INSIGHT_GRAPH_SELECTOR,
+        screenshotKey: INSIGHT_SCREENSHOT_KEY,
+        name: insight.name || insight.derived_name || undefined,
+    }
+    // A browser capture takes whatever is on screen. The results card renders before the chart does, so
+    // capturing mid-load or after a failed query produces a valid PNG of an empty card.
+    const captureDisabledReason = insightDataLoading
+        ? 'Wait for the insight to finish loading'
+        : insightDataError
+          ? 'The insight has no results to capture'
+          : undefined
+    const pngExportDisabledReason = canCaptureImage ? captureDisabledReason : exportAssetAccessControlDisabledReason
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
-    const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || !preflight?.cloud)
+    const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || preflight?.is_debug)
     const showMetalytics =
         isSavedInsight &&
         metalyticsInstanceId != null &&
@@ -145,12 +184,12 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showFileMenu = true // file ops (project tree, terraform) always available
     const showEditMenu = true // duplicate always available
     const showCreateEndpoint =
-        featureFlags[FEATURE_FLAGS.ENDPOINTS] &&
-        isSavedInsight &&
-        !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
+        isSavedInsight && !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
+    const showCreateMetric = isSavedInsight
     const showAddToNotebook = isSavedInsight
     const showCreateMenu =
         showCreateEndpoint ||
+        showCreateMetric ||
         showCohort ||
         isSavedInsight /* add-to-dashboard, add-to-notebook, subscribe, alerts, share */
     const showMetadataMenu = true // tags + activity always shown
@@ -200,6 +239,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                         Endpoint
                                     </SceneMenuBarItem>
                                 )}
+                                {showCreateMetric && <CreateMetricMenuBarItem insightShortId={insight?.short_id} />}
                                 {showCohort && (
                                     <SceneMenuBarItem
                                         opensFloatingUi
@@ -255,6 +295,17 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             Copy to another project
                         </SceneMenuBarItem>
                     )}
+                    {canCaptureImage && (
+                        <SceneMenuBarItem
+                            onClick={() => copyImage(captureTarget)}
+                            disabled={isCapturingImage || !!captureDisabledReason}
+                            tooltip={captureDisabledReason}
+                            data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
+                        >
+                            <IconImage />
+                            Copy as PNG
+                        </SceneMenuBarItem>
+                    )}
                     <SceneMenuBarItem
                         opensFloatingUi
                         onClick={openTerraformModal}
@@ -266,14 +317,17 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     {canExport && (
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
+                                disabled={(canCaptureImage && isCapturingImage) || !!pngExportDisabledReason}
+                                tooltip={pngExportDisabledReason}
                                 onClick={() =>
-                                    startExport({
-                                        export_format: ExporterFormat.PNG,
-                                        insight: insight.id,
-                                        export_context: exportContext,
-                                    })
+                                    canCaptureImage
+                                        ? downloadImage(captureTarget)
+                                        : startExport({
+                                              export_format: ExporterFormat.PNG,
+                                              insight: insight.id,
+                                              insightShortId: insight.short_id,
+                                              export_context: exportContext,
+                                          })
                                 }
                                 data-attr={`${RESOURCE_TYPE}-menubar-export-png`}
                             >
@@ -281,8 +335,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 PNG
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
+                                disabled={!!exportAssetAccessControlDisabledReason}
+                                tooltip={exportAssetAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.CSV,
@@ -295,8 +349,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 CSV
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
+                                disabled={!!exportAssetAccessControlDisabledReason}
+                                tooltip={exportAssetAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.XLSX,
@@ -336,6 +390,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
             {showEditMenu && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
                     <SceneMenuBarItem
+                        disabled={insightDuplicating}
+                        tooltip={insightDuplicating ? 'Duplicating…' : undefined}
                         onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
                         data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                     >
@@ -418,5 +474,26 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                 </SceneMenuBarMenu>
             )}
         </SceneMenuBar>
+    )
+}
+
+function CreateMetricMenuBarItem({ insightShortId }: { insightShortId?: string }): JSX.Element | null {
+    const { openMetricFromInsightModal } = useActions(metricsLogic)
+    const { allMetrics } = useValues(metricsLogic)
+
+    // A metric already snapshots this insight, so don't offer to create a duplicate.
+    if (insightShortId && allMetrics.some((metric) => metric.source_insight_short_id === insightShortId)) {
+        return null
+    }
+
+    return (
+        <SceneMenuBarItem
+            opensFloatingUi
+            onClick={openMetricFromInsightModal}
+            data-attr={`${RESOURCE_TYPE}-menubar-create-metric`}
+        >
+            <IconGraph />
+            Metric
+        </SceneMenuBarItem>
     )
 }

@@ -8,6 +8,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 
 import { CommentWithReplies } from './Comment'
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
+import { SendCommentToSlackModal } from './SendCommentToSlackModal'
 
 const HedgehogPhoneCall = pngHoggie(phoneCall)
 
@@ -16,7 +17,7 @@ export interface CommentsListProps extends CommentsLogicProps {
 }
 
 export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JSX.Element => {
-    const { key, commentsWithReplies, commentsLoading } = useValues(commentsLogic(props))
+    const { key, commentsWithReplies, commentsInitialLoading } = useValues(commentsLogic(props))
     const { loadComments, setReplyingComment, clearRichContentEditor } = useActions(commentsLogic(props))
 
     // If the comment list focus changes we should load the comments
@@ -37,7 +38,7 @@ export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JS
     return (
         <BindLogic logic={commentsLogic} props={props}>
             <div className="flex flex-col">
-                {!commentsWithReplies?.length && commentsLoading ? (
+                {commentsInitialLoading ? (
                     <div className="deprecated-space-y-2">
                         <LemonSkeleton className="h-10 w-full" />
                     </div>
@@ -59,6 +60,7 @@ export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JS
                         <CommentWithReplies key={x.id} commentWithReplies={x} composerLogicProps={props} />
                     ))}
                 </div>
+                <SendCommentToSlackModal />
             </div>
         </BindLogic>
     )

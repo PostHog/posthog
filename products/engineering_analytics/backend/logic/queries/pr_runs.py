@@ -4,10 +4,12 @@ Unlike ``pr_lifecycle`` (which scopes to the PR's current head SHA), this return
 to the PR — so the detail page can show CI across all of the PR's pushes, grouped by commit. Newest run
 first. Run-level only.
 
-Attribution is the curated ``pr_number``, i.e. the FIRST PR in a run's ``pull_requests`` association
-(see ``views/workflow_runs.py``). A run that lists this PR only in a later slot — uncommon: one head
-commit tied to several open PRs — is credited to its first PR instead and won't appear here. That's the
-same deliberate v1 simplification the rollup uses; it's a friction signal, not billing.
+Attribution is the curated ``pr_number``, i.e. the first entry of a run's ``pull_requests``
+association whose base repo is the run's own (see ``views/workflow_runs.py``; the fork network's
+PRs share the head SHA and are skipped). A run that lists this PR only in a later own-repo slot is
+credited to its first such PR instead and won't appear here. That case is uncommon because it needs
+one head commit tied to several of this repo's open PRs, and it's the same deliberate v1
+simplification the rollup uses; it's a friction signal, not billing.
 """
 
 from posthog.hogql import ast

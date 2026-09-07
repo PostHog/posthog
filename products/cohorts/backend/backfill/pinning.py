@@ -1,10 +1,17 @@
 from collections.abc import Iterable
 from typing import Any
 
+import structlog
+
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 
 _INTERVAL_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+logger = structlog.get_logger(__name__)
+
+
+class PersonPinningCapExceeded(ValueError):
+    pass
 
 
 def derive_window_days(time_value: object, time_interval: object) -> int:
@@ -54,3 +61,31 @@ def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any
 
     conditions.sort(key=lambda item: (item["cohort_id"], item["condition_hash"], item["event_name"] or ""))
     return {"schema_version": 1, "conditions": conditions}, sorted(event_names)
+
+
+def pin_person_conditions_for_cohorts(cohorts: Iterable[Cohort], *, max_conditions: int) -> dict[str, Any]:
+    conditions: list[dict[str, Any]] = []
+
+    for cohort in sorted(cohorts, key=lambda item: item.id):
+        dropped = 0
+        properties = (cohort.filters or {}).get("properties")
+        for leaf in walk_filter_leaves(properties):
+            if leaf.get("type") != "person":
+                continue
+            condition_hash = leaf.get("conditionHash")
+            if condition_hash is None:
+                dropped += 1
+                continue
+            conditions.append({"cohort_id": cohort.id, "condition_hash": condition_hash})
+            if len(conditions) > max_conditions:
+                raise PersonPinningCapExceeded(f"Person backfill has more than {max_conditions} pinned conditions")
+
+        if dropped:
+            logger.warning(
+                "cohort_person_backfill_hashless_leaves_dropped",
+                cohort_id=cohort.id,
+                dropped=dropped,
+            )
+
+    conditions.sort(key=lambda item: (item["cohort_id"], item["condition_hash"]))
+    return {"schema_version": 1, "conditions": conditions}

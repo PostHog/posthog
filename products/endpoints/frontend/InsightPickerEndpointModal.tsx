@@ -23,12 +23,18 @@ import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLog
 const UNSUPPORTED_INSIGHT_TYPES = new Set([
     InsightType.FUNNELS,
     InsightType.PATHS,
+    InsightType.JOURNEYS,
     InsightType.STICKINESS,
     InsightType.JSON,
     InsightType.HOG,
 ])
 
-const UNSUPPORTED_QUERY_KINDS = new Set([NodeKind.FunnelsQuery, NodeKind.PathsQuery, NodeKind.StickinessQuery])
+const UNSUPPORTED_QUERY_KINDS = new Set([
+    NodeKind.FunnelsQuery,
+    NodeKind.PathsQuery,
+    NodeKind.PathsV2Query,
+    NodeKind.StickinessQuery,
+])
 
 function isInsightSupported(insight: QueryBasedInsightModel): boolean {
     const query = insight.query

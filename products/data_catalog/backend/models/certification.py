@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import CertificationStatus
@@ -14,7 +14,7 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     API reads exclude the row rather than cascading.
     """
 
-    objects = TeamScopedManager()
+    objects = EnvironmentScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
@@ -48,6 +48,16 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         choices=[(s.value, s.value) for s in CertificationStatus],
         default=CertificationStatus.PROPOSED,
         help_text="proposed, certified (prefer this source), or deprecated (avoid this source).",
+    )
+    proposed_status = models.CharField(
+        max_length=32,
+        choices=[
+            (CertificationStatus.CERTIFIED.value, CertificationStatus.CERTIFIED.value),
+            (CertificationStatus.DEPRECATED.value, CertificationStatus.DEPRECATED.value),
+        ],
+        default=CertificationStatus.CERTIFIED,
+        help_text="The mark this proposal asks for: 'certified' (trust this source) or 'deprecated' "
+        "(avoid this source). Informational once the mark is settled.",
     )
     notes = models.TextField(
         blank=True, help_text="Why this mark exists, e.g. 'canonical MRR source, refreshed daily'."

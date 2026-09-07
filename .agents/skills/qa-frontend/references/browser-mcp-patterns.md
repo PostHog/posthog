@@ -56,6 +56,14 @@ Start with the default snapshot. Deepen or scroll only when:
 
 Do not declare an element absent until you have checked the plausible scroll or tab state.
 
+## Proof-First Screenshots
+
+Every screenshot should visibly prove the coverage row it supports. Before capturing, identify the exact text, control, table row, chart, toast, or form state that makes the target pass or fail. Wait for that proof element, scroll it into view when needed, and capture with enough surrounding context for a reviewer to understand the route and state.
+
+For long pages, landing pages, pricing pages, docs, and other hero-led layouts, assume the first viewport is setup context rather than proof. A screenshot of the hero only is not useful evidence for a lower-page gate, form, warning, or CTA state. Scroll to the changed region before capture, or use a full-page screenshot only when the resulting image remains readable and the proof area is easy to find.
+
+After each candidate screenshot, inspect the saved file before annotating or uploading it. Recapture if the proof is cropped away, hidden behind a banner or caption, too small to read, or if the frame mostly shows navigation, debug chrome, or unrelated page setup. If the screenshot needs a caption to explain a term of art, add a short note in the report rather than relying on the image alone.
+
 ## Console And Network Signals
 
 Collect a baseline console snapshot after initial page load, then compare after the changed action. Treat a new error as relevant only if it appears after the target interaction or clearly belongs to the exercised endpoint.

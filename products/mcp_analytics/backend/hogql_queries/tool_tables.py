@@ -5,7 +5,6 @@ Both resolve the client harness to a customer label server-side via `mcp_harness
 the dashboard donut — the frontend only maps a resolved label to its logo.
 """
 
-import json
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -56,8 +55,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
+    display_person_properties,
     mcp_query_date_range,
     tool_scope_exprs,
     validate_mcp_analytics_access,
@@ -66,14 +67,9 @@ from products.mcp_analytics.backend.hogql_queries.base import (
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-# The description of the *effective* tool: for single-exec calls the inner tool's
-# $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
-# Without this, an inner tool's Descriptions table would show the exec wrapper's text
-# (another tool's description) — a tool-level disclosure.
-_EFFECTIVE_DESCRIPTION = (
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
-    "toString(properties.$mcp_tool_description))"
-)
+# The effective-description expression lives in base.py so the intent-clustering
+# pipeline resolves descriptions identically to the Descriptions table here.
+_EFFECTIVE_DESCRIPTION = EFFECTIVE_DESCRIPTION_SQL
 
 # A per-row distinct-and-sorted list of resolved harness labels, collected from the
 # token computed in the inner subquery. groupArray evaluates the label per row, so the
@@ -91,11 +87,6 @@ _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_
 _RAW_ERROR_TYPE = "substring(coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), 1, 200)"
 _RAW_ERROR_STATUS = "substring(coalesce(toString(properties.$mcp_error_status), ''), 1, 20)"
 _COMPOSED_FAILURE_LABEL = "concat(error_type, if(empty(error_status), '', concat(' (HTTP ', error_status, ')')))"
-
-
-def _display_properties(*, email: str, name: str) -> str:
-    """JSON of only the person fields the Top-users cell renders, omitting blanks."""
-    return json.dumps({k: v for k, v in (("email", email), ("name", name)) if v})
 
 
 def _tool_call_where(tool: str, date_range: QueryDateRange, *, extra: list[ast.Expr] | None = None) -> ast.Expr:
@@ -184,7 +175,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
                 distinct_id=str(row[0]),
                 # Only the fields the Top-users cell renders (display name + email), not the
                 # whole person.properties blob — keeps the runner to least person-data exposure.
-                person_properties=_display_properties(email=str(row[1] or ""), name=str(row[2] or "")),
+                person_properties=display_person_properties(email=str(row[1] or ""), name=str(row[2] or "")),
                 calls=int(row[3] or 0),
                 errors=int(row[4] or 0),
                 error_rate_pct=float(row[5] or 0),

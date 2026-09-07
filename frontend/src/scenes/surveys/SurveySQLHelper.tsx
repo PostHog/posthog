@@ -14,7 +14,8 @@ import { Survey, SurveyEventName, SurveyEventProperties, SurveyQuestion } from '
 import { buildPartialResponsesFilter, createAnswerFilterHogQLExpression } from './utils'
 
 function escapeSqlIdentifier(value: string): string {
-    return value.replace(/"/g, '""')
+    // Collapse newlines first (a multi-line alias is undesirable and fragile), then escape quotes.
+    return value.replace(/\s*[\r\n]+\s*/g, ' ').replace(/"/g, '""')
 }
 
 interface SurveySQLHelperProps {

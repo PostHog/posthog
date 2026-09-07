@@ -10,6 +10,10 @@
     overflow: hidden;
     background-color: var(--color-bg-3000-dark);
 
+    &--ios {
+        touch-action: pan-x pan-y;
+    }
+
     .PlayerFrame__content--masking-window .replayer-wrapper::before {
         position: absolute;
         inset: 0; /* Cover the entire wrapper */
@@ -23,6 +27,12 @@
 
     .PlayerFrame__content {
         position: absolute;
+
+        // Center the frame so a letterboxed or not-yet-scaled recording sits in the
+        // middle of the player rather than pinned to the top-left corner.
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
 
         iframe {
             background-color: white;

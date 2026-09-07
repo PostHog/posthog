@@ -16,10 +16,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import (
     VERCEL_ENDPOINTS,
     VercelEndpointConfig,
@@ -44,6 +44,11 @@ BILLING_MEASURE_FIELDS = frozenset({"BilledCost", "EffectiveCost", "ConsumedQuan
 # a runaway guard, not a coverage limit — at 100 rows/page it allows ~1M rows before warning.
 MAX_PAGES = 10_000
 
+# Shown when the token check can't reach a verdict because Vercel is unreachable or returned a
+# transient error (network failure, 429, 5xx). The token may be perfectly valid, so pointing the
+# user at their credentials would send them chasing a problem they can't fix.
+_VERCEL_UNREACHABLE_ERROR = "Couldn't reach Vercel to validate your access token. Please try again in a few minutes."
+
 
 class VercelRetryableError(Exception):
     pass
@@ -64,22 +69,29 @@ def _get_headers(access_token: str) -> dict[str, str]:
     }
 
 
+def _ms_to_iso8601(ms: int) -> str:
+    """Convert a Unix-ms cursor value to the ISO 8601 UTC string format some Vercel endpoints
+    (e.g. events) expect for `since`/`until` — see `VercelEndpointConfig.since_until_as_iso`."""
+    seconds, millis = divmod(ms, 1000)
+    return datetime.fromtimestamp(seconds, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{millis:03d}Z"
+
+
 def _build_params(
     config: VercelEndpointConfig,
     team_id: str | None,
     since_value: Any,
     until: int | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    params: dict[str, Any] = {"limit": PAGE_SIZE, **config.extra_params}
 
     if config.team_scoped and team_id:
         params["teamId"] = team_id
 
     if config.since_param and since_value is not None:
-        params[config.since_param] = since_value
+        params[config.since_param] = _ms_to_iso8601(since_value) if config.since_until_as_iso else since_value
 
     if until is not None:
-        params["until"] = until
+        params["until"] = _ms_to_iso8601(until) if config.since_until_as_iso else until
 
     return params
 
@@ -122,6 +134,19 @@ def _should_stop_desc(items: list[dict[str, Any]], field_name: str | None, cutof
     return any(item.get(field_name) is not None and item[field_name] <= cutoff for item in items)
 
 
+def _cursor_from_page(items: list[dict[str, Any]], field_name: str) -> int | None:
+    """Next `until` cursor for an endpoint that returns rows but no `pagination` envelope.
+
+    Rows arrive newest-first, so the oldest timestamp on this page bounds the next one. The value is
+    fed back unmodified rather than decremented: `until` is inclusive, so the boundary row is
+    re-fetched and merge dedupes it on the primary key, whereas stepping back a millisecond would
+    drop any row sharing that exact timestamp. A page whose rows all share one timestamp can't
+    advance the cursor; the caller's non-advancing-cursor guard ends the walk there.
+    """
+    timestamps = [item[field_name] for item in items if isinstance(item.get(field_name), int)]
+    return min(timestamps) if timestamps else None
+
+
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the access token is genuine via GET /v2/user — the cheapest authenticated probe,
     available to any valid Vercel token regardless of team scope or resource permissions."""
@@ -129,14 +154,31 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
         response = make_tracked_session().get(
             f"{VERCEL_BASE_URL}/v2/user", headers=_get_headers(access_token), timeout=10
         )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    except requests.exceptions.RequestException:
+        # A network failure or timeout is transient and unrelated to the token; the raw exception
+        # embeds the URL and gives the user nothing actionable.
+        return False, _VERCEL_UNREACHABLE_ERROR
 
     if response.status_code == 200:
         return True, None
-    if response.status_code in (401, 403):
-        return False, "Invalid or unauthorized Vercel access token"
-    return False, f"Vercel API error: {response.status_code}"
+    if response.status_code == 401:
+        return (
+            False,
+            "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
+        )
+    if response.status_code == 403:
+        return (
+            False,
+            "Your Vercel access token is not authorized for this resource. Check the token's scope (and team access), then reconnect.",
+        )
+    # 429 (rate limit) and 5xx are transient Vercel-side problems, not a bad token, so surface a
+    # retry hint rather than telling the user to fix credentials they can't fix.
+    if response.status_code == 429 or response.status_code >= 500:
+        return False, _VERCEL_UNREACHABLE_ERROR
+    return (
+        False,
+        "Couldn't validate your Vercel access token. Check that it's a valid token from your Vercel account settings, then try again.",
+    )
 
 
 def get_rows(
@@ -179,6 +221,8 @@ def get_rows(
             break
 
         next_until = (data.get("pagination") or {}).get("next")
+        if next_until is None and config.cursor_from_field:
+            next_until = _cursor_from_page(items, config.cursor_from_field)
         stop_after_page = _should_stop_desc(items, field_name, cutoff)
 
         for item in items:
@@ -208,6 +252,88 @@ def get_rows(
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
+
+
+def _iter_parent_rows(
+    session: requests.Session,
+    config: VercelEndpointConfig,
+    team_id: str | None,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """Page a flat parent endpoint to completion and yield every row, for a fan-out child to seed
+    its per-parent requests from. Full refresh: no incremental cutoff is applied, so every parent is
+    visited each sync. Reuses the same cursor model as `get_rows` (walk `pagination.next` back as
+    `until`, or derive it from the oldest row when the endpoint carries no envelope)."""
+    until: int | None = None
+    page_count = 0
+    while True:
+        url = _build_url(config.path, _build_params(config, team_id, None, until))
+        data = _fetch_page(session, url, headers, logger)
+
+        items = data.get(config.response_data_key) or []
+        if not items:
+            return
+        yield from items
+
+        next_until = (data.get("pagination") or {}).get("next")
+        if next_until is None and config.cursor_from_field:
+            next_until = _cursor_from_page(items, config.cursor_from_field)
+
+        page_count += 1
+        if next_until is None:
+            return
+        if next_until == until:
+            logger.warning(f"Vercel: {config.name} pagination cursor did not advance (until={until}); stopping")
+            return
+        if page_count >= MAX_PAGES:
+            logger.warning(f"Vercel: {config.name} hit MAX_PAGES={MAX_PAGES}; remaining pages skipped")
+            return
+        until = next_until
+
+
+def get_fanout_rows(
+    access_token: str,
+    endpoint: str,
+    team_id: str | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[Any]:
+    """Fan out a child endpoint over every row of its parent: page the parent to completion, then
+    issue one GET per parent id with the id filled into the child path's `{fan_out_path_param}`.
+
+    Full refresh only. The child endpoint (check_runs) returns its whole list in one response with no
+    pagination envelope, so each per-parent call is a single fetch. A parent row missing the fan-out
+    field is skipped rather than crashing the sync."""
+    config = VERCEL_ENDPOINTS[endpoint]
+    assert config.fan_out_parent is not None and config.fan_out_path_param is not None
+    parent_config = VERCEL_ENDPOINTS[config.fan_out_parent]
+    headers = _get_headers(access_token)
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    session = make_tracked_session()
+
+    try:
+        for parent in _iter_parent_rows(session, parent_config, team_id, headers, logger):
+            parent_id = parent.get(config.fan_out_parent_field)
+            if parent_id is None:
+                continue
+
+            child_path = config.path.format(**{config.fan_out_path_param: parent_id})
+            # The child endpoint documents no `limit`/pagination params, so build a minimal param set
+            # rather than reusing `_build_params` (which always appends `limit`).
+            params: dict[str, Any] = {**config.extra_params}
+            if config.team_scoped and team_id:
+                params["teamId"] = team_id
+
+            data = _fetch_page(session, _build_url(child_path, params), headers, logger)
+            for item in data.get(config.response_data_key) or []:
+                batcher.batch(item)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
+    finally:
+        session.close()
 
 
 def _iso8601_utc(moment: datetime) -> str:
@@ -375,6 +501,21 @@ def vercel_source(
             partition_mode="datetime" if endpoint_config.partition_key else None,
             partition_format="month" if endpoint_config.partition_key else None,
             partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        )
+
+    if endpoint_config.fan_out_parent is not None:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_fanout_rows(
+                access_token=access_token,
+                endpoint=endpoint,
+                team_id=team_id,
+                logger=logger,
+            ),
+            primary_keys=[endpoint_config.primary_key],
+            # Full-refresh fan-out with no incremental field, so sort_mode drives no watermark; kept
+            # consistent with the resource endpoints below.
+            sort_mode="desc",
         )
 
     return SourceResponse(

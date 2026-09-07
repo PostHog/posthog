@@ -45,14 +45,14 @@ export interface metricsSqlEditorTrackingLogicActions {
         name: string,
         materializeAfterSave?: any,
         fromDraft?: string | undefined,
-        dagId?: string | undefined,
         folderId?: string | null | undefined,
         isTest?: any,
-        queryOverride?: string | undefined
+        queryOverride?: string | undefined,
+        incremental?: import('~/types').DataWarehouseSavedQueryIncremental | undefined
     ) => {
-        dagId: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
+        incremental: import('~/types').DataWarehouseSavedQueryIncremental | undefined
         isTest: any
         materializeAfterSave: any
         name: string

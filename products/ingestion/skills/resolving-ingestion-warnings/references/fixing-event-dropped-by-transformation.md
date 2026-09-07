@@ -15,7 +15,7 @@ It becomes a problem when:
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with `type: event_dropped_by_transformation`. The sample details name the exact `transformationId` and `transformationName` plus the dropped `event` and `distinctId` — no guessing which transformation did it. Warnings are debounced per transformation, so each entry represents a stream of drops, not one.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'event_dropped_by_transformation' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. The `details` JSON names the exact `transformationId` and `transformationName` plus the dropped `event` and `distinctId` — no guessing which transformation did it. Warnings are debounced per transformation, so each entry represents a stream of drops, not one.
 2. Compare what's being dropped against the transformation's purpose: open the named transformation (`posthog:cdp-functions-list` to find it by the name in the details, or Data pipelines → Transformations in the UI) and read its filters and source; `posthog:cdp-functions-logs-retrieve` shows its recent execution logs. Ask "should a `<event name>` from `<this kind of user>` match this?"
 3. Check the volume: the warning count and sparkline show how much the transformation eats and since when — a sudden onset usually pinpoints the edit that broadened the filter (`posthog:advanced-activity-logs-list` scoped to the transformation shows who changed what, when).
 
@@ -31,4 +31,4 @@ Dropped events are gone — fixing the filter restores the flow from now on, it 
 
 ## Verify
 
-Re-run the affected flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — the drop count for that transformation should fall to just the intended matches — and confirm the previously-missing events arrive while known-junk (bots, internal traffic) is still dropped.
+Re-run the affected flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'event_dropped_by_transformation'`, `timestamp` after your fix) — the drop count for that transformation should fall to just the intended matches — and confirm the previously-missing events arrive while known-junk (bots, internal traffic) is still dropped.

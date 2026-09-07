@@ -5,7 +5,6 @@ from urllib.parse import urlsplit
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
     BETTER_STACK_BASE_URL,
     BETTER_STACK_ENDPOINTS,
@@ -21,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 class BetterStackUntrustedURLError(Exception):

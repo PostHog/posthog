@@ -1,6 +1,7 @@
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import litellm
 import pytest
 from fastapi import HTTPException
 
@@ -11,9 +12,11 @@ from llm_gateway.modal import (
     _inject_modal_params,
     ensure_modal_model_allowed,
     ensure_modal_model_configured,
+    make_modal_anthropic_call,
     make_modal_responses_call,
     should_route_glm_to_modal,
 )
+from llm_gateway.modal_routing import send_modal_anthropic_messages
 from llm_gateway.rate_limiting.cost_refresh import ALIAS_METRIC_LABELS, COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_overrides import MODEL_COST_OVERRIDES
 
@@ -55,6 +58,24 @@ def test_inject_modal_params_maps_model_and_pins_proxy_auth() -> None:
     assert kwargs["model"] in ALIAS_METRIC_LABELS
 
 
+@pytest.mark.parametrize(
+    ("initial", "expected"),
+    [
+        (
+            {"stream": True, "stream_options": {"include_usage": False}},
+            {"include_usage": True, "continuous_usage_stats": True},
+        ),
+        ({"stream": True}, {"include_usage": True, "continuous_usage_stats": True}),
+        ({}, None),
+    ],
+)
+def test_inject_modal_params_forces_streaming_usage(initial: dict[str, Any], expected: dict[str, bool] | None) -> None:
+    kwargs: dict[str, Any] = {"model": KIMI_MODEL, **initial}
+    _inject_modal_params(kwargs, "https://modal.test/v1", "wk", "ws")
+    assert kwargs.get("stream_options") == expected
+    assert kwargs.get("extra_body") == ({"stream_options": expected} if expected is not None else None)
+
+
 @pytest.mark.parametrize(("initial", "expected"), [({}, True), ({"drop_params": False}, False)])
 def test_inject_modal_params_drop_params(initial: dict, expected: bool) -> None:
     # drop_params must default on (the OpenAI-compatible surface 400s on Anthropic-only params)
@@ -87,6 +108,22 @@ def test_kimi_uses_its_endpoint_with_shared_credentials() -> None:
         "wk-test",
         "ws-test",
     )
+
+
+async def test_modal_anthropic_drops_clear_thinking_when_thinking_is_disabled() -> None:
+    request = {
+        "model": KIMI_MODEL,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "thinking": {"type": "disabled"},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+    }
+
+    with patch("llm_gateway.modal_routing.send_modal_request", new=AsyncMock(return_value={})) as send_request:
+        await send_modal_anthropic_messages(request, MagicMock(), False, "posthog_code")
+
+    forwarded_request = send_request.call_args.args[0]
+    assert "context_management" not in forwarded_request
+    assert request["context_management"] == {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]}
 
 
 @pytest.mark.parametrize("model", ["@cf/moonshotai/kimi-k2.6", "@cf/unknown/model", "zai-org/GLM-5.2-FP8"])
@@ -167,6 +204,33 @@ def test_partial_fraction_splits_pinned_users() -> None:
     settings = _modal_settings(glm_modal_traffic_fraction=0.5)
     assert should_route_glm_to_modal(GLM_MODEL, product="posthog_code", user_key="3", settings=settings) is True
     assert should_route_glm_to_modal(GLM_MODEL, product="posthog_code", user_key="2", settings=settings) is False
+
+
+async def test_modal_anthropic_stream_usage_survives_messages_bridge_to_acompletion() -> None:
+    llm_call = make_modal_anthropic_call("https://modal.test/v1", "wk", "ws")
+
+    with patch("litellm.acompletion", new=AsyncMock(side_effect=RuntimeError("captured"))) as mock_acompletion:
+        with pytest.raises(RuntimeError):
+            await llm_call(model=GLM_MODEL, max_tokens=16, messages=[{"role": "user", "content": "hi"}], stream=True)
+
+    kwargs = mock_acompletion.call_args.kwargs
+    assert kwargs["model"] == "openai/zai-org/GLM-5.2-FP8"
+    assert kwargs["stream"] is True
+    assert kwargs["extra_body"]["stream_options"] == {"include_usage": True, "continuous_usage_stats": True}
+
+
+async def test_modal_responses_stream_usage_survives_responses_bridge_to_acompletion() -> None:
+    llm_call = make_modal_responses_call("https://modal.test/v1", "wk", "ws")
+
+    with patch("litellm.acompletion", new=AsyncMock(side_effect=RuntimeError("captured"))) as mock_acompletion:
+        with pytest.raises(litellm.exceptions.APIConnectionError):
+            await llm_call(model=GLM_MODEL, input="hi", stream=True)
+
+    kwargs = mock_acompletion.call_args.kwargs
+    assert kwargs["model"] == "zai-org/GLM-5.2-FP8"
+    assert kwargs["custom_llm_provider"] == "openai"
+    assert kwargs["stream"] is True
+    assert kwargs["extra_body"]["stream_options"] == {"include_usage": True, "continuous_usage_stats": True}
 
 
 async def test_make_modal_responses_call_forces_bridge_and_ignores_smuggled_flag() -> None:

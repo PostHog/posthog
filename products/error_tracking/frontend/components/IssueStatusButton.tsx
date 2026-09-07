@@ -1,10 +1,9 @@
-import { LemonButton, LemonMenuOverlay } from '@posthog/lemon-ui'
-
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { STATUS_INTENT_LABEL } from './Indicators'
+import { ISSUE_STATUS_CONFIG } from './Indicators'
 
 export const IssueStatusButton = ({
     status,
@@ -27,35 +26,25 @@ export const IssueStatusButton = ({
     return (
         <>
             <HogfettiComponent />
-            <LemonButton
-                type="primary"
-                onClick={handleResolve}
-                tooltip={status === 'active' ? STATUS_INTENT_LABEL['resolved'] : STATUS_INTENT_LABEL['active']}
-                data-attr="error-tracking-resolve"
-                sideAction={
-                    status === 'active'
-                        ? {
-                              dropdown: {
-                                  placement: 'bottom-end',
-                                  overlay: (
-                                      <LemonMenuOverlay
-                                          items={[
-                                              {
-                                                  label: 'Suppress',
-                                                  onClick: () => onChange('suppressed'),
-                                                  tooltip: STATUS_INTENT_LABEL['suppressed'],
-                                              },
-                                          ]}
-                                      />
-                                  ),
-                              },
-                          }
-                        : undefined
-                }
-                size="small"
-            >
-                {status === 'active' ? 'Resolve' : 'Reopen'}
-            </LemonButton>
+            <Tooltip>
+                <TooltipTrigger
+                    render={
+                        <Button
+                            variant="primary"
+                            className="[translate:0_0]"
+                            onClick={handleResolve}
+                            data-attr="error-tracking-resolve"
+                        >
+                            {status === 'active' ? 'Resolve' : 'Reopen'}
+                        </Button>
+                    }
+                />
+                <TooltipContent>
+                    {status === 'active'
+                        ? ISSUE_STATUS_CONFIG.resolved.intentLabel
+                        : ISSUE_STATUS_CONFIG.active.intentLabel}
+                </TooltipContent>
+            </Tooltip>
         </>
     )
 }

@@ -18,6 +18,10 @@ MOCK_GITHUB_ISSUE_RECORD: dict = {
     "updated_at": "2025-06-11T09:15:00Z",
     "comments": 3,
     "locked": False,
+    "author_association": "CONTRIBUTOR",
+    # The warehouse stores GitHub's nested user object as a JSON string. Trimmed to the key the
+    # emitter reads plus ones it must leave behind.
+    "user": '{"login": "octocat", "id": 583231, "type": "User", "avatar_url": "https://example.com/a.png"}',
 }
 
 
@@ -195,3 +199,19 @@ MOCK_CONVERSATIONS_TICKET_RECORD: dict = {
 @pytest.fixture
 def conversations_ticket_record() -> dict:
     return {**MOCK_CONVERSATIONS_TICKET_RECORD}
+
+
+MOCK_GOOGLE_SEARCH_CONSOLE_RECORD: dict = {
+    "date": "2026-07-15",
+    "query": "posthog pricing",
+    "page": "https://example.com/pricing",
+    "clicks": 8,
+    "impressions": 1200,
+    "ctr": 0.0067,
+    "position": 6.4,
+}
+
+
+@pytest.fixture
+def google_search_console_record() -> dict:
+    return {**MOCK_GOOGLE_SEARCH_CONSOLE_RECORD}

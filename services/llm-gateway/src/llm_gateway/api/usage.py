@@ -1,24 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.dependencies import get_authenticated_user, resolve_plan_and_quota
+from llm_gateway.dependencies import get_authenticated_user, resolve_quota
+from llm_gateway.products.config import POSTHOG_CODE_PRODUCT
 from llm_gateway.rate_limiting.billable_credits_throttle import bucket_block_applies
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.services.plan_resolver import (
-    POSTHOG_CODE_PRODUCT,
-    PlanResolver,
-    is_pro_plan,
-    parse_iso_utc,
-)
+from llm_gateway.services.billing_period_resolver import parse_iso_utc, resolve_billing_period
 
 logger = structlog.get_logger(__name__)
 
@@ -41,6 +38,7 @@ class AiCreditsStatus(BaseModel):
     # org, resolver fail-open) — clients must not render None as $0.
     used_usd: float | None = None
     limit_usd: float | None = None
+    breakdown: dict[str, object] | None = None
 
 
 class UsageResponse(BaseModel):
@@ -76,11 +74,13 @@ async def get_usage(
 ) -> UsageResponse:
     runner: ThrottleRunner = request.app.state.throttle_runner
 
-    plan_info, quota_status = await resolve_plan_and_quota(
-        request,
-        user_id=user.user_id,
-        team_id=user.team_id,
-        product=product,
+    quota_status, organization_billing_period = await asyncio.gather(
+        resolve_quota(
+            request,
+            team_id=user.team_id,
+            product=product,
+        ),
+        resolve_billing_period(request, user.team_id),
     )
     now = datetime.now(tz=UTC)
 
@@ -88,20 +88,15 @@ async def get_usage(
         user=user,
         product=product,
         end_user_id=str(user.user_id),
-        plan_key=plan_info.plan_key,
-        seat_created_at=plan_info.seat_created_at,
-        seat_missing=plan_info.seat_missing,
         code_usage_billed=quota_status.code_usage_billing_active,
-        billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
     )
-    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
+    # The product's own credit bucket (resolve_quota resolves per bucket;
     # always unlimited for unbilled products), reported under the legacy `ai_credits`
     # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
     # through the same decision as the request-path throttle: clients gate on this
     # response, so it must never disagree with what enforcement would do.
     credits_exhausted = bucket_block_applies(context)
-
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
 
@@ -124,8 +119,8 @@ async def get_usage(
             sustained_status = _to_cost_limit_status(empty, now=now)
 
     billing_period_end: datetime | None = None
-    if plan_info.billing_period:
-        raw_period_end = plan_info.billing_period.current_period_end
+    raw_period_end = organization_billing_period.current_period_end if organization_billing_period else None
+    if raw_period_end is not None:
         try:
             billing_period_end = parse_iso_utc(raw_period_end)
         except (ValueError, TypeError) as exc:
@@ -147,22 +142,12 @@ async def get_usage(
             exhausted=credits_exhausted,
             used_usd=quota_status.used_usd,
             limit_usd=quota_status.limit_usd,
+            breakdown=quota_status.posthog_desktop_usage if product == POSTHOG_CODE_PRODUCT else None,
         ),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
-        is_pro=is_pro_plan(plan_info.plan_key),
+        # The seat product is retired. No caller holds a Pro seat.
+        # Older PostHog Desktop builds require this field, so it stays.
+        is_pro=False,
         code_usage_subscribed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
     )
-
-
-@usage_router.post("/{product}/invalidate-plan-cache")
-async def invalidate_plan_cache(
-    product: str,
-    request: Request,
-    user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
-) -> dict[str, bool]:
-    if product != POSTHOG_CODE_PRODUCT:
-        raise HTTPException(status_code=404, detail="Plan cache not available for this product")
-    plan_resolver: PlanResolver = request.app.state.plan_resolver
-    await plan_resolver.invalidate(user.user_id)
-    return {"ok": True}

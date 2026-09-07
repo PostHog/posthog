@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -161,6 +162,78 @@ class TestUserAPI(APIBaseTest):
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
+
+    @parameterized.expand(
+        [
+            ("body",),
+            ("query_string",),
+        ]
+    )
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_burst_rate_limit_applies_to_every_personal_api_key_source(self, source, rate_limit_enabled_mock):
+        # The client is logged in by default, and a session would authenticate the request on its own,
+        # hiding whether the personal API key was picked up at all.
+        self.client.logout()
+
+        url = f"/api/projects/{self.team.pk}/feature_flags/"
+        body: dict = {}
+        if source == "body":
+            body["personal_api_key"] = self.personal_api_key
+        else:
+            url = f"{url}?personal_api_key={quote(self.personal_api_key)}"
+
+        for _ in range(5):
+            response = self.client.post(url, body, format="json")
+            # The body omits the required fields, so the endpoint rejects it. What matters is that
+            # the request reached the endpoint, which means it authenticated and was not throttled.
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        response = self.client.post(url, body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_burst_rate_limit_shares_one_bucket_across_key_sources(self, rate_limit_enabled_mock):
+        # One key gets one budget. If each source got its own bucket, alternating between them
+        # would multiply what a single key is allowed.
+        self.client.logout()
+
+        url = f"/api/projects/{self.team.pk}/feature_flags/"
+        requests = [
+            lambda: self.client.post(url, {"personal_api_key": self.personal_api_key}, format="json"),
+            lambda: self.client.post(url, {}, headers={"authorization": f"Bearer {self.personal_api_key}"}),
+        ]
+
+        for index in range(5):
+            response = requests[index % 2]()
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        response = requests[1]()
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_burst_rate_limit_ignores_an_unvalidated_query_string_key(self, rate_limit_enabled_mock):
+        # Authentication reads the header, then the body, then the query string, and stops at the
+        # first hit. A request that authenticates on its body key never validates the query string,
+        # so bucketing on that value would let a caller mint a fresh budget on every request.
+        self.client.logout()
+
+        for index in range(5):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/?personal_api_key=junk-{index}",
+                {"personal_api_key": self.personal_api_key},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/?personal_api_key=junk-5",
+            {"personal_api_key": self.personal_api_key},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
 
     @patch("posthog.rate_limit.SustainedRateThrottle.rate", new="5/hour")
     @patch("posthog.rate_limit.statsd.incr")
@@ -859,6 +932,95 @@ class TestPersonalOrProjectSecretApiKeyRateThrottle(APIBaseTest):
         self.assertTrue(_PSAKThrottleForTest().get_cache_key(self._psak_request(key_id=42), Mock()).endswith("psak:42"))
 
 
+class TestUserVerifyEmailThrottle(SimpleTestCase):
+    CANONICAL_UUID = "12345678-1234-5678-1234-567812345678"
+
+    def _request(self, uuid_value):
+        return Mock(data={"uuid": uuid_value}, user=None)
+
+    @parameterized.expand(
+        [
+            ("uppercase", "12345678-1234-5678-1234-567812345678".upper()),
+            ("hyphen_free", "12345678123456781234567812345678"),
+            ("brace_wrapped", "{12345678-1234-5678-1234-567812345678}"),
+            ("urn_prefixed", "urn:uuid:12345678-1234-5678-1234-567812345678"),
+        ]
+    )
+    def test_alternate_uuid_spellings_share_one_bucket(self, _name, variant):
+        throttle = rate_limit.UserVerifyEmailThrottle()
+        self.assertEqual(
+            throttle.get_cache_key(self._request(self.CANONICAL_UUID), Mock()),
+            throttle.get_cache_key(self._request(variant), Mock()),
+        )
+
+    def test_distinct_uuids_use_distinct_buckets(self):
+        throttle = rate_limit.UserVerifyEmailThrottle()
+        self.assertNotEqual(
+            throttle.get_cache_key(self._request(self.CANONICAL_UUID), Mock()),
+            throttle.get_cache_key(self._request("87654321-4321-8765-4321-876543218765"), Mock()),
+        )
+
+    def test_unparseable_uuid_falls_back_without_raising(self):
+        throttle = rate_limit.UserVerifyEmailThrottle()
+        self.assertIsNotNone(throttle.get_cache_key(self._request("not-a-uuid"), Mock()))
+
+
+class TestAIObservabilitySummarizationRateThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("burst", rate_limit.AIObservabilitySummarizationBurstThrottle),
+            ("sustained", rate_limit.AIObservabilitySummarizationSustainedThrottle),
+            ("daily", rate_limit.AIObservabilitySummarizationDailyThrottle),
+        ]
+    )
+    @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
+    @patch("posthog.rate_limit.PersonalAPIKeyAuthentication.find_key_with_source", return_value=None)
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_session_requests_are_rate_limited(
+        self,
+        _name: str,
+        throttle_class: type[rate_limit.PersonalApiKeyRateThrottle],
+        _rate_limit_enabled: Mock,
+        _find_personal_api_key: Mock,
+        _team_can_bypass: Mock,
+    ) -> None:
+        request = Mock(user=Mock(is_authenticated=True), path="/api/projects/1/llm_analytics/summarization/")
+        view = Mock(team_id=1)
+
+        with patch.object(throttle_class, "rate", "1/minute"):
+            self.assertTrue(throttle_class().allow_request(request, view))
+            self.assertFalse(throttle_class().allow_request(request, view))
+
+
+class TestLeakedKeyReportThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def test_scope_and_rate(self) -> None:
+        throttle = rate_limit.LeakedKeyReportThrottle()
+        self.assertEqual(throttle.scope, "leaked_key_report")
+        self.assertEqual(throttle.rate, "10/minute")
+
+    def test_limits_requests_per_ip(self) -> None:
+        request = Mock(headers={}, META={"REMOTE_ADDR": "203.0.113.5"})
+        other_request = Mock(headers={}, META={"REMOTE_ADDR": "203.0.113.6"})
+        view = Mock()
+
+        with patch.object(rate_limit.LeakedKeyReportThrottle, "rate", "1/minute"):
+            self.assertTrue(rate_limit.LeakedKeyReportThrottle().allow_request(request, view))
+            self.assertFalse(rate_limit.LeakedKeyReportThrottle().allow_request(request, view))
+            self.assertTrue(rate_limit.LeakedKeyReportThrottle().allow_request(other_request, view))
+
+
 class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):
     scope = "test_psak_team"
     rate = "100/minute"
@@ -884,3 +1046,20 @@ class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
 
     def test_cache_key_is_keyed_per_team(self):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
+
+
+class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def test_exhausted_poll_bucket_does_not_block_write(self) -> None:
+        request = Mock(headers={"X-Conversations-Token": "widget-token"})
+        view = Mock()
+        with patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"):
+            poll = rate_limit.WidgetTeamPollThrottle()
+            self.assertTrue(poll.allow_request(request, view))
+            self.assertFalse(poll.allow_request(request, view))
+        self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))

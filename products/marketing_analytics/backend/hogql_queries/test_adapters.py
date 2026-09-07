@@ -79,7 +79,7 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
-class TableInfo:
+class WarehouseTableFixture:
     """Information about a test table created from CSV data."""
 
     table: DataWarehouseTable
@@ -831,7 +831,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.context = self._create_test_context()
-        self.test_tables: dict[str, TableInfo] = {}
+        self.test_tables: dict[str, WarehouseTableFixture] = {}
         self._cleanup_functions: list[Callable[[], None]] = []
 
     def tearDown(self):
@@ -858,7 +858,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             base_currency=DEFAULT_CURRENCY,
         )
 
-    def _setup_csv_table(self, table_key: str) -> TableInfo:
+    def _setup_csv_table(self, table_key: str) -> WarehouseTableFixture:
         if table_key not in self.test_data_configs:
             raise ValueError(f"Invalid table key: {table_key}")
 
@@ -882,7 +882,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             self.team,
         )
 
-        table_info = TableInfo(
+        table_info = WarehouseTableFixture(
             table=table,
             source=source,
             credential=credential,
@@ -1604,6 +1604,26 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "BingAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "BingAdsAdapter should return list of errors"
 
+    def test_bing_ads_returns_zero_when_revenue_column_missing(self):
+        campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
+        stats_table.columns = {col: {"valid": True} for col in ("impressions", "clicks", "spend", "conversions")}
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="test_missing_revenue",
+        )
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        expr = adapter._get_reported_conversion_value_field()
+
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "toFloat"
+        assert isinstance(expr.args[0], ast.Constant)
+        assert expr.args[0].value == 0
+        assert adapter.build_query() is not None, "BingAdsAdapter should build a query without the revenue column"
+
     @parameterized.expand(
         [
             ("total_impression", "_get_impressions_field"),
@@ -1783,6 +1803,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def test_bing_ads_native_query_generation(self):
         campaign_table = self._create_mock_table("bing_campaigns", "BingAds")
         stats_table = self._create_mock_table("bing_campaign_performance_report", "BingAds")
+        stats_table.columns = {"revenue": {"valid": True}}
 
         config = BingAdsConfig(
             campaign_table=campaign_table,
@@ -2692,3 +2713,22 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         hogql_query = query.to_hogql()
         assert "convertCurrency" in hogql_query
         assert expected_in_query in hogql_query
+
+    def test_currency_conversion_date_cannot_be_null(self):
+        # `convertCurrency` resolves its rate through `dictGetOrDefault`, which rejects a
+        # Nullable(Date) key outright rather than returning its default — and warehouse date
+        # columns read back nullable. A bare toDate() here fails the entire cost query.
+        stats_table = self._create_mock_table("google_stats", "GoogleAds")
+        stats_table.columns = {"customer_currency_code": True}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("google_campaign", "GoogleAds"),
+            stats_table=stats_table,
+            source_type="GoogleAds",
+            source_id="google_ads",
+        )
+        query = GoogleAdsAdapter(config=config, context=self.context).build_query()
+        assert query is not None
+        hogql_query = query.to_hogql()
+
+        assert "convertCurrency" in hogql_query
+        assert "coalesce(toDate(google_stats.segments_date), today())" in hogql_query

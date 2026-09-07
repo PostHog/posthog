@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const AlertsListParams = /* @__PURE__ */ zod.object({
+export const AlertsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,17 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
+export const AlertsListQueryParams = () => zod.object({
     created_by: zod
         .string()
         .optional()
         .describe('Optional. Restrict results to alerts created by the user with this UUID.'),
+    has_detector: zod
+        .boolean()
+        .optional()
+        .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
+    insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
@@ -32,7 +37,7 @@ export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsCreateParams = /* @__PURE__ */ zod.object({
+export const AlertsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -74,7 +79,7 @@ export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 
-export const AlertsCreateBody = /* @__PURE__ */ zod.object({
+export const AlertsCreateBody = () => zod.object({
     insight: zod
         .number()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
@@ -1286,13 +1291,13 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
         .optional()
         .describe(
-            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+            'When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.'
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
@@ -1303,7 +1308,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AlertsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -1312,7 +1317,7 @@ export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const AlertsRetrieveQueryParams = () => zod.object({
     checks_date_from: zod
         .string()
         .optional()
@@ -1335,7 +1340,7 @@ export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.'),
 })
 
-export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const AlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -1378,7 +1383,7 @@ export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 
-export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const AlertsPartialUpdateBody = () => zod.object({
     insight: zod
         .number()
         .optional()
@@ -2615,13 +2620,13 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
         .optional()
         .describe(
-            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+            'When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.'
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
@@ -2632,7 +2637,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
+export const AlertsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -2644,7 +2649,7 @@ export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
  */
-export const AlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
+export const AlertsSimulateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2683,8 +2688,10 @@ export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig
 export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
-export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
-    insight: zod.number().describe('Insight ID to simulate the detector on.'),
+export const AlertsSimulateCreateBody = () => zod.object({
+    insight: zod
+        .union([zod.number(), zod.string()])
+        .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
     detector_config: zod
         .union([
             zod.object({
@@ -3688,7 +3695,10 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             }),
         ])
         .describe('Detector configuration types')
-        .describe('Detector configuration to simulate.'),
+        .optional()
+        .describe(
+            'Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing).'
+        ),
     series_index: zod
         .number()
         .default(alertsSimulateCreateBodySeriesIndexDefault)

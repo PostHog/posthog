@@ -10,9 +10,16 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationInvite
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import BillingPeriod, OrganizationMembership
+from posthog.models.user import User
+from posthog.organization_caching import (
+    get_cached_organization,
+    get_cached_organization_membership,
+    get_cached_organization_memberships,
+)
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.redis import get_client
 
 from products.cdp.backend.models.plugin import Plugin
 
@@ -174,6 +181,65 @@ class TestOrganization(BaseTest):
         self.organization.save()
         self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
 
+    def test_access_cache_reuses_organization_and_membership_details(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            with self.assertNumQueries(1):
+                membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            assert membership.organization == self.organization
+            assert membership.user == self.user
+
+            with self.assertNumQueries(1):
+                assert get_cached_organization_memberships(self.user)[0].organization == self.organization
+
+            with self.assertNumQueries(0):
+                assert get_cached_organization(self.organization.id) == self.organization
+                assert get_cached_organization_membership(self.organization.id, self.user) == membership
+                assert get_cached_organization_memberships(self.user)[0] == membership
+
+    def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            get_cached_organization_memberships(self.user)
+
+            membership.level = OrganizationMembership.Level.ADMIN
+            with self.captureOnCommitCallbacks(execute=True):
+                membership.save()
+            updated_membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert updated_membership is not None
+            assert updated_membership.level == OrganizationMembership.Level.ADMIN
+            assert get_cached_organization_memberships(self.user)[0].level == OrganizationMembership.Level.ADMIN
+
+            self.organization.name = "Updated organization"
+            self.organization.save()
+            updated_organization = get_cached_organization(self.organization.id)
+            assert updated_organization is not None
+            assert updated_organization.name == "Updated organization"
+
+            with self.captureOnCommitCallbacks(execute=True):
+                membership.delete()
+            assert get_cached_organization_membership(self.organization.id, self.user) is None
+            assert get_cached_organization_memberships(self.user) == []
+
+    def test_access_cache_is_invalidated_when_membership_is_created(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            new_user = User.objects.create_user(
+                email="cache-membership@example.com", password="password", first_name="Cache"
+            )
+
+            # Cache both the missing individual membership and the user's empty membership list.
+            assert get_cached_organization_membership(self.organization.id, new_user) is None
+            assert get_cached_organization_memberships(new_user) == []
+
+            with self.captureOnCommitCallbacks(execute=True):
+                OrganizationMembership.objects.create(organization=self.organization, user=new_user)
+
+            membership = get_cached_organization_membership(self.organization.id, new_user)
+            assert membership is not None
+            assert membership.user_id == new_user.id
+            assert [item.id for item in get_cached_organization_memberships(new_user)] == [membership.id]
+
     @parameterized.expand(
         [
             ("valid_period", {"period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"]}, True),
@@ -201,11 +267,10 @@ class TestOrganization(BaseTest):
         if should_return_period:
             self.assertIsNotNone(result)
             assert result is not None  # Type narrowing for mypy
-            self.assertIsInstance(result, tuple)
-            self.assertEqual(len(result), 2)
-            self.assertIsInstance(result[0], datetime)
-            self.assertIsInstance(result[1], datetime)
-            self.assertLess(result[0], result[1])
+            self.assertIsInstance(result, BillingPeriod)
+            self.assertIsInstance(result.start, datetime)
+            self.assertIsInstance(result.end, datetime)
+            self.assertLess(result.start, result.end)
         else:
             self.assertIsNone(result)
 
@@ -435,6 +500,36 @@ class TestOrganization(BaseTest):
             self.assertFalse(data["is_limited_in_redis"])
             self.assertEqual(data["limited_teams"], [])
             self.assertIsNone(data["redis_quota_limited_until"])
+
+    def test_is_active_change_invalidates_llm_gateway_quota_cache(self):
+        gateway_redis_url = "redis://llm-gateway-redis-org-active-test/"
+        second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
+        other_organization = Organization.objects.create(name="Other Org")
+        other_team = other_organization.teams.create(name="Other Team", api_token="other_token")
+
+        billing_keys = [
+            f"quota:code_usage_billing:team:{self.team.id}",
+            f"quota:code_usage_billing:team:{second_team.id}",
+        ]
+        generation_keys = [
+            f"quota:generation:team:{self.team.id}",
+            f"quota:generation:team:{second_team.id}",
+        ]
+        other_generation_key = f"quota:generation:team:{other_team.id}"
+
+        with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
+            gateway_redis = get_client(gateway_redis_url)
+            gateway_redis.mset(dict.fromkeys(billing_keys, "stale"))
+            gateway_redis.set(other_generation_key, 4)
+
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.is_active = False
+                self.organization.save()
+
+            assert gateway_redis.mget(billing_keys) == [None] * len(billing_keys)
+            assert gateway_redis.mget(generation_keys) == [b"1"] * len(generation_keys)
+            assert gateway_redis.get(other_generation_key) == b"4"
+            gateway_redis.delete(other_generation_key)
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):

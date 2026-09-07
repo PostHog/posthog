@@ -33,7 +33,7 @@ class TaxonomyAgent(
     @property
     def state_type(self) -> type[StateType]:
         # Extract the State type from the generic parameter
-        state_type, _ = self._get_state_class(TaxonomyAgent)
+        state_type = self._get_state_class(TaxonomyAgent).state_class
         return cast("type[StateType]", state_type)
 
     @property

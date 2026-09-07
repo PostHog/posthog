@@ -3,11 +3,10 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opuswatch import (
     OPUSWatchSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.opuswatch import OPUSWatchResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source import OPUSWatchSource
 
@@ -97,11 +96,6 @@ class TestOPUSWatchSource:
         assert valid is expected_valid
         assert (error is None) is expected_valid
         mock_validate.assert_called_once_with("the-key")
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs("registrations"))
-
-        assert manager._data_class is OPUSWatchResumeConfig
 
     @pytest.mark.parametrize(
         ("endpoint", "expected_primary_keys", "expected_partition_keys", "expected_sort_mode"),

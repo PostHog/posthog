@@ -20,6 +20,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
@@ -31,7 +32,6 @@ import {
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
-    buildStickinessLabels,
     buildStickinessTooltipTitle,
     stickinessPercentFormatter,
     STICKINESS_TOOLTIP_CONFIG,
@@ -85,10 +85,9 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
 
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
-    const bucketCount = currentPeriodResult?.labels?.length ?? 0
-    const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
+    const labels = currentPeriodResult?.labels ?? []
 
-    const hasData = (indexedResults ?? []).some((r: IndexedTrendResult) => r.count !== 0)
+    const hasData = hasTrendsChartData(indexedResults)
 
     // `TimeSeriesBarChart` has a single y-axis — `showMultipleYAxes` is intentionally not forwarded.
     const series: Series<TrendsSeriesMeta>[] = useMemo(

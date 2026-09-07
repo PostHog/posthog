@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -21,8 +19,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { EditSubscription } from '../components/Subscriptions/views/EditSubscription'
+import { subscriptionsEmptyState } from '../emptyState/subscriptionsEmptyState'
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
+import { SubscriptionsSceneModal } from './components/SubscriptionsSceneModal'
 import {
     SubscriptionsTable,
     isSubscriptionEnabled,
@@ -31,16 +30,28 @@ import {
 } from './components/SubscriptionsTable'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+function SubscriptionEnabledSwitch({ sub }: { sub: SubscriptionApi }): JSX.Element {
+    const { setSubscriptionEnabled } = useActions(subscriptionsSceneLogic)
+    const { togglingEnabledIds } = useValues(subscriptionsSceneLogic)
+    const enabled = isSubscriptionEnabled(sub)
+    return (
+        <LemonSwitch
+            checked={enabled}
+            onChange={(newEnabled) => setSubscriptionEnabled(sub.id, newEnabled)}
+            loading={Boolean(togglingEnabledIds[sub.id])}
+            aria-label={`${enabled ? 'Disable' : 'Enable'} ${subscriptionName(sub)}`}
+            data-attr="subscription-row-toggle-enabled"
+        />
+    )
+}
 
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { deleteSubscriptionSuccess, deliverSubscription, setSubscriptionEnabled } =
-        useActions(subscriptionsSceneLogic)
-    const { deliveringSubscriptionId, togglingEnabledId } = useValues(subscriptionsSceneLogic)
+    const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
+    const { deliveringSubscriptionId, togglingEnabledIds } = useValues(subscriptionsSceneLogic)
     const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
-    const isToggling = togglingEnabledId === sub.id
+    const isToggling = Boolean(togglingEnabledIds[sub.id])
     const enabled = isSubscriptionEnabled(sub)
 
     return (
@@ -54,12 +65,6 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                           },
                       ]
                     : []),
-                {
-                    label: enabled ? 'Disable subscription' : 'Enable subscription',
-                    'data-attr': 'subscription-list-item-toggle-enabled',
-                    disabledReason: isToggling ? 'Updating…' : null,
-                    onClick: () => setSubscriptionEnabled(sub.id, !enabled),
-                },
                 ...(enabled
                     ? [
                           {
@@ -99,23 +104,12 @@ export function SubscriptionsScene(): JSX.Element {
     const {
         subscriptions,
         subscriptionsLoading,
-        subscriptionsListAwaitingDebouncedFetch,
         pagination,
-        search,
-        createdByUuid,
         currentTab,
         subscriptionsSorting,
-        targetTypeFilter,
-        subscriptionModalId,
         aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
-
-    const isFiltered =
-        Boolean(search.trim()) ||
-        createdByUuid !== null ||
-        targetTypeFilter !== null ||
-        currentTab !== SubscriptionsTab.All
 
     const subscriptionTabs: LemonTab<SubscriptionsTab>[] = [
         { key: SubscriptionsTab.All, label: 'All subscriptions' },
@@ -124,24 +118,6 @@ export function SubscriptionsScene(): JSX.Element {
         { key: SubscriptionsTab.Insight, label: 'Insight' },
         ...(aiSubscriptionsAvailable ? [{ key: SubscriptionsTab.AI, label: 'AI prompt' }] : []),
     ]
-    const showProductIntroduction =
-        subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
-    const emptyStateDescription = aiSubscriptionsAvailable
-        ? 'Send scheduled dashboard and insight snapshots, or use an AI prompt to generate a recurring report. Deliver subscriptions to Slack or email.'
-        : 'Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems.'
-    const emptyStateAction = aiSubscriptionsAvailable ? (
-        <span className="italic">
-            <Link to={urls.subscriptionNew()}>Create an AI prompt subscription</Link>, or open a{' '}
-            <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> to schedule
-            a snapshot.
-        </span>
-    ) : (
-        <span className="italic">
-            Open a <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> to
-            schedule a snapshot.
-        </span>
-    )
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -149,15 +125,13 @@ export function SubscriptionsScene(): JSX.Element {
                 description={sceneConfigurations[Scene.Subscriptions].description}
                 resourceType={{ type: 'inbox' }}
                 actions={
-                    aiSubscriptionsAvailable ? (
-                        <LemonButton
-                            type="primary"
-                            data-attr="new-subscription-button"
-                            onClick={() => router.actions.push(urls.subscriptionNew())}
-                        >
-                            New prompt subscription
-                        </LemonButton>
-                    ) : undefined
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-subscription-button"
+                        onClick={() => router.actions.push(urls.subscriptionNew())}
+                    >
+                        New subscription
+                    </LemonButton>
                 }
             />
             <LemonTabs
@@ -167,43 +141,18 @@ export function SubscriptionsScene(): JSX.Element {
                 sceneInset
             />
             <div className="py-8 flex-1 min-h-0 flex flex-col gap-4 max-w-full">
-                {showProductIntroduction ? (
-                    <ProductIntroduction
-                        productName="Subscriptions"
-                        productKey={ProductKey.SUBSCRIPTIONS}
-                        thingName="subscription"
-                        titleOverride="No subscriptions yet"
-                        description={emptyStateDescription}
-                        isEmpty
-                        customHog={HedgehogMagnifyingGlass}
-                        hogLayout="responsive"
-                        useMainContentContainerQueries
-                        docsURL="https://posthog.com/docs/user-guides/subscriptions"
-                        actionElementOverride={emptyStateAction}
-                    />
-                ) : (
-                    <>
-                        <SubscriptionsFiltersBar />
-                        <SubscriptionsTable
-                            dataSource={subscriptions}
-                            loading={subscriptionsLoading}
-                            pagination={pagination}
-                            sorting={subscriptionsSorting}
-                            onSort={setSubscriptionsSorting}
-                            renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
-                        />
-                    </>
-                )}
+                <SubscriptionsFiltersBar />
+                <SubscriptionsTable
+                    dataSource={subscriptions}
+                    loading={subscriptionsLoading}
+                    pagination={pagination}
+                    sorting={subscriptionsSorting}
+                    onSort={setSubscriptionsSorting}
+                    renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
+                    renderEnabledToggle={(sub) => <SubscriptionEnabledSwitch sub={sub} />}
+                />
             </div>
-            {subscriptionModalId !== null && (
-                <LemonModal isOpen onClose={() => router.actions.push(urls.subscriptions())} simple={false} width={650}>
-                    <EditSubscription
-                        id={subscriptionModalId}
-                        onCancel={() => router.actions.push(urls.subscriptions())}
-                        onDelete={() => router.actions.push(urls.subscriptions())}
-                    />
-                </LemonModal>
-            )}
+            <SubscriptionsSceneModal />
         </SceneContent>
     )
 }
@@ -211,4 +160,6 @@ export function SubscriptionsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: SubscriptionsScene,
     logic: subscriptionsSceneLogic,
+    productKey: ProductKey.SUBSCRIPTIONS,
+    emptyState: subscriptionsEmptyState,
 }

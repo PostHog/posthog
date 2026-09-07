@@ -20,8 +20,9 @@ tools:
             idempotent: false
         title: Recompute intent clusters
         description: >
-            Trigger an asynchronous recompute of the intent-cluster snapshot: embed the project's recorded agent intents
-            and re-cluster them. Returns immediately with status 'computing'; poll
+            Trigger an asynchronous recompute of the intent-cluster snapshot: sample recent sessions, attribute each
+            tool call to its own agent intent, embed and cluster the intents, and derive the tool pivot (capture rates,
+            discovery rates, description fit, overlaps). Returns immediately with status 'computing'; poll
             mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').
         requires_ai_consent: true
         feature_flag: mcp-analytics
@@ -36,9 +37,13 @@ tools:
             idempotent: true
         title: Get intent cluster snapshot
         description: >
-            Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents, each
-            with its tool distribution, error rate, routing entropy, and journey paths. Returns an empty idle snapshot
-            when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.
+            Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents (tool
+            distribution, error rate, routing entropy, journey paths, error switches) plus a tool-centric pivot (per
+            tool: the intent clusters it serves with capture share and rank, discovery rate against the advertised
+            tools-list catalog, description-to-intent fit, contested score) and tool-overlap pairs competing for the
+            same intents. computed_with carries sample-coverage percentages; treat counts as sample statistics. Returns
+            an empty idle snapshot when no clustering run has happened yet — trigger one with
+            mcp-analytics-intent-clusters-recompute.
         feature_flag: mcp-analytics
     mcp-analytics-sessions-activity-overview:
         operation: mcp_analytics_sessions_activity_overview
@@ -143,7 +148,8 @@ tools:
         title: Report missing capability
         description: >
             Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool,
-            missing workflow support, or missing explanation blocks progress.
+            missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or
+            sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.
         include_params:
             - goal
             - missing_capability
@@ -356,6 +362,31 @@ wrappers:
             toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a
             tool registered with more than one description across clients or versions.
         system_prompt_hint: Distinct effective descriptions seen for one MCP tool
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-missing-capabilities:
+        schema_ref: MCPMissingCapabilitiesQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List MCP missing-capability reports
+        description: >
+            Return capabilities that agents asked this MCP server for but could not access. Each row contains one
+            $mcp_missing_capability report from the SDK's get_more_tools tool, including the report text, timestamp,
+            client label, conversation id, and person. Results are chronological because exact-text grouping would split
+            similar free-form requests. The query accepts a dateRange, case-insensitive text search, limit, and offset.
+            The response's has_next field indicates whether more results remain. Use this tool to identify capabilities
+            that agents need or to prioritize new MCP tools.
+        system_prompt_hint: MCP missing capabilities that agents reported, newest first
         exclude_properties:
             - response
             - modifiers

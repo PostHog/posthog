@@ -11,8 +11,8 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
 
 from ..models.clustering_job import ClusteringJob
@@ -22,7 +22,29 @@ MAX_JOBS_PER_TEAM = 10
 _COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
 
 
+class EventFiltersField(serializers.ListField):
+    """Validate the filter shape on write, and pass the stored value through on read.
+
+    The column is an unvalidated JSONField, and the team-level config writer only
+    checks that the value is a list, so a row can already hold any shape. Running
+    the strict read path over such a row raises and turns a job list into a 500,
+    so reads keep the pass-through behavior the plain model field had.
+    """
+
+    def to_representation(self, data: Any) -> Any:
+        return data
+
+
 class ClusteringJobSerializer(serializers.ModelSerializer):
+    event_filters = EventFiltersField(
+        # A property filter can carry a null value or label, for example before the
+        # user picks a value or when switching operators. A JSONField child rejects
+        # null, so keep the child an untyped DictField to avoid 400ing valid filters.
+        child=serializers.DictField(),
+        required=False,
+        help_text="PostHog property filters that scope this clustering job. Empty array means no filters.",
+    )
+
     class Meta:
         model = ClusteringJob
         fields = [
@@ -138,6 +160,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "defaults_disabled": disabled_count,
             },
             team=self.team,
+            request=self.request,
         )
 
     @llma_track_latency("llma_clustering_job_update")
@@ -158,6 +181,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "llma clustering job updated",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
+            request=self.request,
         )
 
     @llma_track_latency("llma_clustering_job_destroy")
@@ -169,5 +193,6 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "llma clustering job deleted",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
+            request=request,
         )
         return super().destroy(request, *args, **kwargs)

@@ -1,10 +1,14 @@
 import re
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Literal, Optional
+from urllib.parse import urljoin, urlsplit
 
 from requests import Request, Response
 
 from .jsonpath_utils import TJsonPath, find_values
+
+logger = logging.getLogger(__name__)
 
 # Where a paginator writes its pagination fields. "query" (default) mutates request.params;
 # "json" mutates the POST body — for APIs that carry page/cursor/limit inside the JSON payload.
@@ -64,6 +68,54 @@ class BaseNextUrlPaginator(BasePaginator):
     def __init__(self) -> None:
         super().__init__()
         self._next_url: Optional[str] = None
+        self._previous_next_url: Optional[str] = None
+
+    def _advance_to(self, next_url: Optional[str], base_url: Optional[str] = None) -> None:
+        """Follow ``next_url`` as the next page, or stop when there is none.
+
+        ``next_url`` may be relative: some APIs (e.g. Ably) return the next link as
+        a path like ``./stats?...``. Resolve it against ``base_url`` (the response
+        URL it came from) so ``requests`` receives an absolute URL. Only the first
+        request gets the base applied via ``_join_url``, so a relative next link that
+        is not resolved here reaches ``requests`` with no scheme or host and fails
+        with ``MissingSchema``. Resolving here also keeps the repeat guard, the resume
+        state, and the allowed-host check working on absolute URLs.
+
+        A next URL identical to the one just followed is treated as the last page:
+        some APIs (e.g. Paddle) return a populated next link even on their final
+        page, and following it would refetch the same page forever. Without this
+        guard the sync loops until its Temporal activity timeout, which is a week
+        for resumable sources.
+        """
+        if not next_url:
+            self._has_next_page = False
+            return
+        # `Response.url` is a str once a request has been sent, but stays unset (or a test
+        # double) before that, so only resolve against a real string base.
+        if isinstance(base_url, str) and base_url:
+            next_url = urljoin(base_url, next_url)
+        if next_url == self._previous_next_url:
+            self._handle_non_advancing_page(next_url)
+            return
+        self._previous_next_url = next_url
+        self._next_url = next_url
+        self._has_next_page = True
+
+    def _handle_non_advancing_page(self, next_url: str) -> None:
+        """Called when a response's next link equals the one just followed.
+
+        Default: treat it as the last page and log, so end-of-data quirks complete
+        the sync instead of looping. Subclasses that consider a repeated link
+        hostile (e.g. Baserow's user-controlled hosts) override this to raise.
+        """
+        # Log only scheme/host/path: pagination links are echoed by the remote API and
+        # can carry credentials in their query string for query-param-authenticated sources.
+        redacted_url = urlsplit(next_url)._replace(query="", fragment="").geturl()
+        logger.warning(
+            "Pagination is not advancing (repeated next URL); treating as last page",
+            extra={"paginator": str(self), "next_url": redacted_url},
+        )
+        self._has_next_page = False
 
     def init_request(self, request: Request) -> None:
         # Apply a seeded resume URL to the first request so a resumed run starts at the
@@ -89,6 +141,9 @@ class BaseNextUrlPaginator(BasePaginator):
         next_url = state.get("next_url")
         if next_url is not None:
             self._next_url = next_url
+            # Seed the repeat guard so a resumed page whose response echoes the
+            # saved URL stops instead of looping on a poisoned checkpoint.
+            self._previous_next_url = next_url
             self._has_next_page = True
 
 
@@ -98,13 +153,8 @@ class HeaderLinkPaginator(BaseNextUrlPaginator):
         self.links_next_key = links_next_key
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        links = response.links
-        next_link = links.get(self.links_next_key)
-        if next_link:
-            self._next_url = next_link.get("url")
-            self._has_next_page = True
-        else:
-            self._has_next_page = False
+        next_link = response.links.get(self.links_next_key)
+        self._advance_to(next_link.get("url") if next_link else None, response.url)
 
     def __str__(self) -> str:
         return f"HeaderLinkPaginator(links_next_key={self.links_next_key})"
@@ -122,11 +172,7 @@ class JSONResponsePaginator(BaseNextUrlPaginator):
             values = find_values(self.next_url_path, response.json())
         except Exception:
             values = []
-        if values and values[0]:
-            self._next_url = values[0]
-            self._has_next_page = True
-        else:
-            self._has_next_page = False
+        self._advance_to(values[0] if values else None, response.url)
 
     def __str__(self) -> str:
         return f"JSONResponsePaginator(next_url_path={self.next_url_path})"

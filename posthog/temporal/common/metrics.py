@@ -35,11 +35,13 @@ class ExecutionTimeRecorder:
         description: str | None = None,
         histogram_attributes: Attributes | None = None,
         log: bool = False,
+        histogram_recorder: typing.Callable[[float, Attributes], None] | None = None,
     ) -> None:
         self.histogram_name = histogram_name
         self.description = description
         self.histogram_attributes = histogram_attributes or {}
         self.log = log
+        self.histogram_recorder = histogram_recorder
         self._start_counter: float | None = None
         self._status_override: str | None = None
 
@@ -75,6 +77,8 @@ class ExecutionTimeRecorder:
             meter = get_metric_meter(attributes)
             hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
             hist.record(value=delta)
+            if self.histogram_recorder is not None:
+                self.histogram_recorder(float(delta_milli_seconds), attributes)
         except Exception:
             LOGGER.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
         if self.log:

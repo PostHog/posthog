@@ -6,10 +6,10 @@ import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/
 
 import { urls } from 'scenes/urls'
 
-import { clearFilterButtonProps } from '../clearFilterButtonProps'
+import { clearFilterButtonProps } from '../../clearFilterButtonProps'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
-import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES } from './types'
+import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES, toTicketAssignee } from './types'
 
 function isSameEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
     // String tokens ('unassigned', 'me') only match the identical token.
@@ -22,9 +22,11 @@ function isSameEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
 export function AssigneeMultiSelect({
     value,
     onChange,
+    emptyLabel = 'All assignees',
 }: {
     value: AssigneeFilterEntry[]
     onChange: (value: AssigneeFilterEntry[]) => void
+    emptyLabel?: string
 }): JSX.Element {
     const { search, filteredRoles, filteredMembers, currentUserMember, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
@@ -150,15 +152,15 @@ export function AssigneeMultiSelect({
                 active={showPopover}
                 {...clearFilterButtonProps(value.length > 0 ? () => onChange([]) : null, 'Clear assignee filter')}
             >
-                <TriggerLabel value={value} />
+                <TriggerLabel value={value} emptyLabel={emptyLabel} />
             </LemonButton>
         </LemonDropdown>
     )
 }
 
-function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element {
+function TriggerLabel({ value, emptyLabel }: { value: AssigneeFilterEntry[]; emptyLabel: string }): JSX.Element {
     if (value.length === 0) {
-        return <>All assignees</>
+        return <>{emptyLabel}</>
     }
     if (value.length > 1) {
         return <>{value.length} assignees</>
@@ -181,7 +183,7 @@ function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element 
         )
     }
     return (
-        <AssigneeResolver assignee={entry}>
+        <AssigneeResolver assignee={toTicketAssignee(entry)}>
             {({ assignee }) => (
                 <span className="flex items-center gap-1">
                     <AssigneeIconDisplay assignee={assignee} size="small" />
@@ -218,7 +220,7 @@ const AssigneeFilterItem = ({
             size="small"
             icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
             disabledReason={isSelected(item) ? undefined : selectionCapReason}
-            onClick={() => onToggle({ type: item.type, id: item.id })}
+            onClick={() => onToggle(toTicketAssignee(item))}
         >
             <span className="flex items-center gap-1">
                 <AssigneeIconDisplay assignee={item} size="small" />

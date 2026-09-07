@@ -10,6 +10,7 @@ import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
+import { evaluationIsDetector } from '../constants'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
@@ -47,6 +48,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
         description: {
             generation: 'The event for the generation being evaluated.',
             trace: 'Every event in the trace being evaluated.',
+            session: 'Every event in every trace in the session being evaluated, in order.',
         },
         fields: [
             { name: 'uuid', type: 'string', description: 'The event UUID.' },
@@ -77,6 +79,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
         description: {
             generation: 'Details about the generation being evaluated.',
             trace: 'Details about the trace being evaluated.',
+            session: 'Details about the session being evaluated.',
         },
         fields: [
             {
@@ -85,6 +88,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The target type: generation.',
                     trace: 'The target type: trace.',
+                    session: 'The target type: session.',
                 },
             },
             {
@@ -93,6 +97,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The generation event UUID.',
                     trace: 'The trace ID.',
+                    session: 'The session ID.',
                 },
             },
             {
@@ -101,6 +106,7 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The total cost for the generation in USD, when available.',
                     trace: 'The total cost for the trace in USD, when available.',
+                    session: 'The total cost across every trace in the session in USD, when available.',
                 },
             },
             {
@@ -109,6 +115,8 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: {
                     generation: 'The total latency for the generation in seconds, when available.',
                     trace: 'The total latency for the trace in seconds, when available.',
+                    session:
+                        'The latency of every trace in the session added up, in seconds. This is time spent on AI work, not how long the session lasted.',
                 },
             },
         ],
@@ -140,6 +148,7 @@ function buildMonacoHogGlobals(target: EvaluationTarget): Record<string, MonacoH
 const HOG_EVAL_COMMON_GLOBALS_BY_TARGET = {
     generation: buildMonacoHogGlobals('generation'),
     trace: buildMonacoHogGlobals('trace'),
+    session: buildMonacoHogGlobals('session'),
 }
 
 const HOG_EVAL_GLOBALS_BY_TARGET = {
@@ -173,18 +182,24 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
             event_count: { type: 'number' },
         },
     },
+    // No compatibility globals: those exist for Hog source saved before `target` and
+    // `evaluation_events` landed, and no session-target source predates them. This mirrors
+    // build_session_hog_globals, which builds the shared globals and nothing else.
+    session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
 }
 
-function HogTestResultsPanel(): JSX.Element | null {
-    const { hogTestResults, hogTestResultsLoading } = useValues(llmEvaluationLogic)
+export function HogTestResultsPanel(): JSX.Element | null {
+    const { hogTestResults, hogTestResultsLoading, hogTestMessage, evaluation } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
 
     if (!hogTestResults && !hogTestResultsLoading) {
         return null
     }
 
-    const passed = hogTestResults?.filter((r) => r.result === true).length ?? 0
-    const failed = hogTestResults?.filter((r) => r.result === false).length ?? 0
+    // Every result here belongs to `evaluation`, so its polarity applies to the whole panel.
+    const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
+    const passed = hogTestResults?.filter((r) => r.result === !trueIsFailure).length ?? 0
+    const failed = hogTestResults?.filter((r) => r.result === trueIsFailure).length ?? 0
     const na = hogTestResults?.filter((r) => r.result === null && !r.error).length ?? 0
     const errors = hogTestResults?.filter((r) => r.error !== null).length ?? 0
 
@@ -218,6 +233,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                     Clear
                 </LemonButton>
             </div>
+            {hogTestMessage && <div className="text-sm text-muted">{hogTestMessage}</div>}
             <LemonTable<TestHogResultItemApi>
                 columns={[
                     {
@@ -243,7 +259,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                                     </LemonTag>
                                 )
                             }
-                            return row.result ? (
+                            return row.result !== trueIsFailure ? (
                                 <LemonTag type="success" icon={<IconCheck />}>
                                     Pass
                                 </LemonTag>
@@ -315,6 +331,8 @@ export function EvaluationCodeEditor(): JSX.Element {
     }
 
     const source = evaluation.evaluation_config.source
+    const isSessionTarget = evaluation.target === 'session'
+    const trueIsFailure = evaluationIsDetector(evaluation)
 
     return (
         <div className="space-y-4">
@@ -340,9 +358,11 @@ export function EvaluationCodeEditor(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <Tooltip
                             title={
-                                evaluation.target === 'trace'
-                                    ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
-                                    : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
+                                isSessionTarget
+                                    ? 'Compile and run your code against up to 3 sessions that have gone quiet, the same way it runs online'
+                                    : evaluation.target === 'trace'
+                                      ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
+                                      : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
                             }
                         >
                             <LemonButton
@@ -441,7 +461,8 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
-                        Return <code>true</code> (pass) or <code>false</code> (fail)
+                        Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
+                        {trueIsFailure ? 'pass' : 'fail'})
                         {evaluation.output_config.allows_na ? (
                             <>
                                 {' '}

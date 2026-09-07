@@ -1,8 +1,3 @@
-import importlib
-import importlib.util
-
-from django.apps import apps
-
 from rest_framework import decorators, exceptions
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
@@ -15,10 +10,10 @@ from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
+from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
-from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -53,6 +48,7 @@ from . import (
     organization_member,
     organization_personal_api_key,
     personal_api_key,
+    posthog_connection,
     project_secret_api_key,
     proxy_record,
     query,
@@ -66,6 +62,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_facet_settings,
     user_home_settings,
     web_vitals,
     webauthn,
@@ -78,6 +75,7 @@ from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
+from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 
 
@@ -171,6 +169,12 @@ projects_router.register(
 
 projects_router.register(r"integrations", integration.IntegrationViewSet, "project_integrations", ["team_id"])
 projects_router.register(
+    r"posthog_connections",
+    posthog_connection.PostHogConnectionViewSet,
+    "project_posthog_connections",
+    ["team_id"],
+)
+projects_router.register(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "project_ingestion_warnings",
@@ -203,23 +207,9 @@ projects_router.register(
 projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["team_id"])
 
 projects_router.register(
-    r"desktop_file_system",
-    file_system.DesktopFileSystemViewSet,
-    "project_desktop_file_system",
-    ["team_id"],
-)
-
-projects_router.register(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
     "project_file_system_shortcut",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"desktop_file_system_shortcut",
-    file_system_shortcut.DesktopFileSystemShortcutViewSet,
-    "project_desktop_file_system_shortcut",
     ["team_id"],
 )
 
@@ -274,6 +264,13 @@ organizations_router = routers.add(
     "organizations", router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 )
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
+
+organizations_router.register(
+    r"notification_locks",
+    OrganizationNotificationLockViewSet,
+    "organization_notification_locks",
+    ["organization_id"],
+)
 organizations_router.register(
     r"integrations",
     organization_integration.OrganizationIntegrationViewSet,
@@ -385,6 +382,11 @@ router.register(
     user_home_settings.UserHomeSettingsViewSet,
     "user_home_settings",
 )
+router.register(
+    r"user_facet_settings",
+    user_facet_settings.UserFacetSettingsViewSet,
+    "user_facet_settings",
+)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
@@ -489,20 +491,6 @@ legacy_project_session_recordings_router.register(
 )
 
 projects_router.register(
-    r"session_group_summaries",
-    SessionGroupSummaryViewSet,
-    "project_session_group_summaries",
-    ["project_id"],
-)
-
-projects_router.register(
-    r"single_session_summaries",
-    SingleSessionSummaryViewSet,
-    "project_single_session_summaries",
-    ["project_id"],
-)
-
-projects_router.register(
     r"quick_filters",
     quick_filters.QuickFilterViewSet,
     "project_quick_filters",
@@ -601,14 +589,7 @@ projects_router.register(
 # Accepted cost: routes are imported dynamically here, so the core->product import edges
 # are not statically visible to import tooling (tach/grimp). Accepted on purpose — it
 # removes the hand-maintained product list that duplicated PRODUCTS_APPS.
-for _app_config in apps.get_app_configs():
-    if not _app_config.name.startswith("products."):
-        continue
-    _routes_module = f"{_app_config.name}.routes"
-    # find_spec (not try/except ImportError) so a real ImportError inside a routes.py
-    # surfaces instead of being silently swallowed as "no routes module".
-    if importlib.util.find_spec(_routes_module) is None:
-        continue
-    _register_routes = getattr(importlib.import_module(_routes_module), "register_routes", None)
+for _routes_module in load_product_modules("routes"):
+    _register_routes = getattr(_routes_module, "register_routes", None)
     if callable(_register_routes):
         _register_routes(routers)

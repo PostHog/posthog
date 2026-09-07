@@ -1200,7 +1200,7 @@
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 604800, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(base_events.timestamp, 'UTC'), 'Float64'), base_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, base_events.step_0), multiply(2, base_events.step_1), multiply(3, base_events.step_2)]))))))))[1] AS value
      FROM base_events
      GROUP BY base_events.entity_id
-     HAVING and(greater(countIf(equals(base_events.step_0, 1)), 0), lessOrEquals(plus(minIf(toTimeZone(base_events.timestamp, 'UTC'), equals(base_events.step_0, 1)), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC'))))
+     HAVING and(greater(countIf(equals(base_events.step_0, 1)), 0), ifNull(lessOrEquals(plus(minIf(toTimeZone(base_events.timestamp, 'UTC'), equals(base_events.step_0, 1)), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), 0)))
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -1235,7 +1235,7 @@
      FROM experiment_exposures_preaggregated AS t
      WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC'))))
      GROUP BY entity_id
-     HAVING lessOrEquals(plus(min(toTimeZone(t.first_exposure_time, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC'))),
+     HAVING ifNull(lessOrEquals(plus(min(toTimeZone(t.first_exposure_time, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), 0)),
        metric_events AS
     (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
             toTimeZone(t.timestamp, 'UTC') AS timestamp,
@@ -1311,7 +1311,7 @@
             arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 604800, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(base_events.timestamp, 'UTC'), 'Float64'), base_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, base_events.step_0), multiply(2, base_events.step_1), multiply(3, base_events.step_2)]))))))))[1] AS value
      FROM base_events
      GROUP BY base_events.entity_id
-     HAVING and(greater(countIf(equals(base_events.step_0, 1)), 0), lessOrEquals(plus(minIf(toTimeZone(base_events.timestamp, 'UTC'), equals(base_events.step_0, 1)), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC'))))
+     HAVING and(greater(countIf(equals(base_events.step_0, 1)), 0), ifNull(lessOrEquals(plus(minIf(toTimeZone(base_events.timestamp, 'UTC'), equals(base_events.step_0, 1)), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), 0)))
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(ifNull(equals((entity_metrics.value).1, 2), 0)) AS total_sum,
@@ -1346,7 +1346,7 @@
      FROM experiment_exposures_preaggregated AS t
      WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC'))))
      GROUP BY entity_id
-     HAVING lessOrEquals(plus(min(toTimeZone(t.first_exposure_time, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC'))),
+     HAVING ifNull(lessOrEquals(plus(min(toTimeZone(t.first_exposure_time, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), 0)),
        metric_events AS
     (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
             toTimeZone(t.timestamp, 'UTC') AS timestamp,
@@ -1790,7 +1790,7 @@
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '') AS variant_value,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.uuid AS uuid,
-            and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])) AS step_0,
+            and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), notEmpty(events.`$group_0`)) AS step_0,
             if(equals(events.event, 'purchase'), 1, 0) AS step_1
      FROM events
      LEFT OUTER JOIN
@@ -1810,7 +1810,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
+     WHERE and(equals(events.team_id, 99999), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), notEmpty(events.`$group_0`)), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, 'purchase'))))),
        entity_metrics AS
     (SELECT base_events.entity_id AS entity_id,
             if(greater(uniqExactIf(base_events.variant_value, equals(base_events.step_0, 1)), 1), '$multiple', anyIf(base_events.variant_value, equals(base_events.step_0, 1))) AS variant,

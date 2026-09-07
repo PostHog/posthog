@@ -21,7 +21,10 @@ CHILD_WORKFLOW_ID_PREFIX = "mcpa-intent-clustering-team"
 # Sampling ------------------------------------------------------------------
 
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_TOP_N_INTENTS = 500
+# Matches the pipeline default in products/mcp_analytics/backend/intent_clustering.py.
+# Raised to 1000 with stratified sampling: per-tool floors + the per-tool call cap
+# keep the extra intents spread across tools instead of long-tail exec/scout noise.
+DEFAULT_TOP_N_INTENTS = 1000
 MIN_INTENTS_FOR_CLUSTERING = 2
 
 # Workflow + activity envelopes --------------------------------------------

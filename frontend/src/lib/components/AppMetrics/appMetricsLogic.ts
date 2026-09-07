@@ -30,6 +30,8 @@ const DEFAULT_INTERVAL = 'day'
 export type AppMetricsCommonParams = {
     appSource?: string
     appSourceId?: string
+    /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
+    appSourceIdPrefix?: string
     instanceId?: string
     metricName?: string | string[]
     metricKind?: string | string[]
@@ -60,6 +62,15 @@ export type AppMetricsTimeSeriesResponse = {
 
 export type AppMetricsTotalsRequest = Omit<AppMetricsCommonParams, 'interval' | 'breakdownBy'> & {
     breakdownBy: ('metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id')[]
+    /**
+     * Caps the number of breakdown groups returned, highest total first.
+     *
+     * Without this the executor applies its own default (`DEFAULT_RETURNED_ROWS`, 100) to a query
+     * that has no ORDER BY, so an over-100 breakdown silently returns an arbitrary 100 groups.
+     * Callers whose breakdown cardinality can exceed that must set it; ordering by total means
+     * truncation keeps the groups worth showing.
+     */
+    limit?: number
 }
 
 export type AppMetricsTotalsResponse = Record<
@@ -69,6 +80,11 @@ export type AppMetricsTotalsResponse = Record<
         breakdowns: string[]
     }
 >
+
+const appSourceIdPrefixPattern = (prefix: string): string => {
+    // Escape LIKE wildcards so the prefix matches literally.
+    return prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_') + '%'
+}
 
 export const loadAppMetricsTotals = async (
     request: AppMetricsTotalsRequest,
@@ -86,6 +102,10 @@ export const loadAppMetricsTotals = async (
 
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
+    }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
@@ -105,6 +125,12 @@ export const loadAppMetricsTotals = async (
             AND toTimeZone(timestamp, ${timezone}) < toDateTime(${request.dateTo}, ${timezone})
             GROUP BY ${hogql.raw(breakdownBy.join(', '))}
         `) as HogQLQueryString
+
+    if (request.limit) {
+        query = (query +
+            hogql`
+ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
+    }
 
     const response = await api.queryHogQL(
         query,
@@ -189,6 +215,10 @@ const loadAppMetricsTimeSeries = async (
 
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
+    }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString

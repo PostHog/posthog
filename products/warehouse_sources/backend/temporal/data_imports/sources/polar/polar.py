@@ -3,11 +3,10 @@ from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
-from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.settings import (
     ENDPOINT_SORT_FIELDS,
     ENDPOINTS,
@@ -27,9 +26,10 @@ class PolarPermissionError(Exception):
 
 
 def _get_polar_session() -> requests.Session:
-    # Plain session with no retry adapter: errors fail fast so the caller
-    # can surface them immediately rather than silently retrying.
-    return make_tracked_session(retry=Retry(total=0))
+    # DEFAULT_RETRY backs off on 429/5xx and transient connection errors (honoring
+    # Retry-After), so a dropped connection mid-sync doesn't fail the whole activity.
+    # 401/403 aren't in its status_forcelist, so credential errors still surface immediately.
+    return make_tracked_session()
 
 
 def _build_url(endpoint: str, page: int) -> str:

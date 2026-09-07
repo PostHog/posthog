@@ -7,7 +7,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 - **Discovery.** The harness globs `signals-scout-*` over the project's skills (`LLMSkill` rows).
   Any matching skill is a scout.
   No registration step.
-- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, and a `last_run_at` stamp.
+- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, `network_access` (`trusted` default, `full` for scouts that read arbitrary external sites), and a `last_run_at` stamp.
   A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one — authoring the skill is enough to get a scout.
   Prepare a fresh per-team scout and its config together with `posthog:scout-create-prepare`; the nested `config` object sets its schedule, emit posture, and destinations before it can run.
   Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
@@ -21,9 +21,12 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   The body is the system prompt; the agent orients, explores, files reports or remembers, and writes a one-paragraph summary to the run row.
 
 Pausing a scout = `enabled=false`.
+That records `status=paused_by_user`, which automatic lifecycle sweeps never resume or re-pause; `enabled=true` resumes from any pause, including a system-applied one (`status=paused_by_system`, cause in the read-only `pause_reason`).
+Config responses expose `status` and `pause_reason` read-only; writes flow through `enabled`.
 Slowing it = a larger `run_interval_minutes`.
 Dry-running it = `emit=false`.
-All three via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.
+Letting it reach sites outside the trusted-domain allowlist = `network_access="full"`.
+All of these via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.
 
 ## Path A — per-team (skills store)
 

@@ -5,9 +5,9 @@ use tracing::info;
 
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
-    dsym::{find_dsym_bundles, DsymFile, PlistInfo},
+    dsym::{find_dsym_bundles, DsymFile},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
-    utils::git::get_git_info,
+    utils::{git::get_git_info, xcode::PlistInfo},
 };
 
 #[derive(clap::Args, Clone)]
@@ -35,6 +35,12 @@ pub struct Args {
     /// Implies --force unless --skip-on-conflict is set. [default: false]
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// Deprecated: the symbol sets always bind to the release the build creates. The flag stays
+    /// accepted so a released posthog-ios upload-symbols.sh that still passes it does not fail
+    /// the Xcode build with a parse error.
+    #[arg(long, default_value_t = false, hide = true)]
+    pub no_release_bind: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -44,8 +50,17 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         main_dsym,
         include_source,
+        no_release_bind,
     } = args;
-    let release_args = release;
+
+    if *no_release_bind {
+        tracing::warn!(
+            "--no-release-bind is deprecated and does nothing. The symbol sets are uploaded bound \
+             to the release this build creates. Remove the flag."
+        );
+    }
+
+    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -168,6 +183,8 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let release_id = created_release.map(|r| r.id.to_string());
 
+    let chunk_release_id = release_id.clone();
+
     // Process each dSYM
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
 
@@ -176,7 +193,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
         match DsymFile::new(&dsym_path, *include_source) {
             Ok(mut dsym_file) => {
-                dsym_file.release_id = release_id.clone();
+                dsym_file.release_id = chunk_release_id.clone();
                 info!(
                     "  UUIDs: {} ({})",
                     dsym_file.uuids().join(", "),
@@ -201,14 +218,57 @@ pub fn upload(args: &Args) -> Result<()> {
     // --include-source implies force unless the user explicitly asked to keep
     // existing symbol sets with --skip-on-conflict.
     let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
-    api::symbol_sets::upload_with_retry(
+    let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
         release_args.skip_release_on_fail,
         effective_force,
         conflict.skip_on_conflict,
-    )?;
+    );
+    upload_result?;
     info!("dSYM upload complete");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::{CommandFactory, Parser};
+
+    #[derive(Parser)]
+    struct DsymCli {
+        #[command(subcommand)]
+        command: crate::dsym::DsymSubcommand,
+    }
+
+    fn parse(extra: &[&str]) -> Args {
+        let mut argv = vec!["dsym", "upload", "--directory", "dsyms"];
+        argv.extend_from_slice(extra);
+        let crate::dsym::DsymSubcommand::Upload(args) = DsymCli::parse_from(argv).command;
+        args
+    }
+
+    #[test]
+    fn accepts_the_deprecated_no_release_bind_flag() {
+        // Released posthog-ios upload-symbols.sh passes `--no-release-bind` when
+        // POSTHOG_NO_RELEASE_BIND=1. Rejecting the flag would fail the Xcode build phase with a
+        // parse error on CLI upgrade.
+        assert!(parse(&["--no-release-bind"]).no_release_bind);
+        assert!(!parse(&[]).no_release_bind);
+    }
+
+    #[test]
+    fn deprecated_no_release_bind_is_hidden() {
+        let cmd = DsymCli::command();
+        let upload = cmd
+            .find_subcommand("upload")
+            .expect("expected the upload subcommand");
+        let arg = upload
+            .get_arguments()
+            .find(|a| a.get_id() == "no_release_bind")
+            .expect("expected the no_release_bind argument");
+
+        assert!(arg.is_hide_set());
+    }
 }

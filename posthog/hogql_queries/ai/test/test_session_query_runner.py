@@ -3,10 +3,16 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, SessionQuery
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
@@ -125,6 +131,54 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.outputTokens, 2)
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)
         self.assertEqual(trace.totalLatency, 3)
+
+    def test_sums_distinguish_reported_zero_from_no_report(self) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-zero",
+                        "$ai_trace_id": "trace_zero",
+                        "$ai_latency": 1,
+                        "$ai_input_tokens": 0,
+                        "$ai_output_tokens": 0,
+                        "$ai_input_cost_usd": 0,
+                        "$ai_output_cost_usd": 0,
+                        "$ai_total_cost_usd": 0,
+                    },
+                },
+                # A generation whose provider never reported usage carries no
+                # token or cost properties at all.
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 1, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-zero",
+                        "$ai_trace_id": "trace_unpriced",
+                        "$ai_latency": 1,
+                    },
+                },
+            ]
+        )
+
+        runner = SessionQueryRunner(team=self.team, query=SessionQuery(sessionId="session-zero"))
+        traces = {trace.id: trace for trace in runner.calculate().results}
+
+        zero_trace = traces["trace_zero"]
+        self.assertEqual(zero_trace.totalCost, 0)
+        self.assertEqual(zero_trace.inputCost, 0)
+        self.assertEqual(zero_trace.inputTokens, 0)
+
+        unpriced_trace = traces["trace_unpriced"]
+        self.assertIsNone(unpriced_trace.totalCost)
+        self.assertIsNone(unpriced_trace.inputCost)
+        self.assertIsNone(unpriced_trace.inputTokens)
 
     def test_paginates_session_traces(self) -> None:
         bulk_create_ai_events(
@@ -336,3 +390,92 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.outputTokens, 2)
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)
         self.assertEqual(trace.totalLatency, 3)
+
+    def _printed_sql(self, runner: SessionQueryRunner) -> str:
+        query = replace_placeholders(
+            runner.to_query(),
+            {
+                "session_filter_conditions": rewrite_expr_for_ai_events_table(runner._get_session_filter()),
+                "trace_filter_conditions": rewrite_expr_for_ai_events_table(runner._get_trace_filter()),
+            },
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(query, context, "clickhouse")
+        return sql
+
+    def test_evaluation_mode_bounds_the_primary_query(self) -> None:
+        runner = SessionQueryRunner(
+            team=self.team,
+            query=SessionQuery(
+                sessionId="s-1",
+                dateRange=DateRange(date_from="2026-07-01T00:00:00Z", date_to="2026-07-08T00:00:00Z"),
+            ),
+            for_evaluation=True,
+        )
+        sql = self._printed_sql(runner)
+
+        self.assertIn("greaterOrEquals(ai_events.timestamp", sql)
+        self.assertIn("lessOrEquals(ai_events.timestamp", sql)
+
+        default_runner = SessionQueryRunner(
+            team=self.team,
+            query=SessionQuery(
+                sessionId="s-1",
+                dateRange=DateRange(date_from="2026-07-01T00:00:00Z", date_to="2026-07-08T00:00:00Z"),
+            ),
+        )
+        default_sql = self._printed_sql(default_runner)
+
+        self.assertNotIn("greaterOrEquals(ai_events.timestamp", default_sql)
+        self.assertNotIn("lessOrEquals(ai_events.timestamp", default_sql)
+
+    @parameterized.expand(
+        [
+            ("missing_date_from", DateRange(date_to="2026-07-08T00:00:00Z")),
+            ("missing_date_to", DateRange(date_from="2026-07-01T00:00:00Z")),
+            ("missing_date_range", None),
+        ]
+    )
+    def test_evaluation_mode_requires_both_date_bounds(self, _name: str, date_range: DateRange | None) -> None:
+        runner = SessionQueryRunner(
+            team=self.team,
+            query=SessionQuery(sessionId="s-1", dateRange=date_range),
+            for_evaluation=True,
+        )
+        with self.assertRaises(ValueError):
+            runner.calculate()
+
+    def test_evaluation_mode_does_not_fall_back_to_events(self) -> None:
+        runner = SessionQueryRunner(
+            team=self.team,
+            query=SessionQuery(
+                sessionId="s-does-not-exist",
+                dateRange=DateRange(date_from="2026-07-01T00:00:00Z", date_to="2026-07-08T00:00:00Z"),
+            ),
+            for_evaluation=True,
+        )
+
+        with self.capture_select_queries() as queries:
+            response = runner.calculate()
+
+        select_queries = _select_queries_without_metadata(queries)
+        self.assertEqual(len(select_queries), 1)
+        self.assertNotIn("__ai_events_fallback", select_queries[0])
+        self.assertEqual(response.results, [])
+
+    def test_default_mode_still_falls_back_to_events(self) -> None:
+        """Regression guard: the session detail scene depends on the fallback."""
+        runner = SessionQueryRunner(
+            team=self.team,
+            query=SessionQuery(
+                sessionId="s-does-not-exist",
+                dateRange=DateRange(date_from="2026-07-01T00:00:00Z", date_to="2026-07-08T00:00:00Z"),
+            ),
+        )
+
+        with self.capture_select_queries() as queries:
+            runner.calculate()
+
+        select_queries = _select_queries_without_metadata(queries)
+        self.assertEqual(len(select_queries), 2)
+        self.assertIn("__ai_events_fallback", select_queries[1])

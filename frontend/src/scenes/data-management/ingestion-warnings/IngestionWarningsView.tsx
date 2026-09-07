@@ -27,6 +27,8 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
+    merge_move_limit_exceeded: 'A merge exceeded its distinct id move limit and was dropped',
+    merge_settled_failure: 'A merge settled without merging and cannot be retried',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
@@ -45,6 +47,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
     missing_distinct_id: 'Discarded event with no distinct ID',
     distinct_id_too_large: 'Discarded event whose distinct ID exceeds the size limit',
+    distinct_id_truncated: 'Ingested event after shortening its distinct ID to the 200 character limit',
     invalid_event_timestamp: 'Discarded event with an invalid timestamp',
     malformed_event_properties: 'Discarded event with malformed properties',
     invalid_options: 'Discarded event with invalid capture options',
@@ -53,6 +56,15 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     missing_event_uuid: 'Rejected a batch containing an event with no UUID',
     invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
     duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
+    high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
+    // Emitted by the capture service for its AI endpoints
+    invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
+    invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
+    no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
+    // Emitted by the capture service for its session replay endpoint
+    missing_session_id: 'Discarded a session replay batch with no $session_id',
+    invalid_session_id: 'Discarded a session replay batch with an invalid $session_id',
+    missing_snapshot_data: 'Discarded a session replay batch with no $snapshot_data',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
@@ -63,6 +75,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
 export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     cannot_merge_already_identified: 'refused-to-merge-an-already-identified-user',
     cannot_merge_with_illegal_distinct_id: 'refused-to-merge-with-an-illegal-distinct-id',
+    merge_move_limit_exceeded: 'a-merge-exceeded-its-distinct-id-move-limit-and-was-dropped',
+    merge_settled_failure: 'a-merge-settled-without-merging-and-cannot-be-retried',
     skipping_event_invalid_uuid: 'refused-to-process-event-with-invalid-uuid',
     ignored_invalid_timestamp: 'ignored-an-invalid-timestamp-event-was-still-ingested',
     event_timestamp_in_future: 'an-event-was-sent-more-than-23-hours-in-the-future',
@@ -72,6 +86,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     replay_timestamp_too_far: 'replay-event-timestamp-was-too-far-in-the-future',
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
+    high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
 }
 
 export const WARNING_TYPE_RENDERER = {
@@ -107,6 +122,47 @@ export const WARNING_TYPE_RENDERER = {
                 <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
                 <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
                 $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_move_limit_exceeded: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                Refused to merge{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                because it has more distinct ids than one merge may move (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_settled_failure: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                A merge of{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                settled without merging, and the result is recorded, so a retry cannot change it (event uuid:{' '}
+                <code>{details.eventUuid}</code>).
             </>
         )
     },

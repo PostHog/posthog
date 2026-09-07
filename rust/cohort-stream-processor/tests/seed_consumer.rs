@@ -16,12 +16,15 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use chrono_tz::UTC;
 use cohort_core::seed::{
-    BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, RunId, SChunkMs, SeedTile,
+    BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, RunId, SChunkMs,
+    SeedTile,
 };
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
@@ -30,15 +33,17 @@ use cohort_stream_processor::consumers::{
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
+use cohort_stream_processor::observability::disk::SharedDiskUtilization;
 use cohort_stream_processor::partitions::{
     merge_partition_key, partition_for, partition_of, run_rebalance_worker, CohortConsumerContext,
     ConsumerPauser, Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionPauser,
-    PartitionRouter, COHORT_PARTITION_COUNT,
+    PartitionRouter, SeedPacingConfig, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, ChangeOrigin, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
-    KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, MembershipStatus,
-    ReconcileCompleteMarker, SeedTileSink, StreamEventSink, TransferSink,
+    KafkaReconcileMarkerSink, KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink,
+    MembershipSink, MembershipStatus, ReconcileCompleteMarker, ReconcileMarkerSink, SeedTileSink,
+    StreamEventSink, TransferSink,
 };
 use cohort_stream_processor::stage1::bucket_tz::day_idx_in_tz;
 use cohort_stream_processor::stage2::state::Stage2State;
@@ -275,6 +280,49 @@ async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i
     messages
 }
 
+fn split_records(
+    records: Vec<(i32, Vec<u8>)>,
+) -> (Vec<CohortMembershipChange>, Vec<ReconcileCompleteMarker>) {
+    let mut changes = Vec::new();
+    let mut markers = Vec::new();
+    for (_, payload) in records {
+        let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        if value.get("type").and_then(serde_json::Value::as_str) == Some("reconcile_complete") {
+            markers.push(serde_json::from_slice::<ReconcileCompleteMarker>(&payload).unwrap());
+        } else {
+            changes.push(serde_json::from_slice::<CohortMembershipChange>(&payload).unwrap());
+        }
+    }
+    (changes, markers)
+}
+
+/// Drain the membership topic, proving it carries exactly `expected` membership rows and nothing
+/// else. The count catches an extra record appearing at all; the marker arm catches that record
+/// being a `reconcile_complete` — the poison pill the dedicated marker topic exists to keep off this
+/// topic, and which its ClickHouse and CDP consumers cannot survive.
+async fn drain_membership_only(topic: &str, expected: usize) -> Vec<CohortMembershipChange> {
+    assert_eq!(
+        topic_message_count(topic),
+        expected as i64,
+        "the membership topic must carry membership rows only",
+    );
+    let (changes, markers) =
+        split_records(consume_all(topic, expected, Duration::from_secs(30)).await);
+    assert!(
+        markers.is_empty(),
+        "a completion marker on the membership topic poisons its consumers",
+    );
+    changes
+}
+
+/// Drain `expected` completion markers off the dedicated marker topic.
+async fn drain_markers(topic: &str, expected: usize) -> Vec<ReconcileCompleteMarker> {
+    let (changes, markers) =
+        split_records(consume_all(topic, expected, Duration::from_secs(30)).await);
+    assert!(changes.is_empty(), "the marker topic carries markers only");
+    markers
+}
+
 async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() -> bool) {
     let start = Instant::now();
     while !condition() {
@@ -418,6 +466,7 @@ struct Topics {
     cascade: String,
     seeds: String,
     shadow: String,
+    markers: String,
 }
 
 impl Topics {
@@ -429,6 +478,7 @@ impl Topics {
             cascade: format!("cohort_cascade_events_{suffix}"),
             seeds: format!("cohort_stream_seed_events_{suffix}"),
             shadow: format!("cohort_membership_changed_{suffix}"),
+            markers: format!("cohort_reconcile_markers_{suffix}"),
         }
     }
 
@@ -438,7 +488,7 @@ impl Topics {
         }
     }
 
-    fn names(&self) -> [&str; 6] {
+    fn names(&self) -> [&str; 7] {
         [
             &self.events,
             &self.merges,
@@ -446,6 +496,7 @@ impl Topics {
             &self.cascade,
             &self.seeds,
             &self.shadow,
+            &self.markers,
         ]
     }
 }
@@ -550,6 +601,9 @@ impl Instance {
     }
 }
 
+/// `membership` replaces the Kafka membership sink, so a test can reach an ack shape a healthy
+/// broker never produces; `None` keeps the production wiring.
+#[allow(clippy::too_many_arguments)]
 async fn spawn_instance(
     topics: &Topics,
     groups: &Groups,
@@ -557,6 +611,7 @@ async fn spawn_instance(
     catalog: CatalogHandle,
     handles: [Handle; 5],
     fence_margin_ms: i64,
+    membership: Option<Arc<dyn MembershipSink>>,
 ) -> Instance {
     let [events_handle, merge_handle, transfer_handle, cascade_handle, seed_handle] = handles;
     let kafka_config = producer_kafka_config();
@@ -592,10 +647,18 @@ async fn spawn_instance(
             .await
             .expect("create seed re-key sink"),
     );
-    let membership_sink: Arc<dyn MembershipSink> = Arc::new(
-        KafkaMembershipSink::new(&kafka_config, topics.shadow.clone())
+    let membership_sink: Arc<dyn MembershipSink> = match membership {
+        Some(sink) => sink,
+        None => Arc::new(
+            KafkaMembershipSink::new(&kafka_config, topics.shadow.clone())
+                .await
+                .expect("create membership sink"),
+        ),
+    };
+    let marker_sink: Arc<dyn ReconcileMarkerSink> = Arc::new(
+        KafkaReconcileMarkerSink::new(&kafka_config, topics.markers.clone())
             .await
-            .expect("create membership sink"),
+            .expect("create reconcile marker sink"),
     );
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
@@ -617,7 +680,10 @@ async fn spawn_instance(
             enabled: true,
             scan_page: 1,
             backlog: reconcile_backlog.clone(),
+            marker_sink,
         },
+        person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
+        seed_budget: cohort_stream_processor::workers::seed_run::RunBudget::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -724,6 +790,9 @@ async fn spawn_instance(
         COMMIT_INTERVAL,
         fence_margin_ms,
         PROBE_NEVER,
+        // Both pacing triggers disabled: these tests pin fence and holdover behavior.
+        SeedPacingConfig::default(),
+        Arc::new(SharedDiskUtilization::new(Duration::MAX)),
     );
     tasks.push(tokio::spawn(seed_follower.process()));
 
@@ -778,6 +847,7 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
             seed_catalog(),
             handles,
             2_000,
+            None,
         )
         .await;
         wait_for(
@@ -845,6 +915,231 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
     .await;
 }
 
+/// Wraps the real sink and fails its first produce, so the seed offset holds with nothing on the
+/// topic, which is the crash point the redelivery has to repair.
+struct FailFirstMembershipSink {
+    inner: Arc<dyn MembershipSink>,
+    fail_next: AtomicBool,
+    failed: AtomicBool,
+}
+
+#[async_trait]
+impl MembershipSink for FailFirstMembershipSink {
+    async fn produce(
+        &self,
+        changes: Vec<CohortMembershipChange>,
+    ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            self.failed.store(true, Ordering::SeqCst);
+            return changes
+                .iter()
+                .map(|_| Err(common_kafka::kafka_producer::KafkaProduceError::KafkaProduceCanceled))
+                .collect();
+        }
+        self.inner.produce(changes).await
+    }
+}
+
+/// Block until the apply has committed its stage-1 batch, which is what places the register row.
+async fn await_register(instance: &Instance, key: &Stage2Key) -> Stage2State {
+    let start = Instant::now();
+    loop {
+        if let Some(bytes) = instance
+            .store
+            .get_stage2(key, ReadLane::Maintenance)
+            .await
+            .expect("read register")
+        {
+            return Stage2State::decode(&bytes).expect("decode register");
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "the held tile never committed its placeholder register",
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Reopen the same on-disk store once the previous instance has released its RocksDB lock.
+async fn reopen_store_live(dir: &TempDir) -> CohortStore {
+    let config = StoreConfig {
+        path: dir.path().join("db"),
+        wipe_on_start: false,
+        ..StoreConfig::default()
+    };
+    let start = Instant::now();
+    loop {
+        match CohortStore::open(&config) {
+            Ok(store) => return store,
+            Err(_) if start.elapsed() < Duration::from_secs(10) => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(error) => panic!("failed to reopen store live: {error}"),
+        }
+    }
+}
+
+/// End to end through a real broker: the first instance commits stage 1 and then fails its
+/// membership produce, so nothing reaches the topic and the seed offset holds. A second instance
+/// over the same store re-derives the change from the register the first one never advanced.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn a_failed_seed_produce_is_re_emitted_after_a_restart() {
+    let suffix = Uuid::new_v4();
+    let topics = Topics::unique(&suffix);
+    let groups = Groups::unique(&suffix);
+    with_topics_cleanup(&topics.names(), async {
+        topics.create().await;
+        let alice = Uuid::from_u128(0xA11CE);
+        let register = Stage2Key {
+            partition_id: part(alice),
+            team_id: TEAM as u64,
+            cohort_id: 1,
+            person_id: alice,
+        };
+        let dir = TempDir::new().unwrap();
+        let producer = murmur2_producer();
+        let seed_sink = KafkaSeedTileSink::new(&producer_kafka_config(), topics.seeds.clone())
+            .await
+            .expect("create test seed sink");
+
+        // First tenure: stage 1 commits, the membership produce fails.
+        let mut manager = Manager::builder("seed-e2e-itest")
+            .with_trap_signals(false)
+            .build();
+        let handles = register_instance(&mut manager);
+        let shutdown = handles[0].clone();
+        let monitor = manager.monitor_background();
+        let failing = Arc::new(FailFirstMembershipSink {
+            inner: Arc::new(
+                KafkaMembershipSink::new(&producer_kafka_config(), topics.shadow.clone())
+                    .await
+                    .expect("create membership sink"),
+            ),
+            fail_next: AtomicBool::new(true),
+            failed: AtomicBool::new(false),
+        });
+        let instance = spawn_instance(
+            &topics,
+            &groups,
+            open_store(&dir),
+            seed_catalog(),
+            handles,
+            2_000,
+            Some(failing.clone()),
+        )
+        .await;
+        wait_for(
+            "the consumer to own every partition",
+            Duration::from_secs(30),
+            || instance.owned().len() == NUM_PARTITIONS as usize,
+        )
+        .await;
+
+        produce_warm_event(
+            &producer,
+            &topics.events,
+            alice,
+            0,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await;
+        produce_tile(
+            &seed_sink,
+            tile(alice, chrono::Utc::now().timestamp_millis() - 3_600_000),
+        )
+        .await;
+
+        let seed_partition = part(alice);
+        wait_for(
+            "the first membership produce to fail",
+            Duration::from_secs(60),
+            || failing.failed.load(Ordering::SeqCst),
+        )
+        .await;
+        assert!(
+            !await_register(&instance, &register).await.in_cohort,
+            "the bit must not advance past a failed produce",
+        );
+        assert_eq!(
+            topic_message_count(&topics.shadow),
+            0,
+            "nothing was emitted"
+        );
+        assert_eq!(
+            instance.seed_committable(seed_partition),
+            None,
+            "the failed produce holds the seed offset",
+        );
+
+        shutdown.request_shutdown();
+        instance.join().await;
+        drop(monitor);
+
+        // Second tenure over the same store: the redelivered tile merges to `Unchanged`, so only
+        // the lagging register can say downstream was never told.
+        let mut manager = Manager::builder("seed-e2e-itest")
+            .with_trap_signals(false)
+            .build();
+        let handles = register_instance(&mut manager);
+        let shutdown = handles[0].clone();
+        let _monitor = manager.monitor_background();
+        let instance = spawn_instance(
+            &topics,
+            &groups,
+            reopen_store_live(&dir).await,
+            seed_catalog(),
+            handles,
+            2_000,
+            None,
+        )
+        .await;
+        wait_for(
+            "the consumer to own every partition",
+            Duration::from_secs(30),
+            || instance.owned().len() == NUM_PARTITIONS as usize,
+        )
+        .await;
+        // The new tenure resumes live consumption at its committed offset, so the apply fence
+        // needs a fresh live event before it will re-admit the redelivered tile.
+        produce_warm_event(
+            &producer,
+            &topics.events,
+            alice,
+            1,
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .await;
+
+        wait_for(
+            "the re-derived flip on the shadow topic",
+            Duration::from_secs(60),
+            || topic_message_count(&topics.shadow) == 1,
+        )
+        .await;
+        let changes = drain_membership_only(&topics.shadow, 1).await;
+        assert_eq!(changes.len(), 1, "exactly one change, not a duplicate");
+        assert_eq!(changes[0].person_id, alice.to_string());
+        assert_eq!(changes[0].cohort_id, 1);
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert_eq!(changes[0].origin, Some(ChangeOrigin::Seed));
+        assert!(
+            instance.stage2(&register).await.in_cohort,
+            "the bit advances once the re-emission acks",
+        );
+        wait_for(
+            "the seed group's committed offset to reach the produced HWM",
+            Duration::from_secs(30),
+            || seed_group_committed(&groups.seeds, &topics.seeds, seed_partition as i32) == Some(1),
+        )
+        .await;
+
+        shutdown.request_shutdown();
+        instance.join().await;
+    })
+    .await;
+}
+
 /// Partition-targeted controls drain a full 64-partition snapshot, repair a stale membership bit,
 /// and release each seed offset only after that partition's completion marker is acknowledged.
 #[tokio::test]
@@ -871,6 +1166,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
             seed_catalog(),
             handles,
             2_000,
+            None,
         )
         .await;
         wait_for(
@@ -905,7 +1201,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         let reconcile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(COHORT),
-            BehavioralShapeHash::parse(FILTERS_HASH).unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             run_id,
         );
         let producer = murmur2_producer();
@@ -937,7 +1233,10 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         wait_for(
             "63 empty-partition markers and one stale-row repair",
             Duration::from_secs(60),
-            || topic_message_count(&topics.shadow) == NUM_PARTITIONS as i64,
+            || {
+                topic_message_count(&topics.markers) == i64::from(NUM_PARTITIONS) - 1
+                    && topic_message_count(&topics.shadow) == 1
+            },
         )
         .await;
         wait_for(
@@ -958,29 +1257,14 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         );
         assert!(!instance.stage2(&stage2_key).await.in_cohort);
 
-        let first_page = consume_all(
-            &topics.shadow,
-            NUM_PARTITIONS as usize,
-            Duration::from_secs(30),
-        )
-        .await;
-        let mut first_changes = Vec::new();
-        let mut first_markers = Vec::new();
-        for (_, payload) in first_page {
-            let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-            if value.get("type").and_then(serde_json::Value::as_str) == Some("reconcile_complete") {
-                first_markers
-                    .push(serde_json::from_slice::<ReconcileCompleteMarker>(&payload).unwrap());
-            } else {
-                first_changes
-                    .push(serde_json::from_slice::<CohortMembershipChange>(&payload).unwrap());
-            }
-        }
+        let first_changes = drain_membership_only(&topics.shadow, 1).await;
         assert_eq!(first_changes.len(), 1);
         assert_eq!(first_changes[0].person_id, person.to_string());
         assert_eq!(first_changes[0].status, MembershipStatus::Left);
         assert_eq!(first_changes[0].origin, Some(ChangeOrigin::Reconcile));
         assert_eq!(first_changes[0].run_id, Some(run_id));
+
+        let first_markers = drain_markers(&topics.markers, NUM_PARTITIONS as usize - 1).await;
         assert_eq!(first_markers.len(), NUM_PARTITIONS as usize - 1);
         assert!(!first_markers
             .iter()
@@ -990,7 +1274,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         wait_for(
             "the final partition marker",
             Duration::from_secs(30),
-            || topic_message_count(&topics.shadow) == i64::from(NUM_PARTITIONS) + 1,
+            || topic_message_count(&topics.markers) == i64::from(NUM_PARTITIONS),
         )
         .await;
         wait_for(
@@ -1011,33 +1295,24 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         assert!((0..NUM_PARTITIONS)
             .all(|partition| { instance.seed_committable(partition as u16) == Some(1) }));
 
-        let first_snapshot = consume_all(
-            &topics.shadow,
-            NUM_PARTITIONS as usize + 1,
-            Duration::from_secs(30),
-        )
-        .await;
-        let mut marker_partitions = HashSet::new();
-        let mut snapshot_changes = Vec::new();
-        for (_, payload) in first_snapshot {
-            let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-            if value.get("type").and_then(serde_json::Value::as_str) == Some("reconcile_complete") {
-                let marker: ReconcileCompleteMarker = serde_json::from_slice(&payload).unwrap();
+        let snapshot_changes = drain_membership_only(&topics.shadow, 1).await;
+        assert_eq!(snapshot_changes.len(), 1);
+        assert_eq!(snapshot_changes[0].status, MembershipStatus::Left);
+
+        let snapshot_markers = drain_markers(&topics.markers, NUM_PARTITIONS as usize).await;
+        let marker_partitions: HashSet<u16> = snapshot_markers
+            .iter()
+            .map(|marker| {
                 assert_eq!(marker.team_id(), TeamId(TEAM));
                 assert_eq!(marker.cohort_id(), CohortId(COHORT));
                 assert_eq!(marker.run_id(), run_id);
-                marker_partitions.insert(marker.partition());
-            } else {
-                snapshot_changes
-                    .push(serde_json::from_slice::<CohortMembershipChange>(&payload).unwrap());
-            }
-        }
+                marker.partition()
+            })
+            .collect();
         let expected_marker_partitions: HashSet<u16> = (0..COHORT_PARTITION_COUNT)
             .map(|partition| partition as u16)
             .collect();
         assert_eq!(marker_partitions, expected_marker_partitions);
-        assert_eq!(snapshot_changes.len(), 1);
-        assert_eq!(snapshot_changes[0].status, MembershipStatus::Left);
 
         // A duplicate manual dispatch emits the same full snapshot and certificate set, leaves the
         // repaired bit unchanged, and advances every partition by exactly one more seed offset.
@@ -1057,7 +1332,10 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         wait_for(
             "the duplicate snapshot first page",
             Duration::from_secs(60),
-            || topic_message_count(&topics.shadow) == i64::from(NUM_PARTITIONS) * 2 + 1,
+            || {
+                topic_message_count(&topics.markers) == i64::from(NUM_PARTITIONS) * 2 - 1
+                    && topic_message_count(&topics.shadow) == 2
+            },
         )
         .await;
         assert_eq!(
@@ -1074,7 +1352,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         wait_for(
             "the duplicate snapshot marker set",
             Duration::from_secs(30),
-            || topic_message_count(&topics.shadow) == i64::from(NUM_PARTITIONS) * 2 + 2,
+            || topic_message_count(&topics.markers) == i64::from(NUM_PARTITIONS) * 2,
         )
         .await;
         wait_for(
@@ -1090,26 +1368,14 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
             .all(|partition| { instance.seed_committable(partition as u16) == Some(2) }));
         assert!(!instance.stage2(&stage2_key).await.in_cohort);
 
-        let converged = consume_all(
-            &topics.shadow,
-            (NUM_PARTITIONS as usize * 2) + 2,
-            Duration::from_secs(30),
-        )
-        .await;
+        let reconcile_changes = drain_membership_only(&topics.shadow, 2).await;
+        let converged_markers = drain_markers(&topics.markers, NUM_PARTITIONS as usize * 2).await;
         let mut marker_counts = HashMap::<u16, usize>::new();
-        let mut reconcile_changes = Vec::new();
-        for (_, payload) in converged {
-            let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-            if value.get("type").and_then(serde_json::Value::as_str) == Some("reconcile_complete") {
-                let marker: ReconcileCompleteMarker = serde_json::from_slice(&payload).unwrap();
-                assert_eq!(marker.team_id(), TeamId(TEAM));
-                assert_eq!(marker.cohort_id(), CohortId(COHORT));
-                assert_eq!(marker.run_id(), run_id);
-                *marker_counts.entry(marker.partition()).or_default() += 1;
-            } else {
-                reconcile_changes
-                    .push(serde_json::from_slice::<CohortMembershipChange>(&payload).unwrap());
-            }
+        for marker in &converged_markers {
+            assert_eq!(marker.team_id(), TeamId(TEAM));
+            assert_eq!(marker.cohort_id(), CohortId(COHORT));
+            assert_eq!(marker.run_id(), run_id);
+            *marker_counts.entry(marker.partition()).or_default() += 1;
         }
         assert_eq!(
             marker_counts.keys().copied().collect::<HashSet<_>>(),
@@ -1154,7 +1420,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
         let reconcile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(COHORT),
-            BehavioralShapeHash::parse(FILTERS_HASH).unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             run_id,
         );
         assert_eq!(
@@ -1178,6 +1444,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
             seed_catalog(),
             handles,
             fence_margin_ms,
+            None,
         )
         .await;
         wait_for(
@@ -1268,7 +1535,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
         wait_for(
             "the reconcile completion marker",
             Duration::from_secs(30),
-            || topic_message_count(&topics.shadow) == 3,
+            || topic_message_count(&topics.markers) == 1,
         )
         .await;
         assert!(instance.reconcile_backlog.is_empty());
@@ -1280,17 +1547,8 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
         )
         .await;
 
-        let outputs = consume_all(&topics.shadow, 3, Duration::from_secs(30)).await;
-        let mut changes = Vec::new();
-        let mut markers = Vec::new();
-        for (_, payload) in outputs {
-            let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-            if value.get("type").and_then(serde_json::Value::as_str) == Some("reconcile_complete") {
-                markers.push(serde_json::from_slice::<ReconcileCompleteMarker>(&payload).unwrap());
-            } else {
-                changes.push(serde_json::from_slice::<CohortMembershipChange>(&payload).unwrap());
-            }
-        }
+        let changes = drain_membership_only(&topics.shadow, 2).await;
+        let markers = drain_markers(&topics.markers, 1).await;
         assert_eq!(changes.len(), 2);
         assert!(changes.iter().any(|change| {
             change.person_id == alice.to_string() && change.origin == Some(ChangeOrigin::Seed)

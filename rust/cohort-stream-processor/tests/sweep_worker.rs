@@ -24,10 +24,10 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    MeteredReceiver, OffsetTracker, PartitionRouter, ShuffleMessage,
+    OffsetTracker, PartitionRouter, ShuffleMessage, WorkerInbox,
 };
 use cohort_stream_processor::producer::{
-    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus, ReconcileCompleteMarker,
+    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus,
 };
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
@@ -304,7 +304,7 @@ fn spawn_worker_with_mode(
     mode: OffloadMode,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -326,7 +326,7 @@ fn spawn_worker_with_restore(
     durable_restore: bool,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::unmetered(rx);
+    let rx = WorkerInbox::live_only(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1239,16 +1239,6 @@ impl MembershipSink for FailNthSink {
         let acks = changes.iter().map(|_| Ok(())).collect();
         self.changes.lock().unwrap().extend(changes);
         acks
-    }
-
-    async fn produce_markers(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
-        markers
-            .into_iter()
-            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-            .collect()
     }
 }
 

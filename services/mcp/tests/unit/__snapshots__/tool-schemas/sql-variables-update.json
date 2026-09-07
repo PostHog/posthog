@@ -8,6 +8,10 @@
             "description": "A UUID string identifying this insight variable.",
             "type": "string"
         },
+        "is_multi": {
+            "description": "Whether a List variable accepts multiple selected values.",
+            "type": "boolean"
+        },
         "name": {
             "description": "Human-readable name for the SQL variable.",
             "maxLength": 400,
@@ -20,6 +24,28 @@
         },
         "values": {
             "description": "Allowed values for List variables. Null for other variable types."
+        },
+        "values_query": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels."
+        },
+        "values_query_connection_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the external data source connection values_query runs against. Null runs it against PostHog."
         }
     },
     "required": ["id"],

@@ -1,4 +1,4 @@
-import { isTextBlockNode, serializeNotebookNodes } from './documentModel'
+import { isMermaidCodeBlock, isTextBlockNode, serializeNotebookNodes } from './documentModel'
 import {
     FloatingToolbarCodeRange,
     FloatingToolbarListItemRange,
@@ -430,6 +430,12 @@ export function getSelectedCodeRanges(
             return []
         }
 
+        // A Mermaid block renders a diagram whose element text is the SVG labels, not the fence source,
+        // so an offset measured against it would not map to node.text. Treat the preview as atomic.
+        if (isMermaidCodeBlock(node)) {
+            return []
+        }
+
         const element = blockRefs[node.id]
         const range = element ? getSelectionRange(element, node.id) : null
         if (!range || range.start === range.end) {
@@ -648,8 +654,16 @@ export function rangeIntersectsNode(range: Range, node: Node): boolean {
     }
 }
 
+// Monaco belongs in this list because an embedded editor (SQLV2 and PythonV2 cells, the debug drawer)
+// owns its own editing and key handling, so the notebook has to leave Cmd+A, Backspace, copy and paste
+// to it rather than acting on the whole document. Tag names alone don't find it: with EditContext
+// enabled, which is Monaco's default on Chromium, the focused input host is a plain
+// `div.native-edit-context` instead of the legacy hidden textarea, and the DOM selection stays wherever
+// it was before the editor took focus.
+const NATIVE_EDITABLE_SELECTOR = 'input, textarea, select, .monaco-editor'
+
 export function isNativeEditableElement(element: HTMLElement): boolean {
-    return Boolean(element.closest('input, textarea, select'))
+    return Boolean(element.closest(NATIVE_EDITABLE_SELECTOR))
 }
 
 export function isFormattingToolbarFocused(): boolean {

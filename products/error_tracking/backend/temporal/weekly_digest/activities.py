@@ -1,3 +1,5 @@
+import json
+
 from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
@@ -9,13 +11,18 @@ from temporalio.exceptions import ApplicationError
 from posthog.cloud_utils import is_cloud
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.messaging import MessagingRecord
+from posthog.storage import object_storage
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.user_permissions import UserPermissions
 
-from products.error_tracking.backend import weekly_digest
+from products.error_tracking.backend import weekly_digest, weekly_digest_delivery
+from products.error_tracking.backend.facade.contracts import ExceptionSummary
 from products.error_tracking.backend.temporal.weekly_digest.types import (
+    CleanupDigestOrgsInputs,
     GetDigestOrgsInputs,
+    GetDigestOrgsResult,
+    LoadPageOrgsInputs,
     SendOrgDigestInputs,
     SendOrgDigestResult,
 )
@@ -23,44 +30,70 @@ from products.error_tracking.backend.temporal.weekly_digest.types import (
 logger = structlog.get_logger(__name__)
 
 
-def _get_digest_orgs(inputs: GetDigestOrgsInputs) -> list[str]:
-    """Resolve one keyset page of org ids for this run.
+def _get_digest_orgs(inputs: GetDigestOrgsInputs) -> GetDigestOrgsResult:
+    """Resolve the full sorted set of org ids for this run and stash it in object storage.
 
     An explicit ``org_ids`` (manual targeted runs) bypasses discovery; scheduled runs
-    discover every org with exceptions.
+    discover every org with exceptions. Discovery's exception-count scan runs once per
+    run instead of once per page; page children read their slice back via
+    ``load_page_orgs_activity``, so the full list never rides through a Temporal payload.
 
-    The candidate set is sorted and sliced to (``after``, ``after`` + ``limit``] so the
-    workflow can page with only a cursor. Recomputing candidates each page is safe: an
-    org shifting in or out between pages is either <= cursor (already processed) or
-    > cursor (still pending), never both.
+    Writing before returning makes retries idempotent: a retry overwrites the same key
+    with a fresh list and the count always describes the object that was just written.
     """
     # Checked before org_ids so a targeted manual run can't route around the cloud gate. Returning
-    # no orgs is what keeps the send activity from being scheduled at all.
+    # no orgs is what keeps the page children from being scheduled at all.
     if not is_cloud():
         logger.info("Skipping Error Tracking weekly digest outside PostHog Cloud")
-        return []
+        return GetDigestOrgsResult(total_orgs=0)
 
     if inputs.org_ids is not None:
-        candidates = sorted(str(org_id) for org_id in inputs.org_ids)
+        org_ids = sorted(str(org_id) for org_id in inputs.org_ids)
     else:
-        candidates = sorted(str(org_id) for org_id in weekly_digest.get_org_ids_with_exceptions())
+        org_ids = sorted(str(org_id) for org_id in weekly_digest.get_org_ids_with_exceptions())
 
-    if inputs.after is not None:
-        candidates = [org_id for org_id in candidates if org_id > inputs.after]
-    return candidates[: inputs.limit]
+    if org_ids:
+        object_storage.write(inputs.storage_key, json.dumps(org_ids))
+    return GetDigestOrgsResult(total_orgs=len(org_ids))
 
 
 @activity.defn
-def get_digest_orgs_activity(inputs: GetDigestOrgsInputs) -> list[str]:
+def get_digest_orgs_activity(inputs: GetDigestOrgsInputs) -> GetDigestOrgsResult:
     close_old_connections()
     return _get_digest_orgs(inputs)
+
+
+def _load_page_orgs(inputs: LoadPageOrgsInputs) -> list[str]:
+    """Read one page's org ids back from the list discovery stored.
+
+    A missing object raises (activity retries): the parent always writes before starting
+    children, so absence means storage trouble, not an empty page.
+    """
+    content = object_storage.read(inputs.storage_key)
+    if content is None:
+        raise ApplicationError(f"Digest org list not found in object storage at {inputs.storage_key}")
+    org_ids = json.loads(content)
+    start = (inputs.page_number - 1) * inputs.page_size
+    return org_ids[start : start + inputs.page_size]
+
+
+@activity.defn
+def load_page_orgs_activity(inputs: LoadPageOrgsInputs) -> list[str]:
+    return _load_page_orgs(inputs)
+
+
+@activity.defn
+def cleanup_digest_orgs_activity(inputs: CleanupDigestOrgsInputs) -> None:
+    object_storage.delete(inputs.storage_key)
 
 
 def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigestResult:
     """Send one combined weekly error tracking digest per user in an org via the delivery workflow.
 
     ``attempt`` is Temporal's 1-based attempt counter; ``attempt >= inputs.max_attempts`` marks
-    the final attempt, which sends partial digests instead of deferring recipients.
+    the final attempt, which sends partial digests instead of deferring recipients. On the last
+    two attempts, a team whose filtered build fails is rebuilt without its test account filters,
+    with the section flagged so the email can disclose it.
     """
     org_id = inputs.org_id
     try:
@@ -87,15 +120,22 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     # counts: unfiltered counts can permanently enroll a user onto a project whose digest builds empty
     # (auto-select is a one-shot decision). Only computed when the org actually has a first-time user.
     setting_key = weekly_digest.DIGEST_PROJECT_SETTING_KEY
-    autoselect_counts: dict[int, dict] = {}
+    autoselect_counts: dict[int, ExceptionSummary] = {}
     # Kept for Pass 2: the 14-day row query is the most expensive thing this activity does, so a team
     # ranked here shouldn't pay for it again when its digest is built.
     daily_rows_by_team: dict[int, list] = {}
     if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
         for tid in team_ids_with_exceptions:
-            daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
+            try:
+                daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
+            except Exception:
+                # A team whose filtered query is permanently broken (bad regex, deleted cohort) must
+                # not sink the whole org here, before the build loop below can defer or fall back.
+                # It just goes unranked, so auto-select can't enroll anyone onto it.
+                logger.exception("et_weekly_digest.autoselect_rank_failed", team_id=tid, org_id=org_id)
+                continue
             summary = weekly_digest.get_exception_summary_for_team(all_org_teams[tid], daily_rows_by_team[tid])
-            if summary and summary["exception_count"] > 0:
+            if summary and summary.exception_count > 0:
                 autoselect_counts[tid] = summary
 
     # Pass 1 — resolve each recipient's enabled teams from notification settings + project access only (no
@@ -156,13 +196,30 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     # Temporal retries it.
     team_digest_data: dict[int, dict] = {}
     failed_team_ids: list[int] = []
+    # A team still failing this deep into the retries is most likely failing because of its test
+    # account filters (broken regex, deleted cohort), which no retry will fix. The last two attempts
+    # trade filtered accuracy for delivery: rebuild without the filters, and flag the section so the
+    # email can disclose it. Keeping it off earlier attempts means a transient ClickHouse error
+    # can't produce an unfiltered digest for a team whose filters work fine.
+    unfiltered_fallback = attempt >= inputs.max_attempts - 1
     for team_id in needed_team_ids:
         try:
             data = weekly_digest.build_team_digest_data(all_org_teams[team_id], daily_rows_by_team.get(team_id))
         except Exception:
-            logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
-            failed_team_ids.append(team_id)
-            continue
+            if not unfiltered_fallback:
+                logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
+                failed_team_ids.append(team_id)
+                continue
+            logger.exception("et_weekly_digest.team_build_filtered_failed", team_id=team_id, org_id=org_id)
+            try:
+                # No cached daily_rows: those were queried with the filters applied, and the
+                # rebuilt sections must be consistently unfiltered.
+                data = weekly_digest.build_team_digest_data(all_org_teams[team_id], filter_test_accounts=False)
+            except Exception:
+                logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
+                failed_team_ids.append(team_id)
+                continue
+            logger.warning("et_weekly_digest.team_built_without_test_account_filters", team_id=team_id, org_id=org_id)
         if data:
             team_digest_data[team_id] = data
 
@@ -207,7 +264,7 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
         digest = {
             "recipient_email": user.email,
             "org_name": org.name,
-            "project_sections": [weekly_digest.build_team_section_payload(d) for d in user_team_sections],
+            "project_sections": [weekly_digest_delivery.build_team_section_payload(d) for d in user_team_sections],
             "disabled_project_names": disabled_team_names,
             "excluded_project_count": excluded_project_count,
             "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
@@ -237,7 +294,7 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
             continue
 
         try:
-            weekly_digest.send_digest_to_workflow(digest, distinct_id)
+            weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
         except Exception:
             logger.exception("et_weekly_digest.send_failed", user_id=str(user.uuid), org_id=org_id)
             MessagingRecord.objects.filter(pk=record.pk).update(sent_at=None)
@@ -295,5 +352,15 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
 @activity.defn
 def send_org_digest_activity(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
     close_old_connections()
+    attempt = activity.info().attempt
     with HeartbeaterSync(logger=logger):
-        return _send_org_digest(inputs, attempt=activity.info().attempt)
+        try:
+            return _send_org_digest(inputs, attempt=attempt)
+        except Exception:
+            # Every other failure log sits inside the per-team build loop, so a failure before it
+            # (the org-wide exception count query, or any Postgres read) names no org anywhere.
+            # Temporal's own activity-failure log carries the activity id but not the inputs, which
+            # leaves those orgs unidentifiable after the fact. This one event names the org for
+            # every failure path: filter it on attempt == max_attempts for the orgs a run gave up on.
+            logger.exception("et_weekly_digest.org_failed", org_id=inputs.org_id, attempt=attempt)
+            raise

@@ -5,6 +5,7 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
+from posthog.management.desktop_feature_flag_sync import load_desktop_feature_flags
 from posthog.models import Team, User
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -22,13 +23,11 @@ INACTIVE_FLAGS = [
     "halloween-override",
     "christmas-override",
     "control_support_login",
-    "auth-flow-variant",
     "person-property-incident-annotation-jan-2026",
     "replay-exclude-from-hide-recordings-menu",
     "webhooks-denylist",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
-    "read-only-mode",
 ]
 
 
@@ -60,6 +59,8 @@ class Command(BaseCommand):
                             pass
                 elif "export const FEATURE_FLAGS" in line:
                     parsing_flags = True
+
+        flags.update(load_desktop_feature_flags())
 
         first_user = cast(User, User.objects.first())
         for team in Team.objects.all():

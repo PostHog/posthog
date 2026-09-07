@@ -18,6 +18,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
+from posthog.models.integration import Integration
 from posthog.models.team.util import delete_batch_exports
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -27,6 +28,11 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
+    truncate_events,
+    truncate_persons,
+    truncate_sessions,
+)
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -34,6 +40,14 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_persons_in_clickhouse,
     insert_person_distinct_id2_values_in_clickhouse,
 )
+
+
+@pytest_asyncio.fixture
+async def truncate_clickhouse_tables(clickhouse_client):
+    yield
+    await truncate_events(clickhouse_client)
+    await truncate_persons(clickhouse_client)
+    await truncate_sessions(clickhouse_client)
 
 
 @pytest.fixture(scope="package", autouse=True)
@@ -121,6 +135,21 @@ async def another_ateam(aorganization):
     yield team
     await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
     await sync_to_async(team.delete)()
+
+
+@pytest_asyncio.fixture
+async def s3_compatible_integration(ateam):
+    """An s3-compatible Integration pointing at the local object storage used by these tests."""
+    return await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id=f"object-storage-{uuid.uuid4()}",
+        config={"name": "object-storage-test", "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT},
+        sensitive_config={
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+        },
+    )
 
 
 @pytest.fixture

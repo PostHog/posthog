@@ -27,12 +27,3 @@ inherit = "core"
 # xdist opens a loopback socket even without parallel workers, which the
 # Codex sandbox blocks.
 set = { PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", PYTEST_ADDOPTS = "-p no:xdist" }
-
-[mcp_servers.phrocs]
-command = "bin/dev-sandbox"
-args = [".flox/cache/venv/bin/python tools/phrocs/mcp_server.py"]
-cwd = ".."
-startup_timeout_sec = 120
-
-[mcp_servers.posthog-local]
-url = "http://localhost:8787/mcp"

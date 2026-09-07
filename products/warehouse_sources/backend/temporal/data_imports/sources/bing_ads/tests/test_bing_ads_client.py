@@ -86,7 +86,6 @@ class TestBingAdsClient:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_customer_id_success(self, mock_service_client):
-        """Test successful customer ID retrieval."""
         mock_user = mock.MagicMock()
         mock_user.CustomerId = self.customer_id
 
@@ -290,7 +289,6 @@ class TestBingAdsClient:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_campaigns_success(self, mock_service_client):
-        """Test successful campaigns retrieval."""
         mock_campaign = mock.MagicMock()
         mock_campaign.Id = 123
         mock_campaign.Name = "Test Campaign"
@@ -321,6 +319,11 @@ class TestBingAdsClient:
         assert campaign_data["Name"] == "Test Campaign"
         assert campaign_data["Status"] == "Active"
         assert campaign_data["Languages"] == ["English"]
+
+        # Every campaign type must be requested — omitting CampaignType silently drops everything but
+        # Search campaigns to Bing's Search-only default.
+        _, call_kwargs = mock_client_instance.GetCampaignsByAccountId.call_args
+        assert call_kwargs["CampaignType"] == "App Audience DynamicSearchAds Hotel PerformanceMax Search Shopping"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_campaigns_surfaces_soap_fault_detail(self, mock_service_client):

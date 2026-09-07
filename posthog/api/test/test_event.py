@@ -107,7 +107,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # sparse dataset; the schema is built once and shared). Group-type-mapping is read via
         # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
         # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
-        # skip its per-call Team+organization lookup.
+        # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
+        # HogQL database build.
         with self.assertNumQueries(15):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
@@ -139,6 +140,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
+        # +1 for the saved-expressions fetch in the HogQL database build.
         expected_queries = 22 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 23
 
         with self.assertNumQueries(expected_queries):

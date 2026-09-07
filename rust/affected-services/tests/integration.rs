@@ -369,16 +369,16 @@ fn old_graph_no_changed_files_produces_empty() {
 }
 
 #[test]
-fn two_graph_lockfile_triggers_rebuild_all() {
+fn two_graph_lockfile_alone_does_not_rebuild_all() {
     let (graph, images) = load_test_fixtures();
     let result =
         compute_affected(&["rust/Cargo.lock".into()], Some(&graph), &graph, &images).unwrap();
     assert!(
-        result.rebuild_all,
-        "Cargo.lock change should force rebuild-all even with two graphs (feature narrowing is invisible to the determinator)"
+        !result.rebuild_all,
+        "a lockfile change with an old graph to diff against must not force rebuild-all — the determinator's summary diff decides what is affected"
     );
-    let workspace_count = graph.workspace().iter().count();
-    assert_eq!(result.crates.len(), workspace_count);
+    assert!(result.crates.is_empty());
+    assert!(result.images.is_empty());
 }
 
 #[test]

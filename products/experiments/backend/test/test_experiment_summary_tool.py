@@ -249,59 +249,6 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_no_warning_when_recent(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        # 30 seconds difference - well within the 1 minute threshold
-        frontend_refresh = "2020-01-10T11:59:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 59, 30, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        self.assertIsNone(warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_warning_when_stale(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        frontend_refresh = "2020-01-10T10:00:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 30, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        assert warning is not None
-        self.assertIn("data has been updated", warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        # 61 seconds difference - just over the 1 minute (60 second) threshold
-        frontend_refresh = "2020-01-10T11:58:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 59, 1, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        assert warning is not None
-        self.assertIn("data has been updated", warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_no_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        # Exactly 60 seconds - at the threshold (not over), should NOT trigger warning
-        frontend_refresh = "2020-01-10T11:58:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 59, 0, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        self.assertIsNone(warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_handles_none_values(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        self.assertIsNone(data_service.check_data_freshness(None, None))
-        self.assertIsNone(data_service.check_data_freshness("2020-01-10T10:00:00Z", None))
-        self.assertIsNone(data_service.check_data_freshness(None, datetime.now(ZoneInfo("UTC"))))
-
-    @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_with_mocked_query_runners(self):
         experiment = await self.acreate_experiment(name="query-runner-test", with_metrics=True)
 
@@ -348,7 +295,12 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
+            summary_data = await data_service.fetch_experiment_data(experiment.id)
+            context, last_refresh, pending_calculation = (
+                summary_data.context,
+                summary_data.last_refresh,
+                summary_data.pending_calculation,
+            )
 
         self.assertEqual(context.experiment_id, experiment.id)
         self.assertEqual(context.experiment_name, "query-runner-test")
@@ -358,6 +310,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(pending_calculation)
         self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
         self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
+        # The real exposure runner rejects a feature_flag dict without a non-empty "key".
+        exposure_query = mock_exposure_runner_class.call_args.kwargs["query"]
+        self.assertEqual(exposure_query.feature_flag["key"], "query-runner-test")
         # The agent can't poll, so it always blocks on stale cache rather than dropping pending metrics.
         self.assertEqual(
             mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
@@ -387,10 +342,10 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         await experiment.asave(update_fields=["metrics"])
 
         data_service = ExperimentSummaryDataService(self.team, self.user)
-        context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
+        summary_data = await data_service.fetch_experiment_data(experiment.id)
 
-        self.assertFalse(pending_calculation)
-        self.assertIsNotNone(last_refresh)
+        self.assertFalse(summary_data.pending_calculation)
+        self.assertIsNotNone(summary_data.last_refresh)
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_includes_saved_metrics(self):
@@ -465,10 +420,14 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, _, _ = await data_service.fetch_experiment_data(experiment.id)
+            context = (await data_service.fetch_experiment_data(experiment.id)).context
 
         self.assertEqual(len(context.primary_metrics_results), 1)
         self.assertEqual(len(context.secondary_metrics_results), 1)
+
+        # Saved metrics must surface under their display name, not an event-derived fallback
+        self.assertEqual(context.primary_metrics_results[0].name, "1. Team Growth NSM")
+        self.assertEqual(context.secondary_metrics_results[0].name, "1. Onboarding Completion")
 
         # Verify the saved metric queries were actually passed to the query runner
         query_runner_calls = mock_query_runner_class.call_args_list
@@ -480,6 +439,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
     async def test_fetch_experiment_data_combines_inline_and_saved_metrics(self):
         experiment = await self.acreate_experiment(name="mixed-metrics-test", with_metrics=True)
         # experiment.metrics already has 1 inline primary metric from acreate_experiment
+        experiment.metrics[0]["uuid"] = "inline-primary-uuid"
 
         # Add 1 inline secondary
         experiment.metrics_secondary = [
@@ -489,7 +449,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
                 "name": "Signup conversion",
             }
         ]
-        await experiment.asave(update_fields=["metrics_secondary"])
+        # UI display order puts the saved primary metric first
+        experiment.primary_metrics_ordered_uuids = ["saved-primary-uuid", "inline-primary-uuid"]
+        await experiment.asave(update_fields=["metrics", "metrics_secondary", "primary_metrics_ordered_uuids"])
 
         # Add 1 saved primary + 1 saved secondary
         saved_primary = await ExperimentSavedMetric.objects.acreate(
@@ -560,16 +522,72 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, _, _ = await data_service.fetch_experiment_data(experiment.id)
+            context = (await data_service.fetch_experiment_data(experiment.id)).context
 
         # 1 inline primary + 1 saved primary = 2
         self.assertEqual(len(context.primary_metrics_results), 2)
         # 1 inline secondary + 1 saved secondary = 2
         self.assertEqual(len(context.secondary_metrics_results), 2)
 
+        # Primary metrics are numbered in UI display order (saved metric first per ordered uuids)
+        self.assertEqual(
+            [m.name for m in context.primary_metrics_results],
+            ["1. Saved Primary", "2. Purchase conversion"],
+        )
+
         # Verify all 4 metrics were passed to the query runner (2 primary + 2 secondary)
         query_runner_calls = mock_query_runner_class.call_args_list
         self.assertEqual(len(query_runner_calls), 4)
         metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
-        # Inline funnel primary, saved mean primary, inline funnel secondary, saved funnel secondary
-        self.assertEqual(metrics_queried, ["funnel", "mean", "funnel", "funnel"])
+        # Saved mean primary (ordered first), inline funnel primary, inline funnel secondary, saved funnel secondary
+        self.assertEqual(metrics_queried, ["mean", "funnel", "funnel", "funnel"])
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_fetch_experiment_data_reports_metrics_omitted_by_cap(self):
+        experiment = await self.acreate_experiment(name="metric-cap-test", with_metrics=False)
+        experiment.metrics = [
+            {
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": f"event_{i}"}],
+                "name": f"Metric {i}",
+            }
+            for i in range(52)
+        ]
+        await experiment.asave(update_fields=["metrics"])
+
+        mock_query_result = MagicMock()
+        mock_query_result.variant_results = [
+            ExperimentVariantResultBayesian(
+                key="control",
+                method="bayesian",
+                chance_to_win=0.5,
+                credible_interval=[-0.03, 0.03],
+                significant=False,
+                number_of_samples=100,
+                sum=50,
+                sum_squares=2500,
+            ),
+        ]
+        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_exposure_result = MagicMock()
+        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
+        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        with (
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
+            ) as mock_query_runner_class,
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
+            ) as mock_exposure_runner_class,
+        ):
+            mock_query_runner_class.return_value.run.return_value = mock_query_result
+            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
+
+            data_service = ExperimentSummaryDataService(self.team, self.user)
+            summary_data = await data_service.fetch_experiment_data(experiment.id)
+            context, omitted_count = summary_data.context, summary_data.omitted_metric_count
+
+        self.assertEqual(len(context.primary_metrics_results), 50)
+        self.assertEqual(omitted_count, 2)

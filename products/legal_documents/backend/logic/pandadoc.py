@@ -164,6 +164,14 @@ class PandaDocClient:
         url = f"{self._base_url}{path}"
         try:
             with requests.get(url, headers=self._headers(), stream=True, timeout=self._timeout) as response:
+                if response.status_code == 202:
+                    # PandaDoc's spec documents 202 + empty body + Retry-After for "signed
+                    # assets not produced yet", exactly the race this file exists to survive.
+                    # Treating it as success would stream an empty body into storage and mark
+                    # the row permanently archived with no PDF behind it.
+                    retry_after = response.headers.get("Retry-After")
+                    suffix = f", retry after {retry_after}s" if retry_after else ""
+                    raise PandaDocError(f"PandaDoc {path} returned 202: assets not ready yet{suffix}")
                 if response.status_code >= 400:
                     raise PandaDocError(f"PandaDoc {path} returned {response.status_code}: {response.text[:500]}")
                 # Transparently handle gzip/deflate on the wire so consumers

@@ -100,6 +100,14 @@ registerActionNodeCategory({
     nodes: [
         {
             type: 'function',
+            name: 'Create account',
+            description: "Create a Customer analytics account for the event's group, if one doesn't exist yet.",
+            config: { template_id: 'template-posthog-create-account', inputs: {} },
+            getDefaultInputs: getAccountExternalIdDefaultInputs,
+            output_variable: { key: 'account', result_path: null, label: 'Account' },
+        },
+        {
+            type: 'function',
             name: 'Get account',
             description: 'Fetch a Customer analytics account into a workflow variable.',
             config: { template_id: 'template-posthog-get-account', inputs: {} },
@@ -147,7 +155,7 @@ registerActionNodeCategory({
         {
             type: 'function',
             name: 'Update account property',
-            description: 'Set custom property values on a Customer analytics account.',
+            description: 'Set or clear custom property values on a Customer analytics account.',
             config: { template_id: 'template-posthog-update-account-property', inputs: {} },
             getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: { key: 'account', result_path: null },

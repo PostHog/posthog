@@ -20,6 +20,7 @@ function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeR
 const testCfg = {
     recordingApiBaseUrl: 'http://localhost:6738',
     recordingApiSecret: 'test-secret',
+    blockListingTimeoutMs: 30_000,
 }
 
 const mockLog = {
@@ -53,9 +54,30 @@ describe('BlockProxy', () => {
 
             expect(count).toBe(2)
             expect(proxy.blockCount).toBe(2)
+            // Inclusive ranges: 1001 + 2001, not 1000 + 2000. Undercounting lets a recording at the
+            // size cap through by one byte per block.
+            expect(proxy.totalCompressedBytes).toBe(3002)
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
-                { headers: { 'X-Internal-Api-Secret': 'test-secret' } }
+                { headers: { 'X-Internal-Api-Secret': 'test-secret' }, timeoutMs: 30_000 }
+            )
+        })
+
+        it('relays the recording_api_token as a bearer token when present', async () => {
+            mockInternalFetch.mockResolvedValue({
+                status: 200,
+                json: jest.fn().mockResolvedValue({ blocks: [] }),
+            })
+
+            const proxy = new BlockProxy(testCfg, mockLog)
+            await proxy.fetchBlocks(baseInput({ recording_api_token: 'minted-token' }))
+
+            expect(mockInternalFetch).toHaveBeenCalledWith(
+                'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
+                {
+                    headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' },
+                    timeoutMs: 30_000,
+                }
             )
         })
 
@@ -73,6 +95,11 @@ describe('BlockProxy', () => {
         it.each([
             [500, true],
             [403, false],
+            // 404: a recording still being ingested has no blocks yet, the same race NO_SNAPSHOTS
+            // deliberately keeps retryable.
+            [404, true],
+            [429, true],
+            [401, false],
         ])('marks %i response as retryable=%s', async (status, expectedRetryable) => {
             mockInternalFetch.mockResolvedValue({
                 status,
@@ -94,6 +121,21 @@ describe('BlockProxy', () => {
 
             const proxy = new BlockProxy(testCfg, mockLog)
             await expect(proxy.fetchBlocks(baseInput())).rejects.toThrow('Invalid block listing response')
+            // The rethrow that lets timeouts through as retryable must not flip this.
+            await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({ retryable: false })
+        })
+
+        it('marks a body read that aborts as retryable', async () => {
+            mockInternalFetch.mockResolvedValue({
+                status: 200,
+                json: jest.fn().mockRejectedValue(new Error('The operation was aborted due to timeout')),
+            })
+
+            const proxy = new BlockProxy(testCfg, mockLog)
+            await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({
+                retryable: true,
+                code: 'BLOCK_LISTING_FAILED',
+            })
         })
     })
 
@@ -111,13 +153,13 @@ describe('BlockProxy', () => {
             }
         }
 
-        async function createProxyWithBlocks(): Promise<BlockProxy> {
+        async function createProxyWithBlocks(input: RasterizeRecordingInput = baseInput()): Promise<BlockProxy> {
             mockInternalFetch.mockResolvedValueOnce({
                 status: 200,
                 json: jest.fn().mockResolvedValue({ blocks }),
             })
             const proxy = new BlockProxy(testCfg, mockLog)
-            await proxy.fetchBlocks(baseInput())
+            await proxy.fetchBlocks(input)
             mockInternalFetch.mockReset()
             return proxy
         }
@@ -146,6 +188,22 @@ describe('BlockProxy', () => {
             expect(blockRequest.respond).toHaveBeenCalledWith(
                 expect.objectContaining({ status: 200, contentType: 'application/jsonl' })
             )
+        })
+
+        it('relays the recording_api_token as a bearer token when present', async () => {
+            const proxy = await createProxyWithBlocks(baseInput({ recording_api_token: 'minted-token' }))
+
+            mockInternalFetch.mockResolvedValue({
+                status: 200,
+                headers: { 'content-type': 'application/jsonl' },
+                text: jest.fn().mockResolvedValue('{"data":"test"}'),
+            })
+
+            await proxy.handleRequest(mockBlockRequest('/__blocks/0') as any, '/__blocks/0')
+
+            expect(mockInternalFetch).toHaveBeenCalledWith(expect.stringContaining('/block?'), {
+                headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' },
+            })
         })
 
         it('returns 404 for out-of-range index', async () => {

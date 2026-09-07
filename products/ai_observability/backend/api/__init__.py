@@ -4,10 +4,11 @@ from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
 from .evaluation_config import EvaluationConfigViewSet
+from .evaluation_directories import EvaluationDirectoryViewSet
 from .evaluation_reports import EvaluationReportViewSet
 from .evaluation_runs import EvaluationRunViewSet
-from .evaluation_summary import LLMEvaluationSummaryViewSet
 from .evaluations import EvaluationViewSet
+from .instrumentation_checklist import AIObservabilityInstrumentationChecklistViewSet
 from .models import LLMModelsViewSet
 from .offline_evaluations import AIObservabilityOfflineEvaluationsViewSet
 from .parser_recipes import ParserRecipeViewSet
@@ -27,16 +28,17 @@ __all__ = [
     "ClusteringConfigViewSet",
     "ClusteringJobViewSet",
     "AIObservabilityClusteringRunViewSet",
+    "AIObservabilityInstrumentationChecklistViewSet",
     "LLMModelsViewSet",
     "LLMProxyViewSet",
     "AIObservabilityTextReprViewSet",
     "AIObservabilitySummarizationViewSet",
     "AIObservabilityTranslateViewSet",
-    "LLMEvaluationSummaryViewSet",
     "SUPPORTED_MODELS_WITH_THINKING",
     "DatasetViewSet",
     "DatasetItemViewSet",
     "EvaluationViewSet",
+    "EvaluationDirectoryViewSet",
     "EvaluationReportViewSet",
     "EvaluationRunViewSet",
     "EvaluationConfigViewSet",

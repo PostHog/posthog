@@ -7,7 +7,25 @@ between the experiments product and the rest of the system.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.schema import MaxExperimentSummaryContext
+
+# Metrics per section (primary/secondary) included in the AI results summary
+MAX_METRICS_TO_SUMMARIZE = 50
+
+
+@frozen
+class ExperimentSummaryData:
+    """Result of fetching experiment data for the AI results summary."""
+
+    context: "MaxExperimentSummaryContext"
+    last_refresh: datetime | None
+    pending_calculation: bool
+    omitted_metric_count: int
 
 
 @dataclass(frozen=True)

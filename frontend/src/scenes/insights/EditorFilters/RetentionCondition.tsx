@@ -23,13 +23,19 @@ import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 
 const MAX_RANGE = 1000
 
 const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
     { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
+]
+
+const actionsTaxonomicGroupTypes = [
+    TaxonomicFilterGroupType.Events,
+    TaxonomicFilterGroupType.Actions,
+    TaxonomicFilterGroupType.DataWarehouse,
 ]
 
 function retentionEntityToFilter(entity: Record<string, any> | undefined): FilterType {
@@ -160,14 +166,10 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
 
 export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
-    const { retentionFilter, dateRange, isRetentionDWHEnabled } = useValues(retentionLogic(insightProps))
+    const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
     const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
         retentionFilter || {}
-
-    const actionsTaxonomicGroupTypes = isRetentionDWHEnabled
-        ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.DataWarehouse]
-        : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
 
     return (
         <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">
