@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -16,13 +17,13 @@ describe('supportSettingsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                'api/conversations/v1/email/status': { configs: [] },
+                '/api/conversations/v1/email/status': { configs: [] },
             },
             post: {
-                'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
-                'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                'api/conversations/v1/teams/channels': { channels: [] },
+                '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
+                '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                '/api/conversations/v1/teams/channels': { channels: [] },
             },
         })
         initKeaTests()
@@ -45,6 +46,45 @@ describe('supportSettingsLogic', () => {
             ],
         ])('%s', (_label, flags, expected) => {
             expect(aiAllChannelsForFeatureFlags(flags)).toEqual(expected)
+        })
+    })
+
+    describe('connectEmail', () => {
+        let errorToastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+        })
+
+        afterEach(() => {
+            errorToastSpy.mockRestore()
+        })
+
+        it.each<[string, Record<string, string>]>([
+            ['view {error} shape', { error: 'This domain is already in use by another organization.' }],
+            [
+                'DRF {detail} shape',
+                { type: 'validation_error', code: 'invalid', detail: 'Enter a valid email address.' },
+            ],
+        ])('surfaces the backend reason when connecting fails (%s)', async (_label, body) => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                },
+                post: {
+                    '/api/conversations/v1/email/connect': () => [400, body],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewEmailFromEmail('help@example.com')
+            logic.actions.setNewEmailFromName('Example Support')
+
+            logic.actions.connectEmail()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith(body.error ?? body.detail)
         })
     })
 
@@ -301,13 +341,13 @@ describe('supportSettingsLogic', () => {
 
             useMocks({
                 get: {
-                    'api/conversations/v1/email/status': { configs: [] },
+                    '/api/conversations/v1/email/status': { configs: [] },
                 },
                 post: {
-                    'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                    'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
-                    'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                    'api/conversations/v1/teams/channels': { channels: [] },
+                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                    '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
+                    '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                    '/api/conversations/v1/teams/channels': { channels: [] },
                 },
             })
 
