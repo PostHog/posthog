@@ -1,5 +1,5 @@
-import { parseExecCall, parseExecCommand, POSTHOG_EXEC_TOOL_RE } from '../components/tool/posthogExecDisplay'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { parseExecCall, parseExecCommand, POSTHOG_EXEC_TOOL_RE } from './posthogExec'
 
 export interface ResolvedToolKey {
     resolvedKey: string

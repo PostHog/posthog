@@ -5,10 +5,10 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { MessageTemplate } from '../../../messages/MessageTemplate'
+import { parseToolOutputRecord } from '../../../utils/toolOutput'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
-import { parseToolOutputRecord } from './extractors'
 
 /** The notebook fields the widget renders, pulled from the REST payload. */
 export interface NotebookExtraction {
@@ -25,7 +25,7 @@ export interface NotebookExtraction {
  * the generic card.
  */
 export function extractNotebook(message: ToolRendererProps['message']): NotebookExtraction | null {
-    const output = parseToolOutputRecord(message)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
     if (!output) {
         return null
     }

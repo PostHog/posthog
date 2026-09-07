@@ -1,9 +1,6 @@
-import { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { isPostHogExecTool } from '../utils/posthogExec'
 import { resolveToolCall } from '../utils/toolResolver'
-
-// Re-exported so existing importers (and tests) keep resolving the exec-tool check from here.
-export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
 
 /**
  * Client-side sandbox tool-permission policy.
