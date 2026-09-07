@@ -307,6 +307,8 @@ pub struct Dispatcher {
     /// The configured routing strategy; the scheduler owns the router itself.
     /// Kept here for view construction (aperture narrowing) and debug.
     strategy: RoutingStrategy,
+    /// The selected scheduler kind, for the batcher's driver choice.
+    scheduler_kind: SchedulerKind,
     /// Per-key send/ACK order checker. Called under the inner lock (lock
     /// order: inner → sentinel; the sentinel never takes the inner lock),
     /// so its check order matches the intended per-key send order.
@@ -367,6 +369,7 @@ impl Dispatcher {
             }),
             registry,
             strategy,
+            scheduler_kind: kind,
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             aperture: None,
             debug_recorder: None,
@@ -714,6 +717,51 @@ impl Dispatcher {
             .into_iter()
             .map(send)
             .collect()
+    }
+
+    /// Fire the parked-retry deadline and hand each sub-batch to `send`
+    /// under the lock, like `flush_deferred_and_send`. The key table's pump
+    /// calls this on its interval; keys that still cannot route stay parked
+    /// for the next call.
+    pub fn parked_retry_and_send<T>(&self, send: impl FnMut(SubBatch) -> T) -> Vec<T> {
+        let mut inner = self.inner.lock().unwrap();
+        let snapshot = self.worker_snapshot(&inner.in_flight);
+        let SchedulerEffects { dispatches, .. } = inner
+            .scheduler
+            .on_deadline(&snapshot, Deadline::ParkedRetry);
+        if dispatches.is_empty() {
+            return Vec::new();
+        }
+        let assignments = self.note_and_assemble(dispatches);
+        for (worker, message_count) in assignments.routed_counts() {
+            *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
+            counter!(
+                "ingestion_consumer_dispatcher_messages_routed_total",
+                "worker" => worker.clone(),
+            )
+            .increment(message_count as u64);
+        }
+        assignments
+            .into_sub_batches()
+            .into_iter()
+            .map(send)
+            .collect()
+    }
+
+    /// The scheduler selected at construction.
+    pub fn scheduler_kind(&self) -> SchedulerKind {
+        self.scheduler_kind
+    }
+
+    /// Whether the key table holds queued or in-flight work. The pump's
+    /// stall watchdog checks it; always false under the pin-stash scheduler.
+    pub fn has_pending_key_work(&self) -> bool {
+        match &self.inner.lock().unwrap().scheduler {
+            SchedulerImpl::PinStash(_) => false,
+            SchedulerImpl::KeyTable(scheduler) => {
+                scheduler.table().queued_messages() > 0 || scheduler.table().outstanding_keys() > 0
+            }
+        }
     }
 
     fn flush_groups(&self, inner: &mut DispatcherInner, batch_id: &str) -> Vec<SubBatch> {
@@ -1731,6 +1779,36 @@ mod tests {
         assert_eq!(flushed[0].worker, wid(0));
         assert_eq!(flushed[0].messages.len(), 1);
         assert!(!dispatcher.has_deferred("batch-1"));
+    }
+
+    #[test]
+    fn test_key_table_parked_key_retries_when_a_worker_returns() {
+        let registry = healthy_registry(0);
+        let dispatcher = Dispatcher::with_scheduler(
+            Arc::clone(&registry),
+            RoutingStrategy::BinPack,
+            SchedulerKind::KeyTable,
+        );
+
+        let sub_batches = dispatcher.assign("b1", make_msgs(&["t:user-1"]));
+        assert!(sub_batches.is_empty(), "nothing routable yet");
+        assert!(
+            dispatcher.retains_work("b1"),
+            "the key table keeps the messages"
+        );
+
+        // Still nothing healthy: the key stays parked for the next tick.
+        assert!(dispatcher.parked_retry_and_send(|sub| sub).is_empty());
+
+        registry.add_worker(wid(0));
+        let retried = dispatcher.parked_retry_and_send(|sub| sub);
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].worker, wid(0));
+        assert_eq!(retried[0].messages.len(), 1);
+        assert!(
+            dispatcher.has_pending_key_work(),
+            "outstanding until settled"
+        );
     }
 
     #[test]

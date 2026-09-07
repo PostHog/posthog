@@ -211,6 +211,9 @@ pub struct IngestionConsumerOptions {
     /// with zero progress. Production takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
+    /// The key-table scheduler's parked-retry cadence. Production takes it
+    /// from `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
+    pub parked_retry_interval: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -264,6 +267,7 @@ impl IngestionConsumer {
             Arc::clone(&transport),
             handle.clone(),
             options.deferred_flush_timeout,
+            options.parked_retry_interval,
         );
         Self {
             commit_sentinel,

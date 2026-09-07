@@ -500,6 +500,7 @@ async fn async_main(config: Config) -> Result<()> {
         Arc::clone(&transport),
         consumer_handle.clone(),
         Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
+        Duration::from_millis(config.parked_retry_interval_ms),
     );
 
     let consumer = IngestionConsumer::new(

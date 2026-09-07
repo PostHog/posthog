@@ -15,6 +15,7 @@
 //! the failure decision stays in the consumer loop.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -28,6 +29,7 @@ use tracing::{error, info};
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::KeyOrderSentinel;
+use crate::scheduler::SchedulerKind;
 use crate::transport::SendError;
 use crate::types::Accumulator;
 use crate::types::SerializedKafkaMessage;
@@ -80,6 +82,7 @@ struct BatcherInner {
     /// Stamped on each submitted batch's completions; bumped on partition
     /// assignment by the consumer's rebalance context.
     assignment_epoch: AssignmentEpoch,
+    accepted_messages: AtomicU64,
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
 }
@@ -135,6 +138,7 @@ impl Batcher {
         transport: Arc<GrpcTransport>,
         handle: Handle,
         deferred_flush_timeout: Duration,
+        parked_retry_interval: Duration,
     ) -> (Self, BatcherOutputs) {
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
@@ -143,10 +147,18 @@ impl Batcher {
             dispatcher,
             transport,
             assignment_epoch,
+            accepted_messages: AtomicU64::new(0),
             completions: completions_tx,
             errors: errors_tx,
         });
         let (flush_queue, flush_rx) = mpsc::unbounded_channel();
+        if inner.dispatcher.scheduler_kind() == SchedulerKind::KeyTable {
+            tokio::spawn(run_parked_retry_pump(
+                Arc::clone(&inner),
+                parked_retry_interval,
+                deferred_flush_timeout,
+            ));
+        }
         tokio::spawn(run_flush_driver(
             Arc::clone(&inner),
             flush_rx,
@@ -299,6 +311,11 @@ async fn await_settled(
 
     match pending.wait().await {
         Ok(accepted) => {
+            if accepted > 0 {
+                inner
+                    .accepted_messages
+                    .fetch_add(accepted as u64, Ordering::Relaxed);
+            }
             // Advance ACK high-water marks before the settle, which
             // may evict the keys' sentinel state.
             inner.dispatcher.on_sub_batch_acked(&key_offsets);
@@ -388,6 +405,54 @@ fn spawn_followups(
             false,
             batch_epoch,
         )));
+    }
+}
+
+/// The key table's retry driver: fire the parked-retry deadline on an
+/// interval. Parked keys are the ones no settlement can release, so the
+/// pump is their only retry path. Its stall watchdog matches the flush
+/// driver's: acceptance resets the deadline, and pending work with zero
+/// acceptance for a full window fails the process, so a wedged key table
+/// restarts loudly instead of growing lag silently.
+async fn run_parked_retry_pump(
+    inner: Arc<BatcherInner>,
+    interval: Duration,
+    stall_timeout: Duration,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut seen_accepted = 0u64;
+    let mut stall_deadline = Instant::now() + stall_timeout;
+    loop {
+        ticker.tick().await;
+
+        // A retried send may replay a failed run, so it goes on the wire
+        // with the replay flag, like a deferred flush.
+        let settle_id = make_batch_id();
+        let pending = inner.dispatcher.parked_retry_and_send(|sub_batch| {
+            begin_send(&inner.transport, &settle_id, sub_batch, true)
+        });
+        let epoch = inner.assignment_epoch.current();
+        for sub_batch in pending {
+            drop(tokio::spawn(await_settled(
+                Arc::clone(&inner),
+                settle_id.clone(),
+                sub_batch,
+                false,
+                epoch,
+            )));
+        }
+
+        let accepted = inner.accepted_messages.load(Ordering::Relaxed);
+        if accepted != seen_accepted || !inner.dispatcher.has_pending_key_work() {
+            seen_accepted = accepted;
+            stall_deadline = Instant::now() + stall_timeout;
+        } else if Instant::now() >= stall_deadline {
+            inner.report_error(
+                "key-table work made no progress within the stall timeout".to_string(),
+            );
+            return;
+        }
     }
 }
 

@@ -164,6 +164,13 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
+    /// How often the key-table scheduler retries its parked keys
+    /// (milliseconds). Matches the flush driver's retry cadence, so the
+    /// scheduler switch does not regress recovery latency. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
+    pub parked_retry_interval_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
