@@ -43,7 +43,7 @@ from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Team, User
@@ -1353,6 +1353,12 @@ class ActiveOrganizationMiddleware:
         user = cast(User, request.user)
 
         if user.current_organization_id is None:
+            return self.get_response(request)
+
+        # Staff impersonation reads the app, for the reason `ActiveOrganizationPermission` exempts
+        # it on the API: an operator who investigates a revocation needs the organization. Both
+        # gates read one predicate, so neither can start admitting what the other turns away.
+        if is_impersonated(request):
             return self.get_response(request)
 
         # Read the id, not the foreign key, so the check is served from the organization access

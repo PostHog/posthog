@@ -25,7 +25,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import ActiveOrganizationMiddleware, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1814,6 +1814,37 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         if expected_location:
             self.assertEqual(response.headers["Location"], expected_location)
+
+    @parameterized.expand([("deactivated", "is_active", False), ("pending deletion", "is_pending_deletion", True)])
+    def test_staff_impersonation_is_not_sent_to_the_revocation_screen(self, _name, field, value):
+        # `ActiveOrganizationPermission` exempts impersonation on the API so support can
+        # investigate a revoked organization. Without the same exemption here every app page
+        # redirects, so the operator reaches the data through the API and never through the UI.
+        # Driven through the middleware rather than the client, because rendering an app page
+        # needs a frontend build that the backend suite does not produce.
+        setattr(self.organization, field, value)
+        self.organization.save()
+        request = RequestFactory().get("/dashboard")
+        request.user = self.user
+        request.session = self.client.session
+        request.session[la_settings.USER_SESSION_FLAG] = str(self.user.pk)
+        passed_through = object()
+
+        response = ActiveOrganizationMiddleware(lambda _request: passed_through)(request)
+
+        self.assertIs(response, passed_through)
+
+    @parameterized.expand([("deactivated", "is_active", False), ("pending deletion", "is_pending_deletion", True)])
+    def test_a_plain_session_is_still_sent_to_the_revocation_screen(self, _name, field, value):
+        setattr(self.organization, field, value)
+        self.organization.save()
+        request = RequestFactory().get("/dashboard")
+        request.user = self.user
+        request.session = self.client.session
+
+        response = ActiveOrganizationMiddleware(lambda _request: self.fail("should have redirected"))(request)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
 
 class TestActivityLoggingMiddleware(APIBaseTest):

@@ -10,6 +10,7 @@ from posthog.organization_access import (
     REVOCATION_MESSAGES,
     OrganizationAccessRevocation,
     RevokedOrganizationAccess,
+    exclude_revoked_organizations,
     organization_access_revocation,
     organization_access_revocation_by_id,
     organization_access_revocation_for_team,
@@ -154,3 +155,34 @@ class TestTargetOrganizationResolution(TestCase):
     def test_a_view_naming_no_organization_resolves_to_none(self) -> None:
         # A boundary treats None as nothing to gate, so this must not raise.
         assert get_target_organization_from_view(object()) is None
+
+
+@override_settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True)
+class TestQuerysetRevocationFilter(TestCase):
+    """The list filter and the scalar check are two readings of one rule, so they have to agree."""
+
+    @parameterized.expand(
+        [
+            ("null active, null pending deletion", None, None),
+            ("null active", None, False),
+            ("active", True, False),
+            ("active, null pending deletion", True, None),
+            ("deactivated", False, False),
+            ("deactivated, null pending deletion", False, None),
+            ("pending deletion", True, True),
+            ("pending deletion and deactivated", False, True),
+            ("pending deletion, null active", None, True),
+        ]
+    )
+    def test_the_queryset_filter_agrees_with_the_scalar_check(self, _name, is_active, is_pending_deletion) -> None:
+        # Fails if either reading drifts on a nullable column. A row is visible in a list exactly
+        # when a detail read of it is admitted, so a list cannot start disclosing what a detail
+        # read denies, nor start hiding a healthy organization whose columns predate the migration.
+        organization = Organization.objects.create(
+            name="matrix org", is_active=is_active, is_pending_deletion=is_pending_deletion
+        )
+        team = organization.teams.create(name="matrix team")
+
+        visible = exclude_revoked_organizations(Team.objects.filter(id=team.id)).exists()
+
+        assert visible == (organization_access_revocation(organization) is None)

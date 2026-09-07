@@ -693,6 +693,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def request_ai_access(self, request: Request, **kwargs) -> Response:
         """Notify organization admins that a member is requesting PostHog AI be enabled."""
         organization = self.organization
+        self.check_object_permissions(request, organization)
         user = cast(User, request.user)
 
         # Nothing to request if PostHog AI is already enabled for the org.

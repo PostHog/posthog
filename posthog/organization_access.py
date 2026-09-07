@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.apps import apps
+from django.db.models import Q, QuerySet
 
 from rest_framework.permissions import SAFE_METHODS
 
@@ -121,3 +122,20 @@ REACHABLE_METHODS: dict[RevokedOrganizationAccess, frozenset[str]] = {
     RevokedOrganizationAccess.READS: frozenset(SAFE_METHODS),
     RevokedOrganizationAccess.READS_AND_DELETE: frozenset(SAFE_METHODS) | {"DELETE"},
 }
+
+
+def exclude_revoked_organizations(queryset: QuerySet, path: str = "organization") -> QuerySet:
+    """Drop the rows whose organization had its access revoked.
+
+    The queryset twin of `organization_access_revocation`, for a list. DRF runs no object
+    permission over list rows, so a list filters where a detail read denies. Filtering is also what
+    someone who belongs to both a revoked and a healthy organization needs: denying the whole list
+    would take the healthy organization's rows with it.
+
+    Null means active in both columns, exactly as the scalar check reads them, so a row whose
+    organization predates either column stays visible. `test_the_queryset_filter_agrees_with_the
+    _scalar_check` pins the two together.
+    """
+    active = Q(**{f"{path}__is_active": True}) | Q(**{f"{path}__is_active__isnull": True})
+    not_deleting = Q(**{f"{path}__is_pending_deletion": False}) | Q(**{f"{path}__is_pending_deletion__isnull": True})
+    return queryset.filter(active & not_deleting)

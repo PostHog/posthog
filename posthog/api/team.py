@@ -90,6 +90,7 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    exclude_organizations_with_revoked_access,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
 )
@@ -2370,6 +2371,9 @@ class TeamViewSet(
             queryset = queryset.filter(project__organization_id__in=scoped_organizations)
         if scoped_teams := get_authenticator_scoped_team_ids(authenticator):
             queryset = queryset.filter(id__in=scoped_teams)
+        # A list row gets no object permission from DRF, so the revocation lands here instead.
+        if self.action == "list":
+            queryset = exclude_organizations_with_revoked_access(self.request, queryset)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:

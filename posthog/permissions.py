@@ -5,7 +5,7 @@ from typing import Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
@@ -39,6 +39,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_access import (
     REACHABLE_METHODS,
     RevokedOrganizationAccess,
+    exclude_revoked_organizations,
     organization_access_revocation,
     organization_access_revocation_message,
 )
@@ -105,6 +106,22 @@ def get_organization_from_view(view) -> Organization:
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
+
+
+def exclude_organizations_with_revoked_access(request, queryset: QuerySet, path: str = "organization") -> QuerySet:
+    """Apply the revocation to a root list, which `ActiveOrganizationPermission` cannot reach.
+
+    That permission gates every other action through `has_object_permission`, which DRF does not
+    run over list rows. Without this a revoked organization's projects keep flowing out of
+    `/api/projects/`, carrying each one's ingestion token, while a detail read of the same row is
+    denied.
+
+    Staff impersonation keeps every row, for the reason the permission exempts it: an operator who
+    investigates a revocation needs the organization's data.
+    """
+    if is_impersonated(request):
+        return queryset
+    return exclude_revoked_organizations(queryset, path)
 
 
 def get_target_organization_from_view(view) -> Optional[Organization]:
@@ -948,8 +965,14 @@ class ActiveOrganizationPermission(BasePermission):
     It binds every authenticated pathway, a login session included. A session keeps the app's
     revocation screens usable through `ActiveOrganizationMiddleware`, but it must not carry the
     organization's data out of `/api` either. Only the surfaces those screens and the payment flow
-    need declare `reachable_when_organization_access_revoked`, and a viewset that declares nothing
-    is closed. Ingestion is a different decision, made by the billing quota limiter.
+    need declare `reachable_when_organization_access_revoked`, and a `TeamAndOrgViewSetMixin`
+    viewset that declares nothing is closed.
+
+    The reach is that mixin, which `get_permissions` attaches this to, not every DRF view in the
+    codebase: a viewset outside it, `UserViewSet` among them, never meets this gate and needs no
+    declaration. Root lists are the other exception, because DRF runs no object permission over
+    list rows — `exclude_organizations_with_revoked_access` filters those. Ingestion is a different
+    decision, made by the billing quota limiter.
     """
 
     def has_permission(self, request, view) -> bool:

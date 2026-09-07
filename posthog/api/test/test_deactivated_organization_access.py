@@ -189,6 +189,39 @@ class TestDeactivatedOrganizationAPIAccess(APIBaseTest):
         assert revoked.status_code == healthy.status_code
         assert UNPAID not in revoked.content.decode()
 
+    @parameterized.expand([("projects", "/api/projects/"), ("environments", "/api/environments/")])
+    def test_a_root_list_drops_a_revoked_organizations_rows(self, _name, path) -> None:
+        # DRF runs no object permission over list rows, so a revoked organization's projects kept
+        # flowing out of the root lists, each row carrying its ingestion token, while a detail read
+        # of the same row was denied. The healthy organization's row has to survive: the caller
+        # belongs to both, and a revocation must never reach the healthy one.
+        _, _, healthy_team = Organization.objects.bootstrap(self.user, name="healthy org")
+        self._deactivate()
+
+        listed = self._token_request("get", path).json()["results"]
+
+        assert [row["id"] for row in listed] == [healthy_team.id]
+
+    def test_a_root_list_keeps_every_row_while_the_organization_is_healthy(self) -> None:
+        _, _, healthy_team = Organization.objects.bootstrap(self.user, name="healthy org")
+
+        listed = self._token_request("get", "/api/projects/").json()["results"]
+
+        assert {row["id"] for row in listed} == {self.team.id, healthy_team.id}
+
+    def test_a_root_custom_action_is_capped(self) -> None:
+        # `request_ai_access` reads `self.organization` rather than `get_object()`, so DRF never
+        # ran the object permission for it and the gate was skipped on a root detail action.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._deactivate()
+        self.client.force_login(self.user)
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/request_ai_access/")
+
+        assert response.status_code == 403
+        assert "deactivated" in response.json()["detail"]
+
     def test_reactivation_restores_token_access(self) -> None:
         self._deactivate()
         self.organization.is_active = True
