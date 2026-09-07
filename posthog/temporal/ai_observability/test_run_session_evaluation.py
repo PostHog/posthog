@@ -209,6 +209,33 @@ class TestFetchSessionForEvaluation:
         # tail of any session past 100 traces, so the fetch must ask for the export ceiling instead.
         assert kwargs["query"].limit == MAX_SELECT_TRACES_LIMIT_EXPORT
 
+    @pytest.mark.parametrize("window_end", [None, datetime(2026, 7, 20, 6, tzinfo=UTC)])
+    def test_upper_bound_is_the_given_window_end_or_now(self, window_end):
+        window_start = datetime(2026, 7, 20, tzinfo=UTC)
+        now = datetime(2026, 7, 21, tzinfo=UTC)
+        with (
+            freeze_time(now),
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=0,
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            mock_session_query_runner.return_value.calculate.return_value = Mock(
+                results=[_trace("t1", cost=0, latency=0)], hasMore=False
+            )
+            fetch_session_for_evaluation(1, "s-1", window_start, window_end)
+
+        date_range = mock_session_query_runner.call_args.kwargs["query"].dateRange
+        assert date_range.date_to == (window_end or now).isoformat()
+
     def test_skips_a_small_session_whose_payload_is_enormous(self):
         """The event count cannot see this: a handful of events carrying megabytes each sits far
         under the row cap while being exactly the payload the cap exists to keep out of the worker.

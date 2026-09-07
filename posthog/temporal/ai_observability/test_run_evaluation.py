@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -16,6 +16,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
@@ -41,7 +42,7 @@ from .evaluation_errors import (
     terminal_user_error_result_from_application_error,
 )
 from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS
-from .evaluation_workflow_activities import LocalEvaluationOutcome
+from .evaluation_workflow_activities import LocalEvaluationOutcome, backfill_verdict_timestamp
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -49,6 +50,7 @@ from .run_evaluation import (
     EmitInternalTelemetryInputs,
     EvaluationActivityResult,
     ExecuteLLMJudgeInputs,
+    FetchGenerationEventInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     RunLocalEvaluationInputs,
@@ -61,6 +63,7 @@ from .run_evaluation import (
     execute_sentiment_eval_activity,
     extract_event_tools,
     fetch_evaluation_activity,
+    fetch_generation_event_activity,
     run_hog_eval,
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
@@ -493,6 +496,59 @@ class TestRunEvaluationWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
+        "expected_trigger,backfill_id",
+        [
+            pytest.param("live", None, id="live"),
+            pytest.param("backfill", "bf-1", id="backfill"),
+        ],
+    )
+    async def test_emit_evaluation_event_activity_stamps_trigger_and_timestamp(
+        self, setup_data, expected_trigger: str, backfill_id: str | None
+    ):
+        team = setup_data["team"]
+        event_data = create_mock_event_data(team.id, timestamp="2026-08-01T12:00:00+00:00")
+        start_time = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": True,
+            "reasoning": "Test passed",
+            "allows_na": False,
+        }
+
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
+
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation={"id": str(setup_data["evaluation"].id), "name": "Test Evaluation"},
+                        event_data=event_data,
+                        result=result,
+                        start_time=start_time,
+                        backfill_id=backfill_id,
+                    )
+                )
+
+        call_kwargs = mock_capture.call_args[1]
+        props = call_kwargs["properties"]
+        assert props["$ai_evaluation_trigger"] == expected_trigger
+        if backfill_id:
+            assert props["$ai_evaluation_backfill_id"] == backfill_id
+            # Offset inside the unit's second, so verdicts that would share an ingestion dedup
+            # key no longer do.
+            assert call_kwargs["timestamp"] == backfill_verdict_timestamp(
+                datetime.fromisoformat(event_data["timestamp"]),
+                str(setup_data["evaluation"].id),
+                backfill_id,
+                str(event_data["uuid"]),
+            )
+        else:
+            assert "$ai_evaluation_backfill_id" not in props
+            assert call_kwargs["timestamp"] == start_time
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
         "status_code,should_raise",
         [
             pytest.param(402, False, id="billing_limit_is_swallowed"),
@@ -694,6 +750,130 @@ class TestRunEvaluationWorkflow:
         assert "$ai_sentiment_message_count" not in props
         assert "$ai_evaluation_result" not in props
         assert "$ai_evaluation_allows_na" not in props
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "pass_timestamp,trace_id,found",
+        [
+            pytest.param(True, None, True, id="bounded_by_timestamp"),
+            pytest.param(False, None, True, id="uuid_and_team_only"),
+            pytest.param(True, "trace-1", True, id="bounded_by_trace_id"),
+            pytest.param(True, "other-trace", False, id="wrong_trace_id_finds_nothing"),
+        ],
+    )
+    async def test_fetch_generation_event_activity_applies_its_narrowing_filters(
+        self, setup_data, pass_timestamp: bool, trace_id: str | None, found: bool
+    ):
+        team = setup_data["team"]
+        event_uuid = str(uuid.uuid4())
+        timestamp = datetime.now(UTC) - timedelta(hours=1)
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team_id": team.id,
+                    "distinct_id": "test-user",
+                    "event_uuid": event_uuid,
+                    "timestamp": timestamp,
+                    "properties": {"$ai_input": "q", "$ai_output": "a", "$ai_trace_id": "trace-1"},
+                }
+            ]
+        )
+
+        inputs = FetchGenerationEventInputs(
+            team_id=team.id,
+            event_uuid=event_uuid,
+            timestamp=timestamp.isoformat() if pass_timestamp else None,
+            trace_id=trace_id,
+        )
+        if not found:
+            with pytest.raises(ApplicationError) as exc:
+                await fetch_generation_event_activity(inputs)
+            assert exc.value.type == "generation_not_found"
+            return
+
+        event = await fetch_generation_event_activity(inputs)
+
+        assert str(event["uuid"]) == event_uuid
+        assert event["event"] == "$ai_generation"
+
+    @pytest.mark.asyncio
+    async def test_fetch_generation_event_activity_raises_non_retryable_on_a_miss(self):
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.fetch_generation_event",
+            return_value=None,
+        ):
+            with pytest.raises(ApplicationError) as exc:
+                await fetch_generation_event_activity(FetchGenerationEventInputs(team_id=1, event_uuid="missing"))
+
+        assert exc.value.type == "generation_not_found"
+        assert exc.value.non_retryable is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "event_data,expected_calls",
+        [
+            pytest.param(
+                {"uuid": "g1", "team_id": 1},
+                ["fetch_event", "local"],
+                id="thin_reference_is_hydrated_first",
+            ),
+            pytest.param(
+                create_mock_event_data(team_id=1, uuid="g1"),
+                ["local"],
+                id="full_event_is_used_as_is",
+            ),
+        ],
+    )
+    async def test_thin_event_reference_is_fetched_before_evaluating(
+        self, event_data: dict[str, Any], expected_calls: list[str]
+    ):
+        calls: list[str] = []
+        seen_inputs: list[RunLocalEvaluationInputs] = []
+
+        @activity.defn(name="fetch_generation_event_activity")
+        async def mock_fetch_generation_event(inputs: FetchGenerationEventInputs) -> dict[str, Any]:
+            calls.append("fetch_event")
+            return create_mock_event_data(team_id=inputs.team_id, uuid=inputs.event_uuid)
+
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            calls.append("local")
+            seen_inputs.append(inputs)
+            return LocalEvaluationOutcome(
+                evaluation={
+                    "id": inputs.evaluation_id,
+                    "name": "Hog eval",
+                    "evaluation_type": "hog",
+                    "evaluation_config": {},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "team_id": 1,
+                },
+                result={"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False},
+                emitted=True,
+            )
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_fetch_generation_event, mock_run_local_evaluation],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(evaluation_id="eval-1", event_data=event_data, backfill_id="bf-1"),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert calls == expected_calls
+        assert [inputs.backfill_id for inputs in seen_inputs] == ["bf-1"]
+        assert all("properties" in inputs.event_data for inputs in seen_inputs)
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""
@@ -2570,12 +2750,42 @@ class TestRunLocalEvaluationActivity:
             enabled=True,
         )
 
-    def _inputs(self, evaluation, team, start_time: datetime) -> RunLocalEvaluationInputs:
+    def _inputs(self, evaluation, team, start_time: datetime, **overrides: Any) -> RunLocalEvaluationInputs:
         return RunLocalEvaluationInputs(
             evaluation_id=str(evaluation.id),
             event_data=create_mock_event_data(team.id),
             start_time=start_time,
+            **overrides,
         )
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_backfilled_hog_eval_is_stamped_at_the_source_event(self, setup_data):
+        team = setup_data["team"]
+        evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
+        inputs = RunLocalEvaluationInputs(
+            evaluation_id=str(evaluation.id),
+            event_data=create_mock_event_data(team.id, timestamp="2026-08-01T12:00:00+00:00"),
+            start_time=self.START_TIME,
+            backfill_id="bf-1",
+        )
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+        ) as mock_capture:
+            await run_local_evaluation_activity(inputs)
+
+        capture_kwargs = mock_capture.call_args.kwargs
+        # Offset inside the unit's second, so verdicts that would share an ingestion dedup key
+        # no longer do.
+        assert capture_kwargs["timestamp"] == backfill_verdict_timestamp(
+            datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC),
+            str(evaluation.id),
+            "bf-1",
+            str(inputs.event_data["uuid"]),
+        )
+        assert capture_kwargs["properties"]["$ai_evaluation_trigger"] == "backfill"
+        assert capture_kwargs["properties"]["$ai_evaluation_backfill_id"] == "bf-1"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

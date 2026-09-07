@@ -1,7 +1,8 @@
 import json
 import uuid
+import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -24,6 +25,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
+from products.ai_observability.backend.ai_event_lookup import fetch_generation_event
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -34,10 +36,34 @@ SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
 EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE = "EmitEvaluationEventFailed"
 
 
+def as_utc_datetime(value: str | datetime) -> datetime:
+    """Read a ClickHouse event timestamp, which reaches us as a naive datetime on a direct call
+    and as an ISO string once Temporal has serialized it through a payload."""
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def backfill_verdict_timestamp(
+    unit_timestamp: datetime, evaluation_id: str, backfill_id: str, unit_id: str
+) -> datetime:
+    """Spread a backfilled verdict inside the second its unit sits in.
+
+    The Kafka deduplicator keys a row on (timestamp, distinct_id, team_id, event), so backfilled
+    `$ai_evaluation` events that share a timestamp collide and all but one are dropped: a unit
+    re-run under a second backfill, two evaluations grading one unit, or two units of one backfill
+    landing in the same tick. Hashing all three ids keeps the offset stable across activity
+    retries, so a retried emit still collapses into the original. Ingestion keeps millisecond
+    precision, so the effective spread is about 1000 buckets, not a million.
+    """
+    digest = hashlib.sha256(f"{evaluation_id}:{backfill_id}:{unit_id}".encode()).digest()
+    return unit_timestamp + timedelta(microseconds=int.from_bytes(digest[:8], "big") % 1_000_000)
+
+
 @dataclass
 class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -79,6 +105,36 @@ def fetch_evaluation(evaluation_id: str, team_id: int) -> dict[str, Any]:
     except Evaluation.DoesNotExist:
         logger.exception("Evaluation not found", evaluation_id=evaluation_id)
         raise ValueError(f"Evaluation {evaluation_id} not found")
+
+
+@frozen
+class FetchGenerationEventInputs:
+    team_id: int
+    event_uuid: str
+    timestamp: str | None = None
+    trace_id: str | None = None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "event_uuid": self.event_uuid}
+
+
+@temporalio.activity.defn
+async def fetch_generation_event_activity(inputs: FetchGenerationEventInputs) -> dict[str, Any]:
+    """Load the full generation for a caller that only holds its uuid.
+
+    A backfill dispatcher can start thousands of these, so it ships uuids rather than pushing
+    event bodies through Temporal payloads, plus the trace id and timestamp that bound the read.
+    """
+    event = await database_sync_to_async(fetch_generation_event, thread_sensitive=False)(
+        inputs.team_id,
+        inputs.event_uuid,
+        as_utc_datetime(inputs.timestamp) if inputs.timestamp else None,
+        inputs.trace_id,
+    )
+    if event is None:
+        raise ApplicationError("Generation not found", type="generation_not_found", non_retryable=True)
+    return event
 
 
 @temporalio.activity.defn
@@ -218,6 +274,7 @@ class EmitEvaluationEventInputs:
     event_data: dict[str, Any]
     result: EvaluationActivityResult
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -228,7 +285,10 @@ class EmitEvaluationEventInputs:
 
 
 def build_evaluation_event_properties(
-    evaluation: dict[str, Any], result: EvaluationActivityResult, start_time: datetime
+    evaluation: dict[str, Any],
+    result: EvaluationActivityResult,
+    start_time: datetime,
+    backfill_id: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the target-independent `$ai_evaluation` properties shared by all emit paths.
 
@@ -246,7 +306,11 @@ def build_evaluation_event_properties(
         "$ai_evaluation_result_type": result["result_type"],
         "$ai_evaluation_start_time": start_time.isoformat(),
         "$ai_evaluation_reasoning": result["reasoning"],
+        "$ai_evaluation_trigger": "backfill" if backfill_id else "live",
     }
+
+    if backfill_id:
+        properties["$ai_evaluation_backfill_id"] = backfill_id
 
     if result.get("skipped"):
         properties["$ai_evaluation_skipped"] = True
@@ -295,9 +359,9 @@ def _evaluation_event_uuid() -> str | None:
 async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
     """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
     pipeline for cost calculation. A billing-limited capture drops the event without failing
-    the caller. The event timestamp is the workflow start time, not emit time: ingestion dedup
-    keys on (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried
-    emit collapse into the original."""
+    the caller. The event timestamp never comes from emit time: ingestion dedup keys on
+    (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried emit
+    collapse into the original."""
     evaluation = inputs.evaluation
     event_data = inputs.event_data
     result = inputs.result
@@ -310,7 +374,7 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             else event_data["properties"]
         )
 
-        properties = build_evaluation_event_properties(evaluation, result, start_time)
+        properties = build_evaluation_event_properties(evaluation, result, start_time, inputs.backfill_id)
         properties.update(
             {
                 "$ai_target_event_id": event_data["uuid"],
@@ -331,7 +395,18 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=start_time,
+            # A backfilled verdict sits at its generation's time so time-bucketed views line it
+            # up with the trace it grades instead of with the day the backfill ran.
+            timestamp=(
+                backfill_verdict_timestamp(
+                    as_utc_datetime(event_data["timestamp"]),
+                    str(evaluation["id"]),
+                    inputs.backfill_id,
+                    str(event_data["uuid"]),
+                )
+                if inputs.backfill_id
+                else start_time
+            ),
             properties=properties,
             event_uuid=_evaluation_event_uuid(),
         )
@@ -409,6 +484,7 @@ class RunLocalEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -459,6 +535,7 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
                     event_data=inputs.event_data,
                     result=result,
                     start_time=inputs.start_time,
+                    backfill_id=inputs.backfill_id,
                 )
             )
         except Exception as error:

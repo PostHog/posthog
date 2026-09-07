@@ -37,6 +37,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RET
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
+    as_utc_datetime,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
@@ -336,6 +337,8 @@ class RunAggregateEvaluationInputs:
     ai_session_id: str | None = None
     target: str = "trace"
     settle: dict[str, Any] | None = None
+    anchor_timestamp: str | None = None
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -386,6 +389,15 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         window_start = temporalio.workflow.now()
 
+        # A historical unit is settled by definition, so a backfill skips the settle wait and
+        # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
+        # so old histories never take this branch and it needs no patch marker.
+        if inputs.anchor_timestamp is not None:
+            is_backfill = True
+            window_start = as_utc_datetime(inputs.anchor_timestamp)
+        else:
+            is_backfill = False
+
         # Fail loudly rather than falling through to the trace path, which would grade `trace_id`
         # and emit a trace-shaped verdict under a session evaluation's name. Unreachable from the
         # scheduler, which drops these as `no_ai_session_id`; this is the backstop for a malformed
@@ -397,7 +409,16 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
         plan = resolve_settle_plan(inputs.settle, inputs.target)
         is_session = inputs.target == "session" and inputs.ai_session_id is not None
-        if plan.strategy == "inactivity":
+
+        # A backfilled unit is graded over the span the live path would have covered from its
+        # anchor, so events that arrived after that span stay out of the verdict.
+        window_end: str | None = None
+        if is_backfill:
+            window_end = (
+                window_start + timedelta(seconds=plan.max_age_seconds) + timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+            ).isoformat()
+
+        if plan.strategy == "inactivity" and not is_backfill:
             # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
             # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
             initial_sleep_seconds = min(plan.primary_seconds + INGESTION_LAG_MARGIN_SECONDS, plan.max_age_seconds)
@@ -450,7 +471,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                             await asyncio.sleep(remaining)
                     else:
                         raise
-        elif plan.primary_seconds:
+        elif plan.primary_seconds and not is_backfill:
             await asyncio.sleep(plan.primary_seconds)
 
         eval_start = temporalio.workflow.now()
@@ -481,6 +502,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 session_id=inputs.ai_session_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
             )
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
@@ -509,6 +531,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 trace_id=inputs.trace_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
             )
 
             if evaluation_type == "hog":
@@ -555,6 +578,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     start_time=eval_start,
                     target=inputs.target,
                     ai_session_id=inputs.ai_session_id,
+                    backfill_id=inputs.backfill_id,
+                    event_timestamp=inputs.anchor_timestamp,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
