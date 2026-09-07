@@ -3,6 +3,21 @@ import { pathToFileURL } from 'node:url'
 
 import { gh, postSection, resolvePrContext } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
+function formatTarget(target) {
+    const escapedTarget = target.replace(
+        /[&<>"']/g,
+        (character) =>
+            ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;',
+            })[character]
+    )
+    return `<code>${escapedTarget}</code>`
+}
+
 export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
     if (
         isUniversal ||
@@ -20,7 +35,7 @@ export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
     const laneName = runsBackendPythonTests ? 'backend Python lane' : 'non-backend lane'
     // A single target names the exact lane; more than one collapses to the
     // shared family name rather than listing them all.
-    const summary = impactedTargets.length === 1 ? `${laneName} (${impactedTargets[0]})` : laneName
+    const summary = impactedTargets.length === 1 ? `${laneName} (${formatTarget(impactedTargets[0])})` : laneName
 
     return {
         status: runsBackendPythonTests ? 'warn' : 'ok',

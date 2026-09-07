@@ -73,8 +73,8 @@ describe('CI report section builders', () => {
             input: { impactedTargets: ['fe:product:desktop'], isUniversal: false },
             expected: {
                 status: 'ok',
-                summary: 'non-backend lane (fe:product:desktop)',
-                body: 'This PR is assigned to the non-backend lane (fe:product:desktop). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+                summary: 'non-backend lane (<code>fe:product:desktop</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>fe:product:desktop</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
             },
         },
         {
@@ -82,8 +82,17 @@ describe('CI report section builders', () => {
             input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
             expected: {
                 status: 'warn',
-                summary: 'backend Python lane (py:product:surveys)',
-                body: 'This PR is assigned to the backend Python lane (py:product:surveys). It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+                summary: 'backend Python lane (<code>py:product:surveys</code>)',
+                body: 'This PR is assigned to the backend Python lane (<code>py:product:surveys</code>). It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'escapes a target before rendering it',
+            input: { impactedTargets: ['</summary><img src="x">'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
             },
         },
     ]) {
