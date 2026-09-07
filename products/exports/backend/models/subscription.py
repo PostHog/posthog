@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -549,15 +549,24 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
     if kwargs.get("update_fields"):
         return
 
-    if instance.created_by and instance.resource_info:
-        event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
-        report_user_action(
-            instance.created_by,
-            event_name,
-            instance.get_analytics_metadata(),
-            team=instance.team,
-            analytics_props=subscription_request_analytics_props.get(),
-        )
+    resource_info = instance.resource_info
+    if instance.created_by and resource_info:
+        event_name: str = f"{resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
+        user = instance.created_by
+        metadata = instance.get_analytics_metadata()
+        team = instance.team
+        analytics_props = subscription_request_analytics_props.get()
+
+        def capture_subscription_event() -> None:
+            report_user_action(
+                user,
+                event_name,
+                metadata,
+                team=team,
+                analytics_props=analytics_props,
+            )
+
+        transaction.on_commit(capture_subscription_event, using=using)
 
 
 @mutable_receiver(model_activity_signal, sender=Subscription)

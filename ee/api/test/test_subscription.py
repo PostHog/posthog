@@ -3361,7 +3361,10 @@ class TestAISubscriptionAPI(APILicensedTest):
                 raise RuntimeError("forced context write failure")
             return original_save(context, *args, **kwargs)
 
-        with patch.object(SubscriptionContext, "save", autospec=True, side_effect=fail_second_save):
+        with (
+            patch.object(SubscriptionContext, "save", autospec=True, side_effect=fail_second_save),
+            patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+        ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
                 {
@@ -3377,6 +3380,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         restored_context = SubscriptionContext.objects.for_team(self.team.id).get(subscription=subscription)
         assert restored_context.dashboard_id == old_dashboard.id
         assert restored_context.insight_id is None
+        mock_capture.assert_not_called()
 
     @parameterized.expand(
         [

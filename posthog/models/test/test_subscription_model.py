@@ -8,13 +8,14 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import jwt
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
 from posthog.jwt import PosthogJwtAudience
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -23,6 +24,7 @@ from products.exports.backend.models.subscription import (
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
     SubscriptionDelivery,
+    attribute_subscription_saves,
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
@@ -131,6 +133,23 @@ class TestSubscription(BaseTest):
             start_date=datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC")),
             **kwargs,
         )
+
+    def test_analytics_event_runs_after_the_subscription_transaction_commits(self) -> None:
+        with (
+            patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+            attribute_subscription_saves({"source": EventSource.WEB}),
+        ):
+            with transaction.atomic():
+                self._create_subscription(
+                    prompt="Summarize signups",
+                    title="Weekly AI digest",
+                    created_by=self.user,
+                )
+                mock_capture.assert_not_called()
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["properties"]["source"] == EventSource.WEB
 
     @parameterized.expand(
         [
