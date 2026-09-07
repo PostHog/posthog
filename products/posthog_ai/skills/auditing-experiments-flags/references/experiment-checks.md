@@ -12,16 +12,19 @@ The "Findings" section lists what to report and at what severity.
 
 Verifies the experiment has a valid primary metric configuration.
 
-**Look at**: `metrics`, `metrics_secondary`
+**Look at**: `metrics`, `metrics_secondary`, `saved_metrics`
+
+Shared metrics arrive in `saved_metrics`, where each entry's `metadata.type` is `primary` or `secondary`.
+Count them alongside the inline metrics: the product measures a shared metric typed `primary` as a primary metric.
 
 **Findings**:
 
-- **No metrics at all**: Both `metrics` and `metrics_secondary` are empty or missing.
+- **No metrics at all**: `metrics`, `metrics_secondary`, and `saved_metrics` are all empty or missing.
   - Severity: CRITICAL · Category: Correctness
   - Report: "This experiment has no metrics configured. Results cannot be measured."
   - Action: Add at least one primary metric before launching.
 
-- **Secondary metrics only**: `metrics` is empty but `metrics_secondary` has entries.
+- **Secondary metrics only**: The experiment has no primary metric (`metrics` is empty and no `saved_metrics` entry has `metadata.type: primary`) but does have a secondary one, in `metrics_secondary` or in `saved_metrics` with `metadata.type: secondary`.
   - Severity: WARNING · Category: Process
   - Report: "This experiment has secondary metrics but no primary metric. There is no primary success criterion."
   - Action: Promote one secondary metric to primary or add a new primary metric.
