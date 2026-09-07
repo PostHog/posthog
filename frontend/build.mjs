@@ -15,6 +15,7 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+import { keyChunksBySceneId } from './bin/scene-chunk-map.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -109,7 +110,7 @@ await buildInParallel(
                     reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
                     writePreloadManifest(buildResponse.outputs)
                 }
-                writeIndexHtml(chunks, entrypoints)
+                writeIndexHtml(isDev ? chunks : sceneChunkMap(buildResponse), entrypoints)
             }
 
             if (config.name === 'Exporter') {
@@ -131,6 +132,32 @@ await buildInParallel(
         },
     }
 )
+
+/**
+ * The chunk map sceneLogic reads must be keyed by scene id, not by the entry's export name that
+ * getChunks falls back to. Resolve every lazy scene import through the metafile; an unresolved scene
+ * only loses the parallel prefetch, but none resolving means the map is silently useless, so fail.
+ */
+function sceneChunkMap(buildResponse) {
+    const src = (file) => fs.readFileSync(path.resolve(__dirname, 'src', file), 'utf-8')
+    const { chunks, resolved, unresolved } = keyChunksBySceneId({
+        inputs: buildResponse.inputs,
+        outputs: buildResponse.outputs,
+        sceneTypesSource: src('scenes/sceneTypes.ts'),
+        appScenesSource: src('scenes/appScenes.ts'),
+        productScenesSource: src('productScenes.tsx'),
+    })
+    if (resolved === 0) {
+        throw new Error(
+            'Chunk map: no scene import could be resolved through the metafile; see frontend/bin/scene-chunk-map.mjs'
+        )
+    }
+    console.info(`Chunk map: ${resolved} scenes keyed by id, ${unresolved.length} unresolved`)
+    if (unresolved.length > 0) {
+        console.warn(`Chunk map: no chunk list for ${unresolved.join(', ')}`)
+    }
+    return chunks
+}
 
 /**
  * Write dist/preload-manifest.json, read by the Django backend (posthog/utils.py) to emit
