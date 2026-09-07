@@ -705,22 +705,25 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
         self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
 
-    def test_listing_an_insight_whose_filters_have_no_query_equivalent_returns_200(self) -> None:
+    @parameterized.expand([("full", ""), ("basic", "&basic=true")])
+    def test_listing_an_insight_with_only_filters_serves_them(self, _name: str, query_string: str) -> None:
         # `unique_users` is not a math value the query schema accepts, so this definition cannot be
         # expressed as a query at all. Reading it used to raise out of the serializer and fail the
-        # whole list request.
+        # whole list request. The stored object also has no `insight` key, which the client's
+        # converter requires, so the response has to supply one.
         Insight.objects.create(
             team=self.team,
             saved=True,
             short_id="brokenfl",
-            filters={"insight": "TRENDS", "events": [{"id": "$pageview", "math": "unique_users"}]},
+            filters={"events": [{"id": "$pageview", "math": "unique_users"}]},
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         result = response.json()["results"][0]
         self.assertIsNone(result["query"])
+        self.assertEqual(result["filters"]["insight"], "TRENDS")
         self.assertEqual(result["filters"]["events"][0]["math"], "unique_users")
 
     @parameterized.expand(

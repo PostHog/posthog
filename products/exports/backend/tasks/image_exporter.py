@@ -24,6 +24,7 @@ from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -556,6 +557,7 @@ def export_image(
                     if tile:
                         tile_filters_override = tile.filters_overrides
 
+                result: InsightResult | None = None
                 if query_override:
                     # query_override is upgraded inside calculate_for_query_based_insight,
                     # so we skip upgrade_insight (which only upgrades insight.query we won't use).
@@ -574,6 +576,15 @@ def export_image(
                         query_override=query_override,
                         analytics_props=export_analytics_props,
                     )
+                elif exported_asset.insight.query is None:
+                    # Nothing to warm: the insight stores only legacy filters, which the render
+                    # converts in the browser. Failing here would lose an export the browser can
+                    # still produce, so the render just starts without a warm cache. The dashboard
+                    # branch below skips such a tile for the same reason.
+                    logger.info(
+                        "export_image.skip_warming_insight_without_query",
+                        insight_id=exported_asset.insight.id,
+                    )
                 else:
                     with upgrade_insight(exported_asset.insight):
                         result = calculate_for_query_based_insight(
@@ -587,7 +598,7 @@ def export_image(
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
                         )
-                if result.cache_key:
+                if result is not None and result.cache_key:
                     insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(

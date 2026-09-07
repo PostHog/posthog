@@ -204,6 +204,17 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 )
 
 
+def filters_for_client(filters: Any) -> Any:
+    """Stored `filters` as the client needs them for a query-less insight.
+
+    The client converts these rows itself, and its converter rejects a filter object with no
+    `insight` key. A non-dict value is left alone: it cannot be converted either way.
+    """
+    if isinstance(filters, dict) and "insight" not in filters:
+        return {**filters, "insight": "TRENDS"}
+    return filters
+
+
 def get_insight_type(insight: Insight) -> str:
     """Return a normalized lowercase insight type string for analytics (used by the dashboard tile event)."""
     if insight.query:
@@ -486,8 +497,7 @@ class InsightBasicSerializer(
             representation["filters"] = {}
             representation["query"] = instance.query
         else:
-            filters = instance.dashboard_filters()
-            representation["filters"] = filters
+            representation["filters"] = filters_for_client(instance.dashboard_filters())
 
         # upgrade the query to the latest version
         representation["query"] = upgrade(representation["query"])
@@ -1271,19 +1281,14 @@ class InsightSerializer(InsightBasicSerializer):
             representation["filters"] = {}
             representation["query"] = query
         else:
-            representation["filters"] = instance.dashboard_filters(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
+            representation["filters"] = filters_for_client(
+                instance.dashboard_filters(dashboard=dashboard, dashboard_filters_override=dashboard_filters_override)
             )
             representation["query"] = instance.get_effective_query(
                 dashboard=dashboard,
                 dashboard_filters_override=dashboard_filters_override,
                 dashboard_variables_override=dashboard_variables_override,
             )
-
-            if "insight" not in representation["filters"] and not representation["query"]:
-                # `filters` is the only definition the client gets for these rows, and its converter
-                # rejects a filter object with no `insight` key.
-                representation["filters"]["insight"] = "TRENDS"
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
