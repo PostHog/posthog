@@ -2,7 +2,7 @@
 
 ## Summary
 
-AI prompt subscriptions reuse a query plan after every query in a delivery succeeds.
+AI prompt subscriptions reuse a query plan after a delivery produces a plan that is safe to reuse.
 The product currently exposes the executed queries in delivery history, but it does not show whether the subscription will reuse them on its next delivery.
 
 Add a compact, read-only query plan status to AI prompt subscription details.
@@ -35,6 +35,10 @@ Later deliveries reuse that plan without invoking the event selector or planner.
 Editing the subscription prompt clears `ai_query_plan`.
 A stored plan whose version differs from `AI_QUERY_PLAN_VERSION` is rejected during the next delivery, replanned automatically, and replaced after the new plan succeeds.
 
+`AI_QUERY_PLAN_VERSION` is the explicit compatibility revision for reusable plans.
+The status mirrors that runtime invalidation boundary; it does not claim to track every revision of an internally managed LLM prompt.
+Managed prompt changes that must invalidate stored plans still require an `AI_QUERY_PLAN_VERSION` bump, as they do today.
+
 Each completed AI delivery already snapshots the prompt, executed HogQL, and per-query outcome for delivery history.
 Those diagnostics use concrete date bounds, so they are evidence of what ran rather than a direct representation of the reusable plan template.
 
@@ -53,9 +57,13 @@ The serializer derives the status at read time.
 It does not expose the plan, generated HogQL, planner prompt, or model metadata.
 Knowing the lifecycle status does not reveal query-derived project data, so the field can follow the parent subscription's existing read permissions.
 
-The derivation must match runtime behavior closely enough that `frozen` never promises reuse for a plan the runtime would reject.
-Validate the stored plan with the existing `QueryPlan` schema before returning `frozen`.
-A missing, non-integer, or malformed version is `not_frozen`; only a well-formed integer version mismatch is `planner_updated`.
+The derivation and runtime must use one shared stored-plan validator so `frozen` never promises reuse for a plan the runtime would reject.
+The validator accepts only an object envelope with a real integer version, excluding booleans, a valid `QueryPlan`, and valid stored relevant-event data.
+The frozen execution path must use the same validator and convert every malformed envelope into `StoredPlanInvalidError`, preserving automatic replanning rather than turning corrupt JSON into a delivery failure.
+
+Classify a well-formed integer version mismatch as `planner_updated` before validating the old plan body because an older plan can legitimately use an older schema.
+A missing, boolean, non-integer, or malformed version is `not_frozen`.
+For a current version, any invalid plan or relevant-event data is also `not_frozen`.
 
 Regenerate OpenAPI and generated frontend contracts after adding the serializer field.
 
@@ -67,8 +75,8 @@ Its value is a focusable status icon wrapped in a tooltip:
 | Status            | Icon              | Tooltip                                                                                                                                                                                                                                          |
 | ----------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `frozen`          | Filled pin        | **Frozen query plan.** PostHog will reuse these query definitions for each delivery. Date ranges, results, and the written report will still update. PostHog generates a new plan when you edit the prompt or when the query planner is updated. |
-| `not_frozen`      | Muted outline pin | **Query plan not frozen.** No successful plan is available yet. PostHog will freeze the plan after every query succeeds.                                                                                                                         |
-| `planner_updated` | Refresh           | **Query plan will be regenerated.** The query planner was updated. The next successful delivery will freeze a new plan.                                                                                                                          |
+| `not_frozen`      | Muted outline pin | **Query plan not frozen.** No reusable plan is available yet. PostHog will freeze the plan when it can be safely reused.                                                                                                                         |
+| `planner_updated` | Refresh           | **Query plan will be regenerated.** The query planner changed. The next successful delivery will freeze a new plan.                                                                                                                              |
 
 Use the existing `IconPinFilled`, `IconPin`, `IconRefresh`, and LemonUI `Tooltip` components.
 Do not use a lock icon because it suggests access control.
@@ -94,9 +102,10 @@ Do not repeat the subscription's current status inside historical delivery rows 
 
 - The status is informational and never blocks delivery.
 - Unknown status values render no icon rather than breaking the subscription detail page.
-- Malformed stored data is presented as `not_frozen` and continues to use the existing runtime self-healing path.
+- Malformed stored data is presented as `not_frozen` and is converted into the runtime's recoverable invalid-plan error so the delivery replans automatically.
 - Existing subscriptions require no data migration because status is derived from `ai_query_plan`.
 - Existing planner upgrade behavior remains unchanged.
+- Derivation performs no database queries. Full schema validation runs only for current-version AI plans and remains bounded by the existing query-plan step limit.
 
 ## Testing
 
@@ -106,7 +115,9 @@ Backend tests should cover:
 - `not_frozen` with no plan.
 - `frozen` for a current, schema-valid plan.
 - `planner_updated` for a valid integer version mismatch.
-- `not_frozen` for malformed envelopes and malformed current-version plans.
+- `not_frozen` for malformed envelopes, boolean or non-integer versions, malformed current-version plans, and malformed relevant-event data.
+- The shared validator returns the same classification that the frozen execution path enforces.
+- Non-object and malformed envelopes raise `StoredPlanInvalidError` on the frozen path so the report pipeline replans instead of failing.
 - Prompt edits clearing the plan and returning `not_frozen`.
 
 Frontend tests should cover:
@@ -123,3 +134,10 @@ Visual verification should render the AI subscription detail at normal and narro
 
 Ship only the derived API status, compact subscription-level icon and tooltip, heading correction, generated contracts, focused tests, and visual verification.
 Defer controls, plan identifiers, per-delivery provenance, persisted invalidation reasons, and version-management UI until usage demonstrates a need.
+
+## Adversarial review resolutions
+
+- Centralize validation and classification so the UI cannot drift from execution semantics.
+- Treat corrupt envelope types, boolean versions, and malformed relevant-event data as recoverable invalid plans.
+- Describe freezing as safe reuse rather than query success alone because chart rendering and window placeholders are also freeze gates.
+- Scope `planner_updated` to the explicit compatibility revision already used by the runtime instead of implying provenance that is not persisted.
