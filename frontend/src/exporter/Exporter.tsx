@@ -16,7 +16,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExporterLogin } from '~/exporter/ExporterLogin'
+import { ExporterLogin, loginLogic } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
@@ -72,7 +72,24 @@ function useResolvedForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 
     return systemPrefersDark ? 'dark' : 'light'
 }
 
+/** A cross-site iframe never gets the share cookie back, so a correct password must not reload. */
+function ExporterUnlockGate({ whitelabel }: { whitelabel?: boolean }): JSX.Element {
+    const { unlockedData } = useValues(loginLogic())
+
+    if (unlockedData) {
+        return <ExporterContent {...unlockedData} />
+    }
+    return <ExporterLogin whitelabel={whitelabel} />
+}
+
 export function Exporter(props: ExportedData): JSX.Element {
+    if (props.type === ExportType.Unlock) {
+        return <ExporterUnlockGate whitelabel={props.whitelabel} />
+    }
+    return <ExporterContent {...props} />
+}
+
+function ExporterContent(props: ExportedData): JSX.Element {
     const {
         type,
         dashboard,
@@ -131,10 +148,6 @@ export function Exporter(props: ExportedData): JSX.Element {
     }, [dashboard, insight, notebook, type, whitelabel])
 
     useThemedHtml(false, forcedTheme)
-
-    if (type === ExportType.Unlock) {
-        return <ExporterLogin whitelabel={whitelabel} />
-    }
 
     if (type === ExportType.Interview && interview) {
         return (
