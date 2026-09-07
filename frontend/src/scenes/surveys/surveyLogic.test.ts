@@ -1340,6 +1340,9 @@ describe('survey filters', () => {
                 // submission must not produce a second row.
                 expect(whereClause).toContain('NOT IN (')
                 expect(whereClause).toContain(SurveyEventProperties.SURVEY_SUBMISSION_ID)
+                // HogQL promotes that anti-set to GLOBAL NOT IN and ships it to every shard, so
+                // it must carry one row per submission rather than one per `survey sent` event.
+                expect(whereClause).toContain('SELECT DISTINCT')
             }
         }
     )

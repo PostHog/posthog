@@ -709,12 +709,15 @@ export function buildPartiallyCompletedDismissalFilter(survey: Survey, dateRange
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
     const submissionId = `properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\``
 
+    // The anti-set below is DISTINCT because HogQL promotes an IN-subquery over `events` to
+    // GLOBAL NOT IN, which builds the set once and ships it to every shard. A submission can span
+    // several `survey sent` events, so without it each id travels once per event.
     return `(
         ${buildPartiallyCompletedDismissalEventFilter()}
         AND (
             coalesce(${submissionId}, '') == ''
             OR ${submissionId} NOT IN (
-                SELECT ${submissionId}
+                SELECT DISTINCT ${submissionId}
                 FROM events
                 WHERE and(
                     equals(event, '${SurveyEventName.SENT}'),
