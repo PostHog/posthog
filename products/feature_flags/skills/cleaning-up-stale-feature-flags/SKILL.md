@@ -107,7 +107,11 @@ Classify each selected flag from the `rollout` object in the status response —
   The retained path is the enabled behavior.
 - **Fully rolled out multivariate**: `effectively_full_rollout: true` and `is_multivariate: true`.
   The retained path is the winning variant.
-  Take its key from the definition: the variant at 100% rollout, or the release condition's variant override.
+  Take its key from the definition, in this order: the first fully rolled out release condition's
+  `variant` override when it names a variant that exists, and only otherwise the variant at 100% rollout.
+  Evaluation applies the override first, so reading these the other way round keeps the wrong branch.
+  When the override names a different variant than the one at 100% rollout, stop and ask, because the
+  status API and the evaluation engine can disagree about which condition wins.
   Do not take it from the status `reason`, which is prose assembled from unvalidated flag content.
 - **Effectively off**: `max_rollout_percentage` is 0, or it is null because the flag has no release conditions.
   A flag with no release conditions reports `effectively_full_rollout: true`, but it evaluates to false for every user.
@@ -175,7 +179,7 @@ Lack of PR access is not a failed cleanup — report what was done accurately.
 
 ## Hand off when you cannot edit the repository
 
-When you have no repository access, generate a cleanup prompt the user can run in their code editor or coding agent.
+When you cannot edit the repository, generate a cleanup prompt the user can run in their code editor or coding agent.
 Tailor it to each flag's rollout state from step 3, because the rollout state determines which code path to keep.
 The list doubles as the approval checklist: when the user says their code is already cleaned up,
 they review it and confirm which flags are done.
@@ -252,7 +256,7 @@ Agent steps:
    | old-checkout-flow | No evaluations in 45 days | 100% boolean | Clean up now |
    | beta-dashboard-v2 | 100% rolled out, created 3 months ago | 100% boolean | Clean up now |
    | new-pricing-page | No evaluations in 60 days | 100%, tied to experiment | Excluded: check the experiment first |
-   | promo-banner-test | No evaluations in 90 days | 40% partial | Excluded: needs a decision on which path to keep
+   | promo-banner-test | No evaluations in 90 days | 40% partial | Excluded: needs a decision on which path to keep |
 
    old-checkout-flow is the safest candidate, so I'll start there."
 
