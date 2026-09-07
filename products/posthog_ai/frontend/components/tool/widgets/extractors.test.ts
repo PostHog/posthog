@@ -371,10 +371,34 @@ describe('mcp tool adapter extractors', () => {
         })
 
         it.each([
+            ['a local deployment', 'http://localhost:8010/project/1/dashboard/7'],
+            ['a self-hosted deployment', 'https://posthog.example.test/project/42/dashboard/7'],
+            [
+                'a custom domain with query and hash',
+                'https://analytics.customer.test/project/1/dashboard/7?source=mcp#highlight',
+            ],
+        ])('accepts a 204 tile delete from %s', (_case, url) => {
+            expect(
+                extractDashboardMutationRevealTarget(
+                    toolMessage({ _posthogUrl: url }, { id: 7, tile_id: 41 }, 'dashboard-delete-tile')
+                )
+            ).toEqual({ dashboardId: 7 })
+        })
+
+        it.each([
             [undefined, 'missing enrichment'],
-            [{ _posthogUrl: 'https://example.com/project/1/dashboard/7' }, 'a third-party URL'],
-            [{ _posthogUrl: 'https://us.posthog.com/project/1/dashboard/8' }, 'a URL for a different dashboard'],
-            [{ _posthogUrl: '/dashboard/7' }, 'a relative URL'],
+            [{ _posthogUrl: 'https://analytics.customer.test/project/0/dashboard/7' }, 'a zero project ID'],
+            [
+                { _posthogUrl: 'https://analytics.customer.test/project/9007199254740992/dashboard/7' },
+                'an unsafe project ID',
+            ],
+            [
+                { _posthogUrl: 'https://analytics.customer.test/project/1/dashboard/8' },
+                'a URL for a different dashboard',
+            ],
+            [{ _posthogUrl: 'https://analytics.customer.test/project/1/dashboard/7/tiles' }, 'a nested route'],
+            [{ _posthogUrl: 'ftp://analytics.customer.test/project/1/dashboard/7' }, 'a non-HTTP URL'],
+            [{ _posthogUrl: '/project/1/dashboard/7' }, 'a relative URL'],
         ])('rejects a 204 tile delete with %s', (rawOutput, _case) => {
             expect(
                 extractDashboardMutationRevealTarget(
@@ -393,6 +417,25 @@ describe('mcp tool adapter extractors', () => {
         it.each(['insight-create', 'insight-update'])('extracts an authoritative tile after %s', (resolvedKey) => {
             expect(
                 extractInsightDashboardRevealTarget(toolMessage(matchingOutput, { dashboards: [7] }, resolvedKey))
+            ).toEqual({
+                dashboardId: 7,
+                tileId: 41,
+                insightShortId: 'abc12345',
+            })
+        })
+
+        it('accepts an active API dashboard tile whose deleted field is null', () => {
+            expect(
+                extractInsightDashboardRevealTarget(
+                    toolMessage(
+                        {
+                            short_id: 'abc12345',
+                            dashboard_tiles: [{ id: 41, dashboard_id: 7, deleted: null }],
+                        },
+                        { dashboards: [7] },
+                        'insight-update'
+                    )
+                )
             ).toEqual({
                 dashboardId: 7,
                 tileId: 41,

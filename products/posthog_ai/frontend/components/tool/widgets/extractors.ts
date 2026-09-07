@@ -88,11 +88,14 @@ function getDashboardIdFromPostHogUrl(value: unknown): number | null {
     }
     try {
         const url = new URL(value)
-        if (url.protocol !== 'https:' || (url.hostname !== 'posthog.com' && !url.hostname.endsWith('.posthog.com'))) {
+        if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname) {
             return null
         }
-        const match = /^\/project\/[^/]+\/dashboard\/(\d+)\/?$/.exec(url.pathname)
-        return match ? asPositiveSafeInteger(match[1]) : null
+        const match = /^\/project\/(\d+)\/dashboard\/(\d+)\/?$/.exec(url.pathname)
+        if (!match || asPositiveSafeInteger(match[1]) === null) {
+            return null
+        }
+        return asPositiveSafeInteger(match[2])
     } catch {
         return null
     }
@@ -233,7 +236,9 @@ export function extractInsightDashboardRevealTarget(message: ToolCallMessage): D
         return null
     }
     const matchingTiles = dashboardTiles.filter(
-        (tile) => asPositiveSafeInteger(tile.dashboard_id) === dashboardId && tile.deleted === false
+        (tile) =>
+            asPositiveSafeInteger(tile.dashboard_id) === dashboardId &&
+            (tile.deleted === false || tile.deleted === null)
     )
     if (matchingTiles.length !== 1) {
         return null
