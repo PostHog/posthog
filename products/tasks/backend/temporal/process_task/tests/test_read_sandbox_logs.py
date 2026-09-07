@@ -50,3 +50,18 @@ def test_returns_terminated_message_on_mid_capture_termination():
         result = _run("sb-race")
 
     assert result == SANDBOX_TERMINATED_MESSAGE
+
+
+def test_every_read_skips_error_tracking_capture():
+    # The activity returns a placeholder string on failure, so a sandbox that dies
+    # mid-capture must not open an error tracking issue.
+    sandbox = MagicMock()
+    sandbox.is_running.return_value = True
+    sandbox.execute.return_value = MagicMock(stdout="log line")
+
+    with patch(_SANDBOX_PATH) as mock_sandbox_cls:
+        mock_sandbox_cls.return_value.get_by_id.return_value = sandbox
+        _run("sb-running")
+
+    assert sandbox.execute.call_count > 0
+    assert all(call.kwargs["capture"] is False for call in sandbox.execute.call_args_list)

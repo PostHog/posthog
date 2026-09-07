@@ -19,6 +19,7 @@ from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
+    SandboxNotRunningError,
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
@@ -179,6 +180,24 @@ class TestHoglandSandboxExecution:
             sandbox.execute("env POSTHOG_TASK_RUN_SESSION_TOKEN='secret' run", timeout_seconds=1)
 
         assert "secret" not in str(err.value.context)
+
+    @parameterized.expand(
+        [
+            ("execute_captures_by_default", lambda sandbox: sandbox.execute("echo hi"), True),
+            ("execute_skips_when_asked", lambda sandbox: sandbox.execute("echo hi", capture=False), False),
+            ("cpu_usage_read_skips", lambda sandbox: sandbox.read_cpu_usage_usec(), False),
+        ]
+    )
+    def test_capture_on_a_dead_box_follows_the_call_path(self, _name, call, expect_capture: bool):
+        # A box that dies between the is_running check and the dial is a teardown race. The
+        # best-effort readers discard the error, so it must not reach error tracking.
+        sandbox = _running_sandbox(_mock_box(status="terminated"))
+
+        with patch("products.tasks.backend.exceptions.capture_exception") as capture_exception:
+            with pytest.raises(SandboxNotRunningError):
+                call(sandbox)
+
+        assert capture_exception.called == expect_capture
 
     def test_execute_stream_buffers_output_and_defaults_missing_exit_to_minus_one(self):
         box = _mock_box()

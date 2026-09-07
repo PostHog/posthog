@@ -345,13 +345,19 @@ class HoglandSandbox(AgentServerLaunchMixin):
         return self.get_status() == SandboxStatus.RUNNING
 
     def execute(
-        self, command: str, timeout_seconds: int | None = None, env: dict[str, str] | None = None
+        self,
+        command: str,
+        timeout_seconds: int | None = None,
+        env: dict[str, str] | None = None,
+        *,
+        capture: bool = True,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
+                capture=capture,
             )
 
         if timeout_seconds is None:
@@ -370,6 +376,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
                 "Failed to execute command",
                 {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
                 cause=RuntimeError(redacted_error),
+                capture=capture,
             )
 
         if result.timed_out:
@@ -377,6 +384,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=RuntimeError(f"exec timed out after {timeout_seconds}s"),
+                capture=capture,
             )
 
         return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.exit_code, error=None)
@@ -472,7 +480,9 @@ class HoglandSandbox(AgentServerLaunchMixin):
     def read_cpu_usage_usec(self) -> int | None:
         # Must go through exec: hogpanion's file endpoint sets Content-Length from
         # stat(), and sysfs files stat as size 0, so read_file returns an empty body.
-        result = self.execute("cat /sys/fs/cgroup/cpu.stat", timeout_seconds=10)
+        # Best-effort: the caller records a null measurement, so a box that died
+        # mid-teardown must not open an error tracking issue.
+        result = self.execute("cat /sys/fs/cgroup/cpu.stat", timeout_seconds=10, capture=False)
         if result.exit_code != 0:
             return None
         return parse_cpu_stat_usage_usec(result.stdout)

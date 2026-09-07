@@ -1029,12 +1029,15 @@ class ModalSandbox(AgentServerLaunchMixin):
         self,
         command: str,
         timeout_seconds: int | None = None,
+        *,
+        capture: bool = True,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
+                capture=capture,
             )
 
         if timeout_seconds is None:
@@ -1059,11 +1062,13 @@ class ModalSandbox(AgentServerLaunchMixin):
             return result
 
         except TimeoutError as e:
-            capture_exception(e)
+            if capture:
+                capture_exception(e)
             raise SandboxTimeoutError(
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=e,
+                capture=capture,
             )
         except Exception as e:
             redacted_error = redact_sandbox_command(str(e))
@@ -1075,6 +1080,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 "Failed to execute command",
                 {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
                 cause=RuntimeError(redacted_error),
+                capture=capture,
             )
 
     def execute_stream(
