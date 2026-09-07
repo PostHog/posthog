@@ -6319,8 +6319,6 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
-    /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
-    sync_frequency_managed_by_dag?: boolean
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
     status?: string

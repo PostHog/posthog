@@ -120,15 +120,6 @@ DEFAULT_MATERIALIZE_SYNC_FREQUENCY = "24hour"
 MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SYNC_FREQUENCY_CHOICES if choice[0] != "never"]
 
 
-SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT = (
-    "True when this team's DAG owns the materialization cadence through a single schedule, so "
-    "`sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG "
-    "schedules are in use or the team is on the v1 backend. False does not on its own mean the "
-    "cadence is writable: a view belonging to a managed viewset rejects every update regardless, "
-    "which `managed_viewset_kind` reports."
-)
-
-
 class SyncFrequencyBlockerSerializer(serializers.Serializer):
     """The node holding a cadence back, named so a refusal points at something a person can open."""
 
@@ -500,11 +491,6 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_is_incremental(self, view: DataWarehouseSavedQuery) -> bool:
         return get_incremental_config(view) is not None
 
-    @extend_schema_field(serializers.BooleanField())
-    def get_sync_frequency_managed_by_dag(self, view: DataWarehouseSavedQuery) -> bool:
-        # Cadence is per view on every team now; the field stays so older clients keep parsing.
-        return False
-
     @extend_schema_field(SyncFrequencyBoundsSerializer())
     def get_sync_frequency_bounds(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
         from products.data_modeling.backend.facade.api import saved_query_target_bounds
@@ -564,9 +550,6 @@ class DataWarehouseSavedQueryMinimalSerializer(
     columns = serializers.SerializerMethodField(read_only=True)
     description = ViewDescriptionField(read_only=True, help_text=VIEW_DESCRIPTION_HELP_TEXT)
     sync_frequency = serializers.SerializerMethodField()
-    sync_frequency_managed_by_dag = serializers.SerializerMethodField(
-        read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
-    )
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
@@ -589,7 +572,6 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "created_at",
             "description",
             "sync_frequency",
-            "sync_frequency_managed_by_dag",
             "columns",
             "status",
             "last_run_at",
@@ -706,12 +688,8 @@ class DataWarehouseSavedQuerySerializer(
             "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', "
             "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
             "cadence available. Null means no scheduled materialization. Read back after a write, this "
-            "reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed "
-            "per-node, that is the view's DAG node rather than the view itself."
+            "reflects the cadence stored on the view's DAG node."
         ),
-    )
-    sync_frequency_managed_by_dag = serializers.SerializerMethodField(
-        read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
     )
     sync_frequency_bounds = serializers.SerializerMethodField(read_only=True, help_text=SYNC_FREQUENCY_BOUNDS_HELP_TEXT)
     latest_history_id = serializers.SerializerMethodField(read_only=True)
@@ -778,7 +756,6 @@ class DataWarehouseSavedQuerySerializer(
             "created_at",
             "description",
             "sync_frequency",
-            "sync_frequency_managed_by_dag",
             "sync_frequency_bounds",
             "columns",
             "status",
@@ -807,7 +784,6 @@ class DataWarehouseSavedQuerySerializer(
             "status",
             "last_run_at",
             "managed_viewset_kind",
-            "sync_frequency_managed_by_dag",
             "sync_frequency_bounds",
             "folder_name",
             "latest_error",
@@ -989,7 +965,7 @@ class DataWarehouseSavedQuerySerializer(
             )
 
         # The frequency writes through to the DAG node's freshness target.
-        dag_managed_frequency = bool(sync_frequency)
+        frequency_changed = bool(sync_frequency)
 
         soft_update = validated_data.pop("soft_update", False)
 
@@ -1015,7 +991,7 @@ class DataWarehouseSavedQuerySerializer(
                 if str(edited_history_id) != str(latest_activity_id):
                     raise serializers.ValidationError("The query was modified by someone else.")
 
-            if dag_managed_frequency:
+            if frequency_changed:
                 # The node target is the only store of frequency intent. The interval column
                 # stays NULL so a stale v1 schedule can never be revived from it.
                 locked_instance.sync_frequency_interval = None
@@ -1023,7 +999,7 @@ class DataWarehouseSavedQuerySerializer(
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
-            if dag_managed_frequency:
+            if frequency_changed:
                 from products.data_modeling.backend.facade.api import (
                     UnsatisfiableFrequencyError,
                     UnsupportedFrequencyTargetError,
@@ -1108,7 +1084,7 @@ class DataWarehouseSavedQuerySerializer(
                 )
                 for change in changes
             ]
-            if dag_managed_frequency and previous_target != target:
+            if frequency_changed and previous_target != target:
                 # The cadence lives on the DAG node, so changes_between() sees nothing and
                 # log_activity would discard the whole updated entry as a no-op.
                 changes.append(

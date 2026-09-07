@@ -1156,8 +1156,6 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly description: string
     /** @nullable */
     readonly sync_frequency: string | null
-    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-    readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
@@ -1453,7 +1451,7 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -1465,8 +1463,6 @@ export interface DataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-    readonly sync_frequency_managed_by_dag: boolean
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
@@ -1577,7 +1573,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -1589,8 +1585,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-    readonly sync_frequency_managed_by_dag?: boolean
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]

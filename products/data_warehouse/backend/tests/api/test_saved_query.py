@@ -898,18 +898,6 @@ class TestSavedQuery(APIBaseTest):
         node_queries = [q for q in queries.captured_queries if Node._meta.db_table in q["sql"]]
         self.assertEqual(len(node_queries), 1, node_queries)
 
-    def test_sync_frequency_is_never_managed_by_dag(self):
-        # The frontend hides the cadence control on this field. Every team edits cadence per
-        # view now, so it must stay false or the control disappears.
-        saved_query = self._create_saved_query_for_frequency_tests()
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-        )
-
-        self.assertEqual(response.status_code, 200, response.json())
-        self.assertFalse(response.json()["sync_frequency_managed_by_dag"])
-
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
         # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
