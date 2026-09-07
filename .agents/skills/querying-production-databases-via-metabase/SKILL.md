@@ -1,15 +1,11 @@
 ---
 name: querying-production-databases-via-metabase
 description: >
-  Run read-only analysis against PostHog's production databases through the
-  internal Metabase API. Covers ClickHouse `system.query_log` (slow queries,
-  materialization candidates, per-team query cost and memory) and the Postgres
-  app database (`EXPLAIN (ANALYZE, BUFFERS)` on a real plan, which index the
-  planner picks, how a table's rows spread across projects). Use when
-  investigating a slow ClickHouse query, a slow Django or Postgres endpoint,
-  why the planner prefers one index over another, or how large a per-project
-  table is across the fleet. Includes prod-us and prod-eu, SSO-gated cookie
-  auth via `hogli`, and ready-to-run query patterns for both engines.
+  Runs read-only production database analysis through PostHog's internal
+  Metabase instances. Use for ClickHouse query logs, slow query cost, Postgres
+  query plans, index selection, or tenant-size analysis. Covers US and EU
+  database discovery, SSO login through `hogli`, safe query rules, and query
+  patterns for both engines.
 ---
 
 # Querying production databases via Metabase
@@ -195,84 +191,77 @@ https://metabase.prod-eu.posthog.dev/question/795-look-up-query-by-query-id?quer
 The same can be reproduced programmatically with a `WHERE query_id = '...'`
 clause via `/api/dataset` against the right region's DB ID.
 
-## Postgres: the app database
+## Postgres app database
 
-Reach for this when an endpoint is slow and the time sits in a Django query.
-An `EXPLAIN` from a local database proves nothing about production: the planner
-chooses from production statistics, so the same SQL takes a different plan
-against a table with millions of rows spread over thousands of projects.
+Use the Postgres connection when a Django request spends time in the app database.
+Local plans help with correctness, but production data and statistics can select a different plan.
 
-**The database you get is a read replica. Keep it that way.** Run `SELECT` and
-`EXPLAIN` only. Never `UPDATE`, `DELETE`, `INSERT`, or `CREATE INDEX`, even to
-"test" one, and never `EXPLAIN ANALYZE` a write — `ANALYZE` executes the
-statement.
+The Metabase connection uses a read replica.
+Run only `SELECT` and `EXPLAIN` statements.
+Do not run writes or schema changes.
+`EXPLAIN ANALYZE` executes the statement, so use it only with a narrow `SELECT`.
 
-Discover the Postgres database ID the same way as the ClickHouse one; the list
-holds several, so read the names:
+Discover the Postgres database ID from the current database list:
 
 ```bash
-hogli metabase:databases --region us   # the app DB, and on EU also ingestion + migrations
+hogli metabase:databases --region us
 ```
 
-### Reading a real plan
+The list can include the app database, ingestion databases, and migration databases.
+Select the app database for Django queries.
 
-Use `EXPLAIN (ANALYZE, BUFFERS)`. `BUFFERS` is what tells you whether the cost
-is rows or pages, which is usually the whole answer:
+### Read a production plan
+
+Start with `EXPLAIN` to inspect the proposed plan without running the query.
+Add `ANALYZE` and `BUFFERS` only when the query is safe to execute on the shared replica.
 
 ```bash
 hogli metabase:query --region us --database-id <postgres-id> <<'SQL'
 EXPLAIN (ANALYZE, BUFFERS)
-SELECT id, name FROM posthog_eventdefinition
+SELECT id, name
+FROM posthog_eventdefinition
 WHERE COALESCE(project_id, team_id) = <project_id>
-  AND name ILIKE '%session recording%'
+  AND name ILIKE '<pattern>'
 ORDER BY name
 LIMIT 26
 SQL
 ```
 
-Read it in this order:
+Check these plan fields:
 
-1. **Which index did it use?** An index scoped to the tenant behaves nothing
-   like a global index on a searched column. A GIN or trigram index on `name`
-   covers every project at once, so a small project still pays to read posting
-   lists for the whole table.
-2. **Buffers, not rows.** A plan that returns 26 rows while reading tens of
-   thousands of pages is reading an index it cannot scope.
-3. **Compare plan forms, not just timings.** The lever is usually a predicate
-   rewrite that changes which index the planner can reach at all. `ILIKE` can
-   use a trigram index; `lower(name) LIKE lower(...)` cannot, so the planner
-   falls back to the tenant-scoped index. Run both and put the two timings
-   side by side.
-4. **Run each form more than once** and say whether the cache was warm. One
-   run on a cold cache is not a measurement.
+1. Compare estimated rows with actual rows.
+2. Check the selected indexes and join types.
+3. Check loops, rows removed by filters, and sort work.
+4. Check shared buffer hits and reads.
+5. Find work that grows with tenant size or result size.
 
-### Sizing a dimension across the fleet
+Keep the endpoint's filters, order, and limit.
+These details can change the selected plan.
+Run a measured query more than once and record the cache state.
+Compare candidate plans with the same parameters and verify equal results.
 
-Before you make a plan choice conditional on a number, measure how that number
-is distributed across projects, so a win for the median project cannot ship as
-a regression for the largest one:
+### Measure tenant size
+
+If a plan choice depends on tenant size, inspect the full distribution before you select a threshold.
+Measure the largest tenants and the range near the proposed boundary.
+Use the correct tenant key for the table.
 
 ```sql
-SELECT COALESCE(project_id, team_id) AS project, count(*) AS definitions
-FROM posthog_eventdefinition
-GROUP BY 1 ORDER BY definitions DESC LIMIT 20
+SELECT <tenant_key>, count(*) AS row_count
+FROM <table>
+GROUP BY <tenant_key>
+ORDER BY row_count DESC
+LIMIT 100
 ```
 
-Check both ends: the biggest projects, and the percentile where most projects
-actually sit.
-[`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md)
-covers how to turn that into a threshold.
+Use [`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md)
+to turn the measurements into an implementation and rollout plan.
 
-### Gotchas
+### Keep results private
 
-- **Statistics move.** A plan you captured last month can differ today. Re-run
-  it rather than trusting a number in an old PR description.
-- **Keep the query narrow.** Metabase cuts native queries off at about 60s, and
-  an `EXPLAIN ANALYZE` really runs the query on a replica other people use.
-- **`ORDER BY` and `LIMIT` change the plan.** Profile the SQL the endpoint
-  sends, including its ordering and page size, not a simplified version.
-- **A paginated endpoint usually runs the predicate twice**, once to count and
-  once to fetch. Halving the predicate cost is worth double what it looks like.
+Results can contain customer identifiers, query text, and private scale data.
+Do not copy this data into public code, tests, pull requests, issues, or comments.
+Use placeholders and broad data shapes in public output.
 
 ## Parsing Metabase responses
 

@@ -1,138 +1,125 @@
 ---
 name: profiling-slow-api-endpoints
 description: >
-  Turns "this screen feels slow" into a measured, landed fix for a PostHog
-  endpoint whose time sits in Postgres or in Python. Covers reading an APM
-  trace to find the span that holds the p95, capturing the real production
-  query plan with `EXPLAIN` on the read replica, sizing the deciding dimension
-  across the whole fleet before choosing a threshold, making a plan choice
-  cheap, fail-open and observable, and verifying against a real database on a
-  devbox. Use when an endpoint, picker, list, or scene is slow, when p95
-  latency is high, when a query plan differs between local and production,
-  when deciding whether an index helps or hurts, or when a latency fix must
-  not regress the largest projects. For ClickHouse or HogQL query latency use
+  Profiles slow PostHog API endpoints when the main cost is in Postgres or
+  Python. Use when a screen, picker, or list is slow; a Django endpoint has high
+  tail latency; a query plan changes with tenant size; or a proposed database
+  fix needs production evidence. Covers APM traces, safe production EXPLAIN,
+  representative measurements, implementation choices, tests, rollout, and
+  post-deploy verification. For ClickHouse or HogQL latency, use
   `optimizing-clickhouse-and-hogql-queries` instead.
 ---
 
-# Profiling a slow API endpoint
+# Profiling slow API endpoints
 
-This is the loop from "a person says the app feels slow" to a fix that is
-measured, safe for every project size, and visible in production afterwards.
-It is for time spent in Postgres or in Python. For ClickHouse and HogQL, use
+Use this skill when a PostHog API request spends most of its time in Postgres or Python.
+For ClickHouse and HogQL, use
 [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md).
 
-The order matters. Most latency work goes wrong at step 1 or step 3, not at
-the fix.
+The goal is a smaller user-visible delay, not a faster query in isolation.
+Measure the same request before and after the change.
 
-## 1. Get the evidence before you form a theory
+## 1. Define the slow interaction
 
-Do not start from the code. Start from a request that was actually slow.
+Identify the page action, endpoint, request shape, and affected users.
+Use a latency distribution such as p95 with request volume.
+The mean alone can hide slow requests.
 
-- **APM trace.** Open a trace of the slow interaction and find the span that
-  holds the time. The PostHog MCP `query-apm-spans` tool reads spans, and the
-  `exploring-apm-traces` skill covers trace navigation. One trace tells you
-  where the time is; the p95 over a window tells you whether it matters.
-- **Read p95, never the mean.** A mean hides the shape. An endpoint with a
-  200 ms mean and a 13 s p95 is a broken endpoint, and the mean will tell you
-  it is fine.
-- **pganalyze and RDS Performance Insights** are the other entry point when
-  you have no trace but you know the database is unhappy. See
-  [query-performance-optimization](../../../docs/published/handbook/engineering/databases/query-performance-optimization.md).
+Read one or more slow APM traces.
+Use `posthog:query-apm-spans` and the `exploring-apm-traces` skill.
+The trace shows which span owns the delay.
+The distribution shows how often the delay occurs.
 
-Write down the number you started from. Without it you cannot claim a fix.
+## 2. Find the layer that owns the delay
 
-## 2. Decide which engine holds the time
+- A Django ORM or `cursor.execute` span points to Postgres.
+- A query runner points to ClickHouse. Switch to the ClickHouse skill.
+- Time outside database spans often points to repeated calls, serialization, or excess data loading.
 
-Read the span tree, not the file tree. Time in a Django ORM span or a raw
-`cursor.execute` is Postgres; continue here. Time in a query runner is
-ClickHouse; switch skills. Time in neither is Python, and the fix is usually
-a call that repeats per row or a serializer that loads more than it returns.
+Follow the request into the function that creates the work.
+Do not optimize the view wrapper if another function owns the cost.
 
-## 3. Capture the plan production actually gets
+## 3. Capture the exact work
 
-**A local `EXPLAIN` proves nothing.** The planner chooses from production
-statistics. The same SQL takes a different plan against a table with millions
-of rows spread over thousands of projects, and that difference is normally the
-whole bug.
+Get the SQL and parameters from the slow request.
+Keep its filters, ordering, and page size.
+Also check for repeated queries, count queries, and work that does not block the response.
 
-Use `EXPLAIN (ANALYZE, BUFFERS)` against the production read replica through
-[`querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md),
-which carries the auth path, the safety rules, and how to read the output.
+A reduced query can produce a different plan.
+A local plan can also differ because local data and statistics differ from production.
 
-Establish two things there: which index the planner reaches for, and whether a
-predicate rewrite changes what it can reach. The rewrite is the usual lever,
-because it costs no migration.
+## 4. Inspect a production plan safely
 
-Profile the SQL the endpoint really sends, with its ordering and page size.
-A simplified query takes a different plan.
+Use
+[`querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md)
+to query the production read replica.
+Start with `EXPLAIN`.
+Use `EXPLAIN (ANALYZE, BUFFERS)` only for a narrow `SELECT` that is safe to execute.
 
-## 4. Size the deciding dimension across the fleet
+Check:
 
-If your fix depends on a number, measure how that number is distributed before
-you pick a threshold. This is the step people skip, and it is the one that
-turns a latency win into an incident.
+- estimated rows against actual rows
+- the selected indexes and join types
+- loops, rows removed by filters, and sort work
+- shared buffer reads and hits
+- work that grows with tenant size or result size
 
-A rewrite that wins for the median project can lose badly for the largest, and
-the largest projects are the ones that notice. Query both ends: the biggest
-projects, and the percentile where most projects actually sit. Set the
-threshold from the crossover you measured, then leave headroom on the side
-where being wrong is expensive. The
-[Metabase skill](../querying-production-databases-via-metabase/SKILL.md) has
-the query.
+## 5. Test the smallest useful change
 
-## 5. Make the choice cheap, fail-open, and reversible
+First remove work that the response does not need.
+Then consider a query or predicate change.
+Consider a new index only when measurements support it and write cost is acceptable.
 
-When the fix is conditional, the condition must not become the new cost or the
-new outage:
+If one plan helps small tenants but harms large tenants, measure the tenant-size distribution.
+Test both sides of the crossover before you select a threshold.
+Do not select a threshold from one tenant.
 
-- **Bound the measurement.** Count with a `LIMIT` so the check stays cheap on
-  the projects it is protecting.
-- **Cache it, and treat a stale answer as acceptable.** A wrong plan costs
-  query time. It must never change results.
-- **Fail open.** Use the safe cache helpers. A Redis outage should cost one
-  extra query per request, not a 5xx.
-- **Prefer a threshold you can move over a flag you must clean up**, unless
-  you genuinely need a staged rollout.
+Compare the original and candidate with the same parameters.
+Run each form more than once and record the cache state.
+Verify that both forms return the same result.
 
-## 6. Make the choice observable
+## 6. Implement for safe failure
 
-Record which path a request took as a span attribute. Then the effect is
-visible per request in APM, and the next person does not have to re-derive
-your reasoning from the code:
+Prefer one plan for all tenants when it performs well across the measured range.
+Add a conditional plan only when the measurements require it.
 
-```python
-trace.get_current_span().set_attribute("taxonomy_search_plan", plan)
-```
+If a performance-only decision uses a cache or a size check:
 
-## 7. Verify against a real database
+- keep the check cheaper than the work it avoids
+- accept a stale value when it only changes latency
+- keep the request working when the cache fails
+- record the selected path on the request span
 
-Unit tests on SQL strings catch a refactor that drops a wildcard. They cannot
-catch a plan regression. Run the database-backed API tests on a devbox, where
-a real Postgres is available, using
-[`setting-up-devbox`](../setting-up-devbox/SKILL.md).
+Use a feature flag when the change has uncertain behavior or needs a staged rollout.
+Do not add a flag only to hide missing measurements.
 
-Put the before and after in the PR as a table: the query, the plan the planner
-picked, and the timing, with the cache state stated. See
-[`writing-pr-descriptions`](../writing-pr-descriptions/SKILL.md).
+## 7. Add useful tests
 
-## 8. Confirm after it ships
+Test the public behavior at the lowest useful level.
+Add a plan or SQL-shape test only when the improvement depends on that shape.
+If the code selects between plans, test both sides and the failure path.
 
-Wait for the deploy (`checking-deploy-timing`), then read the same p95 you
-started from. A latency fix is not done when CI passes; it is done when the
-number moved. If the endpoint has a user-visible behavior change, see
-[`announcing-behavior-changes`](../announcing-behavior-changes/SKILL.md).
+A unit test cannot prove production latency.
+Use a representative database to compare plans and timings.
 
-## Traps
+## 8. Verify after deployment
 
-- **Adding an index is not the default fix.** A global index on a searched
-  column can be the cause, because the planner cannot scope it to one tenant.
-- **Do not move first paint behind a second request.** When a secondary call
-  only decorates the result, let the result render without it. This is a
-  latency fix that needs no database work at all.
+Check the deploy time, then read the same latency measure and request volume.
+Use the recorded span attribute to compare paths when the implementation has more than one.
+Check error rate and database load for regressions.
 
-## Worked example
+Report the result as one of these:
 
-The taxonomic filter search went from seconds to tens of milliseconds through
-exactly this loop, including the fleet-sizing step that kept the largest
-projects on the old plan. See
-[references/worked-example-taxonomy-search.md](references/worked-example-taxonomy-search.md).
+- the user-visible latency improved without a regression
+- the result is mixed and needs another change
+- the change did not help and should be removed
+
+## Common mistakes
+
+- Starting with a code theory instead of a slow trace.
+- Measuring only the mean or one warm query.
+- Testing SQL that differs from the endpoint SQL.
+- Selecting a threshold from one tenant.
+- Moving the first response behind optional work.
+- Adding an index before checking an existing plan.
+- Declaring success when tests pass but the production measure does not improve.

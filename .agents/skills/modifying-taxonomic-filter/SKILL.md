@@ -1,6 +1,6 @@
 ---
 name: modifying-taxonomic-filter
-description: Guides safe modification of the TaxonomicFilter — PostHog's multi-tab picker for events, actions, properties, cohorts, and more. Front-loads the empirical product reality (what users actually pick and search for) plus the three live variants (legacy-control, legacy-pill behind TAXONOMIC_FILTER_CATEGORY_DROPDOWN, and the opt-in rebuild menu behind TAXONOMIC_FILTER_MENU_REBUILD) so changes are judged against real behavior and mirrored across surfaces, not made against one arm in isolation. Also carries the search-latency contract, covering the conditional Postgres search plan behind the definitions endpoints and what may hold the first paint. Use when adding features, fixing bugs, or refactoring TaxonomicFilter, the rebuild menu, or the headless filter panel, or when the picker feels slow to open or to search.
+description: Guides safe changes to the TaxonomicFilter, PostHog's picker for events, actions, properties, cohorts, and more. Use when adding features, fixing bugs, improving search or loading performance, or refactoring the legacy filter, rebuild menu, or headless filter panel. Covers real selection behavior, three live variants, shared telemetry, the conditional Postgres search plan, and result reveal rules.
 ---
 
 # Modifying the TaxonomicFilter
@@ -10,7 +10,7 @@ knows about" — events, properties, actions, cohorts, groups. It's the
 on-ramp into almost every analytics and replay configuration. Code lives
 in `frontend/src/lib/components/TaxonomicFilter/`.
 
-**Two unbreakable rules:**
+**Three guardrails:**
 
 1. Changes that demote items users _actually pick_ are regressions, even
    with all tests passing. Read "Product reality" before deciding any
@@ -22,13 +22,11 @@ in `frontend/src/lib/components/TaxonomicFilter/`.
    **both** the legacy code and the rebuild, or the two arms of the
    experiment diverge. Read "Three variants" and "Mirroring changes"
    before assuming one edit is enough.
-3. **Latency is product reality too.** ~65% of selections come through
-   search, so search speed is the main path through this picker, not a
-   detail behind it. The definitions endpoints pick their Postgres query
-   plan conditionally, and the picker reveals results without waiting for
-   secondary counts. Both look like removable complexity and neither is.
-   Read [references/performance.md](references/performance.md) before you
-   touch the search path or any loading state.
+3. Search is the main selection path. The definition endpoints select a
+   Postgres plan from the project size. The picker also shows results before
+   optional counts finish. Read
+   [references/performance.md](references/performance.md) before you change
+   search, loading, pagination, or result reveal behavior.
 
 ## Product reality (last refreshed 2026-05-02, 90-day window)
 
@@ -203,9 +201,8 @@ divergences; don't "fix" them into parity.
       `legacy-pill`, `rebuild-menu`
 - [ ] Confirm shared telemetry payloads still match across both emitters
 - [ ] Ordering / promotion / position-0 -> human sign-off, not agent judgement
-- [ ] Touched the search path or a loading state? Confirm you kept the
-      conditional search plan and did not put the first paint behind a
-      secondary request
+- [ ] If you changed search or loading, verify the plan boundary and confirm
+      that optional requests do not delay results
 - [ ] Flag the ongoing experiments to the human reviewer: the
       control->pill rollout and the internal `rebuild-menu` opt-in
 
