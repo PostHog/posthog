@@ -1659,6 +1659,11 @@ export interface TaskRunDetailDTOApi {
     error_message: string | null
     /** @nullable */
     output: TaskRunDetailDTOApiOutput
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary: string | null
     state: TaskRunDetailDTOApiState
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
     /** @nullable */
@@ -3919,6 +3924,14 @@ export interface PatchedTaskRunSetOutputRequestApi {
     output?: unknown
 }
 
+export interface PatchedTaskRunSetSummaryRequestApi {
+    /**
+     * Complete running summary that replaces the prior summary.
+     * @maxLength 1500
+     */
+    summary?: string
+}
+
 export interface TaskRunStartRequestApi {
     /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
@@ -4768,6 +4781,11 @@ export interface TaskRunSummaryApi {
     id: string
     status: TaskRunStatusEnumApi | null
     environment: TaskRunEnvironmentEnumApi | null
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary?: string | null
 }
 
 /**
