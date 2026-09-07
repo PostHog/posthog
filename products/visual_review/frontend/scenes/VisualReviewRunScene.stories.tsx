@@ -104,7 +104,7 @@ const snapshots = {
                 residual_percentage: 0.001,
                 raw_diff_percentage: 2.4,
                 raw_ssim_score: 0.76,
-                bands: [{ y: 210, rows: 1, kind: 'inserted' }],
+                bands: [{ y: 60, rows: 1, kind: 'inserted' }],
             },
         }),
         // A block appeared, so the shift is past the absorb cap and stays in review.
@@ -125,7 +125,7 @@ const snapshots = {
                 residual_percentage: 0.0,
                 raw_diff_percentage: 31.6,
                 raw_ssim_score: 0.42,
-                bands: [{ y: 200, rows: 40, kind: 'inserted' }],
+                bands: [{ y: 80, rows: 40, kind: 'inserted' }],
             },
         }),
     ],

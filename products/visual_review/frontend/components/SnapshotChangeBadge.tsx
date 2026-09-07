@@ -57,12 +57,21 @@ function formatResidual(value: number): string {
     return value < 0.01 ? `${value.toFixed(3)}%` : `${value.toFixed(2)}%`
 }
 
+/** Signed row count on its own. The filmstrip has no room for the unit. */
+function shiftRowDelta(rowShift: RowShiftApi): string {
+    const net = rowShift.inserted_rows - rowShift.deleted_rows
+    if (net === 0) {
+        return `${shiftMagnitude(rowShift)}`
+    }
+    return `${net > 0 ? '+' : '-'}${Math.abs(net)}`
+}
+
 function shiftChipLabel(rowShift: RowShiftApi): string {
     const net = rowShift.inserted_rows - rowShift.deleted_rows
     if (net === 0) {
         return `${pluralRows(shiftMagnitude(rowShift))} moved`
     }
-    return `${net > 0 ? '+' : '-'}${pluralRows(Math.abs(net))}`
+    return `${shiftRowDelta(rowShift)} ${Math.abs(net) === 1 ? 'row' : 'rows'}`
 }
 
 function absorbedShiftTooltip(rowShift: RowShiftApi): string {
@@ -199,7 +208,9 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
                 <span
                     className={`shrink-0 inline-flex items-center gap-1 bg-warning-highlight/60 font-medium text-warning-dark leading-none ${radiusClass} ${sizeClass}`}
                 >
-                    <span className="font-mono tabular-nums">{shiftChipLabel(rowShift)}</span>
+                    <span className="font-mono tabular-nums">
+                        {isCompact ? shiftRowDelta(rowShift) : shiftChipLabel(rowShift)}
+                    </span>
                     {!isCompact && 'Layout shift'}
                 </span>
             </Tooltip>
