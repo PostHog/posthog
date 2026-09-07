@@ -151,7 +151,7 @@ function TaskRowMenuItems({
   const isTask = menu.kind === "task";
   const analysisTask = isTask && menu.task?.latest_run ? menu.task : null;
   const { channels } = useChannels({ enabled: bluebirdEnabled });
-  const fileToChannel = useFileTaskToChannel();
+  const fileToChannel = useFileTaskToChannel({ enabled: bluebirdEnabled });
   const openBrowserTab = useOpenBrowserTab();
 
   const channelItems: MenuFlyoutItem[] = channels.map((channel) => ({

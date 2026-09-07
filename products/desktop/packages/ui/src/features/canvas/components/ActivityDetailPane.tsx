@@ -60,7 +60,7 @@ export function ActivityDetailPane() {
 
   if (!task) return <TaskDetailSkeleton />;
 
-  const { channelId } = selected;
+  const channelId = task.channel ?? selected.channelId;
   const channelName = channels.find((c) => c.id === channelId)?.name;
 
   return (

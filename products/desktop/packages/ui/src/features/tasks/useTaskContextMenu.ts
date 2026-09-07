@@ -7,13 +7,12 @@ import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
+import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useRestoreTask } from "@posthog/ui/features/suspension/useRestoreTask";
 import { useSuspendTask } from "@posthog/ui/features/suspension/useSuspendTask";
 import { useDeleteTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
-import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { useCallback, useState } from "react";
 
@@ -34,7 +33,7 @@ export function useTaskContextMenu() {
     import.meta.env.DEV,
   );
   const { channels } = useChannels({ enabled: bluebirdEnabled });
-  const { fileTask } = useChannelTaskMutations();
+  const fileTaskToChannel = useFileTaskToChannel({ enabled: bluebirdEnabled });
 
   const showContextMenu = useCallback(
     async (
@@ -149,20 +148,7 @@ export function useTaskContextMenu() {
             await onHandoff?.();
             break;
           case "file-to-channel":
-            try {
-              await fileTask(intent.channelId, task.id);
-              const channelName = channels.find(
-                (channel) => channel.id === intent.channelId,
-              )?.name;
-              toast.success(
-                channelName ? `Filed to ${channelName}` : "Task filed",
-              );
-            } catch (error) {
-              toast.error("Couldn't file task", {
-                description:
-                  error instanceof Error ? error.message : String(error),
-              });
-            }
+            await fileTaskToChannel(intent.channelId, task.id, task.title);
             break;
           case "external-app": {
             const effectivePath = resolveExternalAppPath(
@@ -188,7 +174,7 @@ export function useTaskContextMenu() {
       archiveTask,
       channels,
       deleteWithConfirm,
-      fileTask,
+      fileTaskToChannel,
       restoreTask,
       suspendTask,
       hostClient,
