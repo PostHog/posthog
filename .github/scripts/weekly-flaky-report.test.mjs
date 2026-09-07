@@ -30,7 +30,7 @@ describe('weekly flaky report', () => {
         assert.equal(pytestUrl.searchParams.get('runner'), 'pytest')
         assert.equal(jestUrl.searchParams.get('runner'), 'jest')
         assert.equal(jestUrl.searchParams.get('repo'), 'PostHog/posthog')
-        assert.equal(jestUrl.searchParams.get('limit'), '100')
+        assert.equal(jestUrl.searchParams.get('limit'), '200')
     })
 
     it('builds a Slack table with supported cells and structured links', () => {
@@ -170,7 +170,11 @@ describe('weekly flaky report', () => {
         }
         const items = [
             { ...common, runner: 'jest', selector: 'frontend/src/shared.test.tsx::shared flakes' },
-            { ...common, runner: 'jest', selector: 'products/new/frontend/Unmerged.test.tsx::Unmerged explains itself' },
+            {
+                ...common,
+                runner: 'jest',
+                selector: 'products/new/frontend/Unmerged.test.tsx::Unmerged explains itself',
+            },
         ]
         const toRepoPaths = (path) => (path === 'frontend/src/shared.test.tsx' ? [path] : [])
 
@@ -236,8 +240,10 @@ describe('weekly flaky report', () => {
         const candidatePools = await fetchCandidatePools(['pytest'], onMasterResolver, async () => ({
             items: [...plainRegressions, trunked, confirmed, fileQuarantined, master],
         }))
-        const [{ candidates }] = await buildRunnerReports(candidatePools, getEnrichment, async () => (item) =>
-            item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
+        const [{ candidates }] = await buildRunnerReports(
+            candidatePools,
+            getEnrichment,
+            async () => (item) => (item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null)
         )
 
         assert.deepEqual(
@@ -527,5 +533,4 @@ describe('weekly flaky report', () => {
             '2026-07-11T16:45:09.000Z'
         )
     })
-
 })

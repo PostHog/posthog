@@ -70,10 +70,13 @@ function endpointUrl(action, params = {}) {
     return url
 }
 
+// The endpoint sorts master failures first, so PR-only rows fill the tail of the page. The
+// PR-only filter runs after the fetch, so request the endpoint maximum to leave headroom for
+// confirmed flakes with no master failure that rank below those rows.
 function flakyTestsUrl(runner) {
     return endpointUrl('flaky_tests', {
         date_from: '-7d',
-        limit: 100,
+        limit: 200,
         repo: GITHUB_REPOSITORY,
         runner,
     })
@@ -122,6 +125,10 @@ async function fetchCandidatePools(runners, toRepoPaths, fetchTests = fetchFlaky
     return Promise.all(
         runners.map(async (runner) => {
             const result = await fetchTests(runner)
+            if (result.truncated) {
+                // Rows past the page never reach the PR-only filter, so a full page is worth a trace.
+                console.info(`${runner}: endpoint page is full at ${result.limit} rows; more tests qualified`)
+            }
             return { runner, candidates: selectReportCandidates(result.items || [], runner, toRepoPaths) }
         })
     )
