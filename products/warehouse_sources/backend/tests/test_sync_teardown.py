@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.utils import timezone
 
 import psycopg
@@ -46,6 +47,7 @@ from products.warehouse_sources.backend.tests.management.test_manage_warehouse_q
 pytestmark = [pytest.mark.django_db]
 
 TASK_DELAY = "products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"
+SCHEMA_MODULE = "products.warehouse_sources.backend.models.external_data_schema"
 
 
 @pytest.fixture
@@ -117,6 +119,58 @@ class TestDisableChokepointDispatch:
 
         mock_delay.assert_called_once()
         assert mock_delay.call_args.kwargs["reason"] == SCHEMA_DELETED_JOB_ERROR
+
+    def test_bulk_soft_delete_covers_every_chunk_of_the_running_job_lookup(
+        self, team, django_capture_on_commit_callbacks
+    ):
+        schemas = [_create_schema_with_running_job(team)[0] for _ in range(3)]
+
+        with (
+            patch(TASK_DELAY) as mock_delay,
+            patch(f"{SCHEMA_MODULE}.RUNNING_JOB_LOOKUP_CHUNK_SIZE", 2),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            ExternalDataSchema.objects.filter(pk__in=[schema.pk for schema in schemas]).update(deleted=True)
+
+        assert {call.kwargs["schema_id"] for call in mock_delay.call_args_list} == {
+            str(schema.id) for schema in schemas
+        }
+
+    def test_running_job_lookup_waits_for_the_commit(self, team, django_capture_on_commit_callbacks):
+        schema, _job = _create_schema_with_running_job(team)
+
+        with (
+            patch(TASK_DELAY),
+            patch(f"{SCHEMA_MODULE}._schema_ids_with_running_jobs") as mock_lookup,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(deleted=True)
+            # The read scales with the number of schemas, so it must not sit inside the
+            # caller's atomic block, where a slow one rolls the soft delete back.
+            mock_lookup.assert_not_called()
+
+        mock_lookup.assert_called_once()
+
+    def test_a_failed_running_job_lookup_leaves_the_committed_write_alone(
+        self, team, django_capture_on_commit_callbacks
+    ):
+        schema, _job = _create_schema_with_running_job(team)
+
+        with (
+            patch(TASK_DELAY) as mock_delay,
+            patch(
+                f"{SCHEMA_MODULE}._schema_ids_with_running_jobs",
+                side_effect=OperationalError("canceling statement due to statement timeout"),
+            ),
+            # The hook runs from the commit, so a raise that escapes it would abandon the external
+            # cleanup the caller still does after its atomic block.
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(deleted=True)
+
+        schema.refresh_from_db()
+        assert schema.deleted is True
+        mock_delay.assert_not_called()
 
     def test_soft_delete_save_dispatches_with_deleted_reason(self, team, django_capture_on_commit_callbacks):
         schema, _job = _create_schema_with_running_job(team)

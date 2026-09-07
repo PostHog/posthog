@@ -69,6 +69,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
             ),
+            # Serves the teardown lookup that asks which of a source's schemas still have a
+            # live run. Running jobs are a tiny slice of the table, so the partial index keeps
+            # that read proportional to the live runs rather than to the schemas asked about.
+            models.Index(
+                fields=["team", "schema"],
+                condition=models.Q(status=ExternalDataJobStatus.RUNNING),
+                name="idx_extdatajob_team_schema_run",
+            ),
         ]
 
     def folder_path(self) -> str:
