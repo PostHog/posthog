@@ -1,6 +1,5 @@
 """Celery tasks for the conversations product."""
 
-import html as html_mod
 import json
 from datetime import datetime, timedelta
 from email.utils import formataddr
@@ -34,7 +33,7 @@ from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nud
 from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.formatting import (
     extract_images_from_rich_content,
-    rich_content_to_html,
+    rich_content_to_email_payload,
     rich_content_to_markdown,
     rich_content_to_slack_payload,
 )
@@ -768,12 +767,7 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         if all_ids:
             headers["References"] = " ".join(all_ids)
 
-    if comment.rich_content:
-        html_body = rich_content_to_html(comment.rich_content)
-        txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
-    else:
-        txt_body = comment.content or ""
-        html_body = f"<p>{html_mod.escape(comment.content or '')}</p>"
+    txt_body, html_body = rich_content_to_email_payload(comment.rich_content, comment.content or "")
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None

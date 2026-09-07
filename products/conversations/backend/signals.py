@@ -17,6 +17,7 @@ from posthog.models.instance_setting import get_instance_setting
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
+from .formatting import strip_markdown_escapes
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
 from .tasks import (
@@ -137,7 +138,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         update_fields = {
             "message_count": F("message_count") + 1,
             "last_message_at": created_at,
-            "last_message_text": (content or "")[:500],  # Truncate to 500 chars
+            "last_message_text": strip_markdown_escapes(content or "")[:500],  # Truncate to 500 chars
             "updated_at": created_at,
         }
 
@@ -267,7 +268,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
             if last_comment:
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(
                     last_message_at=last_comment.created_at,
-                    last_message_text=(last_comment.content or "")[:500],
+                    last_message_text=strip_markdown_escapes(last_comment.content or "")[:500],
                 )
             else:
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(

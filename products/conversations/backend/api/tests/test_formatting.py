@@ -7,6 +7,7 @@ from products.conversations.backend.formatting import (
     _slack_unicode_to_char,
     extract_images_from_rich_content,
     extract_slack_user_ids,
+    rich_content_to_email_payload,
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
 )
@@ -482,3 +483,72 @@ class TestSlackFormatting(SimpleTestCase):
         content, rich_content = slack_to_content_and_rich_content("", blocks)
         assert "<@UXYZ999>" in content
         assert rich_content is not None
+
+
+class TestEmailFormatting(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("exclamation", "No worries!", "No worries!"),
+            ("period_and_hyphen", "Docs for migrate-to-cloud are here.", "Docs for migrate-to-cloud are here."),
+            ("parens_and_hash", "See item (3) #done", "See item (3) #done"),
+        ]
+    )
+    def test_text_part_drops_commonmark_escapes(self, _name: str, text: str, expected: str) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+        }
+
+        txt_body, _ = rich_content_to_email_payload(rich_content, "")
+
+        assert txt_body == expected
+
+    def test_text_part_keeps_markdown_syntax(self) -> None:
+        # Only the escapes go — mail clients render the text part verbatim, but the markers
+        # are what a reader falling back to plain text has to work with.
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Read ", "marks": [{"type": "bold"}]},
+                        {
+                            "type": "text",
+                            "text": "the docs",
+                            "marks": [{"type": "link", "attrs": {"href": "https://posthog.com/docs"}}],
+                        },
+                    ],
+                }
+            ],
+        }
+
+        txt_body, _ = rich_content_to_email_payload(rich_content, "")
+
+        assert txt_body == "**Read **[the docs](https://posthog.com/docs)"
+
+    def test_code_keeps_literal_backslashes(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "codeBlock", "content": [{"type": "text", "text": r"C:\Projects\*"}]}],
+        }
+
+        txt_body, _ = rich_content_to_email_payload(rich_content, "")
+
+        assert txt_body == "```\nC:\\Projects\\*\n```"
+
+    def test_fallback_content_renders_without_escapes_in_both_parts(self) -> None:
+        # Messages without rich content (Slack, imports) carry markdown in `content`, so the
+        # escapes reached the HTML part too — not just the text part.
+        txt_body, html_body = rich_content_to_email_payload(None, "Hey there\\! Ping me \\- anytime\\.")
+
+        assert txt_body == "Hey there! Ping me - anytime."
+        assert "<p>Hey there! Ping me - anytime.</p>" in html_body
+        assert "\\" not in html_body
+
+    def test_fallback_content_escapes_html_and_keeps_paragraphs(self) -> None:
+        txt_body, html_body = rich_content_to_email_payload(None, "First <b>line</b>\nsame para\n\nSecond para")
+
+        assert txt_body == "First <b>line</b>\nsame para\n\nSecond para"
+        assert "<p>First &lt;b&gt;line&lt;/b&gt;<br>same para</p>" in html_body
+        assert "<p>Second para</p>" in html_body

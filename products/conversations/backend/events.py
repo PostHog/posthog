@@ -27,6 +27,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
+from products.conversations.backend.formatting import strip_markdown_escapes
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, OrganizationIdSource
 
@@ -532,7 +533,7 @@ def capture_message_sent(
     """Team member sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
-    properties["message_content"] = (message_content or "")[:1000]
+    properties["message_content"] = strip_markdown_escapes(message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
@@ -553,7 +554,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     """Customer sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
-    properties["message_content"] = (message_content or "")[:1000]
+    properties["message_content"] = strip_markdown_escapes(message_content or "")[:1000]
     properties["author_type"] = "customer"
     properties.update(_get_customer_properties(ticket))
     properties.update(_get_assignment_properties(ticket))

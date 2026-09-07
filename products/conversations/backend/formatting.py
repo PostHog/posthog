@@ -167,6 +167,28 @@ def _escape_slack_control_chars(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def strip_markdown_escapes(text: str) -> str:
+    """
+    Drop the CommonMark backslash escapes that serialization adds.
+
+    Use this for destinations that don't read CommonMark — plain-text email bodies,
+    message previews — where "world\\!" must render as "world!". Code spans and code
+    blocks keep their contents literal, so they are left alone.
+    """
+    if not text:
+        return ""
+
+    chunks: list[str] = []
+    position = 0
+    for code_segment in _RE_CODE_SEGMENT.finditer(text):
+        chunks.append(_RE_MD_UNESCAPE.sub(r"\1", text[position : code_segment.start()]))
+        chunks.append(code_segment.group(0))
+        position = code_segment.end()
+    chunks.append(_RE_MD_UNESCAPE.sub(r"\1", text[position:]))
+
+    return "".join(chunks)
+
+
 def content_to_slack_mrkdwn(content: str) -> str:
     """Convert markdown comment content to Slack mrkdwn text."""
     if not content:
@@ -679,6 +701,26 @@ def _serialize_inline_nodes_to_html(nodes: list[JSON]) -> str:
     return "".join(chunks)
 
 
+def _wrap_email_html(body: str) -> str:
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.5; color: #333;">
+{body}
+</body>
+</html>"""
+
+
+def _plain_text_to_email_html(text: str) -> str:
+    """Wrap plain text in email HTML — blank lines start a paragraph, single newlines break a line."""
+    paragraphs = [paragraph for paragraph in re.split(r"\n{2,}", text) if paragraph.strip()]
+    blocks = [
+        "<p>{}</p>".format("<br>".join(_escape_html(line) for line in paragraph.split("\n")))
+        for paragraph in paragraphs
+    ]
+    return _wrap_email_html("\n".join(blocks) or "<p></p>")
+
+
 def rich_content_to_html(rich_content: JSON | None) -> str:
     """Serialize PostHog rich content JSON to email-safe HTML."""
     if not rich_content or rich_content.get("type") != "doc":
@@ -722,14 +764,7 @@ def rich_content_to_html(rich_content: JSON | None) -> str:
             if src:
                 blocks.append(f'<p><img src="{_escape_html(src)}" alt="{_escape_html(alt)}"></p>')
 
-    body = "\n".join(blocks)
-    return f"""<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.5; color: #333;">
-{body}
-</body>
-</html>"""
+    return _wrap_email_html("\n".join(blocks))
 
 
 def rich_content_to_slack_payload(
@@ -750,3 +785,22 @@ def rich_content_to_slack_payload(
             return content_to_slack_mrkdwn(source_content), blocks
 
     return content_to_slack_mrkdwn(fallback_content), None
+
+
+def rich_content_to_email_payload(rich_content: JSON | None, fallback_content: str) -> tuple[str, str]:
+    """
+    Convert outbound app message to email body fields.
+
+    Returns:
+    - text (the text/plain part — markdown without the CommonMark escapes, which mail
+      clients show verbatim; images are dropped because a bare URL reads as noise)
+    - html (the text/html alternative)
+    """
+    if rich_content:
+        html_body = rich_content_to_html(rich_content)
+        if html_body:
+            markdown_text = rich_content_to_markdown(rich_content, include_images=False)
+            return strip_markdown_escapes(markdown_text or fallback_content), html_body
+
+    text_body = strip_markdown_escapes(fallback_content)
+    return text_body, _plain_text_to_email_html(text_body)
