@@ -15,10 +15,6 @@ class Migration(migrations.Migration):
     operations = [
         SafeAddIndexConcurrently(
             model_name="mcpregistryserver",
-            index=models.Index(fields=["registry_name"], name="mcp_registry_name_idx"),
-        ),
-        SafeAddIndexConcurrently(
-            model_name="mcpregistryserver",
             index=models.Index(
                 fields=["display_name", "listed_in_registry", "is_measured"],
                 name="mcp_registry_srv_name_idx",
