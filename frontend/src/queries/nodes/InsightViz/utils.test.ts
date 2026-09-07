@@ -1,4 +1,5 @@
-import { InsightModel } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightModel, InsightType } from '~/types'
 
 import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
 
@@ -54,5 +55,19 @@ describe('getQueryBasedInsightModel', () => {
     ])('%s', (_name, input, expected) => {
         const result = getQueryBasedInsightModel(input as Partial<InsightModel>)
         expect(result.dashboards).toEqual(expected)
+    })
+
+    it('converts stored filters when the insight has no query', () => {
+        // Insights written before queries are served as `filters` with a null `query`, and this
+        // conversion is the only thing that renders them.
+        const result = getQueryBasedInsightModel({
+            query: null,
+            filters: { insight: InsightType.TRENDS, events: [{ id: '$pageview' }] },
+        } as Partial<InsightModel>)
+
+        expect(result.query).toMatchObject({
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery },
+        })
     })
 })

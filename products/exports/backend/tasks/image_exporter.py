@@ -28,7 +28,7 @@ from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
@@ -558,7 +558,7 @@ def export_image(
 
                 if query_override:
                     # query_override is upgraded inside calculate_for_query_based_insight,
-                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                    # so we skip upgrade_insight (which only upgrades insight.query we won't use).
                     # variables_override is None because query_override already encodes the
                     # user's full current state — applying saved dashboard variables on top
                     # would clobber unsaved variable selections.
@@ -575,7 +575,7 @@ def export_image(
                         analytics_props=export_analytics_props,
                     )
                 else:
-                    with upgrade_query(exported_asset.insight):
+                    with upgrade_insight(exported_asset.insight):
                         result = calculate_for_query_based_insight(
                             exported_asset.insight,
                             team=exported_asset.team,
@@ -612,7 +612,7 @@ def export_image(
                     if not insight or not insight.query:
                         continue
 
-                    with upgrade_query(insight):
+                    with upgrade_insight(insight):
                         result = calculate_for_query_based_insight(
                             insight,
                             team=exported_asset.team,
