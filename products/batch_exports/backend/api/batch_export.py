@@ -77,6 +77,7 @@ from products.batch_exports.backend.service import (
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+    HTTP_ALLOWED_DESTINATION_URLS,
     S3_SUPPORTED_COMPRESSIONS,
 )
 from products.batch_exports.backend.temporal.sql.events import EXPORTABLE_EVENTS_MODEL_FIELDS
@@ -1429,7 +1430,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         # SSRF protection for HTTP batch exports
         if destination_type == BatchExportDestination.Destination.HTTP:
             url = merged_config.get("url")
-            if url and url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+            if url and url not in HTTP_ALLOWED_DESTINATION_URLS:
                 raise serializers.ValidationError(f"Invalid destination URL: {url}")
 
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:

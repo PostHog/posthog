@@ -14,3 +14,11 @@ AZURE_BLOB_SUPPORTED_COMPRESSIONS: dict[str, list[str]] = {
     "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
     "JSONLines": ["gzip", "brotli"],
 }
+
+# The only destinations an HTTP batch export may send to. Any other URL is an SSRF risk.
+HTTP_ALLOWED_DESTINATION_URLS: frozenset[str] = frozenset(
+    {
+        "https://us.i.posthog.com/batch/",
+        "https://eu.i.posthog.com/batch/",
+    }
+)
