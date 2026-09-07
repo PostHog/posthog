@@ -253,9 +253,10 @@ export function MessageInput({
         return (
             <LemonInput
                 fullWidth
-                readOnly
+                value=""
                 placeholder={getReplyPlaceholder(channel)}
                 disabledReason={sendControlDisabledReason}
+                onChange={() => setComposerExpanded(true)}
                 onFocus={() => setComposerExpanded(true)}
                 data-attr="message-input-collapsed"
             />
