@@ -146,8 +146,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
 def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     """Flag ids that known blockers reference, not limited to the candidate ids.
 
-    The survey, dependency, and replay lookups are scoped by team or project, so they
-    also return ids for flags outside this batch.
+    The survey, product tour, dependency, and replay lookups are scoped by team or
+    project, so they also return ids for flags outside this batch.
 
     Every lookup is one set-wise query over the batch; the count stays fixed as the
     candidate volume grows. These exclusions remove known blockers only. They do not prove
@@ -160,16 +160,17 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     """
     flag_ids = [flag.id for flag in candidates]
     team_ids = {flag.team_id for flag in candidates}
-    # Replay links and flag dependencies are project-scoped: a sibling team in the same
-    # project can reference a flag this batch's teams own.
+    # Product tours, replay links, and flag dependencies are scoped by project, not by team:
+    # another team in the same project can reference a flag this batch's teams own. A product
+    # tour stays on the environment that created it, while a flag moves to the project root.
     project_ids = set(Team.objects.filter(id__in=team_ids).values_list("project_id", flat=True))
 
     excluded: set[int] = set()
     excluded |= Survey.get_internal_flag_ids(team_ids=team_ids)
     excluded |= set(
-        ProductTour.all_objects.filter(team_id__in=team_ids, internal_targeting_flag__isnull=False).values_list(
-            "internal_targeting_flag_id", flat=True
-        )
+        ProductTour.all_objects.filter(
+            team__project_id__in=project_ids, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
     )
     excluded |= set(
         Experiment.objects.filter(feature_flag_id__in=flag_ids, deleted=False).values_list("feature_flag_id", flat=True)
