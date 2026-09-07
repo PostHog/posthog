@@ -20,21 +20,19 @@ jest.mock('scenes/max/components/SidebarQuestionInput', () => ({
 describe('HomepageAiInput', () => {
     const APPROVE_LABEL = 'I allow AI analysis in this organization'
 
-    function renderInput(): HTMLElement {
+    function renderInput(membershipLevel: OrganizationMembershipLevel): HTMLElement {
+        initKeaTests(true, undefined, undefined, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+            membership_level: membershipLevel,
+        })
+
         const { container } = render(
             <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
                 <HomepageAiInput />
             </BindLogic>
         )
         return container
-    }
-
-    function setUpOrganization(membershipLevel: OrganizationMembershipLevel): void {
-        initKeaTests(true, undefined, undefined, {
-            ...MOCK_DEFAULT_ORGANIZATION,
-            is_ai_data_processing_approved: false,
-            membership_level: membershipLevel,
-        })
     }
 
     beforeEach(() => {
@@ -57,8 +55,7 @@ describe('HomepageAiInput', () => {
     afterEach(cleanup)
 
     it('approves AI data processing and swaps in the composer when the button is clicked', async () => {
-        setUpOrganization(OrganizationMembershipLevel.Admin)
-        const container = renderInput()
+        const container = renderInput(OrganizationMembershipLevel.Admin)
 
         fireEvent.click(screen.getByText(APPROVE_LABEL))
 
@@ -69,8 +66,7 @@ describe('HomepageAiInput', () => {
     })
 
     it('lets a member ask an admin to approve, instead of dead-ending on the disabled reason', async () => {
-        setUpOrganization(OrganizationMembershipLevel.Member)
-        renderInput()
+        renderInput(OrganizationMembershipLevel.Member)
 
         expect(screen.queryByText(APPROVE_LABEL)).toBeNull()
         fireEvent.click(screen.getByText('Request access'))
