@@ -344,6 +344,8 @@ function getSecureDispatcher(options: { allowH2?: boolean; http2IdleTimeoutMs?: 
     return options.allowH2 ? getSecureH2Agent(options.http2IdleTimeoutMs) : sharedSecureAgent
 }
 
+// The timer only bounds the wait in closeSharedAgents. When close finishes first, an unref'd timer does not keep the
+// process alive for the rest of the grace period.
 function unrefDelay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms).unref())
 }
