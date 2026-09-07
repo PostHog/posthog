@@ -504,10 +504,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
  * grow a toggle. Overflow can't be known
  * from character count (it depends on wrapping width), so we measure `scrollHeight` against the
  * clamped `clientHeight` — which holds even while clamped — and re-measure on resize.
- *
- * Blocks folded into the prompt at send time (see `INJECTED_BLOCK_PRESENTATION`) collapse into
- * `ChatMessageHeader` chips above the bubble instead of rendering inline. The send timestamp sits
- * in a `ChatMessageFooter` revealed on hover.
  */
 function UserBubble({
   content,

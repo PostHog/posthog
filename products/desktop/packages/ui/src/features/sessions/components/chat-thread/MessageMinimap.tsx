@@ -127,9 +127,6 @@ export function MessageMinimap({
     const result: MinimapEntry[] = [];
     for (const item of items) {
       if (item.type !== "user_message") continue;
-      // The question only, so a tick reads as the turn it marks and its width
-      // tracks what the user wrote rather than the context blocks folded in at
-      // send time, which would saturate every tick.
       const fullText = userMessageDisplayText(item.content);
       const ratio = Math.min(1, fullText.trim().length / FULL_WIDTH_CHARS);
       result.push({

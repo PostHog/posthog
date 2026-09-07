@@ -193,7 +193,6 @@ describe("UserMessage", () => {
     } else {
       expect(screen.queryByText("PostHog context")).not.toBeInTheDocument();
     }
-    // The blocks are collapsed into the tag, never rendered inline.
     expect(
       screen.queryByText(/posthog_trusted_context/),
     ).not.toBeInTheDocument();

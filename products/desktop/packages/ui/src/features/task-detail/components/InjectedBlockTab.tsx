@@ -6,9 +6,6 @@ interface InjectedBlockTabProps {
   block: InjectedBlock;
 }
 
-// A read-only snapshot of a block as it was sent with the prompt. The body is
-// carried in the tab data, not re-fetched, so it reflects what the agent
-// received even if the live source (a CONTEXT.md, a dashboard) later changed.
 export function InjectedBlockTab({ block }: InjectedBlockTabProps) {
   const { label, tab } = INJECTED_BLOCK_PRESENTATION[block.kind];
   return (

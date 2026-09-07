@@ -48,8 +48,6 @@ export function promptRecallStep(
   return id ? { kind: "recall", id, fresh: false } : null;
 }
 
-// Recall returns only what the user typed: neither the blocks folded in at
-// send time nor the trailing attachment summary.
 function stripInjectedPromptBlocks(content: string): string {
   return stripTrailingAttachmentSummary(stripInjectedBlocks(content));
 }

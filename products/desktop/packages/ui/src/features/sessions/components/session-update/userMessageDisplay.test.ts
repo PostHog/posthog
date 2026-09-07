@@ -39,8 +39,6 @@ describe("splitUserMessage", () => {
   });
 
   it("gives the jump picker and minimap the question, not the context", () => {
-    // Both label surfaces truncate hard, and the context blocks repeat across
-    // messages, so labelling raw content makes every row read the same.
     expect(
       userMessageDisplayText(`${POSTHOG_CONTEXT}\n\nwhy did signups drop`),
     ).toBe("why did signups drop");

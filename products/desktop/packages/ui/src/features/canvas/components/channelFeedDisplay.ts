@@ -2,8 +2,6 @@ import { stripInjectedBlocks } from "@posthog/core/editor/injectedBlocks";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 
-// The feed shows what the user actually asked; the timeline renders the
-// blocks folded into the prompt as their own collapsible surfaces.
 export function stripContextBlocks(text: string): string {
   return stripInjectedBlocks(text).replace(/\n{3,}/g, "\n\n");
 }

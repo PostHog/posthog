@@ -273,7 +273,6 @@ describe("panelLayoutStore", () => {
         { type: "injected-block", block: contextSnapshot("# Growth v1").block },
         { type: "injected-block", block: contextSnapshot("# Growth v2").block },
       ]);
-      // Reopening the first body focuses its tab rather than adding a third.
       expect(snapshots[0]?.activeTabId).toBe(snapshots[0]?.tab.id);
     });
   });

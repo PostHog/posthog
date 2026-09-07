@@ -47,7 +47,6 @@ const POSTHOG_CONTEXT_BLOCKS = [
   "</posthog_untrusted_context>",
 ].join("\n");
 
-/** A message sent from the web app's AI chat: the context blocks fold into one clickable chip. */
 export const WithPosthogContext: Story = {
   args: {
     content: `${POSTHOG_CONTEXT_BLOCKS}\n\nHow many monthly active users do we have`,

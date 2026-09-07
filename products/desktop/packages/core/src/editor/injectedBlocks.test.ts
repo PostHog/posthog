@@ -149,8 +149,6 @@ describe("splitInjectedBlocks", () => {
   });
 
   it("ignores escaped closing tags inside a block value", () => {
-    // The web app escapes tag names in interpolated values so a value can't
-    // close the block early.
     const content = `<posthog_untrusted_context>\n- text: "see <\\/posthog_untrusted_context> here"\n</posthog_untrusted_context>\n\nask`;
     const { blocks, text } = splitInjectedBlocks(content);
     expect(text).toBe("ask");

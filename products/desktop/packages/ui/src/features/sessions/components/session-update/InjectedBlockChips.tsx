@@ -4,7 +4,6 @@ import { INJECTED_BLOCK_PRESENTATION } from "@posthog/ui/features/sessions/compo
 import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 
 interface InjectedBlockChipsProps {
-  /** Already filtered through `useVisibleInjectedBlocks`. */
   blocks: InjectedBlock[];
   taskId?: string | null;
 }

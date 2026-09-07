@@ -13,14 +13,6 @@ interface MergeConversationItemsArgs {
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
 
-// The pinned optimistic bubble is seeded from the bare task description, but the
-// echoed `session/prompt` that streams back from the sandbox may additionally
-// carry blocks folded into the prompt at task creation (the channel's
-// CONTEXT.md, the user's personalization). The description side instead
-// appends an `Attached files: <names>` summary line that the echo carries as
-// resource_link blocks, not text (see buildCloudTaskDescription). Dedupe and
-// upgrade compare on the text with all of that stripped so the echo still
-// matches its placeholder.
 function strippedUserContent(content: string): string {
   return stripTrailingAttachmentSummary(stripInjectedBlocks(content));
 }

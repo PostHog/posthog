@@ -255,8 +255,6 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
       },
 
       openInjectedBlockTab: (taskId, { block, label }) => {
-        // Keyed by body, so a later message carrying a changed CONTEXT.md
-        // opens beside the earlier snapshot instead of re-activating it.
         const tabId = `injected-block:${block.kind}:${contentHash(block.body)}`;
         set((state) =>
           updateTaskLayout(

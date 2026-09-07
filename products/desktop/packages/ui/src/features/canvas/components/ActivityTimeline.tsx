@@ -84,8 +84,6 @@ function UserMessageRow({
     (block) => INJECTED_BLOCK_PRESENTATION[block.kind].chip,
   );
   const firstLine = displayContent.trim().split("\n", 1)[0] ?? "";
-  // A message that is nothing but a block (the onboarding brief) still needs
-  // a preview, so the row falls back to the block's name.
   const preview =
     firstLine ||
     (disclosedBlocks[0]

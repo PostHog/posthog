@@ -20,16 +20,7 @@ export interface InjectedBlockPresentation {
   icon: Icon;
   label: (block: InjectedBlock) => string;
   tooltip?: string;
-  /**
-   * Show a chip naming the block where the message renders. A block with no
-   * chip is still stripped; it is background the reader did not ask about.
-   */
   chip: boolean;
-  /**
-   * How the block renders when its chip opens it in a split tab. Absent, the
-   * chip is inert. Opening is a project-bluebird feature, so a chip that would
-   * open is hidden while the flag is off.
-   */
   tab?: {
     intro: (block: InjectedBlock) => string;
     format: "markdown" | "raw";
