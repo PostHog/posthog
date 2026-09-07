@@ -386,6 +386,13 @@ describe('loginLogic', () => {
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
         })
 
+        it('offers SAML on a SAML domain without confirming it for an unknown email', async () => {
+            // `saml_available` is true for the whole domain, so it says nothing about this address.
+            await precheck({ saml_available: true, password_login_available: true, social_providers: [] })
+            expect(logic.values.availableLoginMethods).toEqual(['password', 'saml'])
+            expect(logic.values.confirmedLoginMethods).toEqual([])
+        })
+
         it('reports a dead end for a passwordless account with nothing else', async () => {
             await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)

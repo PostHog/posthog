@@ -375,7 +375,7 @@ export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType) => boolean
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
-        confirmedLoginMethods: (availableLoginMethods: LoginMethod[]) => LoginMethod[]
+        confirmedLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
         precheckTrusted: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
         hasNoConfiguredLoginMethod: (
             precheckResponse: PrecheckResponseType,
@@ -551,13 +551,24 @@ export const loginLogic = kea<loginLogicType>([
                 return methods
             },
         ],
-        // Methods this specific account is proven to have. `password` is left out on purpose: the
-        // precheck reports password login as available for an email with no account at all, so its
-        // presence is no evidence the account exists.
+        // Methods this specific account is proven to have, so this reads only the response fields
+        // that describe the account. `password_login_available` is not one of them, because the
+        // precheck reports password login as available for an email with no account at all.
+        // `saml_available` is not one either, because it describes the email's domain and stays
+        // true for an address with no account on a SAML domain. `social_providers` already carries
+        // `saml` when the account really has a linked SAML identity.
         confirmedLoginMethods: [
-            (s) => [s.availableLoginMethods],
-            (availableLoginMethods: LoginMethod[]): LoginMethod[] =>
-                availableLoginMethods.filter((method) => method !== 'password'),
+            (s) => [s.precheckResponse],
+            (precheckResponse: PrecheckResponseType): LoginMethod[] => {
+                if (precheckResponse.status !== 'completed' || precheckResponse.sso_enforcement) {
+                    return []
+                }
+                const methods: LoginMethod[] = [...(precheckResponse.social_providers ?? [])]
+                if (precheckResponse.webauthn_credentials?.length) {
+                    methods.push('passkey')
+                }
+                return methods
+            },
         ],
         // A passwordless account with nothing else linked. They can only get back in via a reset.
         hasNoConfiguredLoginMethod: [
