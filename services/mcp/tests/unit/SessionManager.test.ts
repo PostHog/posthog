@@ -1,6 +1,7 @@
+import { v7 as uuidv7 } from 'uuid'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import { ScopedCache } from '@/lib/cache/ScopedCache'
 import { SessionManager } from '@/lib/SessionManager'
 import type { State } from '@/tools/types'
 
@@ -12,17 +13,16 @@ describe('SessionManager', () => {
     let mockCache: ScopedCache<State>
     let sessionManager: SessionManager
 
+    // Extends the real base class so the inherited `warm` keeps its production behavior.
+    class MockCache extends ScopedCache<State> {
+        get = vi.fn()
+        set = vi.fn()
+        delete = vi.fn()
+        clear = vi.fn()
+    }
+
     beforeEach(() => {
-        mockCache = {
-            get: vi.fn(),
-            set: vi.fn(),
-            delete: vi.fn(),
-            clear: vi.fn(),
-            has: vi.fn(),
-            values: vi.fn(),
-            entries: vi.fn(),
-            keys: vi.fn(),
-        } as unknown as ScopedCache<State>
+        mockCache = new MockCache('test-scope') as unknown as ScopedCache<State>
 
         sessionManager = new SessionManager(mockCache)
         vi.clearAllMocks()
@@ -67,6 +67,28 @@ describe('SessionManager', () => {
             expect(mockCache.set).toHaveBeenCalledWith('session:test-session-123', {
                 uuid: 'test-uuid-12345',
             })
+        })
+    })
+
+    describe('a Redis reconnect window', () => {
+        const blip = new Error("Stream isn't writeable and enableOfflineQueue options is false")
+
+        it('returns the minted uuid so a tool error still reaches the agent', async () => {
+            ;(mockCache.get as any).mockResolvedValue(undefined)
+            ;(mockCache.set as any).mockRejectedValue(blip)
+
+            await expect(sessionManager.getSessionUuid('test-session-123')).resolves.toBe('test-uuid-12345')
+        })
+
+        it('reuses the minted uuid while the write keeps failing', async () => {
+            ;(mockCache.get as any).mockResolvedValue(undefined)
+            ;(mockCache.set as any).mockRejectedValue(blip)
+
+            const first = await sessionManager.getSessionUuid('test-session-123')
+            const second = await sessionManager.getSessionUuid('test-session-123')
+
+            expect(second).toBe(first)
+            expect(uuidv7).toHaveBeenCalledTimes(1)
         })
     })
 
