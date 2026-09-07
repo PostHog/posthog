@@ -24,6 +24,12 @@ if typing.TYPE_CHECKING:
 LOGGER = get_write_only_logger(__name__)
 TRACER = trace.get_tracer(__name__)
 
+# Budget for retrying a read from the internal S3 stage. A worker whose clock has drifted gets
+# `RequestTimeTooSkewed` on every request until NTP corrects the host, so the budget must cover a
+# correction window (roughly 6 minutes here) instead of expiring in seconds.
+STAGING_READ_MAX_ATTEMPTS = 10
+STAGING_READ_MAX_RETRY_DELAY = 60
+
 
 @dataclasses.dataclass
 class S3FileResumeState:
@@ -116,7 +122,12 @@ class Producer:
         with TRACER.start_as_current_span("batch_export.producer") as span:
             async with get_s3_client() as s3_client:
                 try:
-                    keys = await self._list_keys(s3_client, stage_folder)
+                    list_keys = make_retryable_with_exponential_backoff(
+                        self._list_keys,
+                        max_attempts=STAGING_READ_MAX_ATTEMPTS,
+                        max_retry_delay=STAGING_READ_MAX_RETRY_DELAY,
+                    )
+                    keys = await list_keys(s3_client, stage_folder)
                     span.set_attribute("batch_export.producer.num_files", len(keys))
                     if not keys:
                         return
@@ -245,7 +256,11 @@ class Producer:
 
             self.logger.info("Finished stream", key=key)
 
-        stream_func = make_retryable_with_exponential_backoff(stream_from_s3_file, max_attempts=5, max_retry_delay=1)
+        stream_func = make_retryable_with_exponential_backoff(
+            stream_from_s3_file,
+            max_attempts=STAGING_READ_MAX_ATTEMPTS,
+            max_retry_delay=STAGING_READ_MAX_RETRY_DELAY,
+        )
 
         # Bound how many files we read at once (so S3 connections and in-flight memory stay bounded as
         # the file count grows with export size).

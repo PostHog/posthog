@@ -16,6 +16,7 @@ from django.conf import settings
 from django.test.utils import override_settings
 
 import pyarrow as pa
+from botocore.exceptions import ClientError
 
 from posthog.temporal.common import asyncpa
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -63,17 +64,46 @@ class FakeStreamingBody:
 class FakeS3Client:
     """In-memory S3 client that can fail chosen read attempts and honors Range/IfMatch."""
 
-    def __init__(self, objects: dict[str, bytes], fail_after_bytes_per_attempt: list[int | None] | None = None) -> None:
+    def __init__(
+        self,
+        objects: dict[str, bytes],
+        fail_after_bytes_per_attempt: list[int | None] | None = None,
+        clock_skew_attempts: int = 0,
+    ) -> None:
         self._objects = objects
         # Index i is the byte offset (into attempt i's returned body) at which that read fails, or None.
         self._fail_after_bytes_per_attempt = fail_after_bytes_per_attempt or []
+        # Number of leading requests that are rejected as if the worker clock had drifted.
+        self._clock_skew_attempts = clock_skew_attempts
         self._get_counts: collections.Counter[str] = collections.Counter()
+        self._list_count = 0
         self.get_object_requests: list[tuple[str, str | None, str | None]] = []
+
+    def _maybe_raise_clock_skew(self, operation: str, attempt: int) -> None:
+        if attempt >= self._clock_skew_attempts:
+            return
+        raise ClientError(
+            {
+                "Error": {
+                    "Code": "RequestTimeTooSkewed",
+                    "Message": "The difference between the request time and the current time is too large",
+                }
+            },
+            operation,
+        )
+
+    async def list_objects_v2(self, Bucket: str, Prefix: str) -> dict:
+        attempt = self._list_count
+        self._list_count += 1
+        self._maybe_raise_clock_skew("ListObjectsV2", attempt)
+
+        return {"Contents": [{"Key": key} for key in self._objects]}
 
     async def get_object(self, Bucket: str, Key: str, Range: str | None = None, IfMatch: str | None = None) -> dict:
         attempt = self._get_counts[Key]
         self._get_counts[Key] += 1
         self.get_object_requests.append((Key, Range, IfMatch))
+        self._maybe_raise_clock_skew("GetObject", attempt)
 
         offset = int(Range.removeprefix("bytes=").removesuffix("-")) if Range is not None else 0
         assert offset < len(self._objects[Key]), "Invalid range requested"
@@ -198,6 +228,48 @@ async def test_stream_record_batches_from_s3_resumes_across_multiple_failures():
         (f"bytes={offsets[0]}-", FAKE_ETAG),
         (f"bytes={offsets[1]}-", FAKE_ETAG),
     ]
+
+
+async def test_stream_record_batches_from_s3_outlasts_a_clock_skew_window():
+    batches, ipc_bytes = generate_arrow_ipc_file()
+
+    key = "batch-export-data/file_0.arrow"
+    # A drifted clock rejects every read until NTP corrects the host: more rejections here than
+    # the whole read budget used to allow.
+    fake_s3_client = FakeS3Client({key: ipc_bytes}, clock_skew_attempts=6)
+    queue = RecordBatchQueue()
+    producer = Producer()
+
+    # keep mypy happy
+    s3_client = typing.cast("S3Client", fake_s3_client)
+    await producer._stream_record_batches_from_s3(s3_client, [key], queue)
+
+    expected_table = pa.Table.from_batches(batches)
+    assert pa.Table.from_batches(drain(queue), schema=expected_table.schema).equals(expected_table)
+    assert len(fake_s3_client.get_object_requests) == 7
+
+
+async def test_produce_batch_export_record_batches_outlasts_a_clock_skew_window():
+    # Listing the staging folder is a read too, so it must survive the same window.
+    batches, ipc_bytes = generate_arrow_ipc_file()
+
+    key = "batch-export-data/file_0.arrow"
+    fake_s3_client = FakeS3Client({key: ipc_bytes}, clock_skew_attempts=6)
+    queue = RecordBatchQueue()
+    producer = Producer()
+
+    with patch.object(producer_module, "get_s3_client") as mocked_get_s3_client:
+        mocked_get_s3_client.return_value.__aenter__.return_value = fake_s3_client
+        await producer.produce_batch_export_record_batches_from_range(
+            queue=queue,
+            batch_export_id=str(uuid.uuid4()),
+            data_interval_start="2025-01-01 00:00:00",
+            data_interval_end="2025-01-01 01:00:00",
+            stage_folder="batch-export-data",
+        )
+
+    expected_table = pa.Table.from_batches(batches)
+    assert pa.Table.from_batches(drain(queue), schema=expected_table.schema).equals(expected_table)
 
 
 async def test_resume_staging_file_short_circuits_when_fully_consumed():

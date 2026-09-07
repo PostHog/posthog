@@ -227,6 +227,9 @@ async def get_s3_client():
             read_timeout=300,
             connector_args={"keepalive_timeout": 30},
             http_session_cls=AIOHTTPSession,
+            # Standard mode retries throttling and transient server errors, which legacy mode
+            # classifies less completely.
+            retries={"mode": "standard", "max_attempts": 5},
         ),
     ) as s3_client:
         yield s3_client
