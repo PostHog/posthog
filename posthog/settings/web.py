@@ -657,6 +657,8 @@ SPECTACULAR_SETTINGS = {
             # The choices are computed: a subset or union of another definition, a plain
             # Python enum's values, or a per-widget constant. Converting each producer to
             # a TextChoices class would delete its entry here.
+            "TaskChannelWriteTypeEnum": "products.tasks.backend.facade.enums.CHANNEL_WRITE_TYPE_CHOICES",
+            "ChannelTypeEnum": "products.error_tracking.backend.facade.alerts.ALERT_CHANNEL_TYPES",
             "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
             "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
             "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",

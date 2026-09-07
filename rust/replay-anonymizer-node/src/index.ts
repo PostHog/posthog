@@ -65,6 +65,7 @@ export interface AnonymizeMeta {
     consoleLogCount: number
     consoleWarnCount: number
     consoleErrorCount: number
+    jsonLdEventCount: number
     events: AnonymizeEventMeta[]
     /** Collected original images (hash-sorted); present only when the collection lane was enabled and images were collected. */
     images?: AnonymizeImageEntry[]
