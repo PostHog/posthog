@@ -6788,6 +6788,22 @@ snapshots:
         hash: v1.k794b7964.322bfce5ccced64987eb75406fa77e8a2ad80575597378810b984986f9fede0f.EwXIJ9x_Rc-dgkCVJJZBQM1W3voRSFtgHX95x8GbYIE
     scenes-app-engineering-analytics-test-health--trunk-quarantine-debt-owners-unavailable--light:
         hash: v1.k794b7964.8916de545edf558f799cc98ee4a901c19ba00fe7d0bb4f5312266705755e3e70.EO6V5mC_JCbSh5ZRrmyU09RT-hFV9f4Mtu_JkZ9m5Ng
+    scenes-app-engineering-analytics-workflow--workflow-detail--dark:
+        hash: v1.k794b7964.34f27a97a182defe9103de7bb4904e0511f539cbd69154cacf9407ea0e6ae5b6.fx9x83QbIPLTC1foUBSS6_dTDsJwN0pvV_LFjpFADL0
+    scenes-app-engineering-analytics-workflow--workflow-detail--light:
+        hash: v1.k794b7964.864df1dc201eed86c63c5c8665b410e3cee027ae31ea34a927c54339accf163e.QaubMm0ri-3h0lcu1XErjxehlk-ShT-TQFhXMSA89lo
+    scenes-app-engineering-analytics-workflow--workflow-detail-scoped-to-pull-requests--dark:
+        hash: v1.k794b7964.0c0f1d46522800e5607f6da430c28c78f944a36b2f8eb0299619d8823d29b260.bxyaidP2mR5LSlQuspIbfz_cnCiylWsjdwYT75rxrsM
+    scenes-app-engineering-analytics-workflow--workflow-detail-scoped-to-pull-requests--light:
+        hash: v1.k794b7964.6e8be9c87cb9906e6ae6633b9f011a1204266d33e81f5ea55ed34b0164d105ac.LVonrjG3XuvWRwgHUPA__XIPv4IxrK2v6UfyOMXfa4s
+    scenes-app-engineering-analytics-workflows--workflow-list--dark:
+        hash: v1.k794b7964.a6574f63289438debc52ecec13b02dbe441bc929a8d6f710da3186331cd8d1eb.KpORwpMNnIj4CILhscu52yveUkN_65SPEzYkBUAaumU
+    scenes-app-engineering-analytics-workflows--workflow-list--light:
+        hash: v1.k794b7964.5f05abb04f8ecaedb71a23c181ece577502973cffc121b6efa62a625b387b849.kvJE0j7aXn3msG_CABO1vJ0JnwNSl7xR6WvTI-96Uf4
+    scenes-app-engineering-analytics-workflows--workflow-list-scoped-to-merge-queue--dark:
+        hash: v1.k794b7964.c5861b175d342db52fea2665ce0e7fb957ccc6b3b26f57f75a3ef402d021d293.hVYlxFiBOoeoyiY3YjznW61SDRRFFdtyI2GKBFAPKB8
+    scenes-app-engineering-analytics-workflows--workflow-list-scoped-to-merge-queue--light:
+        hash: v1.k794b7964.81034f96a01d79a233f8293715962f309d39be65d6a41683a1c18ddfd1c100f6.Wv2sRm7umnWkCm2J-G71MT5c_2yKa4sRdlzIgOqOc6M
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.30ace8f015100159e1dedbed07ff9f0b0b770535870d5c98ea764b10ff1f7621.dTVw9qLa7D_e7ZNme4tVuPZov-0Gg1o84aiDl5zihF0
     scenes-app-error-project-unavailable--access-revoked--light:
