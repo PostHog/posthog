@@ -4,6 +4,7 @@ import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
 import { NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { NotebooksDeleteCellSchema } from '@/tools/notebooks/deleteCell'
 import { NotebookEditSchema } from '@/tools/notebooks/edit'
+import { NotebooksRunAllCellsSchema } from '@/tools/notebooks/runAllCells'
 import { NotebooksUpdateCellSchema } from '@/tools/notebooks/updateCell'
 import type { ZodObjectAny } from '@/tools/types'
 
@@ -68,6 +69,12 @@ describe('notebook identifier contracts', () => {
             cell_type: 'markdown',
             markdown: '# Findings',
         })
+
+        expect(data.notebook_id).toBe(SHORT_ID)
+    })
+
+    it('notebooks-run-all-cells accepts short_id in place of notebook_id', () => {
+        const data = parseWith(NotebooksRunAllCellsSchema, { short_id: SHORT_ID })
 
         expect(data.notebook_id).toBe(SHORT_ID)
     })

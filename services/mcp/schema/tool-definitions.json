@@ -319,7 +319,7 @@
         }
     },
     "notebooks-update-cell": {
-        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one.",
+        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one. To refresh every cell in the notebook rather than walking the graph one hop at a time, use notebooks-run-all-cells.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update a cell's code and re-run it.",
@@ -349,7 +349,7 @@
         }
     },
     "notebooks-set-variables": {
-        "description": "Declare or change a markdown notebook's variables: named, typed values that cells read without hardcoding them — a SQL cell as a bare `{name}` placeholder (bound as a value, never as SQL text), a Python cell as a plain global. Use one for an input the reader will want to change (a country, a date range start, a threshold, a row limit) instead of repeating a literal across cells. The list you pass replaces the whole set, so read the current one from notebooks-get first and include every variable you want to keep. Returns the saved variables and stale_cells: cells whose code reads a variable that was added, removed, retyped, or given a new value. Nothing re-runs automatically — re-run each stale cell with notebooks-update-cell (no code) so its result reflects the new values.",
+        "description": "Declare or change a markdown notebook's variables: named, typed values that cells read without hardcoding them — a SQL cell as a bare `{name}` placeholder (bound as a value, never as SQL text), a Python cell as a plain global. Use one for an input the reader will want to change (a country, a date range start, a threshold, a row limit) instead of repeating a literal across cells. The list you pass replaces the whole set, so read the current one from notebooks-get first and include every variable you want to keep. Returns the saved variables and stale_cells: cells whose code reads a variable that was added, removed, retyped, or given a new value. Nothing re-runs automatically — re-run each stale cell with notebooks-update-cell (no code) so its result reflects the new values. To change only the values of variables the notebook already declares and refresh the whole notebook in one step, use notebooks-run-all-cells instead; note that stale_cells lists direct readers only, so on a notebook with Python cells it under-reports what a variable change affects.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Set a notebook's variables; cells read them as {name} in SQL or globals in Python.",
@@ -359,6 +359,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-run-all-cells": {
+        "description": "Re-run a whole markdown notebook: every SQL and Python cell, in dependency order, in place — saved research refreshed against today's data. This is the tool for \"run my weekly churn analysis again\" or \"run it for client Acme\". The existing notebook is overwritten; nothing is copied or forked, and results are written back into every cell so the person who opens it sees the fresh output.\n\nPass `variables` to change the values of variables the notebook already declares — only the ones you are changing; every other variable keeps its value. To add, remove, or rename a variable, use notebooks-set-variables first. A `date` variable must be an absolute ISO 8601 date (\"2025-01-31\"); relative expressions like \"-7d\" are rejected, so compute the date yourself.\n\nA notebook runs one cell at a time, so a call waits up to ~45s and then returns what it got. If the status comes back \"running\", the pass is unfinished: call this tool again with the response's resume.resume_after_node_id copied verbatim, and keep going until the status is \"done\". Never invent that value, and do not pass `variables` on a resume call — the cells already run bound the old values.\n\nThe response lists every cell with its status, run_id, and row count, plus the full result of the last cell. To read any other cell's rows, use notebooks-run-cell-result with that cell's run_id.\n\nThe pass stops at the first cell that fails or is interrupted and reports it with its error and stderr. It does not carry on: downstream cells read that cell's dataframe, and the kernel still holds the previous run's copy, so continuing would leave a notebook that looks fresh but mixes this week's numbers with last week's. Fix the cell with notebooks-update-cell, then call this tool again with the returned resume_after_node_id.\n\nA Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs. A whole-notebook re-run of a notebook with Python cells will usually start one, so tell the user that before you begin, and quote the hourly_price the response reports under sandbox. notebooks-list-frames also reports that rate.\n\nRead notebooks-get first if you do not know how many cells the notebook has or which variables it declares.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Re-run every cell in a notebook, optionally with new variable values.",
+        "title": "Re-run notebook",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

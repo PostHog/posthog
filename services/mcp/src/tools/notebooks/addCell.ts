@@ -6,10 +6,10 @@ import type { Context, ToolBase } from '@/tools/types'
 
 import {
     awaitRun,
-    buildResultProp,
     dispatchRun,
     shapeRunForModel,
     wrapRunResultAsInformational,
+    writeRunBack,
     type ShapedRunResult,
 } from './cellRuns'
 import {
@@ -17,11 +17,9 @@ import {
     collectRunRefs,
     COMPONENT_TAG_REGEX,
     DATAFRAME_NAME_REGEX,
-    findCellTag,
     parseCellTags,
-    replaceCellTag,
     uniqueDataframeName,
-    upsertProp,
+    findCellTag,
     type CellTagBlock,
 } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
@@ -121,7 +119,7 @@ async function runAndWriteBack(
     const projectId = await context.stateManager.getProjectId()
     const notebookPath = notebookPathFor(projectId, notebookId)
     const refs = collectRunRefs(cells, nodeId)
-    const runId = await dispatchRun(context, notebookPath, {
+    const { run_id: runId } = await dispatchRun(context, notebookPath, {
         node_id: nodeId,
         node_type: nodeType,
         code,
@@ -130,20 +128,7 @@ async function runAndWriteBack(
         variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
-    // Mirror the editor's write-back so humans opening the notebook see the result: runId
-    // always, the envelope once terminal. Anchored on nodeId, so concurrent edits to other
-    // parts of the document survive the retry inside applyMarkdownEdit.
-    await applyMarkdownEdit(context, notebookId, (markdown) => {
-        const block = findCellTag(markdown, nodeId)
-        if (!block) {
-            return markdown
-        }
-        let source = upsertProp(block.source, 'runId', runId)
-        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
-            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
-        }
-        return replaceCellTag(markdown, block, source)
-    })
+    await writeRunBack(context, notebookId, nodeId, runId, outcome)
     return shapeRunForModel(outcome)
 }
 
