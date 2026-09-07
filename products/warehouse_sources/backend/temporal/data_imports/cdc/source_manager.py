@@ -101,18 +101,35 @@ class CDCLane:
     write_mode: CDCWriteMode
 
 
-def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
-    """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
+# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer, cleared by
+# its rollback. `cdc_buffered_before` stays after a rollback, so a later flip can tell the
+# `_ph_cdc_seq` the buffered lane wrote from a column the source owns.
+BUFFERED_LANE_KEY = "cdc_buffered_lane"
+BUFFERED_BEFORE_KEY = "cdc_buffered_before"
 
-    Fails closed on every axis: a table mode with no lanes, or a schema whose snapshot has not
-    completed (so its tables may not exist yet), stays on the legacy extraction path.
-    """
+
+def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
+    """Whether the flip command may move this schema to the buffer: streaming, seeded, with lanes."""
     return bool(
         schema.is_cdc
         and schema.cdc_mode == "streaming"
         and schema.cdc_table_mode in _LANE_WRITE_MODES
         and schema.initial_sync_complete
     )
+
+
+def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
+    """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
+
+    Eligibility is opt-in per schema, by the marker the flip command writes. A source flipped
+    before history modes were served left its `cdc_only` and `both` schemas on legacy with
+    their schedules paused; widening this predicate by mode alone would have capture route
+    those schemas into the buffer on deploy, with nothing scheduled to consume it. Consolidated
+    schemas on an already-buffered source predate the marker and stay served without it.
+    """
+    if not buffered_lane_candidate(schema):
+        return False
+    return schema.cdc_table_mode == "consolidated" or bool(schema.sync_type_config.get(BUFFERED_LANE_KEY))
 
 
 def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
@@ -327,7 +344,10 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     consumer merge racing them lets an older legacy row land after a newer buffered one.
 
     A previous attempt of THIS job is the other kind, and it is why the check has to cover buffered
-    batches too. The v3 pipeline lock keeps two scheduled runs apart — it is held from the start of
+    batches too. It sees an attempt only once that attempt has staged a batch: one timed out by
+    its heartbeat but still alive inside the listing can stage after this check passed. The busy
+    gate keeps the two loads apart, but the history lane then holds both copies. Legacy has the
+    same window; fencing batches by attempt in the producer is the follow-up. The v3 pipeline lock keeps two scheduled runs apart — it is held from the start of
     the workflow until the loader completes the job — but a retried activity runs under the lock its
     own workflow already holds, and a takeover hands the lock to a new job while the old one's
     batches are still queued. Attempts are superseded only when the loader shows no recent
@@ -404,6 +424,7 @@ class ReplayFilter:
         # Taken from the position itself, so the batch is keyed exactly as the table was read.
         self._key_columns = list(position.key_columns)
         self._content_schema = position.content_schema
+        self._content_matched = position.content_matched
         self._team_id = team_id
         self.rows_skipped = 0
 
@@ -415,8 +436,8 @@ class ReplayFilter:
         return self._drop_already_written(table)
 
     def _count_skipped(self, dropped: int, reason: str) -> None:
-        # `superseded` is the series the loader raised while the position lived there, so a
-        # dashboard reading it keeps working now that the drop happens on the read side.
+        # `superseded` is the series the loader raised while the position lived there. It now
+        # comes from the extraction workers, so a dashboard filtered to the load fleet loses it.
         self.rows_skipped += dropped
         if dropped and self._team_id is not None:
             CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=str(self._team_id), reason=reason).inc(dropped)
@@ -437,7 +458,10 @@ class ReplayFilter:
             return table
         at_position = table.take(pa.array(candidates, type=pa.int64()))
         identities = list(zip(*(at_position.column(name).to_pylist() for name in self._key_columns)))
-        contents, stringly = self._batch_contents(at_position)
+        # Above the position-row cap the table side carried no content, so none is read here.
+        contents, stringly = (
+            self._batch_contents(at_position) if self._content_matched else ([{}] * at_position.num_rows, set())
+        )
         omitted = (
             at_position.column(TOAST_OMITTED_COLUMN).to_pylist()
             if TOAST_OMITTED_COLUMN in at_position.column_names

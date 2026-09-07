@@ -76,6 +76,9 @@ class LanePosition:
     # Arrow types of the content columns as the table stores them, so a batch is cast to them
     # before its values are compared. `None` when there is nothing to compare against.
     content_schema: pa.Schema | None = None
+    # False above the position-row cap: `applied` then carries keys only, and a batch row is
+    # matched on key and operation alone.
+    content_matched: bool = True
 
 
 EMPTY_POSITION = LanePosition(position=None, applied={}, key_columns=())
@@ -118,6 +121,11 @@ async def read_lane_position(
         return EMPTY_POSITION
 
     highest = _stats_max(add_actions)
+    if highest is None and not key_columns:
+        # The merge lane can replay from nothing, but a table that never gains the statistic
+        # never advances the floor either: no file is deleted and the buffer is re-merged and
+        # re-billed every tick. That is an alert, not a silent state.
+        logger.warning("cdc_position_unreadable", files=add_actions.num_rows)
     if highest is None and key_columns:
         # No file carries the statistic — the property was lost to a rewrite, or never took. A
         # merge lane can replay from nothing; an append lane would write every row again. Scan
@@ -131,6 +139,14 @@ async def read_lane_position(
     columns = [name for name in key_columns if name in present]
     candidates = _files_at_position(add_actions, highest)
     rows_at_position = sum(candidates.values())
+    if rows_at_position > MAX_POSITION_ROWS:
+        # File totals overstate it: after compaction the file holding the newest position holds
+        # most of the table. Count the rows actually at the position first — one integer
+        # column, row-group pruned — and only degrade when that count is what exceeds the cap.
+        only_seq = await asyncio.to_thread(
+            _rows_at_position, delta_table, add_actions, highest, list(candidates), [CDC_SEQ_COLUMN]
+        )
+        rows_at_position = only_seq.num_rows
     if rows_at_position > MAX_POSITION_ROWS:
         # One bulk transaction stamps every row it touched with one position, and reading them
         # all back as Python objects on every tick until the next change lands would exhaust
@@ -148,6 +164,7 @@ async def read_lane_position(
                 key: [{} for _ in range(count)] for key, count in Counter(_identities(keys_only, columns)).items()
             },
             key_columns=tuple(columns),
+            content_matched=False,
         )
     at_position = await asyncio.to_thread(_rows_at_position, delta_table, add_actions, highest, list(candidates))
     return LanePosition(
@@ -159,8 +176,16 @@ async def read_lane_position(
 
 
 def _scan_position(delta_table: deltalake.DeltaTable) -> int | None:
-    column = delta_table.to_pyarrow_table(columns=[CDC_SEQ_COLUMN]).column(CDC_SEQ_COLUMN)
-    return pc.max(column).as_py() if column.length() else None
+    """The column's maximum, folded one batch at a time so a large table costs O(batch) memory."""
+    highest: int | None = None
+    scanner = delta_table.to_pyarrow_dataset().scanner(columns=[CDC_SEQ_COLUMN])
+    for batch in scanner.to_batches():
+        if batch.num_rows == 0:
+            continue
+        batch_max = pc.max(batch.column(0)).as_py()
+        if batch_max is not None and (highest is None or batch_max > highest):
+            highest = batch_max
+    return highest
 
 
 def _files_at_position(add_actions: pa.Table, highest: int) -> dict[str, int]:

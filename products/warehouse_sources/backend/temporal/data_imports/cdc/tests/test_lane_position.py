@@ -1,9 +1,11 @@
 import pytest
+from unittest.mock import patch
 
 import pyarrow as pa
 import deltalake
 import pyarrow.dataset as pa_ds
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc import lane_position
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_OP_COLUMN, CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
     STATS_COLUMNS_PROPERTY,
@@ -193,6 +195,27 @@ class TestPositionRowCap:
         assert position.position == 30
         assert position.applied == {(1, "I"): [{}, {}], (2, "I"): [{}]}
         assert position.content_schema is None
+
+    async def test_a_big_file_with_few_rows_at_the_position_does_not_degrade(self, tmp_path, mocker):
+        # After compaction the file holding the newest position holds most of the table. Its row
+        # count is not the count at the position, and degrading on it would switch content
+        # matching off for every history table of any size.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position.MAX_POSITION_ROWS", 2)
+        table = _write(tmp_path / "t", [10, 10, 10, 30], ids=[1, 2, 3, 4])
+
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+
+        assert position.applied == {(4, "I"): [_content(4)]}
+        assert position.content_schema is not None
+
+    async def test_a_merge_table_that_never_gains_the_statistic_is_an_alert(self, tmp_path):
+        # It replays safely, but never advances the floor: nothing is deleted and the buffer is
+        # re-merged and re-billed every tick. Silence there is the failure.
+        table = _write(tmp_path / "t", [10, 30], stats=False)
+        with patch.object(lane_position.logger, "warning") as warned:
+            await read_lane_position(table)
+
+        assert warned.call_args.args[0] == "cdc_position_unreadable"
 
 
 class TestEnsurePositionStats:

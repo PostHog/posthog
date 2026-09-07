@@ -66,11 +66,17 @@ def retire_orphaned_companions(schema: ExternalDataSchema) -> list[str]:
     return [str(j) for j in orphans]
 
 
-def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str) -> None:
-    """Add a companion's id to its parent's row, so the parent's completion can vouch for it."""
+def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str, *, first_of_attempt: bool) -> None:
+    """Add a companion's id to its parent's row, so the parent's completion can vouch for it.
+
+    A new attempt starts the list over: an earlier attempt's companion was retired or drained by
+    the time this attempt reads, and leaving it listed would have the listing proof reject this
+    run for good.
+    """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     parent = ExternalDataJob.objects.get(id=parent_job_id, team_id=team_id)
     snapshot = dict(parent.schema_snapshot or {})
-    snapshot[COMPANION_JOB_IDS_KEY] = [*snapshot.get(COMPANION_JOB_IDS_KEY, []), companion_job_id]
+    earlier = [] if first_of_attempt else snapshot.get(COMPANION_JOB_IDS_KEY, [])
+    snapshot[COMPANION_JOB_IDS_KEY] = [*earlier, companion_job_id]
     ExternalDataJob.objects.filter(id=parent.id).update(schema_snapshot=snapshot)

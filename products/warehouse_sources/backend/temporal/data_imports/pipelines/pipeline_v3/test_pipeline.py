@@ -597,7 +597,7 @@ class TestCompanionJob:
 
         self._open(pipeline, pipeline._output_lanes[1], created, recorded)
 
-        recorded.assert_called_once_with("job-1", pipeline._job.team_id, "companion-job")
+        recorded.assert_called_once_with("job-1", pipeline._job.team_id, "companion-job", first_of_attempt=True)
 
     def test_the_companion_writes_under_its_own_job_and_run(self) -> None:
         pipeline = self._laned(self._both())
@@ -659,6 +659,24 @@ class TestCompanionJob:
 
         retired.assert_called_once_with("companion-job")
         swept.assert_not_called()
+
+    def test_a_companion_whose_final_batch_is_queued_is_not_retired(self) -> None:
+        # The loader owns it from there. Retiring it would have the loader discard a tail that
+        # lands on its own, and show the customer a Failed history row for a run that succeeded.
+        pipeline = self._laned(self._both())
+        pipeline._companion_job_ids.extend(["done", "open"])
+        pipeline._final_sent_job_ids.add("done")
+        retired = MagicMock()
+
+        with (
+            patch(f"{_LANES}.retire_companion_job", retired),
+            patch(
+                f"{_LANES}.database_sync_to_async_pool", lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k))
+            ),
+        ):
+            async_to_sync(pipeline._fail_companion_jobs)()
+
+        retired.assert_called_once_with("open")
 
     @pytest.mark.asyncio
     async def test_a_history_only_schema_maintains_its_table_under_the_companion_watermark(self) -> None:

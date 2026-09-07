@@ -20,7 +20,7 @@ def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
-    schema.sync_type_config = {}
+    schema.sync_type_config = {} if schema.cdc_table_mode == "consolidated" else {"cdc_buffered_lane": True}
     schema.schema_metadata = {}
     schema.resolved_s3_folder_name = None
     schema.primary_key_columns = ["id"]

@@ -336,6 +336,64 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert "cdc_ingest_mode" not in source.job_inputs
 
+    def test_flipping_marks_each_schema_and_rollback_unmarks_it(self):
+        source = self._source()
+        history = self._schema(source, "events", table_mode="cdc_only")
+        with _mocked_side_effects():
+            self._run(source)
+        history.refresh_from_db()
+        assert (
+            history.sync_type_config["cdc_buffered_lane"] is True
+            and history.sync_type_config["cdc_buffered_before"] is True
+        )
+
+        with _mocked_side_effects():
+            self._run(source, rollback=True)
+        history.refresh_from_db()
+        assert "cdc_buffered_lane" not in history.sync_type_config
+        assert history.sync_type_config["cdc_buffered_before"] is True
+
+    def test_rerunning_on_a_buffered_source_moves_only_the_unserved_schemas(self):
+        # A source flipped before history modes were served left its `cdc_only` schema on legacy.
+        # Re-running moves that schema, marks it, and purges only its prefix — the served schema's
+        # buffer holds files the consumer still owes.
+        source = self._source()
+        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered", "cdc_buffered_before": True}
+        source.save(update_fields=["job_inputs"])
+        served = self._schema(source, "users")
+        left_behind = self._schema(source, "events", table_mode="cdc_only")
+
+        with _mocked_side_effects() as mocks:
+            out = self._run(source)
+
+        assert "buffered lane (1): events" in out
+        left_behind.refresh_from_db()
+        served.refresh_from_db()
+        assert left_behind.sync_type_config.get("cdc_buffered_lane") is True
+        assert "cdc_buffered_lane" not in served.sync_type_config
+        purged = {call.args[1] for call in mocks["purge"].call_args_list}
+        assert purged == {str(left_behind.id)}
+
+    def test_a_reserved_column_on_a_schema_added_since_the_flip_is_still_refused(self):
+        # The source-level marker waives only the consolidated schemas that predate the per-schema
+        # one; a history schema never buffered before can only own that column itself.
+        source = self._source()
+        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered", "cdc_buffered_before": True}
+        source.save(update_fields=["job_inputs"])
+        table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="events",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://bucket/events/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField"}, CDC_SEQ_COLUMN: {"hogql": "IntegerDatabaseField"}},
+        )
+        self._schema(source, "events", table_mode="cdc_only", table=table)
+
+        with _mocked_side_effects():
+            with pytest.raises(CommandError, match="reserved for change ordering"):
+                self._run(source)
+
     def test_flipping_without_write_resolution_is_refused(self):
         # No load position means no file is ever proven consumed, so the buffer fills until the S3
         # TTL expires it — with the slot long advanced, that is unrecoverable loss, not a stall.

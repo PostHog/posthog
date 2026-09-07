@@ -88,10 +88,16 @@ statistic and nothing pauses.
 The history lane reads back every row at its position, with its content, to tell a replay from a
 new change. One bulk transaction can put millions of rows at one position, and reading them all
 back every tick until the next change lands would exhaust memory before that change could be
-staged. Above `MAX_POSITION_ROWS` the lane logs `cdc_position_identity_degraded` and matches on
-key and operation alone for that tick; a bulk change touches each key once, so nothing is lost by
-it. One such line per bulk change is expected. The same line on every tick means the table's
-newest transaction is huge and nothing has landed since — look at the source.
+staged. Above `MAX_POSITION_ROWS` rows _at the position_ — counted from the position column alone,
+since after compaction the file holding the newest position holds most of the table — the lane
+logs `cdc_position_identity_degraded` and matches on key and operation alone for that tick; a bulk
+change touches each key once, so nothing is lost by it. One such line per bulk change is expected.
+The same line on every tick means the table's newest transaction is huge and nothing has landed
+since — look at the source.
+
+A **merge** table whose files never gain the statistic replays safely but never advances the
+floor: no file is deleted, and the buffer is re-merged and re-billed every tick. It logs
+`cdc_position_unreadable` each tick. Alert on it; the writer is not honoring the property.
 
 **First run after this deploys.** Every already-flipped `consolidated` table declares the
 statistics property on its first run, and a table wider than 32 columns reports no position on that
@@ -146,6 +152,20 @@ preserved, so there is no WAL gap and no re-sync.
    Anything reported under "staying on legacy" keeps today's behavior.
 
 ## Flip
+
+Eligibility is opt-in per schema. The command writes `cdc_buffered_lane: true` into each moved
+schema's `sync_type_config`, and capture and the scheduled sync serve only marked schemas — plus
+`consolidated` schemas on an already-buffered source, which predate the marker. A `cdc_only` or
+`both` schema is never picked up by a deploy on its own: a source flipped before those modes were
+served left them on legacy with their per-schema schedules paused, and routing their changes into
+the buffer with nothing scheduled to consume would have lost them to the S3 retention.
+
+To move such a schema, or one added since, **re-run the flip on the already-buffered source**. It
+processes only the schemas not yet served: pauses extraction, quiesces those schedules, purges only
+their prefixes (the served schemas' buffers hold files the consumer still owes), runs the
+reserved-column check on them, marks them, and unpauses. A schema whose own table carries a
+`_ph_cdc_seq` this lane wrote is waived by its own `cdc_buffered_before` marker; a schema never
+buffered before is checked.
 
 ```bash
 python manage.py migrate_cdc_source_to_buffered --source-id <uuid>

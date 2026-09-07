@@ -105,6 +105,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         # Tracked apart from the writers, so a job row this run created is retired even when the
         # writer built on top of it never came together.
         self._companion_job_ids = []
+        # Companions whose final batch is queued: the loader owns them from there, and retiring
+        # one would have it discard a tail that lands on its own.
+        self._final_sent_job_ids: set[str] = set()
 
     async def run(self) -> PipelineResult:
         completed = False
@@ -133,7 +136,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             return existing
         lane = self._output_lanes[index]
 
-        job = await self._create_companion_job(lane)
+        first_of_attempt = not self._companion_job_ids
+        job = await self._create_companion_job(lane, first_of_attempt=first_of_attempt)
         # Recorded before the S3 client and the queue connect below, either of which can raise. A
         # job row this run loses track of is a row nothing retires, and one of those blocks the
         # flip and the rollback for the whole source.
@@ -159,7 +163,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     def _companion_run_uuid(self) -> str | None:
         return f"{self._run_uuid}-cdc" if self._run_uuid else None
 
-    async def _create_companion_job(self, lane: OutputLane) -> ExternalDataJob:
+    async def _create_companion_job(self, lane: OutputLane, *, first_of_attempt: bool) -> ExternalDataJob:
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
             _build_schema_snapshot,
@@ -187,7 +191,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             )
 
         job = await database_sync_to_async_pool(_create)()
-        await database_sync_to_async_pool(record_companion_job)(str(self._job.id), self._job.team_id, str(job.id))
+        await database_sync_to_async_pool(record_companion_job)(
+            str(self._job.id), self._job.team_id, str(job.id), first_of_attempt=first_of_attempt
+        )
         await self._logger.ainfo(
             "companion_job_created", companion_job_id=str(job.id), resource_name=lane.name, job_id=str(self._job.id)
         )
@@ -209,6 +215,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         retries and succeeds.
         """
         for job_id in self._companion_job_ids:
+            if job_id in self._final_sent_job_ids:
+                continue
             try:
                 await database_sync_to_async_pool(retire_companion_job)(job_id)
             except Exception:
@@ -268,6 +276,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 cumulative_row_count=writer.row_count,
             )
             if writer.job is not None:
+                self._final_sent_job_ids.add(str(writer.job.id))
                 await self._record_companion_rows(writer)
         return schema_path
 

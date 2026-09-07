@@ -47,7 +47,7 @@ class TestCompletedListingProof(BaseTest):
             schema_snapshot=snapshot,
         )
         if companion_of is not None:
-            record_companion_job(str(companion_of), self.team.id, str(job.id))
+            record_companion_job(str(companion_of), self.team.id, str(job.id), first_of_attempt=False)
         return job
 
     def test_a_completed_run_with_no_companion_proves_its_listing(self):
@@ -99,6 +99,26 @@ class TestCompletedListingProof(BaseTest):
         self._job(schema, status=ExternalDataJob.Status.COMPLETED, listed_at=dt.datetime(2026, 1, 1, 12, 0))
 
         assert self._proof(schema) is None
+
+
+class TestRecordCompanionJob(BaseTest):
+    def test_a_new_attempt_starts_the_list_over(self):
+        # An earlier attempt's companion was retired or drained by the time this attempt reads;
+        # leaving it listed would have the listing proof reject this run for good.
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
+        parent = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status="Running", rows_synced=0
+        )
+
+        record_companion_job(str(parent.id), self.team.id, "attempt-1-companion", first_of_attempt=True)
+        record_companion_job(str(parent.id), self.team.id, "attempt-2-companion", first_of_attempt=True)
+        record_companion_job(str(parent.id), self.team.id, "attempt-2-second", first_of_attempt=False)
+
+        parent.refresh_from_db()
+        assert (parent.schema_snapshot or {})["cdc_companion_job_ids"] == ["attempt-2-companion", "attempt-2-second"]
 
 
 class TestClearListing(BaseTest):
