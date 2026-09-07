@@ -14,7 +14,7 @@ from posthog.api.id_jag import get_allowed_resources
 from posthog.settings.utils import generate_rsa_private_key_pem
 
 from ee.billing.access_token import BILLING_TOKEN_CLIENT_ID, billing_audience, mint_billing_access_token
-from ee.billing.grants import EffectiveBillingGrants
+from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, entitlements_for
 from ee.models import License
 
 _PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
@@ -41,7 +41,7 @@ class TestMintBillingAccessToken(APIBaseTest):
             sub=f"user:{self.user.distinct_id}",
             scope=["billing:read"],
             roles=["admin"],
-            entitlements=["billing:full_access"],
+            entitlements=entitlements_for(BillingEntitlement.FULL_ACCESS),
             projects=[self.team.id],
         )
 
@@ -56,7 +56,7 @@ class TestMintBillingAccessToken(APIBaseTest):
         self.assertEqual(claims["client_id"], BILLING_TOKEN_CLIENT_ID)
         self.assertEqual(claims["scope"], "billing:read")
         self.assertEqual(claims["roles"], ["admin"])
-        self.assertEqual(claims["entitlements"], ["billing:full_access"])
+        self.assertEqual(claims["entitlements"], entitlements_for(BillingEntitlement.FULL_ACCESS))
         self.assertEqual(claims["org_id"], str(self.organization.id))
         self.assertEqual(claims["organization_name"], self.organization.name)
         self.assertEqual(claims["projects"], [self.team.id])

@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
 
 from ee.api.test.base import APILicensedTest
+from ee.billing.grants import BillingEntitlement, entitlements_for
 
 PERIOD_START = int(datetime(2026, 9, 1, tzinfo=UTC).timestamp())
 PERIOD_END = int(datetime(2026, 10, 1, tzinfo=UTC).timestamp())
@@ -142,7 +143,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         claims = jwt.decode(token, options={"verify_signature": False})
         self.assertEqual(claims["scope"], "billing:read")
         self.assertEqual(claims["roles"], ["owner"])
-        self.assertEqual(claims["entitlements"], ["billing:full_access"])
+        self.assertEqual(claims["entitlements"], entitlements_for(BillingEntitlement.FULL_ACCESS))
         self.assertEqual(claims["org_id"], str(self.organization.id))
         self.assertIsNone(claims["projects"])
 
