@@ -32,7 +32,7 @@ describe('WebhookSetupForm', () => {
         const onCreateWebhook = jest.fn()
         renderFallback({}, onCreateWebhook)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+        fireEvent.click(screen.getByText('Try again'))
 
         expect(onCreateWebhook).toHaveBeenCalledTimes(1)
     })
@@ -43,6 +43,6 @@ describe('WebhookSetupForm', () => {
     ])('offers no retry when %s', (_name, sourceConfig, autoCreationBlockedReason) => {
         renderFallback(sourceConfig, jest.fn(), autoCreationBlockedReason)
 
-        expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Try again')).not.toBeInTheDocument()
     })
 })
