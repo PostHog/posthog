@@ -263,21 +263,21 @@ describe('mcp tool adapter extractors', () => {
                 'creates a text tile',
                 'dashboard-create-tile',
                 { id: 7, body: '## Launch' },
-                { id: 41 },
+                { id: 41, _posthogUrl: dashboardUrl },
                 { dashboardId: 7, tileId: 41 },
             ],
             [
                 'keeps the replay alias for text-tile creation',
                 'dashboard-create-text-tile',
                 { id: '7', body: '## Launch' },
-                { id: '41' },
+                { id: '41', _posthogUrl: dashboardUrl },
                 { dashboardId: 7, tileId: 41 },
             ],
             [
                 'updates one text tile',
                 'dashboard-update-text-tile',
                 { id: 7, tile_id: 41, body: 'Updated' },
-                { id: 41 },
+                { id: 41, _posthogUrl: dashboardUrl },
                 { dashboardId: 7, tileId: 41 },
             ],
             [
@@ -312,28 +312,28 @@ describe('mcp tool adapter extractors', () => {
                 'reveals one newly added widget',
                 'dashboard-widgets-batch-add',
                 { id: 7, widgets: [{ widget_type: 'session_replay_list' }] },
-                { tiles: [{ id: 41 }] },
+                { tiles: [{ id: 41 }], _posthogUrl: dashboardUrl },
                 { dashboardId: 7, tileId: 41 },
             ],
             [
                 'returns dashboard-only for multiple added widgets',
                 'dashboard-widgets-batch-add',
                 { id: 7, widgets: [{ widget_type: 'session_replay_list' }, { widget_type: 'error_tracking_list' }] },
-                { tiles: [{ id: 41 }, { id: 42 }] },
+                { tiles: [{ id: 41 }, { id: 42 }], _posthogUrl: dashboardUrl },
                 { dashboardId: 7 },
             ],
             [
                 'reveals one updated widget after its returned ID matches the request',
                 'dashboard-widgets-batch-update',
                 { id: 7, widgets: [{ tile_id: 41, name: 'New name' }] },
-                { tiles: [{ id: 41 }] },
+                { tiles: [{ id: 41 }], _posthogUrl: dashboardUrl },
                 { dashboardId: 7, tileId: 41 },
             ],
             [
                 'keeps the batch-create replay alias',
                 'dashboards-widgets-batch-create',
                 { id: 7, widgets: [{ widget_type: 'session_replay_list' }] },
-                { tiles: [{ id: 41 }] },
+                { tiles: [{ id: 41 }], _posthogUrl: dashboardUrl },
                 { dashboardId: 7, tileId: 41 },
             ],
             [
@@ -365,6 +365,55 @@ describe('mcp tool adapter extractors', () => {
             expect(
                 extractDashboardMutationRevealTarget(
                     toolMessage({ id: 8, name: 'Growth' }, { id: 7 }, 'dashboard-update')
+                )
+            ).toBeNull()
+        })
+
+        it('accepts an ID-only tile response when its absolute dashboard URL corroborates ownership', () => {
+            expect(
+                extractDashboardMutationRevealTarget(
+                    toolMessage(
+                        { id: 41, _posthogUrl: 'http://localhost:8010/project/3/dashboard/7' },
+                        { id: 7, body: '## Launch' },
+                        'dashboard-create-tile'
+                    )
+                )
+            ).toEqual({ dashboardId: 7, tileId: 41 })
+        })
+
+        it.each([
+            [
+                'a tile URL that contradicts the requested dashboard',
+                'dashboard-create-tile',
+                { id: 41, dashboard_id: 7, _posthogUrl: 'https://app.example.test/project/1/dashboard/8' },
+                { id: 7, body: '## Launch' },
+            ],
+            [
+                'a nested tile dashboard that contradicts the requested dashboard',
+                'dashboard-create-tile',
+                { id: 41, dashboard: { id: 8 }, _posthogUrl: dashboardUrl },
+                { id: 7, body: '## Launch' },
+            ],
+            [
+                'an enclosing batch dashboard that contradicts its requested dashboard',
+                'dashboard-widgets-batch-add',
+                { dashboard_id: 8, tiles: [{ id: 41, dashboard_id: 7 }], _posthogUrl: dashboardUrl },
+                { id: 7, widgets: [{ widget_type: 'session_replay_list' }] },
+            ],
+            [
+                'a dashboard response field that contradicts its response id',
+                'dashboard-update',
+                { id: 7, dashboard_id: 8, _posthogUrl: dashboardUrl },
+                { id: 7, name: 'Growth' },
+            ],
+        ])('rejects %s', (_case, resolvedKey, rawOutput, innerInput) => {
+            expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toBeNull()
+        })
+
+        it('rejects an ID-only tile response without response ownership', () => {
+            expect(
+                extractDashboardMutationRevealTarget(
+                    toolMessage({ id: 41 }, { id: 7, body: '## Launch' }, 'dashboard-create-tile')
                 )
             ).toBeNull()
         })

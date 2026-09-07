@@ -66,26 +66,6 @@ function getRequestDashboardId(input: Record<string, unknown>): number | null {
     return getAgreedPositiveSafeInteger(input, ['id', 'dashboard_id', 'dashboardId']) ?? null
 }
 
-function responseAgreesWithDashboard(output: Record<string, unknown>, dashboardId: number): boolean {
-    const directDashboardId = getAgreedPositiveSafeInteger(output, ['dashboard_id', 'dashboardId'])
-    if (directDashboardId === null || (directDashboardId !== undefined && directDashboardId !== dashboardId)) {
-        return false
-    }
-
-    const nestedDashboard = asRecord(output.dashboard)
-    if (!nestedDashboard) {
-        return true
-    }
-    return getAgreedPositiveSafeInteger(nestedDashboard, ['id']) === dashboardId
-}
-
-function getResponseTileId(output: Record<string, unknown>, dashboardId: number): number | null {
-    if (!responseAgreesWithDashboard(output, dashboardId)) {
-        return null
-    }
-    return getAgreedPositiveSafeInteger(output, ['id', 'tile_id']) ?? null
-}
-
 function getDashboardIdFromPostHogUrl(value: unknown): number | null {
     if (typeof value !== 'string') {
         return null
@@ -105,6 +85,83 @@ function getDashboardIdFromPostHogUrl(value: unknown): number | null {
     }
 }
 
+interface DashboardOwnershipCheck {
+    agrees: boolean
+    hasEvidence: boolean
+}
+
+function checkDashboardOwnership(
+    output: Record<string, unknown>,
+    dashboardId: number,
+    responseIdIsDashboardId = false
+): DashboardOwnershipCheck {
+    const ownershipIds: number[] = []
+
+    const directKeys = responseIdIsDashboardId ? ['id', 'dashboard_id', 'dashboardId'] : ['dashboard_id', 'dashboardId']
+    const directDashboardId = getAgreedPositiveSafeInteger(output, directKeys)
+    if (directDashboardId === null) {
+        return { agrees: false, hasEvidence: true }
+    }
+    if (directDashboardId !== undefined) {
+        ownershipIds.push(directDashboardId)
+    }
+
+    if (Object.prototype.hasOwnProperty.call(output, 'dashboard')) {
+        const nestedDashboard = asRecord(output.dashboard)
+        const nestedDashboardId = nestedDashboard
+            ? getAgreedPositiveSafeInteger(nestedDashboard, ['id', 'dashboard_id', 'dashboardId'])
+            : asPositiveSafeInteger(output.dashboard)
+        if (nestedDashboardId === null || nestedDashboardId === undefined) {
+            return { agrees: false, hasEvidence: true }
+        }
+        ownershipIds.push(nestedDashboardId)
+    }
+
+    if (Object.prototype.hasOwnProperty.call(output, '_posthogUrl')) {
+        const dashboardIdFromUrl = getDashboardIdFromPostHogUrl(output._posthogUrl)
+        if (dashboardIdFromUrl === null) {
+            return { agrees: false, hasEvidence: true }
+        }
+        ownershipIds.push(dashboardIdFromUrl)
+    }
+
+    return {
+        agrees: ownershipIds.every((ownershipId) => ownershipId === dashboardId),
+        hasEvidence: ownershipIds.length > 0,
+    }
+}
+
+function getResponseTileId(
+    output: Record<string, unknown>,
+    dashboardId: number,
+    requireDashboardOwnership: boolean
+): number | null {
+    const ownership = checkDashboardOwnership(output, dashboardId)
+    if (!ownership.agrees || (requireDashboardOwnership && !ownership.hasEvidence)) {
+        return null
+    }
+    return getAgreedPositiveSafeInteger(output, ['id', 'tile_id']) ?? null
+}
+
+function responseDashboardAgreesWithRequest(output: Record<string, unknown>, dashboardId: number): boolean {
+    const ownership = checkDashboardOwnership(output, dashboardId, true)
+    if (!ownership.agrees || !ownership.hasEvidence) {
+        return false
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(output, 'tiles')) {
+        return true
+    }
+    const tiles = asRecordArray(output.tiles)
+    return (
+        tiles !== null &&
+        tiles.every((tile) => {
+            const tileOwnership = checkDashboardOwnership(tile, dashboardId)
+            return tileOwnership.agrees
+        })
+    )
+}
+
 export interface DashboardRevealTarget {
     dashboardId: number
     tileId?: number
@@ -118,7 +175,9 @@ export function extractDashboardCreateRevealTarget(message: ToolCallMessage): Da
     }
     const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
     const dashboardId = asPositiveSafeIntegerNumber(output?.id)
-    return dashboardId === null ? null : { dashboardId }
+    return dashboardId === null || !output || !responseDashboardAgreesWithRequest(output, dashboardId)
+        ? null
+        : { dashboardId }
 }
 
 /** Distinguishes an ordinary insight result from one that requested dashboard placement. */
@@ -150,9 +209,12 @@ function extractDashboardBatchRevealTarget(
     dashboardId: number,
     requireExistingTileIds: boolean
 ): DashboardRevealTarget | null {
+    const outputOwnership = checkDashboardOwnership(output, dashboardId)
     const requestedWidgets = asRecordArray(input.widgets)
     const returnedTiles = asRecordArray(output.tiles)
     if (
+        !outputOwnership.agrees ||
+        !outputOwnership.hasEvidence ||
         !requestedWidgets ||
         !returnedTiles ||
         requestedWidgets.length === 0 ||
@@ -161,7 +223,7 @@ function extractDashboardBatchRevealTarget(
         return null
     }
 
-    const tileIds = returnedTiles.map((tile) => getResponseTileId(tile, dashboardId))
+    const tileIds = returnedTiles.map((tile) => getResponseTileId(tile, dashboardId, false))
     if (tileIds.some((tileId) => tileId === null)) {
         return null
     }
@@ -198,13 +260,13 @@ export function extractDashboardMutationRevealTarget(message: ToolCallMessage): 
     }
 
     if (DASHBOARD_TILE_CREATE_KEYS.has(message.resolvedKey)) {
-        const tileId = getResponseTileId(output, dashboardId)
+        const tileId = getResponseTileId(output, dashboardId, true)
         return tileId === null ? null : { dashboardId, tileId }
     }
 
     if (DASHBOARD_TILE_UPDATE_KEYS.has(message.resolvedKey)) {
         const requestedTileId = getAgreedPositiveSafeInteger(input, ['tile_id'])
-        const responseTileId = getResponseTileId(output, dashboardId)
+        const responseTileId = getResponseTileId(output, dashboardId, true)
         return requestedTileId === null || requestedTileId === undefined || requestedTileId !== responseTileId
             ? null
             : { dashboardId, tileId: responseTileId }
@@ -219,11 +281,12 @@ export function extractDashboardMutationRevealTarget(message: ToolCallMessage): 
     }
 
     if (message.resolvedKey === 'dashboard-delete-tile') {
-        return getDashboardIdFromPostHogUrl(output._posthogUrl) === dashboardId ? { dashboardId } : null
+        const ownership = checkDashboardOwnership(output, dashboardId)
+        return ownership.agrees && ownership.hasEvidence ? { dashboardId } : null
     }
 
     if (DASHBOARD_RESPONSE_KEYS.has(message.resolvedKey)) {
-        return getAgreedPositiveSafeInteger(output, ['id']) === dashboardId ? { dashboardId } : null
+        return responseDashboardAgreesWithRequest(output, dashboardId) ? { dashboardId } : null
     }
 
     return null

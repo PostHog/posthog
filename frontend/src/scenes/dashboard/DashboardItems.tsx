@@ -97,6 +97,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         refreshStatus,
         dashboardStreaming,
         dashboardLoading,
+        dashboardFailedToLoad,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
         effectiveBreakdownColors,
@@ -225,19 +226,62 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             : null
         : (tiles.find((tile) => tile.insight?.short_id === highlightedInsightId)?.id ?? null)
     const revealKey =
-        dashboard && revealTargetKind && rawRevealTarget
+        dashboard && revealTargetKind && rawRevealTarget && (revealTargetKind !== 'tile' || highlightedTileId !== null)
             ? `${dashboard.id}:${revealTargetKind}:${rawRevealTarget}`
             : null
+    const previousRevealKeyRef = useRef(revealKey)
+    const revealRefreshRequiredKeyRef = useRef<string | null>(null)
+    const revealRefreshObservedLoadingKeyRef = useRef<string | null>(null)
+    const revealRefreshReadyKeyRef = useRef(revealKey)
 
     useEffect(() => {
-        if (consumedRevealKeyRef.current !== revealKey) {
-            consumedRevealKeyRef.current = null
+        if (previousRevealKeyRef.current === revealKey) {
+            return
         }
-    }, [revealKey])
+
+        previousRevealKeyRef.current = revealKey
+        consumedRevealKeyRef.current = null
+        revealRefreshRequiredKeyRef.current = null
+        revealRefreshObservedLoadingKeyRef.current = null
+        revealRefreshReadyKeyRef.current = null
+        setVisuallyHighlightedTileId(null)
+
+        if (!revealKey) {
+            return
+        }
+
+        if (dashboardLoading) {
+            // A load already in flight is the freshness boundary for this newly selected target.
+            revealRefreshReadyKeyRef.current = revealKey
+            return
+        }
+
+        revealRefreshRequiredKeyRef.current = revealKey
+        loadDashboard({ action: DashboardLoadAction.Update })
+    }, [dashboardLoading, loadDashboard, revealKey])
+
+    useEffect(() => {
+        if (revealRefreshRequiredKeyRef.current !== revealKey) {
+            return
+        }
+        if (dashboardLoading) {
+            revealRefreshObservedLoadingKeyRef.current = revealKey
+        } else if (revealRefreshObservedLoadingKeyRef.current === revealKey && !dashboardFailedToLoad) {
+            revealRefreshReadyKeyRef.current = revealKey
+        }
+    }, [dashboardFailedToLoad, dashboardLoading, revealKey])
 
     useEffect(() => {
         setVisuallyHighlightedTileId(null)
-        if (!mounted || !revealKey || !revealTileId || consumedRevealKeyRef.current === revealKey) {
+        if (
+            !mounted ||
+            dashboardLoading ||
+            dashboardFailedToLoad ||
+            !revealKey ||
+            revealRefreshReadyKeyRef.current !== revealKey ||
+            !revealTileId ||
+            consumedRevealKeyRef.current === revealKey
+        ) {
             return
         }
 
@@ -272,7 +316,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 window.clearTimeout(highlightTimer)
             }
         }
-    }, [mounted, revealKey, revealTileId])
+    }, [dashboardFailedToLoad, dashboardLoading, mounted, revealKey, revealTileId])
 
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
         useDashboardLayoutInteraction({
@@ -678,11 +722,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         apiErrored={apiErrored}
                                         apiError={apiError}
                                         queryId={insight.query_status?.id}
-                                        highlighted={
-                                            !hasHighlightTileIdParam &&
-                                            highlightedInsightId &&
-                                            insight.short_id === highlightedInsightId
-                                        }
+                                        highlighted={visuallyHighlightedTileId === tile.id}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}

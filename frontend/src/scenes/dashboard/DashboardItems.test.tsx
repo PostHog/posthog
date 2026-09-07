@@ -98,6 +98,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
             data?: { queryId?: string }
         }
         refresh?: () => void
+        highlighted?: boolean
         'data-dashboard-tile-id'?: string
         'data-dashboard-tile-highlighted'?: string
         tabIndex?: number
@@ -247,6 +248,8 @@ let mockHighlightedInsightId: string | null = null
 let mockHasHighlightTileIdParam = false
 let mockHighlightTileIdParam: unknown
 let mockHighlightedTileId: number | null = null
+let mockDashboardLoading = false
+let mockDashboardFailedToLoad = false
 
 type DashboardTileFixture = {
     id: number
@@ -278,7 +281,8 @@ function installDashboardValues(getTiles: () => DashboardTileFixture[]): void {
                 highlightedTileId: mockHighlightedTileId,
                 refreshStatus: {},
                 dashboardStreaming: false,
-                dashboardLoading: false,
+                dashboardLoading: mockDashboardLoading,
+                dashboardFailedToLoad: mockDashboardFailedToLoad,
                 effectiveEditBarFilters: {},
                 effectiveDashboardVariableOverrides: {},
                 effectiveBreakdownColors: [],
@@ -343,6 +347,8 @@ describe('DashboardItems', () => {
         mockHasHighlightTileIdParam = false
         mockHighlightTileIdParam = undefined
         mockHighlightedTileId = null
+        mockDashboardLoading = false
+        mockDashboardFailedToLoad = false
         installAnimationFrameMocks()
         Object.defineProperty(window, 'matchMedia', {
             configurable: true,
@@ -544,6 +550,76 @@ describe('DashboardItems', () => {
         expect(target.focus).toHaveBeenCalledTimes(1)
     })
 
+    it('reloads an already-open dashboard once before revealing a newly created tile', () => {
+        let tiles: DashboardTileFixture[] = [
+            { id: 41, insight: { id: 101, short_id: 'existing', query: { kind: 'InsightVizNode' } } },
+        ]
+        installDashboardValues(() => tiles)
+
+        const { container, rerender } = render(<DashboardItems />)
+
+        mockHasHighlightTileIdParam = true
+        mockHighlightTileIdParam = '42'
+        mockHighlightedTileId = 42
+        rerender(<DashboardItems />)
+
+        expect(mockTriggerDashboardRefresh).toHaveBeenCalledTimes(1)
+        expect(requestAnimationFrameCallbacks.size).toBe(0)
+
+        mockDashboardLoading = true
+        rerender(<DashboardItems />)
+        tiles = [...tiles, { id: 42, insight: { id: 102, short_id: 'created', query: { kind: 'InsightVizNode' } } }]
+        mockDashboardLoading = false
+        rerender(<DashboardItems />)
+
+        const target = container.querySelector('[data-tile-id="42"]') as HTMLElement
+        target.scrollIntoView = jest.fn()
+        target.focus = jest.fn()
+        act(flushAllAnimationFrames)
+
+        expect(mockTriggerDashboardRefresh).toHaveBeenCalledTimes(1)
+        expect(target.scrollIntoView).toHaveBeenCalledTimes(1)
+        expect(target.focus).toHaveBeenCalledTimes(1)
+    })
+
+    it('reloads an already-open dashboard once before revealing a stale updated tile', () => {
+        let tiles: DashboardTileFixture[] = [
+            { id: 41, insight: { id: 101, short_id: 'before-update', query: { kind: 'InsightVizNode' } } },
+        ]
+        installDashboardValues(() => tiles)
+
+        const { container, rerender } = render(<DashboardItems />)
+        const staleTarget = container.querySelector('[data-tile-id="41"]') as HTMLElement
+        staleTarget.scrollIntoView = jest.fn()
+        staleTarget.focus = jest.fn()
+
+        mockHasHighlightTileIdParam = true
+        mockHighlightTileIdParam = '41'
+        mockHighlightedTileId = 41
+        rerender(<DashboardItems />)
+
+        expect(mockTriggerDashboardRefresh).toHaveBeenCalledTimes(1)
+        act(flushAllAnimationFrames)
+        expect(staleTarget.scrollIntoView).not.toHaveBeenCalled()
+        expect(staleTarget.focus).not.toHaveBeenCalled()
+
+        mockDashboardLoading = true
+        rerender(<DashboardItems />)
+        tiles = [{ id: 41, insight: { id: 101, short_id: 'after-update', query: { kind: 'InsightVizNode' } } }]
+        mockDashboardLoading = false
+        rerender(<DashboardItems />)
+
+        const refreshedTarget = container.querySelector('[data-tile-id="41"]') as HTMLElement
+        refreshedTarget.scrollIntoView = jest.fn()
+        refreshedTarget.focus = jest.fn()
+        act(flushAllAnimationFrames)
+        rerender(<DashboardItems />)
+
+        expect(mockTriggerDashboardRefresh).toHaveBeenCalledTimes(1)
+        expect(refreshedTarget.scrollIntoView).toHaveBeenCalledTimes(1)
+        expect(refreshedTarget.focus).toHaveBeenCalledTimes(1)
+    })
+
     it('cancels a stale reveal between animation frames when the target changes', () => {
         const tiles: DashboardTileFixture[] = [
             { id: 41, insight: { id: 101, short_id: 'first', query: { kind: 'InsightVizNode' } } },
@@ -567,6 +643,15 @@ describe('DashboardItems', () => {
         mockHighlightTileIdParam = '42'
         mockHighlightedTileId = 42
         rerender(<DashboardItems />)
+
+        expect(mockTriggerDashboardRefresh).toHaveBeenCalledTimes(1)
+        expect(firstTarget.scrollIntoView).not.toHaveBeenCalled()
+        expect(secondTarget.scrollIntoView).not.toHaveBeenCalled()
+
+        mockDashboardLoading = true
+        rerender(<DashboardItems />)
+        mockDashboardLoading = false
+        rerender(<DashboardItems />)
         act(flushAllAnimationFrames)
 
         expect(cancelAnimationFrame).toHaveBeenCalledWith(firstFrameId)
@@ -575,6 +660,51 @@ describe('DashboardItems', () => {
         expect(firstTarget.focus).not.toHaveBeenCalled()
         expect(secondTarget.scrollIntoView).toHaveBeenCalledTimes(1)
         expect(secondTarget.focus).toHaveBeenCalledTimes(1)
+    })
+
+    it('uses an active dashboard load instead of starting a duplicate reveal refresh', () => {
+        const tiles: DashboardTileFixture[] = [
+            { id: 41, insight: { id: 101, short_id: 'target', query: { kind: 'InsightVizNode' } } },
+        ]
+        mockDashboardLoading = true
+        installDashboardValues(() => tiles)
+
+        const { container, rerender } = render(<DashboardItems />)
+        mockHasHighlightTileIdParam = true
+        mockHighlightTileIdParam = '41'
+        mockHighlightedTileId = 41
+        rerender(<DashboardItems />)
+
+        expect(mockTriggerDashboardRefresh).not.toHaveBeenCalled()
+        expect(requestAnimationFrameCallbacks.size).toBe(0)
+
+        mockDashboardLoading = false
+        rerender(<DashboardItems />)
+        const target = container.querySelector('[data-tile-id="41"]') as HTMLElement
+        target.scrollIntoView = jest.fn()
+        target.focus = jest.fn()
+        act(flushAllAnimationFrames)
+
+        expect(mockTriggerDashboardRefresh).not.toHaveBeenCalled()
+        expect(target.scrollIntoView).toHaveBeenCalledTimes(1)
+        expect(target.focus).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not reload for an invalid explicit tile target', () => {
+        const tiles: DashboardTileFixture[] = [
+            { id: 41, insight: { id: 101, short_id: 'legacy-target', query: { kind: 'InsightVizNode' } } },
+        ]
+        installDashboardValues(() => tiles)
+
+        const { rerender } = render(<DashboardItems />)
+        mockHasHighlightTileIdParam = true
+        mockHighlightTileIdParam = 'invalid'
+        mockHighlightedTileId = null
+        mockHighlightedInsightId = 'legacy-target'
+        rerender(<DashboardItems />)
+
+        expect(mockTriggerDashboardRefresh).not.toHaveBeenCalled()
+        expect(requestAnimationFrameCallbacks.size).toBe(0)
     })
 
     it('cancels both reveal frames when the dashboard unmounts', () => {
@@ -699,6 +829,22 @@ describe('DashboardItems', () => {
         expect(target).toHaveAttribute('data-dashboard-tile-highlighted', 'true')
         act(() => jest.advanceTimersByTime(1))
         expect(target).not.toHaveAttribute('data-dashboard-tile-highlighted')
+    })
+
+    it('expires the legacy insight card highlight after 3000ms', () => {
+        jest.useFakeTimers()
+        installAnimationFrameMocks()
+        mockHighlightedInsightId = 'target'
+        installDashboardValues(() => [
+            { id: 41, insight: { id: 101, short_id: 'target', query: { kind: 'InsightVizNode' } } },
+        ])
+
+        render(<DashboardItems />)
+        act(flushAllAnimationFrames)
+
+        expect(mockInsightCard).toHaveBeenLastCalledWith(expect.objectContaining({ highlighted: true }))
+        act(() => jest.advanceTimersByTime(3000))
+        expect(mockInsightCard).toHaveBeenLastCalledWith(expect.objectContaining({ highlighted: false }))
     })
 
     it.each([
