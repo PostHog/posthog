@@ -7648,6 +7648,10 @@ snapshots:
         hash: v1.k794b7964.f897b9dd52eae8ad29d04c46ba689c27f47602692b2144b0e75a97ef34fae702.qixI7HhZb5rWIcR5HzZB9i8SidHDxo9eBF_dsAFvSew
     scenes-app-inbox-signalsourcespanel--server-side-exceptions-only--light:
         hash: v1.k794b7964.13df8c7b214cfd00e7eba5fea6da33f833ac202b7d3a2ebbadd331440bb9f97a.SL1Tzb4sMCHF1TQHfGCWGJYsBO88sT0dkLTlU88JrvQ
+    scenes-app-inbox-signalsourcespanel--source-configs-unavailable--dark:
+        hash: v1.k794b7964.b0af9348cf4a495b517dd863dca45310eb45c83964c8136eec37e6e7ada42ab3.mZK2q6HoW8jDn2n8yA9u1fqH22TvClzd8UgGiwfeRfc
+    scenes-app-inbox-signalsourcespanel--source-configs-unavailable--light:
+        hash: v1.k794b7964.0a6cf287cde55b6cccce78b2603b9b736dacebd2ab6547f541df49845d6d3fdc.ry1SP43RXFgAvURyGogdG_ZZLfNuzaxCK0to6orM04A
     scenes-app-inbox-signalsourcespanel--tools-on-no-recent-data--dark:
         hash: v1.k794b7964.748be85b9907181d7eb082c40e4d4f93429073c22a34fd3ad19f010006856b4d.m6AmUOQ3eZ_Le5wuOhR7RCAT_xVrzvZJSHptyYmtTpM
     scenes-app-inbox-signalsourcespanel--tools-on-no-recent-data--light:
