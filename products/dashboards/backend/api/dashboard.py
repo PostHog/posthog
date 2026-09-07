@@ -113,6 +113,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 from products.dashboards.backend.api.widget_openapi_serializers import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
+    BreakdownColorConfigSerializer,
     DashboardWidgetConfigField,
     PatchedDashboardOpenApiSerializer,
     UpdateDashboardWidgetRequestOpenApi,
@@ -182,13 +183,21 @@ def _effective_layout_compaction(customization: Any) -> str:
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
 
 
+def _is_breakdown_color_config(config: Any) -> bool:
+    # Both keys identify which breakdown value gets which color, so an entry without them can never
+    # apply. The frontend drops such an entry before it saves, so a stored one shows up as a color
+    # that never takes effect rather than as an error.
+    return isinstance(config, dict) and "breakdownValue" in config and "colorToken" in config
+
+
 def _normalize_breakdown_colors(breakdown_colors: Any) -> list[Any]:
-    # No write path validated this JSONField before, so a stored row can hold any shape. A list of
-    # breakdown values instead of config objects has to be dropped item by item, because
-    # DictField.to_representation calls .items() and fails on a scalar or nested-list item.
+    # No write path validated this JSONField before, so a stored row can hold any shape, including a
+    # single object or a list of bare breakdown values. Reads apply the same rule the write path now
+    # enforces, so a client that reads a dashboard and writes it back is never handed an entry that
+    # the write path would then reject.
     if not isinstance(breakdown_colors, list):
         return []
-    return [config for config in breakdown_colors if isinstance(config, dict)]
+    return [config for config in breakdown_colors if _is_breakdown_color_config(config)]
 
 
 logger = structlog.get_logger(__name__)
@@ -1215,10 +1224,12 @@ class DashboardCustomizationSerializer(serializers.Serializer):
 
 
 class BreakdownColorsField(serializers.ListField):
-    # Writes still require a list of objects. Reads drop the legacy shapes that the write path now rejects,
-    # so one bad row cannot fail the response for every viewer of the dashboard.
+    # Reads return the stored entries rather than rendering them through the child serializer, for two
+    # reasons. A child serializer drops undeclared keys, which would silently discard a key the
+    # frontend persists before this serializer learns about it. It also raises on an entry that misses
+    # a required field, which would turn one bad row into a failed response for every viewer.
     def to_representation(self, data: Any) -> list[Any]:
-        return super().to_representation(_normalize_breakdown_colors(data))
+        return _normalize_breakdown_colors(data)
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -1230,9 +1241,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = BreakdownColorsField(
-        child=serializers.DictField(),
+        child=BreakdownColorConfigSerializer(),
         required=False,
-        help_text="Custom color mapping for breakdown values, as a list of breakdown color config objects.",
+        allow_null=True,
+        help_text=(
+            "Colors pinned to specific breakdown values across the dashboard's tiles. "
+            "A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+        ),
     )
     data_color_theme_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="ID of the color theme used for chart visualizations."

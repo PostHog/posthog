@@ -2308,42 +2308,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.breakdown_colors, expected_copied)
 
-    @parameterized.expand(
-        [
-            # A valid list renders verbatim; legacy values render as no colors instead of a 500, whether the
-            # bad shape is the stored value itself or an item inside a stored list.
-            (
-                "valid_list",
-                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}],
-                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}],
-            ),
-            ("legacy_object", {"Chrome": "preset-1"}, []),
-            ("legacy_string", "preset-1", []),
-            ("legacy_number", 5, []),
-            ("legacy_list_of_values", ["Chrome", "Firefox"], []),
-            ("legacy_list_of_numbers", [1], []),
-            ("legacy_nested_list_item", [["Chrome", "preset-1"]], []),
-            ("legacy_null_item", [None], []),
-            (
-                "legacy_mixed_items",
-                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}, "Firefox"],
-                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}],
-            ),
-        ]
-    )
-    def test_dashboard_retrieve_tolerates_legacy_breakdown_colors(self, _name, stored_value, expected):
+    def test_dashboard_retrieve_tolerates_legacy_breakdown_colors(self):
+        # Wiring guard: the endpoint has to route reads through the field that normalizes the value, so
+        # one bad row cannot fail the response for every viewer. The shape matrix lives in
+        # products/dashboards/backend/api/test/test_dashboard_filters_validation.py, which needs no database.
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Dashboard with legacy colors",
             created_by=self.user,
-            breakdown_colors=stored_value,
+            breakdown_colors={"Chrome": "preset-1"},
         )
 
         response = self.dashboard_api.get_dashboard(dashboard.pk)
 
-        self.assertEqual(response["breakdown_colors"], expected)
+        self.assertEqual(response["breakdown_colors"], [])
 
     def test_dashboard_rejects_non_list_breakdown_colors_write(self):
+        # Wiring guard for the write side: the viewset has to reject the value rather than store it.
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
 
         _, response = self.dashboard_api.update_dashboard(
@@ -2353,6 +2334,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response["attr"], "breakdown_colors")
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.breakdown_colors, [])
 
     def test_dashboard_duplication_copies_variables(self):
         """Test that variables are copied during duplication"""
