@@ -147,7 +147,7 @@
         "typescript": "catalog:",
         "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
         "ultimate-express": "2.0.9",
-        "undici": "^8.10.0",
+        "undici": "^8.10.1",
         "undici-types": "7.3.0",
         "uuid": "^11.1.1",
         "xml-js": "^1.6.11",

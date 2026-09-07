@@ -51,6 +51,7 @@ export type FetchOptions = {
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
+    // undici offers HTTP/2 second in ALPN, so an origin that honors client preference still negotiates HTTP/1.1.
     allowH2?: boolean
     // How long an idle HTTP/2 session to the origin stays open. Defaults to the keep-alive timeout. The same
     // dispatcher serves an origin that falls back to HTTP/1.1, so its idle sockets get this timeout too.
@@ -315,17 +316,23 @@ const sharedInsecureAgent = new InsecureAgent()
 // One HTTP/2 dispatcher per idle timeout, because undici sets the timeout per dispatcher. Callers are code, so the
 // set of timeouts stays small.
 const sharedSecureH2Agents = new Map<number, Dispatcher>()
+const MAX_SECURE_H2_AGENTS = 8
+// Node clamps a setTimeout delay above this to 1 ms, which would close every session as soon as it goes idle.
+const MAX_H2_IDLE_TIMEOUT_MS = 2_147_483_647
 let sharedAgentsClosed = false
 
 function getSecureH2Agent(idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS): Dispatcher {
     // InvalidRequestError so the retry logic in cdp-fetch does not retry a value that can never work.
-    if (!Number.isInteger(idleTimeoutMs) || idleTimeoutMs <= 0) {
-        throw new InvalidRequestError(`http2IdleTimeoutMs must be a positive integer, got ${idleTimeoutMs}`)
+    if (!Number.isInteger(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
+        throw new InvalidRequestError(`http2IdleTimeoutMs must be an integer between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
     }
     let agent = sharedSecureH2Agents.get(idleTimeoutMs)
     if (!agent) {
         if (sharedAgentsClosed) {
             throw new undiciErrors.ClientDestroyedError()
+        }
+        if (sharedSecureH2Agents.size >= MAX_SECURE_H2_AGENTS) {
+            throw new InvalidRequestError(`http2IdleTimeoutMs takes at most ${MAX_SECURE_H2_AGENTS} distinct values`)
         }
         agent = makeSecureDispatcher({ allowH2: true, keepAliveTimeoutMs: idleTimeoutMs })
         sharedSecureH2Agents.set(idleTimeoutMs, agent)

@@ -121,12 +121,15 @@ describe('fetchStreamed', () => {
         expect(requestMock).not.toHaveBeenCalled()
     })
 
-    it.each([[0], [-1], [1.5], [NaN]])('refuses an http2IdleTimeoutMs of %p before opening a socket', async (ms) => {
-        // InvalidRequestError is the non-retriable class, so a bad constant fails once instead of burning retries.
-        await expect(
-            fetchStreamed('https://example.com/a.png', { timeoutMs: 1000, allowH2: true, http2IdleTimeoutMs: ms })
-        ).rejects.toThrow(InvalidRequestError)
+    it.each([[0], [-1], [1.5], [NaN], [2 ** 31]])(
+        'refuses an http2IdleTimeoutMs of %p before opening a socket',
+        async (ms) => {
+            // InvalidRequestError is the non-retriable class, so a bad constant fails once instead of burning retries.
+            await expect(
+                fetchStreamed('https://example.com/a.png', { timeoutMs: 1000, allowH2: true, http2IdleTimeoutMs: ms })
+            ).rejects.toThrow(InvalidRequestError)
 
-        expect(requestMock).not.toHaveBeenCalled()
-    })
+            expect(requestMock).not.toHaveBeenCalled()
+        }
+    )
 })
