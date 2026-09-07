@@ -164,7 +164,10 @@ export class ToolExecutor {
         const { analyticsMeta, args } = this.extractAnalyticsMetadata(
             toolName,
             (params?.arguments ?? {}) as Record<string, unknown>,
-            this.findOriginalTool(toolName, state)
+            this.findOriginalTool(toolName, state),
+            params?._meta && typeof params._meta === 'object' && !Array.isArray(params._meta)
+                ? (params._meta as Record<string, unknown>)
+                : undefined
         )
         const callParams = { ...params, arguments: args }
 
@@ -223,10 +226,11 @@ export class ToolExecutor {
     private extractAnalyticsMetadata(
         toolName: string,
         rawArgs: Record<string, unknown>,
-        originalTool: ListToolsResult['tools'][number] | undefined
+        originalTool: ListToolsResult['tools'][number] | undefined,
+        requestMeta: Record<string, unknown> | undefined
     ): { analyticsMeta: ToolCallAnalyticsMeta; args: Record<string, unknown> } {
         try {
-            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, { originalTool })
+            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, { originalTool, requestMeta })
             return {
                 analyticsMeta: {
                     intent: prepared.intent,

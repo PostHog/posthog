@@ -119,6 +119,19 @@ describe('ToolExecutor analytics capture', () => {
             expectedModelSource: 'self_reported',
         },
         {
+            label: 'prefers Codex request metadata over an unknown self-report',
+            args: {
+                command: 'tools',
+                context: 'checking the available tools',
+                llm_model: 'unknown',
+            },
+            requestMeta: { 'x-codex-turn-metadata': { model: 'gpt-5.6-sol' } },
+            expectedIntent: 'checking the available tools',
+            expectedSource: 'context_parameter',
+            expectedModel: 'gpt-5.6-sol',
+            expectedModelSource: 'client_metadata',
+        },
+        {
             label: 'captures no intent when the agent omits context',
             args: { command: 'tools' },
             expectedIntent: undefined,
@@ -126,30 +139,36 @@ describe('ToolExecutor analytics capture', () => {
             expectedModel: undefined,
             expectedModelSource: undefined,
         },
-    ])('exec call $label', async ({ args, expectedIntent, expectedSource, expectedModel, expectedModelSource }) => {
-        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+    ])(
+        'exec call $label',
+        async ({ args, requestMeta, expectedIntent, expectedSource, expectedModel, expectedModelSource }) => {
+            const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
-        const filteredTools = catalog
-            .getFilteredTools({ scopes: ['*'] })
-            .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
-        const state = makeState(filteredTools, { useSingleExec: true })
-        await executor.handleToolsList(state)
+            const filteredTools = catalog
+                .getFilteredTools({ scopes: ['*'] })
+                .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
+            const state = makeState(filteredTools, { useSingleExec: true })
+            await executor.handleToolsList(state)
 
-        const result = (await executor.handleToolCall({ name: 'exec', arguments: args }, state)) as any
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: args, _meta: requestMeta },
+                state
+            )) as any
 
-        // context (when present) must not break exec validation — proves it was stripped.
-        expect(result.isError).toBeFalsy()
+            // context (when present) must not break exec validation — proves it was stripped.
+            expect(result.isError).toBeFalsy()
 
-        expect(captureSpy).toHaveBeenCalledTimes(1)
-        const arg = captureSpy.mock.calls[0]![0]
-        expect(arg.toolName).toBe('exec')
-        expect(arg.intent).toBe(expectedIntent)
-        expect(arg.intentSource).toBe(expectedSource)
-        expect(arg.llmModel).toBe(expectedModel)
-        expect(arg.llmModelSource).toBe(expectedModelSource)
+            expect(captureSpy).toHaveBeenCalledTimes(1)
+            const arg = captureSpy.mock.calls[0]![0]
+            expect(arg.toolName).toBe('exec')
+            expect(arg.intent).toBe(expectedIntent)
+            expect(arg.intentSource).toBe(expectedSource)
+            expect(arg.llmModel).toBe(expectedModel)
+            expect(arg.llmModelSource).toBe(expectedModelSource)
 
-        captureSpy.mockRestore()
-    })
+            captureSpy.mockRestore()
+        }
+    )
 
     // A native (non-exec) tool call with context: proves the native callTool path
     // strips context and forwards intent. The native path now also tracks schema

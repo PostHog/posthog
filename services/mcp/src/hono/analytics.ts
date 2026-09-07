@@ -122,9 +122,9 @@ export interface ToolCallAnalyticsMeta {
     intent?: string
     /** Where it came from → `$mcp_intent_source`. */
     intentSource?: MCPAnalyticsIntentSource
-    /** The agent's self-reported model -> `$mcp_llm_model`. */
+    /** The calling model -> `$mcp_llm_model`. */
     llmModel?: string
-    /** How the model was reported -> `$mcp_llm_model_source`. */
+    /** Where the model identifier came from -> `$mcp_llm_model_source`. */
     llmModelSource?: MCPAnalyticsModelSource
 }
 
