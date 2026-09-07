@@ -117,6 +117,20 @@ function ReasonBanner({
             </LemonBanner>
         )
     }
+    if (reason === ExperimentReplayListEmptyReason.FiltersNarrowed) {
+        return (
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'Clear filters',
+                    onClick: () => onAction('clear_filters'),
+                    'data-attr': 'experiment-recordings-empty-clear-filters',
+                }}
+            >
+                No recordings match the filters added above. Clear them to widen the list back to everyone exposed.
+            </LemonBanner>
+        )
+    }
     if (reason === ExperimentReplayListEmptyReason.VariantHasNone) {
         return (
             <LemonBanner
@@ -233,10 +247,10 @@ function ReasonBanner({
  */
 export function ExperimentRecordingsListEmptyState({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
-    const { listEmptyReason, listEmptyContext, windowRecordingProbeLoading } = useValues(logic)
+    const { listEmptyReason, listEmptyContext, windowRecordingProbeLoading, recordingsFilters } = useValues(logic)
     const { listEmptyActionClicked, loadSessionBucket, setSelectedVariantKey, setExposureScope } = useActions(logic)
     const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
-    const { setShowSettings } = useActions(sessionRecordingsPlaylistLogic)
+    const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
 
@@ -255,6 +269,10 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
             setSelectedVariantKey(null)
         } else if (action === 'all_sessions') {
             setExposureScope('all_exposed')
+        } else if (action === 'clear_filters') {
+            // The playlist's own reset would drop the tab's scoping too, so the tab's filters go
+            // back in whole rather than the playlist defaults.
+            setFilters(recordingsFilters)
         }
     }
 

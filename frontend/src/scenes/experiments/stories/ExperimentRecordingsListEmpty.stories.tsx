@@ -35,7 +35,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-06-01',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id) + '?tab=recordings',
-        testOptions: { waitForSelector: '[data-attr="experiment-recordings-empty-state"]' },
+        // The banner, not its wrapper: the wrapper also holds the skeleton that stands in while
+        // the probe is out, and a snapshot taken then would show no reason at all.
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-empty-state"] .LemonBanner' },
     },
     decorators: [
         mswDecorator({

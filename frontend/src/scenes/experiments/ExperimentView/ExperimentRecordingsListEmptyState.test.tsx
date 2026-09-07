@@ -18,7 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment, TeamType } from '~/types'
+import { Experiment, FilterLogicalOperator, TeamType } from '~/types'
 
 import {
     experimentsInSessionExposureRetrieve,
@@ -76,6 +76,7 @@ const ACTION_ATTRS = [
     'experiment-recordings-empty-retention-docs',
     'experiment-recordings-empty-ad-blocker-docs',
     'experiment-recordings-empty-retry-metric-filter',
+    'experiment-recordings-empty-clear-filters',
     'experiment-recordings-empty-exposure-docs',
     'experiment-recordings-empty-show-all-variants',
     'experiment-recordings-empty-all-sessions',
@@ -154,6 +155,26 @@ const REASON_CASES: ReasonCase[] = [
         },
         copy: 'The metric filter could not be loaded',
         actions: ['experiment-recordings-empty-retry-metric-filter'],
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.FiltersNarrowed,
+        experimentId: 212,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) =>
+            logic.actions.playlistFiltersChanged({
+                ...logic.values.recordingsFilters,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                        },
+                    ],
+                },
+            }),
+        copy: 'No recordings match the filters added above',
+        actions: ['experiment-recordings-empty-clear-filters'],
     },
     {
         // The probe is refused, so nothing is established and the placeholder copy stands.

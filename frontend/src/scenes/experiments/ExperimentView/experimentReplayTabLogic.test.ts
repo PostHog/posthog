@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
+import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
@@ -211,6 +212,38 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
             ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({ ...BUCKET_RESPONSE, session_ids: [] })
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
+    },
+    {
+        // Sessions matched the metric, none of them has a recording. Still the metric filter's
+        // answer, not the probe's: the probe would find the project's other recordings.
+        reason: ExperimentReplayListEmptyReason.MetricFilterMatchedNothing,
+        experimentId: 146,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                ...BUCKET_RESPONSE,
+                session_ids: ['bucket-session'],
+            })
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.FiltersNarrowed,
+        experimentId: 147,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) =>
+            logic.actions.playlistFiltersChanged({
+                ...logic.values.recordingsFilters,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                        },
+                    ],
+                },
+            }),
     },
     {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,
@@ -920,6 +953,7 @@ describe('experimentReplayTabLogic', () => {
         expect(listsRendered(captureSpy, 144)[0][1]).toMatchObject({
             empty_reason: 'variant_has_none',
             variant: 'test',
+            probe_result: 'pending',
         })
 
         // The probe answering afterwards must not fire a second report for the same list.
@@ -954,8 +988,55 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(filling).toDispatchActions(['loadWindowRecordingProbeSuccess'])
 
         expect(listsRendered(captureSpy, 132)).toHaveLength(1)
-        expect(listsRendered(captureSpy, 132)[0][1]).toMatchObject({ result_count: 1, empty_reason: null })
+        expect(listsRendered(captureSpy, 132)[0][1]).toMatchObject({
+            result_count: 1,
+            empty_reason: null,
+            probe_result: 'pending',
+        })
         filling.unmount()
+    })
+
+    it('flushes a held report on unmount with the probe marked pending', async () => {
+        // Dropped instead, the reports would under-count the projects whose probe is slow, which
+        // are the ones the reason split is for.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        recordingsListSpy.mockReturnValue(new Promise(() => {}))
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const leaving = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 148, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        leaving.mount()
+        await expectLogic(leaving).toFinishAllListeners()
+        leaving.actions.recordingsLoaded([])
+        await expectLogic(leaving).toDispatchActions(['loadWindowRecordingProbe'])
+        expect(listsRendered(captureSpy, 148)).toHaveLength(0)
+
+        leaving.unmount()
+
+        expect(listsRendered(captureSpy, 148)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 148)[0][1]).toMatchObject({
+            result_count: 0,
+            empty_reason: 'unknown_in_window',
+            probe_result: 'pending',
+        })
+    })
+
+    it('keeps no_recordings_in_window under a facet once the probe found nothing', async () => {
+        // A facet reason offers the other variants as a place to look. After the probe has
+        // established the project recorded nothing over the window, there is nowhere to look.
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const bare = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 145, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        bare.mount()
+        await expectLogic(bare).toFinishAllListeners()
+        bare.actions.recordingsLoaded([])
+        await expectLogic(bare).toFinishAllListeners()
+        expect(bare.values.listEmptyReason).toBe(ExperimentReplayListEmptyReason.NoRecordingsInWindow)
+
+        bare.actions.setSelectedVariantKey('test')
+        expect(bare.values.listEmptyReason).toBe(ExperimentReplayListEmptyReason.NoRecordingsInWindow)
+        bare.unmount()
     })
 
     it('probes the experiment run window rather than the default range', async () => {
@@ -977,6 +1058,7 @@ describe('experimentReplayTabLogic', () => {
             kind: NodeKind.RecordingsQuery,
             date_from: started,
             date_to: ended,
+            having_predicates: [defaultRecordingDurationFilter],
             limit: 1,
         })
         windowed.unmount()
