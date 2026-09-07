@@ -221,15 +221,23 @@ fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
     None
 }
 
-/// Drops a userinfo component (`user[:pass]@`) from a URL's authority before it is stored
-/// anywhere. CI checkouts commonly write a remote URL with an embedded credential (e.g.
-/// `actions/checkout`'s `https://x-access-token:<token>@github.com/owner/repo.git`), and that
-/// credential must never reach release metadata.
+/// Drops every part of a URL that can carry a credential before it is stored anywhere: the
+/// userinfo component (`user[:pass]@`), the query, and the fragment. CI checkouts commonly
+/// write a remote URL with an embedded credential (e.g. `actions/checkout`'s
+/// `https://x-access-token:<token>@github.com/owner/repo.git`), and that credential must never
+/// reach release metadata.
 ///
 /// Returns `None` when a URL holds an `@` but does not parse. Userinfo must percent-encode
 /// `/`, `?` and `#`, so a URL that breaks that rule can hide a credential in a position no
 /// parser can identify. Such a URL is dropped instead of stored.
 fn strip_credentials(url: &str) -> Option<String> {
+    // A query or a fragment can hold a token (`?token=`, `#access_token=`) and a git remote
+    // needs neither, so both go before anything else looks at the URL.
+    let url = match url.find(['?', '#']) {
+        Some(index) => &url[..index],
+        None => url,
+    };
+
     // SCP-like SSH remotes (`git@host:owner/repo.git`) have no `://` authority to parse, and
     // the leading `git` is a fixed SSH username rather than a stored secret.
     if !url.contains("://") {
@@ -457,9 +465,24 @@ mod tests {
                 Some("https://git.example.com:8443/owner/repo.git"),
             ),
             (
-                "path and query survive the rewrite",
-                "https://x-access-token:ghs_abc@github.com/owner/repo.git?ref=main",
-                Some("https://github.com/owner/repo.git?ref=main"),
+                "the path survives the rewrite",
+                "https://x-access-token:ghs_abc@github.com/owner/repo.git",
+                Some("https://github.com/owner/repo.git"),
+            ),
+            (
+                "a query is dropped, because it can hold a token",
+                "https://github.com/owner/repo.git?token=ghs_abc",
+                Some("https://github.com/owner/repo.git"),
+            ),
+            (
+                "a fragment is dropped, because it can hold a token",
+                "https://github.com/owner/repo.git#access_token=ghs_abc",
+                Some("https://github.com/owner/repo.git"),
+            ),
+            (
+                "a query is dropped from an scp-like ssh remote too",
+                "git@github.com:owner/repo.git?token=ghs_abc",
+                Some("git@github.com:owner/repo.git"),
             ),
             (
                 "url without a credential is unchanged",
@@ -519,6 +542,16 @@ mod tests {
     fn get_remote_url_from_paths_strips_credential_from_config() {
         let (_dir, paths) =
             write_config("https://x-access-token:ghs_abc123@github.com/owner/repo.git");
+
+        assert_eq!(
+            get_remote_url_from_paths(&paths),
+            Some("https://github.com/owner/repo.git".to_string())
+        );
+
+        // The `.git` suffix is normalized after the query goes, so the suffix check sees the
+        // real end of the URL.
+        let (_dir, paths) =
+            write_config("https://x-access-token:ghs_abc123@github.com/owner/repo.git?ref=main");
 
         assert_eq!(
             get_remote_url_from_paths(&paths),
