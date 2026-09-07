@@ -4,7 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, withAgentNote, type WithPostHogUrl, type WithAgentNote } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const VisionObservationsLabelCreateSchema = () => {
@@ -515,9 +521,14 @@ const visionScannersObservationsGet = (): ToolBase<
 const VisionScannersObservationsListSchema = () => {
     const VisionScannersObservationsListParams = orvalSchemas.VisionScannersObservationsListParams()
     const VisionScannersObservationsListQueryParams = orvalSchemas.VisionScannersObservationsListQueryParams()
-    return VisionScannersObservationsListParams.omit({ project_id: true }).extend(
-        VisionScannersObservationsListQueryParams.shape
-    )
+    return VisionScannersObservationsListParams.omit({ project_id: true })
+        .extend(VisionScannersObservationsListQueryParams.shape)
+        .extend({
+            limit: VisionScannersObservationsListQueryParams.shape['limit']
+                .default(20)
+                .optional()
+                .describe('Number of observations to return per page (default 20).'),
+        })
 }
 
 const visionScannersObservationsList = (): ToolBase<
@@ -550,20 +561,31 @@ const visionScannersObservationsList = (): ToolBase<
                     verdict: params.verdict,
                 },
             })
+            const filtered = {
+                ...result,
+                results: (result.results ?? []).map((item: any) =>
+                    omitResponseFields(item, [
+                        'scanner_snapshot.scanner_config.prompt',
+                        'scanner_snapshot.query',
+                        'scanner_result.model_output.reasoning_segments',
+                        'scanner_result.model_output.summary_segments',
+                    ])
+                ),
+            } as typeof result
             return withAgentNote(
                 await withPostHogUrl(
                     context,
                     {
-                        ...result,
+                        ...filtered,
                         results: await Promise.all(
-                            (result.results ?? []).map((item) =>
+                            (filtered.results ?? []).map((item) =>
                                 withPostHogUrl(context, item, `/replay/${item.session_id}`)
                             )
                         ),
                     },
                     '/replay'
                 ),
-                "Each observation's `_posthogUrl` opens the recording it analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+                "Each observation's `_posthogUrl` opens the recording it analysed. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them: read that observation with `vision-scanners-observations-get`, take a `chip` segment's `timestamp_ms` from its citation segments, and append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the recording URL. The citation segments are `scanner_result.model_output.summary_segments` on a summarizer observation, and `scanner_result.model_output.reasoning_segments` on a monitor, classifier, or scorer one.\n"
             )
         },
     })

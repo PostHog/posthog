@@ -18,7 +18,8 @@
             "type": "boolean"
         },
         "limit": {
-            "description": "Number of results to return per page.",
+            "default": 20,
+            "description": "Number of observations to return per page (default 20).",
             "type": "number"
         },
         "max_score": {
