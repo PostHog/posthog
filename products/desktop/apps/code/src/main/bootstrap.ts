@@ -17,12 +17,12 @@
 import dns from "node:dns";
 import { mkdirSync } from "node:fs";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { app, crashReporter, protocol } from "electron";
 import { getPreviewIdentity } from "./preview";
 import { fixPath } from "./utils/fixPath";
 import { shouldRefuseInternalChildBoot } from "./utils/internal-child-guard";
+import { logDir } from "./utils/log-dir";
 
 // The internal-child marker means a workspace-server descendant stripped
 // ELECTRON_RUN_AS_NODE and ran `node` or process.execPath; booting a full app
@@ -78,11 +78,7 @@ process.env.POSTHOG_CODE_VERSION = app.getVersion();
 // trail because Electron silently swallows the underlying logs. Must run
 // before app.whenReady() so the switches take effect on the GPU/renderer
 // child processes.
-const chromiumLogDir = path.join(
-  os.homedir(),
-  ".posthog-code",
-  isDev ? "logs-dev" : "logs",
-);
+const chromiumLogDir = logDir();
 mkdirSync(chromiumLogDir, { recursive: true });
 const chromiumLogPath = path.join(chromiumLogDir, "chromium.log");
 process.env.ELECTRON_ENABLE_LOGGING = "1";

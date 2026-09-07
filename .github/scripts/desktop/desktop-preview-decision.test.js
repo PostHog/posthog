@@ -54,3 +54,16 @@ test('bot previews require explicit dispatch', () => {
     assert.deepEqual(decidePreview({ ...input, event: 'pull_request' }), skip)
     assert.deepEqual(decidePreview({ ...input, event: 'workflow_dispatch' }), desktop)
 })
+test('a dispatched bot preview still tears down', () => {
+    // A bot preview exists only because a person dispatched it. Later label
+    // events arrive as pull_request actions, and the cleanup branches must run
+    // before the bot guard or the box + sticky comment leak until PR close.
+    const botPr = { head: { repo: { full_name: 'PostHog/posthog' } }, user: { type: 'Bot' } }
+    const base = { pr: botPr, repository: 'PostHog/posthog' }
+    // no-preview added while a dispatched bot preview is live
+    assert.deepEqual(decidePreview({ ...base, event: 'pull_request', action: 'labeled', label: 'no-preview', labels: ['desktop-preview', 'no-preview'] }), { ...teardown, retireDesktop: true })
+    // desktop-preview removed from a bot PR with no other demand
+    assert.deepEqual(decidePreview({ ...base, event: 'pull_request', action: 'unlabeled', label: 'desktop-preview', labels: [] }), { ...teardown, retireDesktop: true })
+    // auto-eligibility cannot keep a bot preview alive on label removal
+    assert.deepEqual(decidePreview({ ...base, event: 'pull_request', action: 'unlabeled', label: 'desktop-preview', labels: [], autoPreviewEligible: true }), { ...teardown, retireDesktop: true })
+})

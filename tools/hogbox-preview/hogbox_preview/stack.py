@@ -34,11 +34,13 @@ Recipe (mount-over-image — the default, ~minutes per PR):
 from __future__ import annotations
 
 import sys
+import json
 import secrets
 
 from . import timing
-from .backend import PreviewBackend
+from .backend import ExecResult, PreviewBackend
 from .desktop_profile import (
+    DESKTOP_PREVIEW_IMAGES,
     LLM_GATEWAY_PATH_PREFIX,
     DesktopPreviewError,
     build_desktop_readiness_script,
@@ -364,6 +366,9 @@ class PostHogPreviewStack:
             "      - USE_LOCAL_SETUP=1",
         ]
         if self.desktop_pr_number:
+            # The proxy takes over the exposed port; web moves to a sibling host
+            # port. The gateway lines carry only the proxy + gateway services,
+            # so the port override lands inside the single web block above.
             lines += build_gateway_compose_lines(web_port=self.backend.web_port)
         lines += [
             "  plugins:",
@@ -776,8 +781,20 @@ echo "DEEP_HEALTH_OK"
 
     def _up_desktop_services(self) -> None:
         # After up_web: the recreated web container has released the exposed
-        # port to the proxy. Compose pulls the two images; they are not in the golden.
+        # port to the proxy. Compose pulls the two images; they are not in the
+        # golden, so this is a cold network fetch — pull with the same retry
+        # pull_image() uses, because ghcr pulls flake (TLS handshake timeouts).
         timing.stage("start desktop preview proxy + llm gateway")
+        for image in DESKTOP_PREVIEW_IMAGES:
+            last: Exception | None = None
+            for _ in range(3):
+                try:
+                    self.backend.run_long(f"docker pull {image}", name="pull-desktop", timeout=1800)
+                    break
+                except RuntimeError as e:
+                    last = e
+            else:
+                raise RuntimeError(f"docker pull {image} failed after 3 attempts: {last}")
         self.backend.run_long(
             self._compose("up -d --no-build desktop-preview-proxy llm-gateway"), name="up-desktop", timeout=900
         )
@@ -793,7 +810,53 @@ echo "DEEP_HEALTH_OK"
             raise DesktopPreviewError(f"Desktop readiness failed:\n{result.stdout}\n{result.stderr}")
         # Through the proxy, so a broken route fails here rather than in the app.
         self.backend.wait_http_ok(f"{LLM_GATEWAY_PATH_PREFIX}/_liveness", expect=200, timeout=600)
+        # _liveness is a static 200: it stays green with a dead database or a
+        # misrouted desktop-access check. The authed count_tokens probe below
+        # runs token auth, the product allowlist, the desktop-access gate, and
+        # the Bedrock credentials, so installers only ship when agents can work.
+        try:
+            self._probe_gateway_with_token(result)
+        except DesktopPreviewError:
+            self._dump_desktop_container_diagnostics()
+            raise
         timing.stage("desktop readiness pass")
+
+    def _dump_desktop_container_diagnostics(self) -> None:
+        # Mirror deep_health(): a bare "not 200" costs hours; the container's
+        # own stderr names the failure (bad Caddyfile, unreachable Postgres).
+        for service in ("desktop-preview-proxy", "llm-gateway"):
+            try:
+                logs = self.backend.exec(
+                    f"cd {self.repo_dir} && docker compose -f {self.COMPOSE} -f {self.OVERRIDE} logs --tail 40 {service}",
+                    timeout=60,
+                )
+                sys.stderr.write(f"--- {service} logs ---\n{logs.stdout}\n{logs.stderr}\n")
+            except Exception as e:
+                sys.stderr.write(f"--- {service} log collection failed: {e}\n")
+
+    def _probe_gateway_with_token(self, readiness: ExecResult) -> None:
+        token = next((line for line in readiness.stdout.splitlines() if line.startswith("DESKTOP_READY_TOKEN=")), None)
+        project = next(
+            (line for line in readiness.stdout.splitlines() if line.startswith("DESKTOP_READY_PROJECT=")), None
+        )
+        if not token or not project:
+            raise DesktopPreviewError("Desktop readiness did not emit the gateway probe credentials")
+        token, project = token.split("=", 1)[1], project.split("=", 1)[1]
+        body = json.dumps({"model": "bedrock/us.anthropic.claude-sonnet-4-5-20250929", "messages": []})
+        probe = self.backend.exec(
+            "curl -s -o /dev/null -w '%{http_code}' -m 30 "
+            f"-X POST http://localhost:{self.backend.web_port}{LLM_GATEWAY_PATH_PREFIX}/posthog_code/v1/messages/count_tokens "
+            f"-H 'Authorization: Bearer {token}' -H 'content-type: application/json' "
+            f"-d '{body.replace(chr(39), chr(39) * 2)}'",
+            timeout=60,
+        )
+        last = probe.stdout.strip()
+        # 400 = the request reached the gateway and authenticated: an empty
+        # message list is invalid but the auth chain passed. 401/403/5xx mean
+        # token auth, the product allowlist, the desktop-access gate, or Bedrock
+        # config failed.
+        if last not in ("200", "400"):
+            raise DesktopPreviewError(f"Gateway probe failed with HTTP {last}:\n{probe.stdout}\n{probe.stderr}")
 
     def desktop_gateway_url(self, url: str) -> str | None:
         if not self.desktop_pr_number:

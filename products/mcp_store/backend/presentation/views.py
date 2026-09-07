@@ -171,7 +171,11 @@ def _is_valid_posthog_code_callback_url(url: str) -> bool:
     parsed = urlparse(url)
     if parsed.scheme in ("array", "posthog-code"):
         return True
-    if is_dev_mode() and parsed.scheme == "http" and parsed.hostname == "localhost":
+    # A desktop preview build uses the loopback callback (its PR scheme is not
+    # registered on any hosted OAuth app, and the hogbox backend runs DEBUG=0).
+    # Loopback redirect targets stay on the tester's own machine, so accepting
+    # them widens the allowlist without opening a redirect to a remote host.
+    if parsed.scheme == "http" and parsed.hostname == "localhost":
         return True
     return False
 

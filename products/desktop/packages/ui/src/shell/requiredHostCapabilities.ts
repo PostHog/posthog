@@ -97,4 +97,8 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
       token: SPEECH_NOTIFY_SETTINGS,
       description: "per-kind gating for spoken notifications",
     },
+    {
+      token: AGENT_PROMPT_SENDER,
+      description: "send-to-agent actions in the shared UI",
+    },
   ];

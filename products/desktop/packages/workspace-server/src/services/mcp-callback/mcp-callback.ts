@@ -12,7 +12,7 @@ import {
   type IUrlLauncher,
   URL_LAUNCHER_SERVICE,
 } from "@posthog/platform/url-launcher";
-import { TypedEventEmitter } from "@posthog/shared";
+import { getPreviewDeployment, TypedEventEmitter } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { MCP_CALLBACK_SERVER } from "./identifiers";
 import type { McpCallbackServer } from "./mcp-callback-server";
@@ -63,10 +63,15 @@ export class McpCallbackService extends TypedEventEmitter<McpCallbackEvents> {
   }
 
   /**
-   * Get the callback URL based on environment (dev vs prod).
+   * Get the callback URL based on environment (dev vs prod). A preview build
+   * also uses the loopback URL: its PR scheme is not in the backend's MCP
+   * callback allowlist, so a deep-link callback would be rejected as an
+   * invalid redirect — the same reason sign-in falls back to loopback.
    */
   public getCallbackUrl(): GetCallbackUrlOutput {
-    const callbackUrl = !this.appMeta.isProduction
+    const useLoopback =
+      !this.appMeta.isProduction || getPreviewDeployment() !== null;
+    const callbackUrl = useLoopback
       ? `http://localhost:${DEV_CALLBACK_PORT}/${MCP_CALLBACK_KEY}`
       : `${this.deepLinkService.getProtocol()}://${MCP_CALLBACK_KEY}`;
     return { callbackUrl };
@@ -83,7 +88,9 @@ export class McpCallbackService extends TypedEventEmitter<McpCallbackEvents> {
       // Cancel any existing pending callback
       this.cancelPending();
 
-      const result = !this.appMeta.isProduction
+      const useLoopback =
+        !this.appMeta.isProduction || getPreviewDeployment() !== null;
+      const result = useLoopback
         ? await this.waitForHttpCallback(redirectUrl)
         : await this.waitForDeepLinkCallback(redirectUrl);
 

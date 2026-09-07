@@ -98,6 +98,7 @@ export {
   buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
+  getActiveDeeplinkProtocol,
   getDeeplinkProtocol,
   getDeeplinkProtocolOptions,
   isPostHogCodeDeeplink,

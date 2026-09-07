@@ -1,3 +1,4 @@
+import { desktopPreviewIdentity, getPreviewDeployment } from "./desktop-preview";
 import { scoutSkillSlug } from "./scout-naming";
 
 const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
@@ -7,6 +8,20 @@ export function getDeeplinkProtocol(isDevBuild: boolean): string {
   return isDevBuild
     ? DEEPLINK_PROTOCOL_DEVELOPMENT
     : DEEPLINK_PROTOCOL_PRODUCTION;
+}
+
+/**
+ * The scheme this build uses for OUTBOUND deep links and markdown validation.
+ * A preview build emits only its own PR scheme: a `posthog-code://` link
+ * produced inside a preview opens the production app or nothing, because the
+ * preview registers no other scheme.
+ */
+export function getActiveDeeplinkProtocol(isDevBuild: boolean): string {
+  const deployment = getPreviewDeployment();
+  if (deployment) {
+    return desktopPreviewIdentity(deployment).slug;
+  }
+  return getDeeplinkProtocol(isDevBuild);
 }
 
 /**
@@ -35,9 +50,13 @@ export function isPostHogCodeDeeplink(
   if (!href) return false;
   try {
     const protocol = new URL(href).protocol;
+    const previewSlug = getPreviewDeployment()
+      ? desktopPreviewIdentity(getPreviewDeployment()!).slug
+      : null;
     return (
       protocol === `${DEEPLINK_PROTOCOL_PRODUCTION}:` ||
-      protocol === `${DEEPLINK_PROTOCOL_DEVELOPMENT}:`
+      protocol === `${DEEPLINK_PROTOCOL_DEVELOPMENT}:` ||
+      (previewSlug !== null && protocol === `${previewSlug}:`)
     );
   } catch {
     return false;
@@ -49,7 +68,7 @@ export function buildInboxDeeplink(
   title: string | null | undefined,
   { isDevBuild }: { isDevBuild: boolean },
 ): string {
-  const base = `${getDeeplinkProtocol(isDevBuild)}://inbox/${reportId}`;
+  const base = `${getActiveDeeplinkProtocol(isDevBuild)}://inbox/${reportId}`;
   const slug = title
     ? title
         .normalize("NFD")
@@ -71,7 +90,7 @@ export function buildLoopDeeplink(
   loopId: string,
   { isDevBuild }: { isDevBuild: boolean },
 ): string {
-  return `${getDeeplinkProtocol(isDevBuild)}://loop/${encodeURIComponent(loopId)}`;
+  return `${getActiveDeeplinkProtocol(isDevBuild)}://loop/${encodeURIComponent(loopId)}`;
 }
 
 /**
@@ -88,7 +107,7 @@ export function buildScoutDeeplink(
   { isDevBuild }: { isDevBuild: boolean },
 ): string {
   const slug = scoutSkillSlug(skillName);
-  const base = `${getDeeplinkProtocol(isDevBuild)}://scout/${encodeURIComponent(slug)}`;
+  const base = `${getActiveDeeplinkProtocol(isDevBuild)}://scout/${encodeURIComponent(slug)}`;
   return findingId ? `${base}?finding=${encodeURIComponent(findingId)}` : base;
 }
 

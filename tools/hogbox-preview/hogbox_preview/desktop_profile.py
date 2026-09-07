@@ -8,6 +8,7 @@ DESKTOP_TESTER_PASSWORD = "posthog-desktop-preview"
 LLM_GATEWAY_IMAGE = "ghcr.io/posthog/posthog/llm-gateway:master"
 LLM_GATEWAY_PATH_PREFIX = "/llm-gateway"
 PROXY_IMAGE = "caddy:2.10-alpine"
+DESKTOP_PREVIEW_IMAGES = [PROXY_IMAGE, LLM_GATEWAY_IMAGE]
 # hogpanion's bedrock feature serves renewable AWS credentials here inside every box.
 BEDROCK_CREDENTIALS_URL = "http://127.0.0.1:8181/credentials"
 BEDROCK_REGION = "us-east-1"
@@ -24,10 +25,18 @@ def desktop_redirect_uri(pr_number: int) -> str:
 
 def build_oauth_seed_script(*, pr_number: int) -> str:
     # Execute through manage.py shell so Django initializes before model imports.
+    # The application id is pinned to the gateway's POSTHOG_CODE_DEV_APP_ID: the
+    # gateway authorizes posthog_code tokens by the application's database UUID,
+    # so a random id would fail every agent request with "not authorized".
+    # Keep in sync with posthog/temporal/oauth.py and llm_gateway/products/config.py.
     return f"""
 import secrets
+from uuid import UUID
+
 from django.db import transaction
 from posthog.models import OAuthApplication, Organization, OrganizationMembership, Team, User
+
+DESKTOP_PREVIEW_APP_ID = UUID("019ebb47-c750-0000-e1ea-723a6ff112d3")
 
 with transaction.atomic():
     org, _ = Organization.objects.get_or_create(name="Desktop Preview Testers")
@@ -35,9 +44,13 @@ with transaction.atomic():
     if team is None:
         # TeamManager.create also creates the required Project; QuerySet.get_or_create does not.
         team = Team.objects.create(organization=org, name="Desktop Preview Project")
+    clash = OAuthApplication.objects.filter(client_id={DESKTOP_OAUTH_CLIENT_ID!r}, id=DESKTOP_PREVIEW_APP_ID).first() is None and OAuthApplication.objects.filter(id=DESKTOP_PREVIEW_APP_ID).exists()
+    if clash:
+        raise RuntimeError("OAuth application id DESKTOP_PREVIEW_APP_ID is taken by another application; the gateway allowlist expects it on this client_id")
     OAuthApplication.objects.update_or_create(
         client_id={DESKTOP_OAUTH_CLIENT_ID!r},
         defaults={{
+            "id": DESKTOP_PREVIEW_APP_ID,
             "name": "Desktop Preview",
             "scopes": ["@default", "llm_gateway:read"],
             "optional_scopes": [],
@@ -127,6 +140,8 @@ read_json("/api/users/@me/", token=token)
 access = read_json(f"/api/projects/{{project['id']}}/desktop/access/", token=token)
 if access.get("allowed") is not True:
     raise RuntimeError("Desktop access denied: " + str(access.get("reason")))
+print("DESKTOP_READY_TOKEN=" + token)
+print("DESKTOP_READY_PROJECT=" + str(project["id"]))
 print("DESKTOP_READY_OK")
 """
 
@@ -151,8 +166,10 @@ def build_gateway_compose_lines(*, web_port: int) -> list[str]:
         "  }",
         "}",
     ]
+    # Returns the gateway lines only. write_override() already opens the `web:`
+    # key, and Compose rejects a duplicate mapping key, so the caller folds the
+    # port override into its own web block.
     return [
-        "  web:",
         "    ports: !override",
         f"      - {web_host_port}:8000",
         "  desktop-preview-proxy:",
@@ -169,10 +186,12 @@ def build_gateway_compose_lines(*, web_port: int) -> list[str]:
         "    restart: always",
         "    network_mode: host",
         "    environment:",
-        "      - DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog",
-        f"      - POSTHOG_API_BASE_URL=http://localhost:{web_host_port}",
-        f"      - BEDROCK_REGION_NAME={BEDROCK_REGION}",
+        # The gateway's pydantic settings read only the LLM_GATEWAY_ prefix;
+        # unprefixed names fall back to production defaults.
+        "      - LLM_GATEWAY_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog",
+        f"      - LLM_GATEWAY_POSTHOG_API_BASE_URL=http://localhost:{web_host_port}",
+        f"      - LLM_GATEWAY_BEDROCK_REGION_NAME={BEDROCK_REGION}",
         f"      - AWS_REGION={BEDROCK_REGION}",
         f"      - AWS_CONTAINER_CREDENTIALS_FULL_URI={BEDROCK_CREDENTIALS_URL}",
-        "      - METRICS_ENABLED=false",
+        "      - LLM_GATEWAY_METRICS_ENABLED=false",
     ]

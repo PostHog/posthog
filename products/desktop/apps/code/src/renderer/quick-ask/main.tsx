@@ -1,3 +1,6 @@
+// Side effect FIRST: register the preview deployment before any shared module
+// resolves a URL for the preview region (charts in answers need it).
+import "../platform-adapters/desktop-preview-deployment";
 // Global styles first so quick-ask.css overrides win at equal specificity.
 import "@posthog/ui/styles/globals.css";
 import "@posthog/quick-ask/panel/quick-ask.css";

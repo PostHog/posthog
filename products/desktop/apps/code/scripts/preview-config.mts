@@ -41,5 +41,20 @@ export function loadPreviewManifest(): DesktopPreviewManifest | null {
       "Preview manifest does not match the requested repository, PR, and commit.",
     );
   }
+  // The artifact channel is writable by untrusted PR code: repository, PR, and
+  // SHA are values an attacker knows. Only the TRUSTED deploy output (passed as
+  // POSTHOG_DESKTOP_PREVIEW_EXPECTED_ORIGIN) can vouch for the origin, so the
+  // signed installer never points at an origin the deploy job did not report.
+  const expectedOrigin = process.env.POSTHOG_DESKTOP_PREVIEW_EXPECTED_ORIGIN;
+  if (!expectedOrigin) {
+    throw new Error(
+      "POSTHOG_DESKTOP_PREVIEW_EXPECTED_ORIGIN is required for a preview build: the trusted deploy job must supply the backend URL.",
+    );
+  }
+  if (manifest.backendOrigin !== new URL(expectedOrigin).origin) {
+    throw new Error(
+      `Preview manifest origin ${manifest.backendOrigin} does not match the trusted deploy output ${expectedOrigin}.`,
+    );
+  }
   return manifest;
 }

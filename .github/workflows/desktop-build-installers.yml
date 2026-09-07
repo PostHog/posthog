@@ -34,6 +34,15 @@ on:
                 description: PR number for preview naming and reporting.
                 type: string
                 default: ''
+            desktop_preview_expected_origin:
+                description: >
+                    Backend URL from the TRUSTED deploy job. A preview build
+                    rejects any manifest whose backendOrigin does not match it:
+                    the artifact channel is writable by untrusted PR code, so
+                    only the trusted output can vouch for the origin the
+                    signed installer points at.
+                type: string
+                default: ''
             source_sha:
                 description: >
                     Exact commit SHA to build from. Defaults to the calling
@@ -75,6 +84,7 @@ env:
     NPM_CONFIG_FUND: 'false'
     POSTHOG_DESKTOP_PREVIEW_PR: ${{ inputs.pr_number }}
     POSTHOG_DESKTOP_PREVIEW_SHA: ${{ inputs.source_sha }}
+    POSTHOG_DESKTOP_PREVIEW_EXPECTED_ORIGIN: ${{ inputs.desktop_preview_expected_origin }}
 
 jobs:
     build-macos:
@@ -119,8 +129,6 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ inputs.source_sha || github.sha }}
-                  fetch-depth: 0
-                  filter: blob:none
                   persist-credentials: false
 
             - name: Download preview manifest
@@ -263,8 +271,10 @@ jobs:
                     echo "OK: $bin"
                   done
 
+            # The smoke fixture launches the packaged Electron binary directly;
+            # no Playwright browser download is needed.
             - name: Install Playwright
-              run: pnpm --filter code exec playwright install
+              run: pnpm --filter code exec playwright install chromium
 
             - name: Install Rosetta for the x64 smoke test
               if: matrix.arch == 'x64'
@@ -319,8 +329,6 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ inputs.source_sha || github.sha }}
-                  fetch-depth: 0
-                  filter: blob:none
                   persist-credentials: false
 
             - name: Download preview manifest
@@ -442,8 +450,6 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ inputs.source_sha || github.sha }}
-                  fetch-depth: 0
-                  filter: blob:none
                   persist-credentials: false
 
             - name: Download preview manifest

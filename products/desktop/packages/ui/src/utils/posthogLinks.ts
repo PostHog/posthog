@@ -146,17 +146,23 @@ export type ShareLinkTarget =
   | { kind: "canvas"; channelId: string; dashboardId: string }
   | { kind: "channel"; channelId: string; taskId?: string };
 
-const POSTHOG_HOSTS = new Set(
-  (Object.keys(REGION_LABELS) as CloudRegion[])
-    .map((region) => {
-      try {
-        return new URL(getCloudUrlFromRegion(region)).host;
-      } catch {
-        return "";
-      }
-    })
-    .filter(Boolean),
-);
+// Resolved per call, not once at module scope: the preview region throws until
+// a preview build registers its deployment, and registration happens after this
+// module is first imported. A module-scope Set would exclude the preview host
+// for the whole process life.
+function posthogHosts(): Set<string> {
+  return new Set(
+    (Object.keys(REGION_LABELS) as CloudRegion[])
+      .map((region) => {
+        try {
+          return new URL(getCloudUrlFromRegion(region)).host;
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean),
+  );
+}
 
 interface ShareLinkRoute {
   pattern: string[];
@@ -219,7 +225,7 @@ export function parseShareLink(href: string): ShareLinkTarget | null {
   } catch {
     return null;
   }
-  if (!POSTHOG_HOSTS.has(url.host)) return null;
+  if (!posthogHosts().has(url.host)) return null;
 
   const segments = decodePathSegments(url.pathname);
   for (const route of SHARE_LINK_ROUTES) {

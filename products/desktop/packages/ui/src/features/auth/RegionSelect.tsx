@@ -41,10 +41,12 @@ function describeRegion(region: CloudRegion): {
   hint: string;
 } {
   const preview = region === "preview" ? getPreviewDeployment() : null;
+  // The baked SHA names the installed app's build, not the live backend: a
+  // backend-only push replaces the backend behind the same installer.
   return preview
     ? {
         ...REGION_LABELS.preview,
-        hint: `PR ${preview.prNumber} · ${preview.commitSha.slice(0, 7)}`,
+        hint: `PR ${preview.prNumber} · app built from ${preview.commitSha.slice(0, 7)}`,
       }
     : REGION_LABELS[region];
 }

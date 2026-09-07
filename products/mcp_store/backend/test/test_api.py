@@ -66,6 +66,9 @@ class TestIsValidPosthogCodeCallbackUrl(TestCase):
             ("array_scheme", "array://callback", True),
             ("twig_scheme", "twig://oauth/callback", False),
             ("posthog_code_scheme", "posthog-code://oauth/callback", True),
+            # Desktop preview builds use the loopback callback against a
+            # DEBUG=0 backend, so localhost is accepted without dev mode.
+            ("localhost_loopback", "http://localhost:8238/mcp-oauth-complete", True),
             ("https_rejected", "https://evil.com/redirect", False),
             ("http_rejected", "http://example.com/callback", False),
             ("javascript_rejected", "javascript:alert(1)", False),

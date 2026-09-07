@@ -1,14 +1,14 @@
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import { getDeeplinkProtocol, isPostHogCodeDeeplink } from "@posthog/shared";
+import { getActiveDeeplinkProtocol, isPostHogCodeDeeplink } from "@posthog/shared";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useCallback } from "react";
 
-// Payloads are authored with the production scheme; dev builds register
-// posthog-code-dev://, and the dispatcher only accepts the active one.
+// Payloads are authored with the production scheme; dev and preview builds
+// register their own, and the dispatcher only accepts the active one.
 function toActiveScheme(url: string): string {
   return url.replace(
     /^posthog-code(-dev)?:\/\//,
-    `${getDeeplinkProtocol(import.meta.env.DEV)}://`,
+    `${getActiveDeeplinkProtocol(import.meta.env.DEV)}://`,
   );
 }
 

@@ -41,7 +41,10 @@ class DesktopReadiness(unittest.TestCase):
                         output.assert_not_called()
                     else:
                         exec(compile(script, "readiness", "exec"), {})
-                        output.assert_called_once_with("DESKTOP_READY_OK")
+                        self.assertEqual(
+                            [call.args[0] for call in output.call_args_list],
+                            ["DESKTOP_READY_TOKEN=fake-preview-token", "DESKTOP_READY_PROJECT=7", "DESKTOP_READY_OK"],
+                        )
                         requests = [call.args[0] for call in opener.open.call_args_list]
                         authorization = json.loads(requests[3].data)
                         self.assertEqual(authorization["code_challenge_method"], "S256")

@@ -138,7 +138,11 @@ jobs:
             # The desktop decision table runs from the TRUSTED default branch
             # (sparse: only the script itself), never the PR's copy — decide
             # must stay checkout-free for PR code but this file is not PR code.
+            # Fails open like every other default-branch checkout here: a blip
+            # is infra, and the tolerant decide step below then empties the
+            # outputs so every downstream job skips with the run still green.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              continue-on-error: true
               with:
                   ref: ${{ github.event.repository.default_branch }}
                   sparse-checkout: |
@@ -170,15 +174,25 @@ jobs:
                       }
                       // A push that touches no desktop code keeps the installed
                       // preview app valid: only the backend behind the stable URL
-                      // changes. Any failure to compare falls back to rebuilding.
+                      // changes. Any failure to compare falls back to rebuilding —
+                      // and a TRUNCATED compare is a failure too: the API caps the
+                      // file list at 300 entries, a force-push/rebase widens a
+                      // three-dot compare past that easily, and a truncated list
+                      // can hide a changed desktop file (fail-open, not silent).
                       let desktopChanged = true;
                       if (action === 'synchronize' && context.payload.before) {
                           try {
                               const { data: cmp } = await github.rest.repos.compareCommits({
                                   ...context.repo, base: context.payload.before, head: pr.head.sha,
                               });
-                              desktopChanged = (cmp.files ?? []).some(f =>
-                                  /^products\/desktop\/|^\.github\/workflows\/desktop-build-installers\.yml$/.test(f.filename));
+                              const files = cmp.files ?? [];
+                              if (files.length >= 300) {
+                                  core.info(`compare hit the 300-file cap; rebuilding installers`);
+                              } else {
+                                  desktopChanged = files.some(f =>
+                                      /^products\/desktop\/|^\.github\/workflows\/desktop-build-installers\.yml$/.test(f.filename) ||
+                                      (f.previous_filename != null && /^products\/desktop\//.test(f.previous_filename)));
+                              }
                           } catch (error) {
                               core.info(`compare failed (${error.message}); rebuilding installers`);
                           }
@@ -408,7 +422,7 @@ jobs:
         timeout-minutes: 40
         outputs:
             url: ${{ steps.build.outputs.url }}
-            desktop_ready: ${{ steps.desktop.outputs.ready }}
+            desktop_ready: ${{ steps.desktop-ready.outputs.ready }}
             desktop_gateway: ${{ steps.desktop.outputs.gateway }}
         permissions:
             contents: read
@@ -646,9 +660,12 @@ jobs:
             # jobs validate this artifact's schema and identity before use.
             # The python block is a heredoc INSIDE the run script, so its
             # indentation must stay valid YAML block-scalar content.
+            # Fails open like the rest of deploy: `ready` is published only after
+            # the upload below succeeds, so a broken emit just means no installers.
             - name: Emit desktop preview manifest
               id: desktop
               if: ${{ !cancelled() && needs.decide.outputs.desktop == 'true' }}
+              continue-on-error: true
               env:
                   BRING_UP: ${{ steps.outcome.outputs.ok }}
                   HEAD_SHA: ${{ needs.decide.outputs.sha }}
@@ -674,17 +691,36 @@ jobs:
                   PYEOF
                     ready=true
                   fi
-                  echo "ready=$ready" >> "$GITHUB_OUTPUT"
+                  echo "emitted=$ready" >> "$GITHUB_OUTPUT"
                   echo "gateway=$([ -n "$GATEWAY_URL" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
+            # The TRUSTED upload owns this artifact name. build-frontend runs PR
+            # code with an artifact-capable token and could reserve the same name
+            # first; overwrite: true makes the trusted upload win anyway. Fails
+            # open: `ready` (the desktop_ready job output) publishes only when
+            # this step succeeded, so installers never start on a missing or
+            # losing upload.
             - name: Upload desktop preview manifest
-              if: steps.desktop.outputs.ready == 'true'
+              if: ${{ !cancelled() && steps.desktop.outputs.emitted == 'true' }}
+              id: desktop-upload
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: hogbox-desktop-preview-manifest
                   path: ${{ runner.temp }}/desktop-preview.json
+                  overwrite: true
                   retention-days: 1
                   compression-level: 0
+
+            - name: Publish desktop readiness
+              id: desktop-ready
+              if: ${{ !cancelled() && always() && steps.desktop.outputs.emitted == 'true' }}
+              run: |
+                  ready=false
+                  if [ "${{ steps.desktop-upload.outcome }}" = "success" ]; then
+                    ready=true
+                  fi
+                  echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
             # Reporting is auxiliary: an API blip must not red a preview that came up.
             - name: Report ready (deployment + comment)
@@ -789,10 +825,37 @@ jobs:
     #
     # A reusable workflow call counts as one run against the dispatch budget;
     # the platform matrices live in desktop-build-installers.yml.
-    desktop-installers:
-        name: '[Optional] build desktop preview installers'
+    #
+    # decide's outputs are a snapshot from run start. When the backend stays up
+    # (the hogbox label or auto-eligibility), retire-desktop's cancellation
+    # cannot reach an in-flight deploy, so without this gate a label removed
+    # during deploy would still trigger the signed matrix on a stale snapshot.
+    desktop-gate:
+        name: '[Optional] gate desktop installers on live labels'
         needs: [decide, deploy]
         if: ${{ !cancelled() && needs.decide.outputs.installers == 'true' && needs.deploy.outputs.desktop_ready == 'true' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            wanted: ${{ steps.labels.outputs.wanted }}
+        steps:
+            # Fails open like every reporter here: a blip yields no installers, not a red check.
+            - name: Re-read PR labels
+              id: labels
+              continue-on-error: true
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR) });
+                      const labels = pr.labels.map(l => l.name);
+                      const wanted = labels.includes('desktop-preview') && !labels.includes('no-preview');
+                      core.info(`live labels: [${labels.join(', ')}] -> wanted=${wanted}`);
+                      core.setOutput('wanted', String(wanted));
+
+    desktop-installers:
+        name: '[Optional] build desktop preview installers'
+        needs: [decide, deploy, desktop-gate]
+        if: ${{ !cancelled() && needs.desktop-gate.outputs.wanted == 'true' }}
         concurrency:
             group: desktop-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
             cancel-in-progress: true
@@ -800,6 +863,7 @@ jobs:
         with:
             build_kind: preview
             desktop_preview_manifest_artifact: hogbox-desktop-preview-manifest
+            desktop_preview_expected_origin: ${{ needs.deploy.outputs.url }}
             pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
             source_sha: ${{ needs.decide.outputs.sha }}
         secrets:
@@ -830,7 +894,10 @@ jobs:
             contents: read
             pull-requests: write
         steps:
+            # Cosmetic, like every other reporter here: an API blip must not
+            # red a preview that came up.
             - name: Post desktop preview status on the PR
+              continue-on-error: true
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               env:
                   SHA: ${{ needs.decide.outputs.sha }}
@@ -855,12 +922,17 @@ jobs:
                       const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pr });
                       const ex = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
                       const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      const previous = ex?.body.match(stateRe);
+                      const prior = previous ? JSON.parse(previous[1]) : null;
+                      const currentResults = [process.env.MACOS, process.env.WINDOWS, process.env.LINUX];
                       let installers = null;
-                      if (process.env.INSTALLERS_REQUESTED === 'true') {
+                      if (process.env.INSTALLERS_REQUESTED === 'true' && currentResults.some(r => r !== 'skipped')) {
+                          // Only real build results replace the stored record: a
+                          // skipped job (failed bring-up) must not destroy the
+                          // download links testers already have.
                           installers = { runUrl, sha: process.env.SHA, macos: process.env.MACOS, windows: process.env.WINDOWS, linux: process.env.LINUX };
-                      } else {
-                          const previous = ex?.body.match(stateRe);
-                          if (previous) installers = JSON.parse(previous[1]);
+                      } else if (prior && prior.macos !== 'skipped') {
+                          installers = prior;
                       }
                       const rows = installers ? [
                           ['macOS (arm64 + x64)', installers.macos],
@@ -908,7 +980,10 @@ jobs:
         permissions:
             pull-requests: write
         steps:
-            - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+            # Cosmetic: an API blip must not red the PR (the stale comment is
+            # the lesser harm).
+            - continue-on-error: true
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
                       const pr = Number(process.env.PR);

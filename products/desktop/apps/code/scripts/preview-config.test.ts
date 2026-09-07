@@ -23,6 +23,7 @@ beforeEach(() => {
   vi.stubEnv("POSTHOG_DESKTOP_PREVIEW_CONFIG", filename);
   vi.stubEnv("POSTHOG_DESKTOP_PREVIEW_PR", "123");
   vi.stubEnv("POSTHOG_DESKTOP_PREVIEW_SHA", manifest.commitSha);
+  vi.stubEnv("POSTHOG_DESKTOP_PREVIEW_EXPECTED_ORIGIN", "https://preview.example.com/");
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -38,6 +39,14 @@ describe("loadPreviewManifest", () => {
     ["POSTHOG_DESKTOP_PREVIEW_SHA", "2".repeat(40)],
   ])("rejects inconsistent %s", (name, value) => {
     vi.stubEnv(name, value);
+    expect(() => loadPreviewManifest()).toThrow();
+  });
+  it("rejects a manifest whose origin the trusted deploy output does not vouch for", () => {
+    vi.stubEnv("POSTHOG_DESKTOP_PREVIEW_EXPECTED_ORIGIN", "https://other-preview.example.com/");
+    expect(() => loadPreviewManifest()).toThrow();
+  });
+  it("refuses a preview build with no trusted origin", () => {
+    vi.stubEnv("POSTHOG_DESKTOP_PREVIEW_EXPECTED_ORIGIN", "");
     expect(() => loadPreviewManifest()).toThrow();
   });
   it("keeps an ordinary build free of preview configuration", () => {
