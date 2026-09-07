@@ -2070,8 +2070,22 @@
             "readOnlyHint": false
         }
     },
+    "conversations-views-create": {
+        "description": "Create a saved ticket view: a named, reusable set of ticket filters. `filters` accepts status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search, and an empty object saves a view over all tickets. Set is_favorited to pin the view to the top of the list for the calling user only. The response includes the short_id needed to open the view or to pass as the `view` parameter of conversations-tickets-list.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Create saved ticket view",
+        "title": "Create saved ticket view",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-views-list": {
-        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of conversations-tickets-list.",
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of conversations-tickets-list. Saved filters are omitted here; read them for a single view with conversations-views-retrieve.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List saved ticket views",
@@ -2082,6 +2096,34 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "conversations-views-retrieve": {
+        "description": "Get a saved ticket view by its short_id, including the full `filters` object that conversations-views-list omits. Read the view here first when editing it, because conversations-views-update replaces `filters` wholesale rather than merging into it.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Get saved ticket view",
+        "title": "Get saved ticket view",
+        "required_scopes": ["ticket:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-views-update": {
+        "description": "Update a saved ticket view by its short_id. Can change the name, the saved `filters`, and is_favorited. Sending `filters` replaces the whole object rather than merging into it, so read the current filters with conversations-views-retrieve first and send them back with your edits applied. Omit `filters` entirely to leave the saved criteria untouched. If a value read back from the view is rejected, convert it to the shape its field describes and send it again. Do not drop the field, because that widens the view for everyone on the team. is_favorited only affects the calling user.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Update saved ticket view",
+        "title": "Update saved ticket view",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "create-feature-flag": {
