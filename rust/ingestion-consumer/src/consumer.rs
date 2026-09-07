@@ -15,13 +15,14 @@ use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
 use crate::commit_manager::{CommitManager, PendingCommits};
+use crate::commit_sentinel::CommitSentinel;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
-use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
+use crate::order_sentinel::{OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity

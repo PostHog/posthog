@@ -16,7 +16,8 @@ use rdkafka::TopicPartitionList;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
+use crate::commit_sentinel::CommitSentinel;
+use crate::order_sentinel::{OffsetSpan, SentinelContext};
 
 /// How often the commit monitor fetches the group's broker-committed offsets.
 const COMMIT_MONITOR_INTERVAL: Duration = Duration::from_secs(30);
