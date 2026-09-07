@@ -76,7 +76,7 @@ return returnEvent
             type: 'string',
             label: 'Properties to remap',
             description:
-                'Comma-separated list of event properties to remap, for example "plan, region". A name on its own also remaps the person properties the event sets. Use a dot path such as "$set.plan" to remap one nested property.',
+                'Comma-separated list of event properties to remap, for example "plan, region". A name on its own also remaps the person properties the event sets. Older SDKs that send the person update beside the event keep the old value there. Use a dot path such as "$set.plan" to remap one nested property.',
             required: true,
         },
         {
