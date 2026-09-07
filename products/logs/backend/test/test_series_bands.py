@@ -27,6 +27,8 @@ WINDOW_START = WINDOW_END - dt.timedelta(days=7)
 BASELINE_START = WINDOW_START - dt.timedelta(weeks=5)
 # A display slot a few days into the window, so its weekly samples spread across it.
 SLOT = WINDOW_START + dt.timedelta(days=3, hours=4)
+# Close enough to a sustained start five days later to share one week-long run.
+NEARBY_STRAY = WINDOW_START - dt.timedelta(weeks=1, days=5)
 # Two days of rows clear the sustained-traffic threshold at every grain on the
 # ladder, so a series' lifetime starts at the first of them.
 ALIVE_HOURS = 48
@@ -123,33 +125,33 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             # A stray row two weeks before the sustained start does not date the lifetime.
-            ("stray_then_sustained", WINDOW_START - dt.timedelta(weeks=3), WINDOW_START - dt.timedelta(weeks=1), 1),
-            # A stray row five days before the sustained start shares one week-long
-            # run with it, and still does not date the lifetime.
+            ("stray_then_sustained", (WINDOW_START - dt.timedelta(weeks=3),), WINDOW_START - dt.timedelta(weeks=1), 1),
+            # A stray row that shares a week-long run with the sustained start does not either.
+            ("nearby_stray", (NEARBY_STRAY,), WINDOW_START - dt.timedelta(weeks=1), 1),
+            # Nor does a pair of stray rows an hour apart, which carries no day of traffic.
             (
-                "nearby_stray_then_sustained",
-                WINDOW_START - dt.timedelta(weeks=1, days=5),
+                "stray_pair",
+                (NEARBY_STRAY, NEARBY_STRAY + dt.timedelta(hours=1)),
                 WINDOW_START - dt.timedelta(weeks=1),
                 1,
             ),
             # Traffic that starts mid-week dates the lifetime at that slot, not a week boundary.
-            ("mid_week_start", None, WINDOW_START - dt.timedelta(days=10, hours=19), 1),
+            ("mid_week_start", (), WINDOW_START - dt.timedelta(days=10, hours=19), 1),
             # No sustained traffic at all dates the lifetime at the window start.
-            ("never_sustained", WINDOW_START - dt.timedelta(weeks=1), None, 0),
+            ("never_sustained", (WINDOW_START - dt.timedelta(weeks=1),), None, 0),
         ]
     )
     def test_learning_series_dates_history_from_sustained_traffic(
         self,
         _name: str,
-        stray_at: dt.datetime | None,
+        strays: tuple[dt.datetime, ...],
         sustained_from: dt.datetime | None,
         baseline_weeks: int,
     ) -> None:
         service = "svc-learning"
         key = ("", "", "info")
         rows = [(self.team.pk, SLOT, service, *key, 12)]
-        if stray_at is not None:
-            rows.append((self.team.pk, stray_at, service, *key, 10))
+        rows += [(self.team.pk, stray, service, *key, 10) for stray in strays]
         if sustained_from is not None:
             rows += self._slots(service, sustained_from, ALIVE_HOURS, 1, key)
         self._insert(rows)
