@@ -112,6 +112,7 @@ class HogQLQueryExecutor:
     direct_values: dict[str, object] | None = None
     direct_dialect: Optional[HogQLDialect] = None
     connection_id: Optional[str] = None
+    schema_name: str | None = None
     send_raw_query: bool = False
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
@@ -136,6 +137,9 @@ class HogQLQueryExecutor:
             )
         elif self.context.user_access_control is None:
             self.context.user_access_control = self.user_access_control
+
+        if self.schema_name is not None:
+            self.context = dataclasses.replace(self.context, schema_name=self.schema_name)
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
@@ -199,7 +203,11 @@ class HogQLQueryExecutor:
                         trigger="executor",
                     )
                 self.select_query = replace_filters(
-                    self.select_query, self.filters, self.team, database=self.context.database
+                    self.select_query,
+                    self.filters,
+                    self.team,
+                    database=self.context.database,
+                    schema_name=self.context.schema_name,
                 )
 
             if finder.placeholder_fields or finder.placeholder_expressions:

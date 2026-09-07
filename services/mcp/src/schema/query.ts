@@ -213,6 +213,12 @@ const TrendsQuerySchema = InsightsQueryBase.extend({
 const HogQLQuerySchema = z.object({
     kind: z.literal('HogQLQuery'),
     query: z.string(),
+    schemaName: z
+        .string()
+        .optional()
+        .describe(
+            "Default schema for unqualified table names. Defaults to posthog, or the selected connection's default schema."
+        ),
     filters: HogQLFilters.optional(),
     connectionId: z
         .string()

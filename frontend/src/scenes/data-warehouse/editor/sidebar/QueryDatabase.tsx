@@ -16,6 +16,8 @@ import {
     IconDatabase,
     IconExternal,
     IconPlusSmall,
+    IconPin,
+    IconPinFilled,
 } from '@posthog/icons'
 import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
@@ -68,7 +70,7 @@ import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
-import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
+import { applySchemaToTree, isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -188,8 +190,10 @@ export const QueryDatabase = ({
         setQueryInput,
         setSourceQuery,
         insertTextAtCursor,
+        setSchemaName,
     } = useActions(sqlEditorLogic)
-    const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
+    const { isEmbeddedMode, sourceQuery, selectedSchemaName, schemaNames, sendRawQueryEnabled } =
+        useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
@@ -385,15 +389,19 @@ export const QueryDatabase = ({
     }, [treeRef, setTreeRef])
 
     const treeData = useMemo(() => {
+        const schemaTreeData = applySchemaToTree(
+            displayedTreeData,
+            sendRawQueryEnabled ? undefined : selectedSchemaName
+        )
         if (!extraTreeSections?.length) {
-            return displayedTreeData
+            return schemaTreeData
         }
         // Filtered here rather than by the caller: the tree swaps in its own filtered data while
         // searching, so an unfiltered section would sit above the results still listing
         // everything — and keeping the search term on this side means an embedder doesn't have to
         // mount this logic just to read it.
-        return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
-    }, [extraTreeSections, displayedTreeData, searchTerm])
+        return [...filterTreeSections(extraTreeSections, searchTerm), ...schemaTreeData]
+    }, [extraTreeSections, displayedTreeData, searchTerm, selectedSchemaName, sendRawQueryEnabled])
 
     const tree = (
         <LemonTree
@@ -553,6 +561,44 @@ export const QueryDatabase = ({
                                     </span>
                                 )}
                                 <TableCertificationIcon certification={certification} />
+                                {item.record?.schemaName && schemaNames.includes(item.record.schemaName) && (
+                                    <Tooltip
+                                        title={
+                                            sendRawQueryEnabled
+                                                ? 'Switch to HogQL to choose a default schema'
+                                                : item.record.schemaName === selectedSchemaName
+                                                  ? 'Default schema for this query'
+                                                  : `Use ${item.record.schemaName} as the default schema`
+                                        }
+                                    >
+                                        <button
+                                            type="button"
+                                            className={cn(
+                                                'flex shrink-0 items-center',
+                                                item.record.schemaName === selectedSchemaName
+                                                    ? 'text-accent'
+                                                    : 'text-muted hover:text-default'
+                                            )}
+                                            aria-label={`Use ${item.record.schemaName} as the default schema`}
+                                            data-attr="sql-editor-pin-schema"
+                                            aria-pressed={
+                                                !sendRawQueryEnabled && item.record.schemaName === selectedSchemaName
+                                            }
+                                            disabled={sendRawQueryEnabled}
+                                            onClick={(event) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                                setSchemaName(item.record?.schemaName)
+                                            }}
+                                        >
+                                            {!sendRawQueryEnabled && item.record.schemaName === selectedSchemaName ? (
+                                                <IconPinFilled />
+                                            ) : (
+                                                <IconPin />
+                                            )}
+                                        </button>
+                                    </Tooltip>
+                                )}
                                 {isColumn && columnType && savedExpression ? (
                                     <Tooltip title={<code className="text-xs">{savedExpression.expression}</code>}>
                                         <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
@@ -720,8 +766,9 @@ export const QueryDatabase = ({
                                         connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
                                     router.actions.push(
                                         urls.sqlEditor({
-                                            query: buildSelectAllQuery(item.name, null),
+                                            query: buildSelectAllQuery(item.record?.queryName ?? item.name, null),
                                             connectionId: nextConnectionId,
+                                            schemaName: selectedSchemaName,
                                         })
                                     )
                                 }}
@@ -770,7 +817,7 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    void copyToClipboard(item.name)
+                                    void copyToClipboard(item.record?.queryName ?? item.name)
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Copy table name</ButtonPrimitive>

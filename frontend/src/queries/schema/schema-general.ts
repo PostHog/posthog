@@ -636,6 +636,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
+    /** Default schema for unqualified table names. Defaults to posthog, or the selected connection's default. */
+    schemaName?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
@@ -924,6 +926,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
+    /** Default schema for unqualified table names. Defaults to posthog, or the selected connection's default. */
+    schemaName?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
@@ -946,6 +950,8 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
+    /** Default schema for unqualified table names. Defaults to posthog, or the selected connection's default. */
+    schemaName?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
     /** Global values in scope */
@@ -6223,6 +6229,8 @@ export type DatabaseSchemaTable =
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
     joins: DataWarehouseViewLink[]
+    /** Schemas containing accessible tables in the selected connection. */
+    schemas?: string[]
 }
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {

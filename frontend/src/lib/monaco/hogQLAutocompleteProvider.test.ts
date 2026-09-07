@@ -1,7 +1,7 @@
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 
 import { performQuery } from '~/queries/query'
-import { HogLanguage } from '~/queries/schema/schema-general'
+import { HogLanguage, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
@@ -15,14 +15,15 @@ describe('hogQLAutocompleteProvider', () => {
     const completeAt = async (
         text: string,
         position: { lineNumber: number; column: number },
-        word: { word: string; startColumn: number; endColumn: number }
+        word: { word: string; startColumn: number; endColumn: number },
+        sourceQuery?: HogQLQuery
     ): Promise<void> => {
         const lineStarts = [0]
         for (const line of text.split('\n')) {
             lineStarts.push(lineStarts[lineStarts.length - 1] + line.length + 1)
         }
         const model = {
-            codeEditorLogic: { isMounted: () => true, props: {} },
+            codeEditorLogic: { isMounted: () => true, props: { sourceQuery } },
             getOffsetAt: ({ lineNumber, column }: { lineNumber: number; column: number }) =>
                 lineStarts[lineNumber - 1] + column - 1,
             getValue: () => text,
@@ -73,7 +74,13 @@ describe('hogQLAutocompleteProvider', () => {
         await completeAt(
             'select 1;\nselect e',
             { lineNumber: 2, column: 9 },
-            { word: 'e', startColumn: 8, endColumn: 9 }
+            { word: 'e', startColumn: 8, endColumn: 9 },
+            {
+                kind: NodeKind.HogQLQuery,
+                query: 'select 1;\nselect e',
+                connectionId: 'connection-1',
+                schemaName: 'public',
+            }
         )
 
         expect(performQuery).toHaveBeenCalledWith(
@@ -81,6 +88,8 @@ describe('hogQLAutocompleteProvider', () => {
                 query: '\nselect e',
                 startPosition: 8,
                 endPosition: 9,
+                connectionId: 'connection-1',
+                schemaName: 'public',
             })
         )
     })

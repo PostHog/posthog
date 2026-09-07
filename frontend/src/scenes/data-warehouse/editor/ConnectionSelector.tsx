@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconPin } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
@@ -25,15 +26,16 @@ const sourceIcon = (src: string): JSX.Element => (
 
 interface ConnectionSelectorProps {
     tabId: string
+    inline?: boolean
 }
 
-export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
+export function ConnectionSelector({ tabId, inline = false }: ConnectionSelectorProps): JSX.Element | null {
     const logic = sqlEditorLogic({ tabId })
-    const { sourceQuery, selectedConnectionId } = useValues(logic)
+    const { sourceQuery, selectedConnectionId, selectedSchemaName, schemaNames, sendRawQueryEnabled } = useValues(logic)
     const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
         useValues(connectionSelectorLogic())
     const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
-    const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+    const { setSourceQuery, syncUrlWithQuery, setSchemaName } = useActions(logic)
 
     useOnMountEffect(() => {
         maybeLoadConnectionOptions()
@@ -52,56 +54,76 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
         }
 
     return (
-        <LemonSelect
-            size="small"
-            fullWidth
-            // min-w-0 lets the flex item shrink past the label's min-content width, and
-            // truncateText ellipsizes the label — a long source name (e.g. "managed_warehouse
-            // (DuckDB)") otherwise wraps and spills out of the narrow database-tree sidebar.
-            className="flex-1 min-w-0"
-            truncateText={{ maxWidthClass: 'max-w-full' }}
-            value={connectionSelectorValue}
-            onChange={(nextValue) => {
-                if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
+        <div className={cn('flex min-w-0', inline ? 'flex-row gap-2' : 'flex-1 flex-col gap-1')}>
+            <LemonSelect
+                size="small"
+                fullWidth={!inline}
+                // Long connection names must fit within the resizable database sidebar.
+                className={cn('min-w-0', inline && 'max-w-48')}
+                truncateText={{ maxWidthClass: 'max-w-full' }}
+                value={connectionSelectorValue}
+                onChange={(nextValue) => {
+                    if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
+                        setSourceQuery({
+                            ...sourceQueryWithoutLegacyConnectionId,
+                            source: {
+                                ...sourceQuery.source,
+                                connectionId: undefined,
+                                schemaName: undefined,
+                                sendRawQuery: undefined,
+                            },
+                        } as typeof sourceQuery)
+                        syncUrlWithQuery()
+                        return
+                    }
+
+                    if (nextValue.startsWith(ADD_DIRECT_CONNECTION_PREFIX)) {
+                        const sourceType = nextValue.slice(ADD_DIRECT_CONNECTION_PREFIX.length)
+                        router.actions.push(urls.dataWarehouseSourceNew(sourceType, undefined, undefined, 'direct'))
+                        return
+                    }
+
+                    if (nextValue === CONFIGURE_SOURCES) {
+                        router.actions.push(urls.sources())
+                        return
+                    }
+
+                    // sqlEditorLogic's selectedConnectionId subscription re-enables raw SQL mode
+                    // for raw-only (supports_hogql=false) connections.
                     setSourceQuery({
                         ...sourceQueryWithoutLegacyConnectionId,
                         source: {
                             ...sourceQuery.source,
-                            connectionId: undefined,
+                            connectionId: nextValue,
+                            schemaName: undefined,
                             sendRawQuery: undefined,
                         },
                     } as typeof sourceQuery)
                     syncUrlWithQuery()
-                    return
-                }
-
-                if (nextValue.startsWith(ADD_DIRECT_CONNECTION_PREFIX)) {
-                    const sourceType = nextValue.slice(ADD_DIRECT_CONNECTION_PREFIX.length)
-                    router.actions.push(urls.dataWarehouseSourceNew(sourceType, undefined, undefined, 'direct'))
-                    return
-                }
-
-                if (nextValue === CONFIGURE_SOURCES) {
-                    router.actions.push(urls.sources())
-                    return
-                }
-
-                // sqlEditorLogic's selectedConnectionId subscription re-enables raw SQL mode
-                // for raw-only (supports_hogql=false) connections.
-                setSourceQuery({
-                    ...sourceQueryWithoutLegacyConnectionId,
-                    source: {
-                        ...sourceQuery.source,
-                        connectionId: nextValue,
-                        sendRawQuery: undefined,
-                    },
-                } as typeof sourceQuery)
-                syncUrlWithQuery()
-            }}
-            options={displayedConnectionSelectOptions.map((group) => ({
-                options: group.options.map(toLemonSelectOption),
-            }))}
-        />
+                }}
+                options={displayedConnectionSelectOptions.map((group) => ({
+                    options: group.options.map(toLemonSelectOption),
+                }))}
+            />
+            <LemonSelect
+                size="small"
+                fullWidth={!inline}
+                className={cn('min-w-0', inline && 'max-w-40')}
+                truncateText={{ maxWidthClass: 'max-w-full' }}
+                icon={<IconPin />}
+                aria-label="Default schema"
+                data-attr="sql-editor-schema-selector"
+                value={sendRawQueryEnabled ? '' : (selectedSchemaName ?? '')}
+                onChange={(schemaName) => setSchemaName(schemaName || undefined)}
+                disabledReason={sendRawQueryEnabled ? 'Switch to HogQL to choose a default schema' : undefined}
+                options={[
+                    ...(selectedConnectionId ? [{ value: '', label: 'Connection default schema' }] : []),
+                    ...Array.from(new Set([...schemaNames, ...(selectedSchemaName ? [selectedSchemaName] : [])])).map(
+                        (schemaName) => ({ value: schemaName, label: schemaName })
+                    ),
+                ]}
+            />
+        </div>
     )
 }
 

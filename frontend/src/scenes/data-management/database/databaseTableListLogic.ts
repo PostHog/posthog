@@ -37,7 +37,7 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
 export type TableFieldsStatus = Record<string, 'loading' | 'loaded' | 'error' | 'missing'>
 
 let inFlightDatabaseLoadKey: string | null = null
-let inFlightDatabaseLoadPromise: Promise<Required<DatabaseSchemaQueryResponse> | null> | null = null
+let inFlightDatabaseLoadPromise: Promise<DatabaseSchemaQueryResponse | null> | null = null
 let inFlightDatabaseLoadIsShallow = false
 
 // Monotonic epoch advanced only when a load issues a fresh request. A newer load (e.g. one
@@ -57,7 +57,7 @@ export interface databaseTableListLogicValues {
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
     dataWarehouseTablesMapById: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
-    database: Required<DatabaseSchemaQueryResponse> | null
+    database: DatabaseSchemaQueryResponse | null
     databaseFieldsComplete: boolean
     databaseLoadError: string | null
     databaseLoading: boolean
@@ -110,13 +110,13 @@ export interface databaseTableListLogicActions {
         errorObject?: any
     }
     loadDatabaseSuccess: (
-        database: Required<DatabaseSchemaQueryResponse> | null,
+        database: DatabaseSchemaQueryResponse | null,
         payload?: {
             force?: boolean
             shallow?: boolean
         }
     ) => {
-        database: Required<DatabaseSchemaQueryResponse> | null
+        database: DatabaseSchemaQueryResponse | null
         payload?: {
             force?: boolean
             shallow?: boolean
@@ -144,10 +144,7 @@ export interface databaseTableListLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allPosthogTables: (allTables: DatabaseSchemaTable[]) => DatabaseSchemaTable[]
         filteredTables: (allTables: DatabaseSchemaTable[], searchTerm: string) => DatabaseSchemaTable[]
-        allTables: (
-            database: Required<DatabaseSchemaQueryResponse> | null,
-            databaseLoading: boolean
-        ) => DatabaseSchemaTable[]
+        allTables: (database: DatabaseSchemaQueryResponse | null, databaseLoading: boolean) => DatabaseSchemaTable[]
         allTablesMap: (allTables: DatabaseSchemaTable[]) => Record<string, DatabaseSchemaTable>
         posthogTables: (allPosthogTables: DatabaseSchemaTable[], connectionId: string | null) => DatabaseSchemaTable[]
         posthogTablesMap: (posthogTables: DatabaseSchemaTable[]) => Record<string, DatabaseSchemaTable>
@@ -213,7 +210,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     }),
     loaders(({ values, actions }) => ({
         database: [
-            null as Required<DatabaseSchemaQueryResponse> | null,
+            null as DatabaseSchemaQueryResponse | null,
             {
                 loadDatabase: async ({
                     force,
@@ -221,7 +218,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 }: {
                     force?: boolean
                     shallow?: boolean
-                } = {}): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
+                } = {}): Promise<DatabaseSchemaQueryResponse | null> => {
                     const requestConnectionId = values.connectionId ?? undefined
                     const requestKey = requestConnectionId ?? '__posthog__'
 
@@ -262,7 +259,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     inFlightDatabaseLoadEpoch = epoch
                     inFlightDatabaseLoadIsShallow = !!shallow
 
-                    let database: Required<DatabaseSchemaQueryResponse> | null = null
+                    let database: DatabaseSchemaQueryResponse | null = null
                     try {
                         database = await request
                     } finally {
@@ -385,10 +382,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         ],
         allTables: [
             (s) => [s.database, s.databaseLoading],
-            (
-                database: Required<DatabaseSchemaQueryResponse> | null,
-                databaseLoading: boolean
-            ): DatabaseSchemaTable[] => {
+            (database: DatabaseSchemaQueryResponse | null, databaseLoading: boolean): DatabaseSchemaTable[] => {
                 if (databaseLoading || !database || !database.tables) {
                     return []
                 }
@@ -409,8 +403,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 if (connectionId) {
                     return []
                 }
-                const visiblePosthogTableNames = new Set(['events', 'groups', 'persons', 'sessions'])
-                return allPosthogTables.filter((table) => visiblePosthogTableNames.has(table.name))
+                return [...allPosthogTables].sort((a, b) => a.name.localeCompare(b.name))
             },
             { resultEqualityCheck: objectsEqual },
         ],

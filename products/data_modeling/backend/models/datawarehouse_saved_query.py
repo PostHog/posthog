@@ -467,6 +467,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
 
+        context.schema_name = query.get("schemaName")
         node = parse_select(query["query"])
         resolved_node = resolve_types(node, context, dialect="clickhouse")
 
@@ -545,6 +546,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             id=str(self.id),
             name=self.name,
             query=query["query"],
+            schema_name=query.get("schemaName"),
             fields=fields,
             # Currently only storing metadata related to the managed viewset, but we can expand this in the future
             # This is basically just a bag of props that can be used by other methods to properly identify this query

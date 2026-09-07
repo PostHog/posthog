@@ -77,20 +77,31 @@ You can mix and match `parse_expr` and `ast` nodes as you please. The example ab
 
 ## Database schema and features
 
-The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
+Explore the available tables and columns in the SQL editor sidebar.
+Popular tables provides shortcuts to `events`, `persons`, `groups`, and `sessions`.
+The `posthog` folder contains the full available PostHog catalog, including tables such as `ai_events` and `metrics`.
+Tables explicitly marked as hidden stay out of the sidebar and autocomplete, and access controls and feature gates still apply.
 
-The most up to date resource is [hogql/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database.py) on Github. At the time of writing, these tables were available:
+`posthog` is the default namespace for built-in tables.
+Choose a default schema using the schema selector or the pin beside a schema in the sidebar.
+The filled pin marks the active schema; new PostHog queries default to `posthog`.
+For example, `SELECT event FROM events` and `SELECT event FROM posthog.events` use the same table, project settings, and joins.
+This also applies to newer tables: both `ai_events` and `posthog.ai_events` work.
+Autocomplete supports both spellings and suggests table names after `posthog.`.
 
-```python
-class Database(BaseModel):
-    # Users can query from the tables below
-    events: EventsTable = EventsTable()
-    persons: PersonsTable = PersonsTable()
-    person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
-    session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
-    cohort_people: CohortPeople = CohortPeople()
-    static_cohort_people: StaticCohortPeople = StaticCohortPeople()
-```
+An unqualified name resolves in the selected schema first, then falls back to root warehouse aliases and saved views.
+With `stripe` selected, use `invoices` for `stripe.invoices` and `posthog.events` for PostHog events.
+Sidebar table labels and copied names include the prefixes needed for the selected schema.
+Autocomplete and query validation use the same schema as execution.
+
+The `schemaName` field on `HogQLQuery`, `HogQLMetadata`, and `HogQLAutocomplete` carries this choice alongside `connectionId`.
+Saved queries and editor URLs preserve the choice. Saved views resolve their contents in their own saved schema.
+Omitting `schemaName` preserves the default `posthog` behavior, or the selected direct connection's default.
+Direct HogQL queries offer schemas from that connection's catalog. Raw SQL uses the connection's native schema settings;
+switch to HogQL to use the schema selector or sidebar pins. HogQL does not support `USE` statements.
+
+The catalog is defined in [hogql/database/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/database.py).
+Register new built-in tables under the `posthog` node so resolution and discovery include them automatically.
 
 Some tables have some fields that are actually "lazy tables". When accessed they will add a join to the table. The events table is such an example:
 

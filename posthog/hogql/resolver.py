@@ -1,4 +1,5 @@
 import string
+import dataclasses
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -1362,7 +1363,9 @@ class Resolver(CloningVisitor):
 
             if database_table is None:
                 try:
-                    database_table = cast(Database, self.database).get_table(table_name_chain)
+                    database_table = cast(Database, self.database).get_table(
+                        table_name_chain, schema_name=self.context.schema_name
+                    )
                 except QueryError:
                     # Direct Postgres/DuckDB sources expose introspected table-valued functions
                     # (range, generate_series, unnest, …) via connection metadata. If the lookup
@@ -1385,9 +1388,13 @@ class Resolver(CloningVisitor):
                     node.table.view_name = database_table.name
 
                 node.alias = table_alias or database_table.name
-                node = self.visit(node)
-
-                self.current_view_depth -= 1
+                caller_context = self.context
+                self.context = dataclasses.replace(self.context, schema_name=database_table.schema_name)
+                try:
+                    node = self.visit(node)
+                finally:
+                    self.context = caller_context
+                    self.current_view_depth -= 1
                 return node
 
             if isinstance(database_table, LazyTable):
@@ -1431,7 +1438,12 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                or (isinstance(database_table, LazyTable) and table_alias != database_table.to_printed_hogql())
+                or (len(table_name_chain) > 1 and table_name_chain[0] == "posthog")
+            ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -2248,6 +2260,14 @@ class Resolver(CloningVisitor):
         node = map_virtual_properties(node)
 
         node = super().visit_field(node)
+        for prefix_length in range(len(node.chain) - 1, 1, -1):
+            prefix = [str(part) for part in node.chain[:prefix_length]]
+            implicit_alias = "__".join(prefix)
+            if implicit_alias in scope.tables and self._get_scope_table_names(scope).get(implicit_alias) == ".".join(
+                prefix
+            ):
+                node.chain = [implicit_alias, *node.chain[prefix_length:]]
+                break
         name = str(node.chain[0])
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.

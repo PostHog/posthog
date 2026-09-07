@@ -556,6 +556,7 @@ class SavedQuery(Table):
     id: str
     query: str
     name: str
+    schema_name: str | None = None
 
     # Currently only storing metadata related to the managed viewset, but we can expand this in the future
     # to store any arbitrary data on this that can then be used to check what a specific saved query is about

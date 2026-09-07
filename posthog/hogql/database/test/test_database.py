@@ -52,6 +52,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     LazyJoin,
     LazyTable,
+    SavedQuery,
     StringDatabaseField,
     Table,
     TableNode,
@@ -64,6 +65,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
@@ -117,6 +119,114 @@ def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
 
 class TestBuildDatabaseRootNode(TestCase):
     # The static catalog build touches no database, so these run on a plain TestCase (no Postgres).
+
+    @parameterized.expand(["events", "ai_events", "persons", "sessions", "metrics", "marketing_costs_precomputed"])
+    def test_default_posthog_namespace(self, table_name: str) -> None:
+        database = Database()
+        assert database.has_table(table_name)
+        assert database.has_table(["posthog", table_name])
+        assert database.get_table(table_name) is database.get_table(f"posthog.{table_name}")
+        assert table_name in database.get_posthog_table_names()
+
+        queries = [f"SELECT * FROM {table_name}", f"SELECT * FROM posthog.{table_name}"]
+        context = HogQLContext(team_id=1, database=database)
+        for query in queries:
+            resolved = resolve_types(parse_select(query), context, dialect="hogql")
+            assert isinstance(resolved, ast.SelectQuery)
+            assert resolved.select_from is not None
+            assert isinstance(resolved.select_from.type, ast.BaseTableType)
+            assert resolved.select_from.type.resolve_database_table(context) is database.get_table(table_name)
+
+    def test_default_namespace_does_not_leak_into_direct_connections(self) -> None:
+        database = Database(include_posthog_tables=False)
+        assert not database.has_table("events")
+        assert not database.has_table("posthog.events")
+        assert database.get_posthog_table_names() == []
+
+    def test_catalog_respects_hidden_and_removed_tables(self) -> None:
+        database = Database()
+        database.tables.children["posthog"].children.pop("billing_usage_records")
+        names = database.get_posthog_table_names()
+        assert "ai_events" in names
+        assert "metrics" in names
+        assert "error_tracking_recent_issue_state" not in names
+        assert "error_tracking_recent_issue_state" in database.get_posthog_table_names(include_hidden=True)
+        assert "billing_usage_records" not in database.get_posthog_table_names(include_hidden=True)
+        assert not database.has_table("billing_usage_records")
+
+    def test_default_namespace_precedes_warehouse_tables(self) -> None:
+        database = Database()
+        warehouse_table = Table(name="ai_events", fields={"warehouse_id": StringDatabaseField(name="warehouse_id")})
+        database._add_warehouse_tables(
+            TableNode(children={"ai_events": TableNode(name="ai_events", table=warehouse_table)})
+        )
+        assert "event" in database.get_table("ai_events").fields
+        assert "warehouse_id" not in database.get_table("ai_events").fields
+
+    def test_selected_schema_resolves_tables_without_changing_other_queries(self) -> None:
+        database = Database()
+        warehouse_events = Table(name="stripe.events", fields={"invoice_id": StringDatabaseField(name="invoice_id")})
+        database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "stripe": TableNode(
+                        name="stripe", children={"events": TableNode(name="events", table=warehouse_events)}
+                    )
+                }
+            )
+        )
+        context = HogQLContext(team_id=1, database=database, schema_name="stripe")
+        for query, expected in [
+            ("SELECT invoice_id FROM events", warehouse_events),
+            ("SELECT invoice_id FROM stripe.events", warehouse_events),
+            ("SELECT event FROM posthog.events", database.get_table("events")),
+        ]:
+            resolved = resolve_types(parse_select(query), context, dialect="hogql")
+            assert isinstance(resolved, ast.SelectQuery)
+            assert resolved.select_from is not None
+            assert isinstance(resolved.select_from.type, ast.BaseTableType)
+            assert resolved.select_from.type.resolve_database_table(context) is expected
+        resolve_types(
+            parse_select("WITH events AS (SELECT 1 AS value) SELECT value FROM events"), context, dialect="hogql"
+        )
+        with pytest.raises(QueryError, match="Unknown table `stripe.persons`"):
+            resolve_types(parse_select("SELECT * FROM persons"), context, dialect="hogql")
+        with pytest.raises(QueryError, match="Unknown schema `missing`"):
+            database.get_table("events", schema_name="missing")
+        assert database.get_table("events") is database.get_table("posthog.events")
+        assert {"posthog", "stripe"} <= set(database.get_schema_names())
+
+    def test_saved_views_resolve_in_their_own_schema(self) -> None:
+        database = Database()
+        invoices = Table(name="stripe.invoices", fields={"invoice_id": StringDatabaseField(name="invoice_id")})
+        database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "stripe": TableNode(
+                        name="stripe", children={"invoices": TableNode(name="invoices", table=invoices)}
+                    ),
+                    "invoice_view": TableNode(
+                        name="invoice_view",
+                        table=SavedQuery(
+                            id="view-1",
+                            name="invoice_view",
+                            fields={},
+                            query="SELECT invoice_id FROM invoices",
+                            schema_name="stripe",
+                        ),
+                    ),
+                    "event_view": TableNode(
+                        name="event_view",
+                        table=SavedQuery(id="view-2", name="event_view", fields={}, query="SELECT event FROM events"),
+                    ),
+                }
+            )
+        )
+        for schema_name in [None, "posthog", "stripe"]:
+            context = HogQLContext(team_id=1, database=database, schema_name=schema_name)
+            resolve_types(parse_select("SELECT invoice_id FROM invoice_view"), context, dialect="hogql")
+            resolve_types(parse_select("SELECT event FROM event_view"), context, dialect="hogql")
+            assert context.schema_name == schema_name
 
     @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
     def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):
@@ -396,7 +506,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 ]
 
                 execute_hogql_query(
-                    f"SELECT {','.join(columns)} FROM {table_name}",
+                    f"SELECT {','.join(columns)} FROM {table_name}"
+                    + (
+                        " WHERE model_name = 'text-embedding-3-large-3072'"
+                        if table_name == "document_embeddings"
+                        else ""
+                    )
+                    + " LIMIT 0",
                     team=self.team,
                     pretty=False,
                 )
@@ -442,6 +558,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert shallow_table.model_dump(exclude={"fields"}) == full[table_name].model_dump(exclude={"fields"}), (
                 table_name
             )
+
+    def test_serialize_default_namespace_takes_precedence_over_warehouse_tables_and_views(self) -> None:
+        credential = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="ai_events",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://example.com/warehouse/*.parquet",
+            columns={"warehouse_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="metrics",
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            columns={"event": "String"},
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        for name, field in (("ai_events", "event"), ("metrics", "metric_name")):
+            assert database.get_table(name) is database.get_table(f"posthog.{name}")
+            assert isinstance(serialized[name], DatabaseSchemaPostHogTable)
+            assert field in serialized[name].fields
 
     def test_serialize_database_include_only_returns_same_fields_as_full_serialization(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -4270,6 +4413,18 @@ class TestCreateForPosthogTables(BaseTest):
             database = Database.create_for_posthog_tables(self.team, modifiers=modifiers)
 
         assert isinstance(database.get_table("raw_sessions"), RawSessionsTableV2)
+        assert isinstance(database.get_table("posthog.raw_sessions"), RawSessionsTableV2)
+        for name in ("events", "persons", "sessions"):
+            assert database.get_table(name) is database.get_table(f"posthog.{name}")
+            sql = [
+                prepare_and_print_ast(
+                    parse_select(f"SELECT t.* FROM {prefix}{name} AS t"),
+                    HogQLContext(team_id=self.team.pk, team=self.team, database=database, enable_select_queries=True),
+                    dialect="clickhouse",
+                )[0]
+                for prefix in ("", "posthog.")
+            ]
+            assert sql[0] == sql[1]
         assert "events" in database.get_posthog_table_names()
         assert database.get_warehouse_table_names() == []
 

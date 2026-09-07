@@ -69,7 +69,7 @@ export const DatabaseTree = memo(function DatabaseTree({
                     <ButtonPrimitive
                         onClick={toggleDatabaseTreeCollapsed}
                         tooltip="Collapse panel"
-                        className="shrink-0 z-50 h-[32px]"
+                        className="shrink-0 self-start z-50 h-[32px]"
                         iconOnly
                     >
                         <IconSidebarClose className="size-4 text-tertiary rotate-180" />

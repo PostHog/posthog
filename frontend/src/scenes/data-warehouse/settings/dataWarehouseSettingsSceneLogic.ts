@@ -38,7 +38,7 @@ export interface dataWarehouseSettingsSceneLogicValues {
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
-    database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
+    database: DatabaseSchemaQueryResponse | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     externalDataSourceTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
@@ -131,7 +131,7 @@ export interface dataWarehouseSettingsSceneLogicActions {
         errorObject?: any
     } // databaseTableListLogic
     loadDatabaseSuccess: (
-        database: Required<DatabaseSchemaQueryResponse> | null,
+        database: DatabaseSchemaQueryResponse | null,
         payload?:
             | {
                   force?: boolean
@@ -139,7 +139,7 @@ export interface dataWarehouseSettingsSceneLogicActions {
               }
             | undefined
     ) => {
-        database: Required<DatabaseSchemaQueryResponse> | null
+        database: DatabaseSchemaQueryResponse | null
         payload?: {
             force?: boolean
             shallow?: boolean
@@ -149,7 +149,7 @@ export interface dataWarehouseSettingsSceneLogicActions {
         value: true
     } // databaseTableListLogic
     cancelEditSchema: () => {
-        database: Required<DatabaseSchemaQueryResponse> | null
+        database: DatabaseSchemaQueryResponse | null
     }
     deleteDataWarehouseTable: (tableId: string) => {
         tableId: string

@@ -195,7 +195,7 @@ def process_database_schema_query(
         serialized_tables = database.serialize(
             context,
             include_only=set(query.tables) if query.tables else None,
-            include_hidden_posthog_tables=True,
+            include_hidden_posthog_tables=False,
             include_fields=query.includeFields is not False,
         )
     except (APIException, ExposedHogQLError, ResolutionError, UserAccessControlError):
@@ -230,7 +230,7 @@ def process_database_schema_query(
             )
         )
 
-    return DatabaseSchemaQueryResponse(tables=serialized_tables, joins=join_models)
+    return DatabaseSchemaQueryResponse(tables=serialized_tables, joins=join_models, schemas=database.get_schema_names())
 
 
 @overload

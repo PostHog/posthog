@@ -12,6 +12,7 @@ import {
     IconPlug,
     IconPlus,
     IconRefresh,
+    IconStar,
     IconWarning,
 } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
@@ -218,6 +219,8 @@ export const getSidebarPropertyDefinitionTarget = (
     if (field.type !== 'json') {
         return null
     }
+
+    tableName = tableName.replace(/^posthog\./, '')
 
     const pathSegments = columnPath.split('.')
     const fieldName = pathSegments.at(-1)
@@ -1452,6 +1455,27 @@ const createEndpointNode = (
     }
 }
 
+export const getTableQueryName = (tableName: string, tableType: string | undefined, schemaName?: string): string => {
+    const qualifiedName = tableType === 'posthog' && !tableName.includes('.') ? `posthog.${tableName}` : tableName
+    const prefix = schemaName ? `${schemaName}.` : ''
+    return prefix && qualifiedName.startsWith(prefix) ? qualifiedName.slice(prefix.length) : qualifiedName
+}
+
+export const applySchemaToTree = (items: TreeDataItem[], schemaName?: string): TreeDataItem[] =>
+    items.map((item) => ({
+        ...item,
+        ...(item.record?.type === 'table'
+            ? {
+                  displayName: getTableQueryName(item.name, item.record.table?.type, schemaName),
+                  record: {
+                      ...item.record,
+                      queryName: getTableQueryName(item.name, item.record.table?.type, schemaName),
+                  },
+              }
+            : {}),
+        ...(item.children ? { children: applySchemaToTree(item.children, schemaName) } : {}),
+    }))
+
 const createSourceFolderNode = (
     sourceType: string,
     tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable)[],
@@ -1479,6 +1503,31 @@ const createSourceFolderNode = (
     // Distinct ExternalDataSources behind this type folder, so it can link each to its edit page.
     // A type can have several sources (e.g. two Postgres connections), distinguished by prefix.
     const sourceTables = isSearch ? matches.map(([table]) => table) : tables
+    const schemaNames = new Set<string>(
+        sourceTables.map((table) => {
+            const name = getTableQueryName(table.name, table.type)
+            return name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : ''
+        })
+    )
+    const schemaName = schemaNames.size === 1 ? [...schemaNames][0] : undefined
+    const schemaChildren =
+        schemaNames.size > 1
+            ? [...schemaNames].sort().map((name) => ({
+                  id: `${sourceFolderId}-schema-${name || 'ungrouped'}`,
+                  name: name || 'Tables',
+                  type: 'node' as const,
+                  icon: <IconFolder />,
+                  record: { type: 'source-folder', schemaName: name || undefined },
+                  children: sourceChildren.filter((child) => {
+                      const qualifiedName = getTableQueryName(child.name, child.record?.table?.type)
+                      return (
+                          (qualifiedName.includes('.')
+                              ? qualifiedName.slice(0, qualifiedName.lastIndexOf('.'))
+                              : '') === name
+                      )
+                  }),
+              }))
+            : sourceChildren
     const sources: { id: string; label: string }[] = []
     const seenSourceIds = new Set<string>()
     sourceTables.forEach((table) => {
@@ -1493,7 +1542,7 @@ const createSourceFolderNode = (
 
     return {
         id: sourceFolderId,
-        name: sourceType,
+        name: schemaName || (sourceType === 'PostHog' ? 'posthog' : sourceType),
         type: 'node',
         icon: (
             <SourceIcon
@@ -1514,8 +1563,43 @@ const createSourceFolderNode = (
             type: 'source-folder',
             sourceType,
             sources,
+            schemaName,
         },
-        children: sourceChildren,
+        children: schemaChildren,
+    }
+}
+
+const createPopularTablesNode = (
+    tables: DatabaseSchemaTable[],
+    tableLookup: TableLookup,
+    options: FieldTraversalOptions
+): TreeDataItem => {
+    const popularNames = ['events', 'persons', 'groups', 'sessions']
+    const popularTables = popularNames.flatMap((name) => tables.filter((table) => table.name === name))
+    // Both copies share hydration and property data, but expansion belongs to each tree location.
+    const prefixNodeIds = (node: TreeDataItem): TreeDataItem => ({
+        ...node,
+        id: `popular-${node.id}`,
+        children: node.children?.map(prefixNodeIds),
+    })
+    return {
+        id: 'popular-tables',
+        name: 'Popular tables',
+        icon: <IconStar />,
+        type: 'node',
+        record: { type: 'popular-tables' },
+        children: popularTables.map((table) =>
+            prefixNodeIds(
+                createTableNode(table, null, false, tableLookup, {
+                    ...options,
+                    expandedLazyNodeIds: new Set(
+                        [...(options.expandedLazyNodeIds ?? [])]
+                            .filter((id) => id.startsWith('popular-'))
+                            .map((id) => id.slice('popular-'.length))
+                    ),
+                })
+            )
+        ),
     }
 }
 
@@ -1602,7 +1686,7 @@ const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[])
 const getDirectConnectionSchemaName = (tableNode: TreeDataItem, defaultSchemaName?: string | null): string | null => {
     const tableName =
         tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
+    const dotIndex = tableName.lastIndexOf('.')
 
     if (dotIndex > 0) {
         return tableName.slice(0, dotIndex)
@@ -1618,7 +1702,7 @@ const getDirectConnectionSchemaName = (tableNode: TreeDataItem, defaultSchemaNam
 const getDirectConnectionDisplayTableName = (tableNode: TreeDataItem): string => {
     const tableName =
         tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
+    const dotIndex = tableName.lastIndexOf('.')
 
     return dotIndex > 0 ? tableName.slice(dotIndex + 1) : tableName
 }
@@ -1647,7 +1731,7 @@ export const groupDirectConnectionTableNodesBySchema = (
         tablesBySchema.set(schemaName, currentNodes)
     })
 
-    const schemaFolders = Array.from(tablesBySchema.entries())
+    const schemaFolders: TreeDataItem[] = Array.from(tablesBySchema.entries())
         .sort(([leftSchema], [rightSchema]) => leftSchema.localeCompare(rightSchema))
         .map(([schemaName, schemaTables]) => ({
             id: `${isSearch ? 'search-' : ''}schema-${schemaName}`,
@@ -1657,6 +1741,7 @@ export const groupDirectConnectionTableNodesBySchema = (
             record: {
                 type: 'source-folder',
                 sourceType: schemaName,
+                schemaName,
             },
             children: [...schemaTables].sort((leftTable, rightTable) => leftTable.name.localeCompare(rightTable.name)),
         }))
@@ -1699,7 +1784,7 @@ const getExpandedFoldersConnectionKey = (connectionId: string | null): string =>
 
 export const getInitialExpandedFolders = (connectionId: string | null, displayedTreeData: TreeDataItem[]): string[] => {
     if (!shouldUseDirectConnectionTree(connectionId)) {
-        return [...DEFAULT_EXPANDED_FOLDERS]
+        return [...DEFAULT_EXPANDED_FOLDERS, 'popular-tables']
     }
 
     const schemaFolderIds = displayedTreeData
@@ -2764,7 +2849,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     listeners(({ actions, values }) => {
         const revealLocatedTable = (tableName: string): void => {
             actions.clearSearch()
-            const path = findDataSourceTreePath(values.displayedTreeData, tableName)
+            const resolvedName = shouldUseDirectConnectionTree(values.connectionId)
+                ? tableName
+                : tableName.replace(/^posthog\./, '')
+            const path = findDataSourceTreePath(values.displayedTreeData, resolvedName)
             if (!path) {
                 return
             }
@@ -3362,6 +3450,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add PostHog tables
                     if (posthogTables.length > 0) {
+                        const popularTablesNode = createPopularTablesNode(posthogTables, tableLookup, tableNodeOptions)
+                        if (popularTablesNode.children?.length) {
+                            sourcesChildren.push(popularTablesNode)
+                        }
                         sourcesChildren.push(
                             createSourceFolderNode('PostHog', posthogTables, [], false, tableLookup, tableNodeOptions)
                         )
@@ -3606,7 +3698,16 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         const sourceChildren = item.children ?? []
                         sourceChildren.forEach((sourceChild) => {
                             if (sourceChild.record?.type === 'source-folder') {
-                                flattenedTables.push(...(sourceChild.children ?? []))
+                                const collectTables = (children: TreeDataItem[]): void => {
+                                    children.forEach((child) => {
+                                        if (child.record?.type === 'source-folder') {
+                                            collectTables(child.children ?? [])
+                                        } else {
+                                            flattenedTables.push(child)
+                                        }
+                                    })
+                                }
+                                collectTables(sourceChild.children ?? [])
                                 return
                             }
 
@@ -3671,7 +3772,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 return Object.prototype.hasOwnProperty.call(expandedFoldersByConnection, key)
                     ? expandedFoldersByConnection[key]
-                    : [...DEFAULT_EXPANDED_FOLDERS]
+                    : getInitialExpandedFolders(connectionId, [])
             },
         ],
         defaultExpandedRootIds: [

@@ -179,30 +179,21 @@ class TestModelPath(BaseTest):
         self.assertIn(["events", saved_query.id.hex], paths)
         self.assertIn(["persons", saved_query.id.hex], paths)
 
-    def test_update_paths_for_posthog_namespaced_table_query(self):
-        """`posthog.*`-namespaced tables (e.g. ai_events) must resolve as valid model-path parents on
-        the UPDATE path too. `update_paths_from_query` keys off `get_posthog_table_names()`, which omits
-        namespaced tables — so re-saving/re-materializing a view over `posthog.ai_events` raised
-        UnknownParentError until the hidden table names were unioned in. (The create path already
-        resolves them via `get_table()`.)"""
-        query = "SELECT trace_id FROM posthog.ai_events"
+    @parameterized.expand(["ai_events", "posthog.ai_events"])
+    def test_update_paths_for_posthog_namespaced_table_query(self, table_name: str) -> None:
+        query = f"SELECT trace_id FROM {table_name}"
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="my_model",
             query={"query": query},
         )
 
-        # Create path seeds the initial paths (it resolves namespaced tables via get_table()).
         DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
-
-        # Update path is hit whenever an existing view is re-saved or re-materialized.
         DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
 
-        # `posthog.ai_events` is stored as two ltree labels (LabelTreeField splits on "."), exactly
-        # as the create path stores it — the update path must converge on the same single path.
         paths = [mp.path for mp in DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query)]
         self.assertEqual(len(paths), 1)
-        self.assertIn(["posthog", "ai_events", saved_query.id.hex], paths)
+        self.assertIn([*table_name.split("."), saved_query.id.hex], paths)
 
     def test_create_from_warehouse_table_old_notation_nodes_query(self):
         """Test creation of a model path from a query that reads from a managed source using old notation."""
@@ -227,21 +218,24 @@ class TestModelPath(BaseTest):
         self.assertEqual(len(paths), 1)
         self.assertIn([table.id.hex, saved_query.id.hex], paths)
 
-    def test_create_from_warehouse_table_new_notation_nodes_query(self):
+    @parameterized.expand([("qualified", "stripe.invoice", None), ("selected_schema", "invoice", "stripe")])
+    def test_create_from_warehouse_table_new_notation_nodes_query(
+        self, _name: str, table_name: str, schema_name: str | None
+    ) -> None:
         """Test creation of a model path from a query that reads from a managed source using new notation."""
 
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
         table = DataWarehouseTable.objects.create(team=self.team, name="stripe_invoice", external_data_source=source)
         ExternalDataSchema.objects.create(team=self.team, name="Invoice", source=source, table=table)
 
-        query = """\
+        query = f"""\
           select *
-          from stripe.invoice
+          from {table_name}
         """
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="my_model",
-            query={"query": query},
+            query={"query": query, "schemaName": schema_name},
         )
 
         model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
@@ -249,6 +243,11 @@ class TestModelPath(BaseTest):
 
         self.assertEqual(len(paths), 1)
         self.assertIn([table.id.hex, saved_query.id.hex], paths)
+
+        DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
+        assert get_parents_from_model_query(self.team, saved_query.name, query, schema_name=schema_name) == {
+            "stripe.invoice"
+        }
 
     def test_create_from_table_functions_root_nodes_query(self):
         """Table functions like numbers() are not real parents — they produce root nodes."""

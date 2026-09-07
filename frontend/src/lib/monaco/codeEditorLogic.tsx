@@ -187,6 +187,10 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 sourceQuery,
                                 variables,
                                 connectionId,
+                                schemaName:
+                                    props.sourceQuery?.kind === NodeKind.HogQLQuery
+                                        ? props.sourceQuery.schemaName
+                                        : undefined,
                                 indexUsage: props.indexUsage,
                             },
                             { recursion: false }
@@ -297,7 +301,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             props.metadataQueryOffset !== oldProps.metadataQueryOffset ||
             props.language !== oldProps.language ||
             props.editor !== oldProps.editor ||
-            nextConnectionId !== previousConnectionId
+            nextConnectionId !== previousConnectionId ||
+            (props.sourceQuery?.kind === NodeKind.HogQLQuery ? props.sourceQuery.schemaName : undefined) !==
+                (oldProps.sourceQuery?.kind === NodeKind.HogQLQuery ? oldProps.sourceQuery.schemaName : undefined)
         ) {
             actions.reloadMetadata()
         }

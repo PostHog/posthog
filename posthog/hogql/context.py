@@ -66,6 +66,7 @@ class HogQLContext:
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
+    schema_name: str | None = None
     # Metadata discovered for a direct Postgres connection, if one is selected
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # Query-scoped mappings preserve resolved logical tables through Trino lowering.

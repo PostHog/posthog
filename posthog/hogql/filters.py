@@ -63,10 +63,17 @@ class CompareOperationWrapper:
     skip: bool = False
 
 
-def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, database: Optional[Database] = None) -> T:
+def replace_filters(
+    node: T,
+    filters: Optional[HogQLFilters],
+    team: Team,
+    database: Optional[Database] = None,
+    *,
+    schema_name: str | None = None,
+) -> T:
     if database is None:
         database = Database.create_for(team=team)
-    return ReplaceFilters(filters, team, database).visit(node)
+    return ReplaceFilters(filters, team, database, schema_name=schema_name).visit(node)
 
 
 class ReplaceFilters(CloningVisitor):
@@ -75,11 +82,13 @@ class ReplaceFilters(CloningVisitor):
         filters: Optional[HogQLFilters],
         team: Team = DEFAULT_TEAM,
         database: Optional[Database] = None,
+        schema_name: str | None = None,
     ):
         super().__init__()
         self.filters = filters
         self.team = team
         self.database = database
+        self.schema_name = schema_name
         self.selects: list[ast.SelectQuery] = []
         self.compare_operations: list[CompareOperationWrapper] = []
         self._now: Optional[datetime] = None
@@ -199,7 +208,7 @@ class ReplaceFilters(CloningVisitor):
         if self.database is None:
             return None
         try:
-            return self.database.get_table([str(c) for c in chain])
+            return self.database.get_table([str(c) for c in chain], schema_name=self.schema_name)
         except Exception:
             return None
 

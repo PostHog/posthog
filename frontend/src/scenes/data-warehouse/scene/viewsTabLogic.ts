@@ -29,7 +29,7 @@ export const PAGE_SIZE = 10
 export interface viewsTabLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
-    database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
+    database: DatabaseSchemaQueryResponse | null // databaseTableListLogic
     viewsMapById: Record<string, DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable> // databaseTableListLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     accessControlModalOpen: boolean

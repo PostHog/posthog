@@ -91,6 +91,7 @@ def get_hogql_metadata(
             team_id=team.pk,
             user=user,
             database=database,
+            schema_name=query.schemaName,
             modifiers=query_modifiers,
             enable_select_queries=True,
             # A resolved direct-connection source prints with its engine dialect (below), so the
@@ -119,7 +120,9 @@ def get_hogql_metadata(
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
-                    hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
+                    hogql_ast = replace_filters(
+                        hogql_ast, query.filters, team, database=database, schema_name=query.schemaName
+                    )
                 if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = replace_variables(
                         hogql_ast, list(query.variables.values()) if query.variables else [], team
