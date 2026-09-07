@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -9,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
+import { BillingLimitOtherOrganizationsNote } from './BillingLimitOtherOrganizationsNote'
 import { billingLogic } from './billingLogic'
 import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
@@ -43,6 +45,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                 data-attr={`billing-limit-input-wrapper-${product.type}`}
             >
                 <h4>Billing limit</h4>
+                <BillingLimitOtherOrganizationsNote />
                 <div className="flex flex-col xl:flex-row w-full items-stretch xl:items-center justify-start xl:justify-between gap-2">
                     <div className="flex items-center gap-1">
                         {!isEditingBillingLimit ? (
@@ -81,9 +84,13 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                     </>
                                 ) : (
                                     <>
-                                        <span className="text-sm" data-attr={`billing-limit-not-set-${product.type}`}>
+                                        <span
+                                            className="text-sm flex items-center gap-1"
+                                            data-attr={`billing-limit-not-set-${product.type}`}
+                                        >
+                                            <IconWarning className="text-warning shrink-0" />
                                             You do not have a billing limit set for {billingProductDisplayName(product)}
-                                            .
+                                            . Spend in this organization is uncapped.
                                         </span>
                                         <LemonButton
                                             onClick={() => setIsEditingBillingLimit(true)}
