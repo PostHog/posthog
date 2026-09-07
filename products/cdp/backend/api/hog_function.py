@@ -645,7 +645,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             (template.inputs_schema, template.mapping_templates) if template else (None, None),
         ):
             data["inputs_schema"] = _with_integration_metadata(data["inputs_schema"], schema_reference)
-            data["mappings"] = _mappings_with_integration_metadata(data.get("mappings"), mappings_reference)
+            # Only when the caller sent mappings: writing the key back on a payload that left it out
+            # makes a metadata-only PATCH an explicit "clear the mappings".
+            if "mappings" in data:
+                data["mappings"] = _mappings_with_integration_metadata(data["mappings"], mappings_reference)
 
         return super().to_internal_value(data)
 

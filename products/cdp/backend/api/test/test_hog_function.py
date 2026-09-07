@@ -1996,6 +1996,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mapping_schema = response.json()["mappings"][0]["inputs_schema"][0]
         assert not [key for key in integration_keys if key in mapping_schema]
 
+    def test_update_that_sends_no_mappings_keeps_the_stored_ones(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Destination with a mapping",
+                "hog": "print(inputs.message)",
+                "type": "destination",
+                "mappings": [
+                    {
+                        "name": "Pageview",
+                        "inputs_schema": [{"key": "message", "type": "string", "label": "Message"}],
+                        "inputs": {"message": {"value": "Hello"}},
+                    }
+                ],
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/", data={"name": "Renamed"}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["mappings"][0]["name"] == "Pageview"
+
     def test_create_from_template_keeps_mapping_integration_metadata_a_caller_leaves_out(self):
         HogFunctionTemplate.objects.create(
             template_id="template-ads",
