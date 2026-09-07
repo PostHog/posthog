@@ -53,7 +53,7 @@ The agent inside the sandbox gets:
 
 ## Message presentation
 
-The shared message template in `products/posthog_ai/frontend` displays human prompts in right-aligned bubbles with an accent-colored border and fill and a `User` label.
+The shared message template in `products/posthog_ai/frontend` displays human prompts in right-aligned bubbles with a neutral fill and no visible border or sender label.
 Human bubbles occupy at most 80% of the available width so long prompts remain visibly offset from assistant replies.
 Assistant prose appears on the left in neutral filled, bordered bubbles. Thoughts and tool calls keep their own activity renderers.
 
