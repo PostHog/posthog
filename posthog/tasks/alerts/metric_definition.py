@@ -1,9 +1,9 @@
 """Plain-English rendering of the alerted insight's query definition.
 
-Without this the investigation agent only sees the insight's *name* plus the
-numbers, so a series called "Error tracking active users" reads as a count of
+Without this a model only sees the insight's *name* plus the numbers, so a series
+called "Error tracking active users" reads as a count of
 people hitting errors even when it is a `$pageview` DAU series filtered to a set
-of app URLs — and the agent then reaches for an outage to explain an engagement
+of app URLs, and the model then reaches for an outage to explain an engagement
 change. Naming the event, aggregation, and filters the alerted series is built
 from keeps every hypothesis tied to what the number actually measures.
 
@@ -98,7 +98,7 @@ def describe_metric_definition(query: Any, *, series_index: int = 0) -> str:
     try:
         described = _describe(query, series_index)
     except Exception:
-        logger.warning("anomaly_investigation.metric_definition_failed", exc_info=True)
+        logger.warning("alerts.metric_definition_failed", exc_info=True)
         return UNAVAILABLE
     return described[:MAX_DEFINITION_CHARS]
 

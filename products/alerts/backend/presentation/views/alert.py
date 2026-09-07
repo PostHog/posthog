@@ -20,6 +20,7 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     DetectorConfig,
+    DetectorType,
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
@@ -74,6 +75,11 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_threshold_change,
     apply_unsnooze,
 )
+from products.alerts.backend.llm_detector_limits import (
+    LLM_DETECTOR_FLAG,
+    count_enabled_llm_alerts,
+    max_llm_alerts_per_team,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
@@ -125,6 +131,93 @@ def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
             groups={"organization": str(org.id)},
         )
     )
+
+
+MAX_DETECTOR_INSTRUCTIONS_CHARS = 2000
+
+
+def _detector_types(detector_config: dict[str, Any] | None) -> set[str]:
+    """Every detector type named in a config, flattening an ensemble's sub-detectors."""
+    if not detector_config:
+        return set()
+    types = {detector_config.get("type")}
+    for sub in detector_config.get("detectors") or []:
+        if isinstance(sub, dict):
+            types.add(sub.get("type"))
+    return {detector_type for detector_type in types if detector_type}
+
+
+def _enforce_llm_detector_rules(context: dict[str, Any], detector_config: dict[str, Any] | None) -> None:
+    """Gate and constrain the AI detector, shared by create/update and simulate.
+
+    Runs on the raw config before schema validation, so each rule can explain itself
+    instead of collapsing into the generic "Invalid detector configuration."
+    """
+    if not detector_config or DetectorType.LLM.value not in _detector_types(detector_config):
+        return
+
+    if not _insight_alert_flag_enabled(context, LLM_DETECTOR_FLAG):
+        raise ValidationError("The AI detector is not enabled for your account.")
+
+    if detector_config.get("type") != DetectorType.LLM.value:
+        # Every check of an ensemble scores every sub-detector, so one AI sub-detector
+        # makes a model call on every check of that alert. Worth having, but not before
+        # there is a budget model for it.
+        raise ValidationError("The AI detector cannot be combined with other detectors yet.")
+
+    if detector_config.get("preprocessing"):
+        raise ValidationError(
+            "The AI detector reads the series as it is, so it cannot use preprocessing. "
+            "Differencing or smoothing would hide the shape it is meant to judge."
+        )
+
+    instructions = detector_config.get("instructions")
+    if instructions is not None:
+        if not isinstance(instructions, str):
+            raise ValidationError("Instructions for the AI detector must be text.")
+        if len(instructions.strip()) > MAX_DETECTOR_INSTRUCTIONS_CHARS:
+            raise ValidationError(
+                f"Instructions for the AI detector must be {MAX_DETECTOR_INSTRUCTIONS_CHARS} characters or fewer."
+            )
+
+
+def _normalize_llm_detector_config(detector_config: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Store the author's instructions stripped, and drop them when they are only whitespace."""
+    if not detector_config or detector_config.get("type") != DetectorType.LLM.value:
+        return detector_config
+    instructions = detector_config.get("instructions")
+    if not isinstance(instructions, str):
+        return detector_config
+    stripped = instructions.strip()
+    return {**detector_config, "instructions": stripped or None}
+
+
+def _enforce_llm_alert_limit(
+    context: dict[str, Any],
+    *,
+    detector_config: dict[str, Any] | None,
+    enabled: bool,
+    instance_id: str | None,
+) -> None:
+    """Cap how many enabled AI-detector alerts one team can have.
+
+    Every check of one costs a model call, so the count is the cost ceiling. A disabled
+    alert never runs, so only enabled ones count. The alert being edited is left out of its
+    own count, so saving an unrelated change at the cap still works.
+    """
+    if not enabled or (detector_config or {}).get("type") != DetectorType.LLM.value:
+        return
+    cap = max_llm_alerts_per_team()
+    existing = count_enabled_llm_alerts(team_id=context["team_id"], exclude_alert_id=instance_id)
+    if existing >= cap:
+        raise ValidationError(
+            {
+                "detector_config": [
+                    f"This project already has {existing} of {cap} alerts using the AI detector. "
+                    "Turn one off, or ask us to raise the limit."
+                ]
+            }
+        )
 
 
 def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> None:
@@ -682,6 +775,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         import pydantic
 
+        _enforce_llm_detector_rules(self.context, value)
+        value = _normalize_llm_detector_config(value)
+
         try:
             validated = DetectorConfig.model_validate(value)
         except pydantic.ValidationError:
@@ -825,6 +921,26 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 raise ValidationError({"threshold": {"configuration": [THRESHOLD_BOUNDS_REQUIRED_MESSAGE]}})
             raise ValidationError(str(e))
 
+        if (detector_config or {}).get("type") == DetectorType.LLM.value:
+            # A model call per tick on the finest cadence is a cost profile we don't want to
+            # ship before there's a budget model, and the real-time evaluate budget (3 minutes,
+            # 2 attempts) leaves little room for one.
+            if calculation_interval == AlertCalculationInterval.REAL_TIME:
+                raise ValidationError(
+                    {
+                        "calculation_interval": [
+                            "The AI detector cannot run on the real-time cadence. "
+                            "Pick a slower interval, or use a statistical detector."
+                        ]
+                    }
+                )
+            _enforce_llm_alert_limit(
+                self.context,
+                detector_config=detector_config,
+                enabled=attrs.get("enabled", self.instance.enabled if self.instance else True) is True,
+                instance_id=str(self.instance.id) if self.instance else None,
+            )
+
         organization = self.context["get_organization"]()
         _validate_interval_entitlement(
             calculation_interval=calculation_interval,
@@ -945,6 +1061,11 @@ class AlertSimulateSerializer(serializers.Serializer):
 
     def validate_detector_config(self, value):
         import pydantic
+
+        # Same gate as create/update: previewing a flag-gated detector must be rejected the
+        # same way saving one is, or the preview becomes the way to use it.
+        _enforce_llm_detector_rules(self.context, value)
+        value = _normalize_llm_detector_config(value)
 
         try:
             validated = DetectorConfig.model_validate(value)

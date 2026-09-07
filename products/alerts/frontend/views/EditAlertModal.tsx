@@ -144,6 +144,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     )
     const insightAlertKind = insightAlertKindForQuery(query)
     const anomalyAlertGuidanceEnabled = useFeatureFlag('ANOMALY_ALERT_GUIDANCE_EXPERIMENT', 'anomaly_guidance')
+    const llmDetectorEnabled = useFeatureFlag('ALERTS_LLM_DETECTOR')
 
     const formLogicProps = {
         alert,
@@ -340,6 +341,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
+            llmDetectorEnabled={llmDetectorEnabled}
             twoColumnLayout
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}

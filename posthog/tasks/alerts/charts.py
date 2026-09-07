@@ -1,10 +1,11 @@
-"""Matplotlib chart rendering for the anomaly investigation agent.
+"""Matplotlib chart rendering for the alert paths that hand a series to a model.
 
 Renders a compact PNG of the alert's metric over time, with the detector's
-anomaly points highlighted. The PNG is base64-encoded and attached to the
-first HumanMessage so the multimodal model can reason visually about the
-shape of the anomaly (spike, cliff, gradual drift, seasonality, etc.) before
-it spends any tool-call budget.
+anomaly points highlighted. The PNG is base64-encoded and attached to a
+HumanMessage so the multimodal model can reason visually about the shape of the
+anomaly (spike, cliff, gradual drift, seasonality, etc.). The LLM detector and
+the anomaly investigation agent both read it, so it sits beside the detectors
+rather than inside either caller.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-# Temporal activity workers run headless, so the only viable matplotlib backend
+# Alert workers run headless, so the only viable matplotlib backend
 # is Agg. Set MPLBACKEND via env var before the first matplotlib import so we
 # pick the backend the canonical way and avoid post-import `matplotlib.use(...)`
 # mutations to library-global state. `setdefault` leaves an explicit override
@@ -49,8 +50,8 @@ def render_series_chart(
     if not dates or not values or len(dates) != len(values):
         return None
 
-    # Deferred import: matplotlib is heavy (~0.35s) and only the temporal worker
-    # rendering a chart needs it — not every process that imports this module.
+    # Deferred import: matplotlib is heavy (~0.35s) and only the callers that
+    # render a chart need it, not every process that imports this module.
     import matplotlib.pyplot as plt
 
     try:
@@ -91,7 +92,7 @@ def render_series_chart(
         plt.close(fig)
         return buf.getvalue()
     except Exception:
-        logger.exception("anomaly_investigation.chart_render_failed")
+        logger.exception("alerts.chart_render_failed")
         return None
 
 

@@ -20855,7 +20855,8 @@
                 "hbos",
                 "lof",
                 "ocsvm",
-                "pca"
+                "pca",
+                "llm"
             ],
             "type": "string"
         },
@@ -31147,6 +31148,30 @@
                 "window": {
                     "$ref": "#/definitions/integer",
                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "LLMDetectorConfig": {
+            "additionalProperties": false,
+            "description": "Hands the series to a model instead of a statistical test. Carries no preprocessing block: differencing or smoothing would hide from the model exactly what it is meant to read.",
+            "properties": {
+                "instructions": {
+                    "description": "What counts as unusual or interesting for this metric, in your own words. Optional.",
+                    "type": "string"
+                },
+                "threshold": {
+                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "llm",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many recent points the model is shown (default: based on calculation interval)"
                 }
             },
             "required": ["type"],
@@ -51974,6 +51999,9 @@
                 },
                 {
                     "$ref": "#/definitions/PCADetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LLMDetectorConfig"
                 }
             ],
             "required": ["type"],

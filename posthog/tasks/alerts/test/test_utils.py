@@ -13,6 +13,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     calculation_interval_to_order,
+    detector_verdict_event_fields,
     disable_invalid_alert,
     next_check_time,
     send_notifications_for_breaches,
@@ -30,6 +31,24 @@ class TestAlertUtils:
         assert calculation_interval_to_order(AlertCalculationInterval.REAL_TIME) < calculation_interval_to_order(
             AlertCalculationInterval.EVERY_15_MINUTES
         )
+
+    @parameterized.expand(
+        [
+            (
+                "llm_verdict",
+                {"rationale": "Signups fell to 12 on Jan 7.", "kind": "drop"},
+                {"anomaly_rationale": "Signups fell to 12 on Jan 7.", "anomaly_kind": "drop"},
+            ),
+            ("statistical_detector", {"series_index": 2}, {}),
+            ("no_metadata", None, {}),
+            ("blank_rationale", {"rationale": "", "kind": "none"}, {"anomaly_kind": "none"}),
+        ]
+    )
+    def test_detector_verdict_event_fields(self, _name: str, metadata: dict | None, expected: dict) -> None:
+        alert_check = MagicMock(spec=AlertCheck)
+        alert_check.triggered_metadata = metadata
+
+        assert detector_verdict_event_fields(alert_check) == expected
 
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)

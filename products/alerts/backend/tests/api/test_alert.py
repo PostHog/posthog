@@ -2484,3 +2484,117 @@ class TestAlertRealTimeInterval(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(response.json())
+
+
+class TestLLMDetectorValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+
+    def _body(self, *, detector_config: dict[str, Any] | None, **overrides: Any) -> dict[str, Any]:
+        return {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "AI alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+            "detector_config": detector_config,
+            **overrides,
+        }
+
+    def _create(self, detector_config: dict[str, Any] | None, **overrides: Any):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/alerts", self._body(detector_config=detector_config, **overrides)
+        )
+
+    @parameterized.expand(
+        [
+            ("preprocessing", {"type": "llm", "preprocessing": {"diffs_n": 1}}, "preprocessing"),
+            (
+                "ensemble_member",
+                {
+                    "type": "ensemble",
+                    "operator": "and",
+                    "detectors": [{"type": "zscore", "threshold": 0.95, "window": 30}, {"type": "llm"}],
+                },
+                "combined with other detectors",
+            ),
+            ("instructions_too_long", {"type": "llm", "instructions": "x" * 2001}, "characters or fewer"),
+            ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
+        ]
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_llm_configs(self, _name: str, detector_config: dict[str, Any], expected: str, _flag) -> None:
+        response = self._create(detector_config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected in response.json()["detail"]
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_rejected_when_flag_is_off(self, _flag) -> None:
+        response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "not enabled for your account" in response.json()["detail"]
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_on_the_real_time_cadence(self, _flag) -> None:
+        response = self._create({"type": "llm", "threshold": 0.7, "window": 90}, calculation_interval="real_time")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "calculation_interval"
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_created_with_instructions_stripped(self, _flag) -> None:
+        response = self._create({"type": "llm", "threshold": 0.7, "window": 90, "instructions": "  only drops  "})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        alert = AlertConfiguration.objects.get(id=response.json()["id"])
+        assert alert.detector_config is not None
+        assert alert.detector_config["instructions"] == "only drops"
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.max_llm_alerts_per_team", return_value=1)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_blocks_a_second_enabled_alert(self, _flag, _cap) -> None:
+        first = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        second = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert second.status_code == status.HTTP_400_BAD_REQUEST, second.content
+        assert "1 of 1 alerts using the AI detector" in second.json()["detail"]
+
+        # A disabled one never runs, so it costs nothing and is allowed.
+        disabled = self._create({"type": "llm", "threshold": 0.7, "window": 90}, enabled=False)
+        assert disabled.status_code == status.HTTP_201_CREATED, disabled.content
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.max_llm_alerts_per_team", return_value=1)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_still_lets_you_edit_the_alert_at_the_cap(self, _flag, _cap) -> None:
+        created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+            {"detector_config": {"type": "llm", "threshold": 0.8, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_simulate_is_gated_by_the_same_flag(self, _flag) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": self.insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "not enabled for your account" in response.json()["detail"]

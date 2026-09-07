@@ -20,6 +20,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
+from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
@@ -272,6 +273,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert_evaluation_result = check_alert_for_insight(alert)
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
+            raise
+        except LLMDetectorUnavailableError:
+            # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
+            # re-raise so the retry policy gets another attempt, and let the retry-exhausted
+            # path record an errored check, which leaves an already-firing alert firing.
             raise
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a

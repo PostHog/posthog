@@ -5695,6 +5695,25 @@ class InsightThreshold(BaseModel):
     )
 
 
+class LLMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: str | None = Field(
+        default=None,
+        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
+    )
+    threshold: float | None = Field(
+        default=None,
+        description=("Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"),
+    )
+    type: Literal["llm"] = "llm"
+    window: int | None = Field(
+        default=None,
+        description=("How many recent points the model is shown (default: based on calculation interval)"),
+    )
+
+
 class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26227,7 +26246,8 @@ class EnsembleDetectorConfig(BaseModel):
             | HBOSDetectorConfig
             | LOFDetectorConfig
             | OCSVMDetectorConfig
-            | PCADetectorConfig,
+            | PCADetectorConfig
+            | LLMDetectorConfig,
             Field(discriminator="type"),
         ]
     ] = Field(..., description="Sub-detector configurations (minimum 2)")
@@ -28542,6 +28562,7 @@ class DetectorConfig(
         | LOFDetectorConfig
         | OCSVMDetectorConfig
         | PCADetectorConfig
+        | LLMDetectorConfig
     ]
 ):
     root: (
@@ -28558,6 +28579,7 @@ class DetectorConfig(
         | LOFDetectorConfig
         | OCSVMDetectorConfig
         | PCADetectorConfig
+        | LLMDetectorConfig
     ) = Field(..., description="Detector configuration types", discriminator="type")
 
 

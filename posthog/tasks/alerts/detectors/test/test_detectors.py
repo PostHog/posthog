@@ -98,6 +98,7 @@ class TestDetectorRegistry:
             "ecod",
             "hbos",
             "isolation_forest",
+            "llm",
             "knn",
             "lof",
             "ocsvm",
@@ -686,6 +687,7 @@ class TestComputeMinSamplesForDetector:
                 173,
             ),
             ("ensemble_empty", {"type": "ensemble", "detectors": []}, 31),
+            ("llm_no_window", {"type": "llm"}, 31),
         ]
     )
     def test_compute_min_samples(self, _name: str, config: dict[str, Any], expected: int) -> None:

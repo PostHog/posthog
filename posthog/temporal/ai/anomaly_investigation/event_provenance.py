@@ -25,7 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.temporal.ai.anomaly_investigation.metric_definition import unwrap_query_source
+from posthog.tasks.alerts.metric_definition import unwrap_query_source
 
 logger = structlog.get_logger(__name__)
 

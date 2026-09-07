@@ -22,6 +22,9 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.LOF: 20,  # needs n_neighbors samples
     DetectorType.OCSVM: 10,
     DetectorType.PCA: 10,
+    # The model reads the series rather than training on it, but it needs enough history
+    # to tell a weekly shape from a change.
+    DetectorType.LLM: 10,
 }
 
 # Fallback window size used when no explicit window is set in the detector config
