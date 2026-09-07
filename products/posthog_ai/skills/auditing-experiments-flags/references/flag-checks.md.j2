@@ -101,6 +101,11 @@ Checks for flags with unstable or high-churn configurations.
 
 **Look at**: Activity log entries for the flag, `created_at`
 
+The activity endpoint returns the 10 newest entries per page, ordered newest first.
+Page it with `limit` and `page` until `next` is null, because both findings below measure the flag's whole history.
+One unpaginated call reads 10 entries, so the churn threshold of 20 is never met and a toggle older than the 10 newest is never counted.
+Report the lifecycle checks as partial if a page fails.
+
 **Findings**:
 
 - **Toggle instability**: The flag has been toggled on/off (active → inactive or vice versa) more than 3 times based on activity logs.
