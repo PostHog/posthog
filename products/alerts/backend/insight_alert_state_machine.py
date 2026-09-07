@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from posthog.schema_enums import AlertState as InsightAlertState
+from posthog.schema_enums import (
+    AlertState as InsightAlertState,
+    ForecastConditionType,
+)
 
 from products.alerts.backend.state_machine import (
     AlertCheckOutcome,
@@ -73,6 +76,22 @@ def apply_enable(alert: AlertConfiguration) -> list[str]:
 def apply_disable(alert: AlertConfiguration) -> list[str]:
     alert.enabled = False
     return ["enabled", *apply_outcome(alert, shared_apply_disable(snapshot_from_alert(alert)))]
+
+
+def disable_if_target_date_passed(alert: AlertConfiguration, today: date) -> list[str]:
+    config = alert.forecast_config or {}
+    if config.get("condition") != ForecastConditionType.TARGET_BY_DATE.value:
+        return []
+    target_date = config.get("target_date")
+    if not target_date:
+        return []
+    try:
+        parsed = date.fromisoformat(str(target_date))
+    except ValueError:
+        return []
+    if parsed > today:
+        return []
+    return apply_disable(alert)
 
 
 def apply_snooze(alert: AlertConfiguration) -> list[str]:

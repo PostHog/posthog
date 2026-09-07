@@ -1,1 +1,1 @@
-0004_squash_2026_09_07_finalize_fks
+0005_alertconfiguration_forecast_config

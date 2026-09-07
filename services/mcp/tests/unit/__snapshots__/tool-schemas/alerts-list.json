@@ -6,7 +6,11 @@
             "type": "string"
         },
         "has_detector": {
-            "description": "Optional. Restrict results by whether the alert uses anomaly detection.",
+            "description": "Optional. Restrict results by whether the alert uses anomaly detection. A forecast alert has no detector, so has_detector=false includes forecast alerts as well as plain threshold alerts. Use has_forecast to separate the two.",
+            "type": "boolean"
+        },
+        "has_forecast": {
+            "description": "Optional. Restrict results by whether the alert uses a forecast.",
             "type": "boolean"
         },
         "insight_id": {
