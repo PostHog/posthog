@@ -26,10 +26,12 @@ export function ChannelItemDragPreview({
   drag,
   x,
   y,
+  currentUserUuid,
 }: {
   drag: PinDrag<ChannelItemModel>;
   x: MotionValue<number>;
   y: MotionValue<number>;
+  currentUserUuid?: string;
 }) {
   const prefersReducedMotion = useReducedMotion();
   const host =
@@ -65,6 +67,7 @@ export function ChannelItemDragPreview({
             status={status}
             isActive={false}
             showPinBadge={false}
+            currentUserUuid={currentUserUuid}
           />
         )}
       </div>

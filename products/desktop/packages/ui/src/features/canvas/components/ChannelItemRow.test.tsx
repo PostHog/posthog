@@ -30,6 +30,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // query, none of which a unit test has. Stubbed at the module boundary, as
 // ChannelSidebar.test.tsx does for the same reason.
 const mocks = vi.hoisted(() => ({
+  client: {},
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
   currentUserUuid: "u-1" as string | undefined,
@@ -40,9 +41,14 @@ const mocks = vi.hoisted(() => ({
   },
   openBrowserTab: vi.fn(),
 }));
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => mocks.client,
+}));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({
-    data: { id: mocks.currentUserId, uuid: mocks.currentUserUuid },
+  useCurrentUser: (options?: { client?: unknown }) => ({
+    data: options?.client
+      ? { id: mocks.currentUserId, uuid: mocks.currentUserUuid }
+      : undefined,
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
@@ -146,6 +152,29 @@ beforeEach(() => {
 });
 
 describe("ChannelItemRow", () => {
+  it.each([
+    ["the current user", "u-1", false],
+    ["another user", "u-2", true],
+  ])("shows presence for %s: %s", (_case, authorUuid, expected) => {
+    const author = {
+      id: 1,
+      uuid: authorUuid,
+      first_name: "Ada",
+      email: "ada@example.com",
+    };
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item({ authorUser: author, ts: Date.now() })}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("img", { name: "Ada is working on this" }) !== null,
+    ).toBe(expected);
+  });
+
   // The dot vocabulary in one table: what the row's leading mark says for each
   // state a task can be in. Only the states a reader can act on get a voice —
   // run mechanics (queued, failed) resolve to a dot that describes the work

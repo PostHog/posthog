@@ -46,8 +46,21 @@ describe("spacePeople", () => {
       limit: 5,
       expected: [GRACE, ADA],
     },
-  ])("$case", ({ createdBy, ran, limit, expected }) => {
-    const tasks = ran.map((created_by) => ({ created_by }));
-    expect(spacePeople(tasks, createdBy, limit)).toEqual(expected);
-  });
+    {
+      case: "excludes the current user before applying the limit",
+      createdBy: ADA,
+      ran: [GRACE, ALAN],
+      limit: 2,
+      currentUserUuid: ADA.uuid,
+      expected: [GRACE, ALAN],
+    },
+  ])(
+    "$case",
+    ({ createdBy, ran, limit, currentUserUuid = "viewer", expected }) => {
+      const tasks = ran.map((created_by) => ({ created_by }));
+      expect(spacePeople(tasks, createdBy, limit, currentUserUuid)).toEqual(
+        expected,
+      );
+    },
+  );
 });
