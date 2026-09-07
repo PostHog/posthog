@@ -403,9 +403,9 @@ tools:
             also false when there is nothing to copy, because the flag has no dependencies or every dependency is
             already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only
             when it is non-empty. Call this before every `feature-flags-copy-flags-create` copy; it is read-only and
-            returns an empty result when the flag has no dependencies. Set that tool's `copy_dependencies` only when
-            the user approves copying the keys this check reports. Requires write scope because it checks the same
-            copy eligibility and edit permissions the copy itself enforces.
+            returns an empty result when the flag has no dependencies. Set that tool's `copy_dependencies` only when the
+            user approves copying the keys this check reports. Requires write scope because it checks the same copy
+            eligibility and edit permissions the copy itself enforces.
         include_params:
             - feature_flag_key
             - from_project
