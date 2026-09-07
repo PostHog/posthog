@@ -738,6 +738,7 @@ describe("AgentService", () => {
 
       expect(mockNewSession).toHaveBeenCalledTimes(1);
       expect(mockNewSession.mock.calls[0][0]._meta).toMatchObject({
+        taskId: "task-1",
         taskRunId: "run-1",
         environment: "local",
       });

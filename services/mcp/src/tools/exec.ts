@@ -426,6 +426,47 @@ function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): strin
  *  undeclared payload cannot inflate the analytics error message. */
 const MAX_DROPPED_KEYS_NAMED = 5
 
+/** Bound on the parameter description echoed back with a missing-parameter
+ *  rejection, so a tool with a long field description cannot inflate the
+ *  analytics error message. */
+const MAX_MISSING_PARAM_HINT = 200
+
+/**
+ * The missing parameter's own description, appended to the rejection.
+ *
+ * A bare `missing required parameter: short_id` names the field to fill but not
+ * what to fill it with, so a caller that never held the identifier retries the
+ * same empty call. The field's description already answers that — where the
+ * value comes from and what shape it takes — and this puts it in front of the
+ * caller at the moment it needs it, instead of requiring a separate `info` call.
+ *
+ * Top-level fields only: a nested path describes a field the caller has not
+ * reached yet. The text comes from the tool's own schema, never from caller
+ * input, so it is safe in the message returned to the caller and recorded as the
+ * analytics error message.
+ */
+function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+    if (!schema || path.length !== 1) {
+        return ''
+    }
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    const field = isRecord(properties) ? properties[String(path[0])] : undefined
+    const description = isRecord(field) && typeof field['description'] === 'string' ? field['description'].trim() : ''
+    if (!description) {
+        return ''
+    }
+    const capped =
+        description.length > MAX_MISSING_PARAM_HINT
+            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
+            : description
+    return ` (${capped})`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /** Turns a Zod validation failure into a short, field-named message the model
  *  can act on. Without it, a missing/`undefined` path segment slips through to
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
@@ -450,8 +491,9 @@ export function formatInputValidationError(
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
+                const hint = missingParameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
-                    return `missing required parameter: ${path}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
+                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
                 }
                 const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
                 if (dropped.length) {
@@ -459,9 +501,9 @@ export function formatInputValidationError(
                         .slice(0, MAX_DROPPED_KEYS_NAMED)
                         .map((key) => `"${key}"`)
                         .join(', ')
-                    return `missing required parameter: ${path}; this tool ignored these keys it does not accept: ${named}`
+                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${named}`
                 }
-                return `missing required parameter: ${path}`
+                return `missing required parameter: ${path}${hint}`
             }
             return `parameter "${path}" must be of type ${issue.expected}`
         }
@@ -539,6 +581,27 @@ function normalizeDescriptorPath(segments: readonly PropertyKey[], declaredNames
 }
 
 const declaredPropertyNamesCache = new WeakMap<object, ReadonlySet<string>>()
+const inputJsonSchemaCache = new WeakMap<object, unknown>()
+
+/**
+ * The agent-facing JSON Schema for a tool, converted once per schema object.
+ *
+ * A schema that can't be converted caches `null`, so a failure costs detail once
+ * rather than being retried on every rejection.
+ */
+function inputJsonSchema(schema: z.ZodType): unknown {
+    if (inputJsonSchemaCache.has(schema)) {
+        return inputJsonSchemaCache.get(schema)
+    }
+    let converted: unknown = null
+    try {
+        converted = z.toJSONSchema(schema, { io: 'input' })
+    } catch {
+        // Neither telemetry nor an error message may break a tool call.
+    }
+    inputJsonSchemaCache.set(schema, converted)
+    return converted
+}
 
 /**
  * Every property name a tool's schema declares, at any depth. A path segment
@@ -555,11 +618,7 @@ function declaredPropertyNames(schema: z.ZodType): ReadonlySet<string> {
         return cached
     }
     const names = new Set<string>()
-    try {
-        collectDeclaredPropertyNames(z.toJSONSchema(schema, { io: 'input' }), names)
-    } catch {
-        // Telemetry must never break a tool call; an empty set only costs detail.
-    }
+    collectDeclaredPropertyNames(inputJsonSchema(schema), names)
     declaredPropertyNamesCache.set(schema, names)
     return names
 }
