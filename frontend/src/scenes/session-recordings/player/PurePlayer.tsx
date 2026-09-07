@@ -182,6 +182,14 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
+    // Stepping cannot move at the ends of the speed list. A no-op setSpeed still records a speed change.
+    const stepSpeed = (direction: 1 | -1): void => {
+        const next = stepPlaybackSpeed(speed, direction)
+        if (next !== speed) {
+            setSpeed(next)
+        }
+    }
+
     useKeyboardHotkeys(
         {
             f: {
@@ -234,10 +242,10 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             },
             ...speedHotkeys,
             '<': {
-                action: () => setSpeed(stepPlaybackSpeed(speed, -1)),
+                action: () => stepSpeed(-1),
             },
             '>': {
-                action: () => setSpeed(stepPlaybackSpeed(speed, 1)),
+                action: () => stepSpeed(1),
             },
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
         },
