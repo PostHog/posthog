@@ -404,6 +404,30 @@ describe('SlackChannelPicker', () => {
         expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
     })
 
+    it('keeps selected channels when another channel is added in multiple mode', async () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    mode="multiple"
+                    value={['C0B6HUH9FUH|#test-slack-notifications']}
+                    onChange={onChange}
+                />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(channelsRequestSearchQueries).toEqual([''])
+        })
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.type(input, 'general')
+        await userEvent.click(await screen.findByText('#general'))
+
+        expect(onChange).toHaveBeenCalledWith(['C0B6HUH9FUH|#test-slack-notifications', 'C111111111|#general'])
+    })
+
     it('still searches when the user actually types a different value', async () => {
         // Render without an initial value so the input starts empty and typing isn't appended
         // to LemonInputSelect's auto-fill of an existing selection.
