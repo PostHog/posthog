@@ -2133,6 +2133,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-textarea",
+ "url",
  "urlencoding",
  "uuid",
  "walkdir",

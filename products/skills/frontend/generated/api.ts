@@ -24,6 +24,7 @@ import type {
     LLMSkillMarketplaceCommandApi,
     LLMSkillMarketplaceIssueApi,
     LLMSkillPublishToCommunityApi,
+    LLMSkillRenameApi,
     LLMSkillResolveResponseApi,
     LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
@@ -498,6 +499,24 @@ export const llmSkillsNamePublishCommunityCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMSkillPublishToCommunityApi),
+    })
+}
+
+export const getLlmSkillsNameRenameCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/projects/${projectId}/llm_skills/name/${skillName}/rename/`
+}
+
+export const llmSkillsNameRenameCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillRenameApi: LLMSkillRenameApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameRenameCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillRenameApi),
     })
 }
 
