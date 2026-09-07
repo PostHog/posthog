@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.conf import settings
+from django.db import models
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -455,11 +456,18 @@ class CanvasPlacementChangesSerializer(CanvasPlacementSerializer):
             field.required = False
 
 
+class CanvasLayoutOp(models.TextChoices):
+    SET_GRID = "set_grid", "set_grid"
+    ADD_PLACEMENT = "add_placement", "add_placement"
+    UPDATE_PLACEMENT = "update_placement", "update_placement"
+    REMOVE_PLACEMENT = "remove_placement", "remove_placement"
+
+
 class CanvasLayoutPatchOperationSerializer(serializers.Serializer):
     """One surgical layout operation."""
 
     op = serializers.ChoiceField(
-        choices=["set_grid", "add_placement", "update_placement", "remove_placement"],
+        choices=CanvasLayoutOp.choices,
         help_text="The operation to apply.",
     )
     grid = CanvasGridSerializer(required=False, help_text="For set_grid: the new grid definition.")

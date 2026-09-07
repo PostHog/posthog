@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -122,6 +123,30 @@ def _get_cross_region_task_token_cost(*, team_id: int, task_id: UUID, task_creat
         raise TaskTokenUsageUnavailable("Cross-region task usage is unavailable") from error
 
 
+# The internal project the gateways capture `$ai_generation` into is region-local: each region's
+# generations land in that region's own project. Same mapping AI credit billing reads
+# (`CLOUD_REGION_TO_TEAM_ID` in `posthog/tasks/usage_report.py`), kept separately because that
+# module imports this product's facade. `LLM_ANALYTICS_INTERNAL_TEAM_ID` is 2 in every region, so
+# it can't answer this on its own — it stays the fallback for a deployment that isn't US or EU.
+INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION = {"EU": 1, "US": 2}
+
+
+def _internal_llm_analytics_team() -> Team:
+    """The project this region's `$ai_generation` events are captured into.
+
+    A deployment with no such project has nothing to read, and callers must surface that as
+    unknown rather than as zero spend.
+    """
+    team_id = INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION.get(
+        settings.CLOUD_DEPLOYMENT or "", settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
+    )
+    try:
+        return Team.objects.get(pk=team_id)
+    except Team.DoesNotExist as error:
+        logger.exception("task_usage.internal_llm_analytics_team_missing", team_id=team_id)
+        raise TaskTokenUsageUnavailable("The internal AI observability project is not readable here") from error
+
+
 def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
     query = parse_select(
         """
@@ -145,11 +170,66 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
                 "team_id": ast.Constant(value=str(team_id)),
                 "task_id": ast.Constant(value=str(task_id)),
             },
-            team=Team.objects.get(pk=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID),
+            team=_internal_llm_analytics_team(),
             query_type="TaskUsageTokenCost",
         )
     value = (result.results or [(0,)])[0][0]
     return Decimal(str(value or 0))
+
+
+def get_local_task_run_token_costs(
+    *,
+    team_id: int,
+    origin_product: str,
+    task_run_ids: Sequence[UUID],
+    generated_after: datetime,
+    product: Product,
+) -> dict[str, Decimal]:
+    """Model spend per task run, for every run in `task_run_ids` that has any attributed to it.
+
+    Keyed on `task_origin_product` rather than `ai_product`, because `ai_product` names the agent
+    that made the generation, not the product the run belongs to: one origin product spans several
+    `ai_product` values (a signal report reports a different one per pipeline stage), and one
+    `ai_product` spans several origin products. A run with no attributed generation is absent from
+    the result rather than priced at zero, so a caller can tell it from a run that really spent
+    nothing. A run whose generations all lack `$ai_total_cost_usd` is absent for the same reason:
+    the property is written only where a cost could be calculated, so the sum is null and the spend
+    is unknown, not zero. A run priced in part still reports the sum of what was priced, which is a
+    lower bound.
+    """
+    if not task_run_ids:
+        return {}
+
+    query = parse_select(
+        """
+        SELECT toString(properties.task_run_id) AS task_run_id,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS token_cost_usd
+        FROM events
+        WHERE equals(event, '$ai_generation')
+            AND greaterOrEquals(timestamp, {generated_after})
+            AND equals(properties.task_origin_product, {origin_product})
+            AND equals(toString(properties.team_id), {team_id})
+            AND in(toString(properties.task_run_id), {task_run_ids})
+        GROUP BY task_run_id
+        LIMIT {row_limit}
+        """
+    )
+    with tags_context(product=product, feature=Feature.QUERY):
+        result = execute_hogql_query(
+            query=query,
+            placeholders={
+                "generated_after": ast.Constant(value=generated_after),
+                "origin_product": ast.Constant(value=origin_product),
+                "team_id": ast.Constant(value=str(team_id)),
+                "task_run_ids": ast.Constant(value=[str(task_run_id) for task_run_id in task_run_ids]),
+                # The group-by yields at most one row per requested run, but a limit-less select
+                # is capped at 100 rows, and a caller may ask about more runs than that.
+                "row_limit": ast.Constant(value=len(task_run_ids)),
+            },
+            team=_internal_llm_analytics_team(),
+            query_type="TaskRunUsageTokenCost",
+        )
+    return {str(row[0]): Decimal(str(row[1])) for row in (result.results or []) if row[0] and row[1] is not None}
 
 
 def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:

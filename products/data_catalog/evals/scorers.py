@@ -44,6 +44,8 @@ __all__ = [
 ]
 
 SQL_TOOL = "execute-sql"
+METRIC_LIST_TOOL = "metric-list"
+METRIC_DESCRIBE_TOOL = "metric-describe"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
@@ -80,7 +82,14 @@ def _successful_sql(parser: LogParser) -> list[ToolCall]:
 
 
 def _is_catalog_lookup(call: ToolCall) -> bool:
-    return METRICS_CATALOG_MARKER in _query_text(call)
+    return call.name == METRIC_LIST_TOOL or (call.name == SQL_TOOL and METRICS_CATALOG_MARKER in _query_text(call))
+
+
+def _successful_catalog_lookups(parser: LogParser) -> list[ToolCall]:
+    return sorted(
+        (call for call in parser.get_tool_calls() if not call.is_error and _is_catalog_lookup(call)),
+        key=lambda call: call.position,
+    )
 
 
 def _is_discovery(call: ToolCall) -> bool:
@@ -101,7 +110,7 @@ def _is_tool_discovery(call: ToolCall) -> bool:
 
 
 def _is_data_bearing(call: ToolCall) -> bool:
-    if _is_tool_discovery(call):
+    if _is_tool_discovery(call) or call.name == METRIC_LIST_TOOL:
         return False
     if call.name in _KNOWN_DATA_BEARING_TOOLS or call.name.startswith("query-"):
         return True
@@ -126,7 +135,7 @@ class MetricsCatalogQueried(Scorer):
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        hits = [c for c in _successful_sql(parser) if _is_catalog_lookup(c)]
+        hits = _successful_catalog_lookups(parser)
         return Score(name=self._name(), score=1.0 if hits else 0.0, metadata={"catalog_lookups": len(hits)})
 
 
@@ -149,9 +158,11 @@ class MetricsCatalogBeforeAnswer(Scorer):
         catalog_seen = False
         offenders: list[str] = []
         answer_calls = 0
-        for call in _successful_sql(parser):
-            if _is_catalog_lookup(call):
+        for call in sorted(parser.get_tool_calls(), key=lambda current: current.position):
+            if not call.is_error and _is_catalog_lookup(call):
                 catalog_seen = True
+                continue
+            if call.name != SQL_TOOL or call.is_error:
                 continue
             if _is_discovery(call):
                 continue
@@ -191,7 +202,7 @@ class MetricsCatalogBeforeDataDiscovery(Scorer):
         failed_catalog_lookups = 0
         offenders: list[dict[str, str]] = []
         for call in sorted(parser.get_tool_calls(), key=lambda current: current.position):
-            if call.name == SQL_TOOL and _is_catalog_lookup(call):
+            if _is_catalog_lookup(call):
                 if call.is_error:
                     failed_catalog_lookups += 1
                 else:
@@ -267,9 +278,7 @@ class CanonicalMetricRun(Scorer):
                 metadata={"reason": "wrong metric name", "expected": metric_name, "called": called_names},
             )
 
-        successful_catalog_positions = [
-            call.position for call in parser.get_tool_calls(SQL_TOOL) if not call.is_error and _is_catalog_lookup(call)
-        ]
+        successful_catalog_positions = [call.position for call in _successful_catalog_lookups(parser)]
         expected_error = outcome == "failed"
         post_catalog_runs = [
             call
@@ -513,7 +522,7 @@ You are grading whether an analytics agent honored a project's governed-metrics 
 
 The rules the agent was given:
 - Business-measure rankings, breakdowns, and comparisons require a metrics-catalog lookup before \
-schema or raw-data discovery.
+schema or raw-data discovery. `metric-list` and SQL over `information_schema.metrics` both count as a lookup.
 - Only a catalog metric with status='approved' AND NOT is_drifted is canonical. A match must align \
 with the requested measure, dimensions, grain, and time semantics, and must be run through \
 data-catalog-metric-run.
@@ -540,6 +549,9 @@ The agent's final answer:
 The SQL calls the agent made (each carries the agent's stated context for that query; a statement \
 there that the governed catalog was consulted and nothing matched counts as catalog evidence):
 <sql_calls>{{output.sql_calls}}</sql_calls>
+
+The governed-metric catalog calls the agent made:
+<metric_catalog_calls>{{output.metric_catalog_calls}}</metric_catalog_calls>
 
 The metric-run calls the agent made:
 <metric_runs>{{output.metric_runs}}</metric_runs>
@@ -587,6 +599,11 @@ class GovernedBehaviorCorrectness(JudgedScorer):
             return Score(name=self._name(), score=0.0, metadata={"reason": "no final message"})
 
         sql_calls = parser.get_tool_calls(SQL_TOOL) if parser is not None else []
+        metric_catalog_calls = (
+            [*parser.get_tool_calls(METRIC_LIST_TOOL), *parser.get_tool_calls(METRIC_DESCRIBE_TOOL)]
+            if parser is not None
+            else []
+        )
         metric_runs = parser.get_tool_calls(METRIC_RUN_TOOL) if parser is not None else []
         metric_creates = parser.get_tool_calls(METRIC_CREATE_TOOL) if parser is not None else []
         return {
@@ -602,6 +619,17 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                             "is_error": call.is_error,
                         }
                         for call in sql_calls
+                    ]
+                ),
+                "metric_catalog_calls": json.dumps(
+                    [
+                        {
+                            "tool": call.name,
+                            "name": call.input.get("name"),
+                            "output": _judge_output(call),
+                            "is_error": call.is_error,
+                        }
+                        for call in metric_catalog_calls
                     ]
                 ),
                 "metric_runs": json.dumps(

@@ -17,7 +17,8 @@ from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
+from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -46,6 +47,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
 )
 from products.signals.backend.temporal.summary import MarkReportReadyInput, mark_report_ready_activity
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.models import Task  # tach-ignore
 
 
 @pytest_asyncio.fixture
@@ -134,7 +136,9 @@ _EXISTING_CHART = {
 }
 
 
-async def _run_activity_with_output(monkeypatch, ateam, report, output, *, charts_enabled=True):
+async def _run_activity_with_output(
+    monkeypatch, ateam, report, output, *, charts_enabled=True, repo_selection_as_of=None
+):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
         lambda team_id: 1,
@@ -158,6 +162,7 @@ async def _run_activity_with_output(monkeypatch, ateam, report, output, *, chart
                 report_id=str(report.id),
                 signals=_build_signals(),
                 repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+                repo_selection_as_of=repo_selection_as_of,
             )
         )
 
@@ -441,6 +446,75 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_keeps_reviewer_selection_written_mid_run(monkeypatch, ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    as_of = datetime.now(UTC)
+    reviewer = await sync_to_async(User.objects.create)(email=f"reviewer-{random.randint(1, 99999)}@example.com")
+    # A wrong-repo dismissal cleared the selection after this run resolved its own. The reviewer's
+    # row must stay the newest one — settle-time auto-start reads the report's current artefacts.
+    await database_sync_to_async(SignalReportArtefact.append_status)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=RepoSelectionResult(repository=None, reason="cleared by a reviewer", autostart_eligible=False),
+        attribution=ArtefactAttribution.from_user(reviewer.id),
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
+
+    selections = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            ).order_by("created_at")
+        )
+    )()
+    assert [json.loads(selection.content)["repository"] for selection in selections] == [None]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_detects_task_attributed_wrong_repo_dismissal(monkeypatch, ateam):
+    # An agent dismissing a report as wrong_repo through the MCP surface attributes the dismissal to
+    # its task, so the `dismissal` artefact carries a null created_by. The supersede guard must still
+    # detect it off the dismissal artefact; keying only off a user-attributed repo_selection row
+    # would miss it, and the run would bury the correction with its stale selection.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    as_of = datetime.now(UTC)
+    task = await database_sync_to_async(Task.objects.create)(team=ateam, title="agent", description="d")
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=Dismissal(
+            reason=DISMISSAL_REASON_WRONG_REPO,
+            selected_repository="posthog/posthog",
+            corrected_repository="acme/other",
+        ),
+        attribution=ArtefactAttribution.from_task(str(task.id)),
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
+
+    # Superseded by the agent's correction: the run must not persist its own stale selection on top.
+    selections = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        )
+    )()
+    assert selections == []
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
 from types import MappingProxyType
@@ -269,7 +269,9 @@ class HogQLDatabaseSources:
         """A copy safe to hand out from the sources cache: the request's own team, user, and
         freshly computed access-control decision, a private modifiers copy, and fresh top-level
         containers so an in-place mutation downstream cannot leak into other requests. The
-        contained ORM rows stay shared — the build reads them only."""
+        contained ORM rows stay shared — the build reads them only. Revenue views are the
+        exception: they are pre-built table objects the build installs directly and then mutates
+        (saved-expression fields land in their `fields` dicts), so each request gets deep copies."""
         return dataclasses.replace(
             self,
             team=team,
@@ -283,7 +285,7 @@ class HogQLDatabaseSources:
             group_types=list(self.group_types),
             saved_queries=list(self.saved_queries),
             endpoint_saved_queries=list(self.endpoint_saved_queries),
-            revenue_views=list(self.revenue_views),
+            revenue_views=[view.model_copy(deep=True) for view in self.revenue_views],
             warehouse_tables=list(self.warehouse_tables),
             data_warehouse_joins=list(self.data_warehouse_joins),
             data_warehouse_expressions=list(self.data_warehouse_expressions),
@@ -302,6 +304,10 @@ type DatabaseSchemaTable = (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def is_reserved_system_name(name: str) -> bool:
+    return name == "system" or name.startswith("system.")
 
 
 # READ BEFORE EDITING:
@@ -584,6 +590,7 @@ def _compute_system_table_access_decision(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
     user_access_control: Optional[UserAccessControl] = None,
+    allowed_system_tables: Collection[str] | None = None,
 ) -> tuple[Optional[UserAccessControl], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
     can apply the result without querying. Returns the warmed UserAccessControl (preloaded, so later
@@ -600,6 +607,16 @@ def _compute_system_table_access_decision(
     )
 
     scoped_tables = _scoped_system_tables()
+    allowed_system_table_names = frozenset(allowed_system_tables or ())
+    if allowed_system_table_names and (user is not None or user_access_control is not None):
+        raise ValueError("allowed_system_tables is restricted to userless database creation")
+    invalid_allowed_tables = allowed_system_table_names.difference(scoped_tables)
+    if invalid_allowed_tables:
+        invalid_names = ", ".join(sorted(invalid_allowed_tables))
+        raise ValueError(
+            f"allowed_system_tables must contain exact bare names of scoped system tables: {invalid_names}"
+        )
+
     # Applies to every principal below, admins included - an entitlement the organization does not
     # have cannot be granted by a role.
     unentitled = _unentitled_system_tables(team)
@@ -607,9 +624,12 @@ def _compute_system_table_access_decision(
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, unentitled | {
+        denied_by_access_control = {
             name for name, table in scoped_tables.items() if table.access_scope not in readable_scopes
         }
+        if user is None:
+            denied_by_access_control.difference_update(allowed_system_table_names)
+        return None, unentitled | denied_by_access_control
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
@@ -1416,6 +1436,7 @@ class Database(BaseModel):
         build_postgres_foreign_keys: bool = True,
         use_cached_sources: bool = False,
         trigger: str = "direct",
+        allowed_system_tables: Collection[str] | None = None,
     ) -> Database:
         if timings is None:
             timings = HogQLTimings()
@@ -1433,6 +1454,7 @@ class Database(BaseModel):
                     timings=timings,
                     connection_id=connection_id,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    allowed_system_tables=allowed_system_tables,
                 )
 
         cache_key = None
@@ -1444,6 +1466,7 @@ class Database(BaseModel):
                 modifiers=modifiers,
                 connection_id=connection_id,
                 bypass_warehouse_access_control=bypass_warehouse_access_control,
+                allowed_system_tables=allowed_system_tables,
             )
             if cache_key is None:
                 SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
@@ -1476,17 +1499,19 @@ class Database(BaseModel):
         modifiers: HogQLQueryModifiers | None,
         connection_id: str | None,
         bypass_warehouse_access_control: bool,
+        allowed_system_tables: Collection[str] | None,
     ) -> SourcesCacheKey | None:
         """The cache key for this build, or None when the build must fetch fresh sources.
 
         The key is team-scoped: entries hold only team-level catalog rows, and the per-user
         access-control decision is recomputed on every handout. Only real users (or no user)
         hit the cache: SyntheticUser/SharedLinkUser carry request-specific access semantics.
-        A preloaded user_access_control is likewise per-request state, so it also bypasses.
+        A preloaded user_access_control or an allowed_system_tables override is likewise
+        per-request state, so those bypass too.
         """
         from posthog.models.user import User  # noqa: PLC0415 — keeps the Django ORM off this module's import path
 
-        if team is None or user_access_control is not None:
+        if team is None or user_access_control is not None or allowed_system_tables:
             return None
         if user is not None and not isinstance(user, User):
             return None
@@ -1499,6 +1524,46 @@ class Database(BaseModel):
         )
 
     @staticmethod
+    def create_for_posthog_tables(
+        team: Team, *, modifiers: HogQLQueryModifiers | None = None, timings: HogQLTimings | None = None
+    ) -> Database:
+        """PostHog's built-in tables only, wired for the team's modifiers, with no Postgres I/O.
+
+        For internal queries that touch only built-in tables. It has no warehouse tables, views, or
+        joins, no group-type tables, and no per-user access control, so it must never serve
+        user-written HogQL. Every access-controlled or entitlement-gated system table is removed up
+        front, so a query that names one fails with TableAccessDeniedError instead of reading rows
+        unchecked. create_for runs a dozen Postgres queries and feature-flag checks that such a
+        query never uses; on teams with many warehouse tables that costs more than the query."""
+        if timings is None:
+            timings = HogQLTimings()
+        with timings.measure("modifiers"):
+            modifiers = create_default_modifiers_for_team(team, modifiers)
+        sources = HogQLDatabaseSources(
+            team=team,
+            user=None,
+            connection_id=None,
+            modifiers=modifiers,
+            is_managed_viewset_enabled=False,
+            is_hogql_warehouse_access_control_enabled=False,
+            is_data_quality_enabled=False,
+            is_billing_usage_records_enabled=False,
+            bypass_warehouse_access_control=False,
+            direct_connection_metadata=None,
+            user_access_control=None,
+            denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
+            group_types=[],
+            saved_queries=[],
+            endpoint_saved_queries=[],
+            revenue_views=[],
+            warehouse_tables=[],
+            data_warehouse_joins=[],
+            data_warehouse_expressions=[],
+            event_modifier_saved_queries={},
+        )
+        return Database._build_from_sources(sources, timings=timings)
+
+    @staticmethod
     def _fetch_sources(
         team_id: int | None = None,
         *,
@@ -1509,6 +1574,7 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
+        allowed_system_tables: Collection[str] | None = None,
     ) -> HogQLDatabaseSources:
         """Run every Postgres query / feature-flag check / external request needed to build the
         database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
@@ -1632,7 +1698,7 @@ class Database(BaseModel):
             # Pass the caller's user_access_control through: when already preloaded it's reused, so the
             # bulk access-control fetch happens once per run instead of once per database build.
             user_access_control, denied_system_table_names = _compute_system_table_access_decision(
-                team, user, user_access_control
+                team, user, user_access_control, allowed_system_tables
             )
 
         is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
@@ -1664,9 +1730,9 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .exclude(deleted=True)
                         .order_by("name")
-                        # created_by for the access-control creator check
-                        .select_related("table", "managed_viewset", "created_by")
-                        # credential attached in bulk below, not joined per row
+                        # credential attached in bulk below, not joined per row; the access-control
+                        # creator check compares created_by_id, so created_by is not joined either
+                        .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
                     saved_queries = (
@@ -1676,19 +1742,11 @@ class Database(BaseModel):
                     )
 
         with timings.measure("endpoint_saved_query", emit_span=True):
-            endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
-            if not is_direct_query:
-                try:
-                    endpoint_saved_queries = list(
-                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                        .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
-                        .exclude(deleted=True)
-                        # created_by for the access-control creator check
-                        .select_related("table", "created_by")
-                        # credential attached in bulk below, not joined per row
-                    )
-                except Exception as e:
-                    capture_exception(e)
+            # Endpoint-origin rows are a subset of the non-deleted saved queries fetched above,
+            # so derive them in memory instead of issuing a second per-request query.
+            endpoint_saved_queries: list[DataWarehouseSavedQuery] = [
+                sq for sq in all_saved_queries if sq.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            ]
 
         with timings.measure("revenue_analytics_views", emit_span=True):
             revenue_views: list[RevenueAnalyticsBaseView] = []
@@ -1734,8 +1792,7 @@ class Database(BaseModel):
                         # source, so an orphan can't shadow the live table sharing its name.
                         DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                         .queryable()
-                        # created_by is hydrated for the warehouse access-control creator check
-                        .select_related("created_by")
+                        # created_by is not joined: the access-control creator check compares created_by_id.
                         # credential/external_data_source attached in bulk below, not joined per row; the
                         # access_method filter still joins the source for its WHERE without hydrating it.
                         # Deterministic tiebreak when two live tables share a name: newest wins, since
@@ -1822,7 +1879,8 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_quality_enabled=data_quality_enabled,
-            is_billing_usage_records_enabled=team.pk in settings.BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS,
+            is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
+            or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2011,6 +2069,8 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
+                    if is_reserved_system_name(saved_query.name):
+                        continue
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
                         and not sources.bypass_warehouse_access_control
@@ -2030,6 +2090,8 @@ class Database(BaseModel):
                 try:
                     for endpoint_saved_query in sources.endpoint_saved_queries:
                         with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                            if is_reserved_system_name(endpoint_saved_query.name):
+                                continue
                             # Endpoint-origin saved queries are a separate list, so they're checked too
                             if (
                                 sources.is_hogql_warehouse_access_control_enabled
@@ -2128,14 +2190,15 @@ class Database(BaseModel):
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
                                 # where a.b.c will contain the table.
-                                # Snowflake stores identifiers uppercase but resolves them
-                                # case-insensitively, so mark its nodes so `from tpch_sf1.nation`
-                                # (any case) resolves to the canonical `TPCH_SF1.NATION`.
+                                # Direct Snowflake and Trino connections resolve unquoted identifiers
+                                # case-insensitively. Synced table names are PostHog-generated, so
+                                # they stay exact-match.
                                 warehouse_tables.add_child(
                                     TableNode.create_nested_for_chain(
                                         table_chain,
                                         table_for_key,
-                                        case_insensitive=table.external_data_source.is_direct_snowflake,
+                                        case_insensitive=table.external_data_source.is_direct_query
+                                        and table.external_data_source.direct_engine in {"snowflake", "trino"},
                                     ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
@@ -2183,9 +2246,12 @@ class Database(BaseModel):
                             TableNode.create_nested_for_chain(
                                 table_key.split("."),
                                 virtual_table,
-                                # Snowflake resolves identifiers case-insensitively; the model's
-                                # is_direct_snowflake prop is False for synced sources, so key off type.
-                                case_insensitive=(virtual_source.source_type == ExternalDataSourceType.SNOWFLAKE),
+                                # A dual-mode source queried directly follows its engine's
+                                # case-insensitive identifier rules.
+                                case_insensitive=(
+                                    virtual_source.source_type
+                                    in {ExternalDataSourceType.SNOWFLAKE, ExternalDataSourceType.TRINO}
+                                ),
                             ),
                             table_conflict_mode="override",
                         )

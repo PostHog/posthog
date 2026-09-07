@@ -826,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn exception_release_emitted_only_when_a_release_resolves() {
+    fn exception_release_is_sanitized_and_emitted_only_when_a_release_resolves() {
         let issue = Issue {
             id: Uuid::now_v7(),
             team_id: 42,
@@ -836,7 +836,13 @@ mod tests {
             description: None,
             created_at: chrono::Utc::now(),
         };
-        let record = release_record("hash-abc");
+        let mut record = release_record("hash-abc");
+        record.metadata = Some(serde_json::json!({
+            "git": {
+                "commit_id": "abc123",
+                "remote_url": "https://x-access-token:secret@github.com/example/repo.git?token=query-secret#access_token=fragment-secret"
+            }
+        }));
         let expected = serde_json::to_value(record.to_info()).unwrap();
 
         // A resolved release surfaces as `$exception_release` on both the grouping-rule projection
@@ -845,10 +851,21 @@ mod tests {
         resolved.state.metadata.release = Some(record.to_info());
         let grouping = resolved.grouping_rule_properties();
         assert_eq!(grouping["$exception_release"], expected);
+        assert_eq!(
+            grouping["$exception_release"]["metadata"]["git"],
+            serde_json::json!({
+                "commit_id": "abc123",
+                "remote_url": "https://github.com/example/repo.git"
+            })
+        );
         let fingerprinted =
             resolved.into_fingerprinted(SelectedFingerprint::manual("fp".to_string()));
         let wire = serde_json::to_value(fingerprinted.processed_properties(&issue)).unwrap();
         assert_eq!(wire["$exception_release"], expected);
+        assert_eq!(
+            wire["$exception_release"]["metadata"]["git"]["remote_url"],
+            "https://github.com/example/repo.git"
+        );
 
         // No release resolved: the property is omitted.
         let mut resolved = resolved_event();

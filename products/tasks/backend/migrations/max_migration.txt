@@ -1,1 +1,1 @@
-0108_channel_auto_archive_after_days
+0118_alter_channel_channel_type_channelmembership

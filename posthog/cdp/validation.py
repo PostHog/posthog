@@ -3,6 +3,8 @@ import json
 import logging
 from typing import Any, Optional
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -540,6 +542,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_model",
             "task_repository",
             "task_mcp_installations",
+            "signals_scout",
+            "task_skills",
         ]
     )
     key = serializers.CharField()
@@ -572,9 +576,14 @@ class AnyInputField(serializers.Field):
         return value
 
 
+class HogFunctionTemplating(models.TextChoices):
+    HOG = "hog", "hog"
+    LIQUID = "liquid", "liquid"
+
+
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
-    templating = serializers.ChoiceField(choices=["hog", "liquid"], required=False)
+    templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
@@ -654,6 +663,12 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "task_mcp_installations":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
+        elif item_type == "signals_scout":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "task_skills":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of skill names."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})

@@ -13,13 +13,13 @@ know is absent from that snapshot and therefore out of reach.
 
 import json
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 from uuid import UUID
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.information_schema import _references_denied_table
+from posthog.hogql.database.schema.information_schema import references_denied_table
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
 _SUBJECT_TYPE_KEY = "subject_type"
 _SUBJECT_UUID_KEY = "subject_uuid"
+_RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
 def denied_subject_names(
@@ -57,7 +58,7 @@ def denied_subject_names(
 
 def is_subject_denied(subject_name: str, denied: set[str]) -> bool:
     """Whether a check's subject is in the caller's denied set, matched the same way the loaders match."""
-    return _references_denied_table([subject_name], denied)
+    return references_denied_table([subject_name], denied)
 
 
 def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> bool:
@@ -168,6 +169,21 @@ def unreadable_runs_q(context: DenialContext) -> Q:
     return unreadable_declared | unknowable_references | unreadable_references
 
 
+def without_denied_runs(runs: _RunQS, context: DenialContext) -> _RunQS:
+    """Exclude, in SQL, every run that touched a subject the caller may not read.
+
+    A run is judged on the subjects its own columns record -- the one it declared and each it read --
+    by the same rule the REST routes apply, so the two surfaces cannot come to different answers
+    about the same run. Editing a check therefore cannot rewrite what its history discloses, and
+    deleting a subject cannot free its name for something else to answer for it.
+
+    Held up against a snapshot of the subjects the team has, so the cost tracks the warehouse rather
+    than the length of retained history -- which matters here because this runs before the window
+    that bounds the rows served.
+    """
+    return runs.exclude(unreadable_runs_q(context))
+
+
 def unreadable_suites_q(context: DenialContext) -> Q:
     """Match, in SQL, every suite whose own subject this caller may not read.
 
@@ -209,6 +225,16 @@ def hidden_check_ids(team_id: int, checks: Sequence[DataQualityCheck], context: 
     return hidden | _checks_whose_latest_run_is_unreadable(
         team_id, [check.id for check in checks if check.id not in hidden], context
     )
+
+
+def visible_checks(team_id: int, checks: Sequence[DataQualityCheck], context: DenialContext) -> list[DataQualityCheck]:
+    """The checks a caller may see, by the same rule the REST surfaces apply.
+
+    A check is out of reach on any of three counts: its own subject is unreadable, the definition it
+    would run next reads one that is, or the run behind its ``last_status`` read one.
+    """
+    hidden = hidden_check_ids(team_id, checks, context)
+    return [check for check in checks if check.id not in hidden]
 
 
 def definition_reads_unreadable_subject(

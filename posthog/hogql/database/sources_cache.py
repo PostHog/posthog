@@ -74,9 +74,23 @@ _sources_cache: TTLCache["SourcesCacheKey", "HogQLDatabaseSources"] = TTLCache(
 )
 # cachetools caches are not thread-safe; the lock guards threaded WSGI/Celery workers.
 _sources_cache_lock = threading.Lock()
-# Per-key single-flight locks: concurrent misses for one key wait for a single fetch instead of
-# each running the full Postgres fetch. Entries are removed once their fetch settles.
-_inflight_locks: dict["SourcesCacheKey", threading.Lock] = {}
+
+
+class _InflightFetch:
+    """One in-progress fetch for a key. Waiters block on `done` and consume `result` directly,
+    so a result that is never admitted to the cache (oversized) still reaches every waiter."""
+
+    __slots__ = ("done", "result")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.result: HogQLDatabaseSources | None = None
+
+
+# Per-key single-flight registry: concurrent misses for one key wait for a single fetch instead
+# of each running the full Postgres fetch. An entry is retired atomically with the cache store,
+# so a caller always observes either a cached value or an in-flight fetch, never neither.
+_inflight_fetches: dict["SourcesCacheKey", _InflightFetch] = {}
 
 
 def modifiers_fingerprint(modifiers: "HogQLQueryModifiers") -> str:
@@ -84,40 +98,51 @@ def modifiers_fingerprint(modifiers: "HogQLQueryModifiers") -> str:
 
 
 def get_or_fetch_sources(key: SourcesCacheKey, fetch: Callable[[], "HogQLDatabaseSources"]) -> "HogQLDatabaseSources":
-    key_lock = threading.Lock()
-    with _sources_cache_lock:
-        cached = _sources_cache.get(key)
-        if cached is None:
-            key_lock = _inflight_locks.setdefault(key, key_lock)
-    if cached is not None:
-        SOURCES_CACHE_EVENTS.labels(result="hit").inc()
-        return cached
-
-    # The fetch runs outside the global cache lock so one slow team cannot stall every other
-    # team's lookups; the per-key lock still collapses concurrent same-key misses to one fetch.
-    with key_lock:
+    while True:
         with _sources_cache_lock:
             cached = _sources_cache.get(key)
-        if cached is not None:
-            SOURCES_CACHE_EVENTS.labels(result="hit").inc()
-            return cached
+            if cached is not None:
+                SOURCES_CACHE_EVENTS.labels(result="hit").inc()
+                return cached
+            flight = _inflight_fetches.get(key)
+            is_owner = flight is None
+            if is_owner:
+                flight = _InflightFetch()
+                _inflight_fetches[key] = flight
+        assert flight is not None
+
+        if not is_owner:
+            flight.done.wait()
+            if flight.result is not None:
+                SOURCES_CACHE_EVENTS.labels(result="hit").inc()
+                return flight.result
+            # The owner's fetch raised; loop so one waiter becomes the new owner and retries.
+            continue
 
         SOURCES_CACHE_EVENTS.labels(result="miss").inc()
         try:
+            # The fetch runs outside the global cache lock so one slow team cannot stall every
+            # other team's lookups.
             sources = fetch()
-        finally:
+        except BaseException:
             with _sources_cache_lock:
-                _inflight_locks.pop(key, None)
+                _inflight_fetches.pop(key, None)
+            flight.done.set()
+            raise
 
-        if sources_weight(sources) > SOURCES_CACHE_MAX_ENTRY_WEIGHT:
-            SOURCES_CACHE_EVENTS.labels(result="oversized").inc()
-            return sources
+        oversized = sources_weight(sources) > SOURCES_CACHE_MAX_ENTRY_WEIGHT
+        flight.result = sources
         with _sources_cache_lock:
-            _sources_cache[key] = sources
+            if not oversized:
+                _sources_cache[key] = sources
+            _inflight_fetches.pop(key, None)
+        flight.done.set()
+        if oversized:
+            SOURCES_CACHE_EVENTS.labels(result="oversized").inc()
         return sources
 
 
 def clear_sources_cache() -> None:
     with _sources_cache_lock:
         _sources_cache.clear()
-        _inflight_locks.clear()
+        _inflight_fetches.clear()

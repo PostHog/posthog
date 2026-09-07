@@ -57,7 +57,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _skip_ai_delivery_over_credit_limit_sync,
     generate_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportResult,
+    QueryStepDiagnostic,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
@@ -577,6 +580,71 @@ async def test_deliver_subscription_report_slack(
             )
 
     assert mock_send_slack_async.await_count == 1
+
+
+@patch("products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session")
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@pytest.mark.asyncio
+async def test_deliver_subscription_report_teams(
+    mock_metric_meter: MagicMock,
+    mock_exporter: MagicMock,
+    mock_pinned_session: MagicMock,
+    temporal_client: Client,
+    subscriptions_worker,
+    team,
+    user,
+):
+    # Power Automate acknowledges an accepted card with 202 rather than 200.
+    mock_post = mock_pinned_session.return_value.__enter__.return_value.request
+    mock_post.return_value = MagicMock(status_code=202)
+
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="tms999", name="Insight")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="teams",
+        target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+    )
+
+    def fake_export(asset_obj, **kwargs):
+        asset_obj.content_location = "s3://bucket/teams.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    assert mock_post.call_count == 1
+    card = mock_post.call_args.kwargs["json"]
+    assert card["attachments"][0]["content"]["type"] == "AdaptiveCard"
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription_id=subscription.id)
+    assert delivery.status == DeliveryStatus.COMPLETED
+    assert delivery.recipient_results == [{"recipient": "prod-25.westeurope.logic.azure.com", "status": "success"}]
+    # The delivery row is read-only history the API returns, so it keeps the host, not the URL.
+    assert delivery.target_value == "prod-25.westeurope.logic.azure.com"
 
 
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
@@ -2498,13 +2566,35 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
 
     with patch(
         _GENERATE_REPORT,
-        return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+        return_value=AiReportResult(
+            markdown="# Report",
+            diagnostics=(
+                QueryStepDiagnostic(
+                    description="adoption",
+                    hogql="SELECT expensive",
+                    ok=False,
+                    error_type="ClickHouseQueryMemoryLimitExceeded",
+                    error_code="clickhouse_memory_limit_exceeded",
+                    human_readable_error="Query exceeded the memory limit.",
+                ),
+            ),
+            window_end_utc="2026-06-25T12:00:00+00:00",
+        ),
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
 
     assert result.aborted is False
+    assert result.failed_step_count == 1
+    assert result.total_step_count == 1
+    assert result.query_errors == [
+        {
+            "type": "ClickHouseQueryMemoryLimitExceeded",
+            "code": "clickhouse_memory_limit_exceeded",
+            "message": "Query exceeded the memory limit.",
+        }
+    ]
     # The report is handed to delivery via the row, not the activity return value.
     refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
     assert refreshed.content_snapshot["ai_report"] == "# Report"
@@ -2541,6 +2631,25 @@ async def test_deliver_ai_subscription_missing_slack_integration_auto_disables(t
     assert error is not None and error["type"] == SLACK_DISCONNECTED_DISABLE_REASON.key
     await sync_to_async(sub.refresh_from_db)()
     assert sub.enabled is False
+
+
+async def test_deliver_ai_subscription_posts_the_report_to_teams(team, user):
+    sub = await _create_ai_subscription(
+        team,
+        user,
+        target_type="teams",
+        target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+    )
+    delivery = await _create_ai_delivery(sub, report="# Report")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session") as mock_session:
+        mock_post = mock_session.return_value.__enter__.return_value.request
+        mock_post.return_value = MagicMock(status_code=202)
+        result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+
+    body = mock_post.call_args.kwargs["json"]["attachments"][0]["content"]["body"]
+    assert any("# Report" in block["text"] for block in body)
+    assert result.recipient_results[0].status == "success"
 
 
 async def test_deliver_ai_subscription_missing_report_raises_for_retry(team, user):
