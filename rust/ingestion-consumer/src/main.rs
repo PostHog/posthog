@@ -220,7 +220,11 @@ async fn async_main(config: Config) -> Result<()> {
             None
         };
 
-    let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
+    let mut dispatcher = Dispatcher::with_scheduler(
+        Arc::clone(&registry),
+        config.routing_strategy,
+        config.scheduler,
+    );
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }

@@ -17,6 +17,7 @@
 //! this same interface.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use metrics::{counter, gauge};
 
@@ -172,6 +173,29 @@ impl SchedulerEffects {
         Self {
             dispatches: Vec::with_capacity(capacity),
             ..Self::default()
+        }
+    }
+}
+
+/// Which scheduler implementation the dispatcher runs. Selected by config;
+/// the switch back is the rollback.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SchedulerKind {
+    #[default]
+    PinStash,
+    KeyTable,
+}
+
+impl FromStr for SchedulerKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "pin_stash" | "pin-stash" | "pinstash" => Ok(SchedulerKind::PinStash),
+            "key_table" | "key-table" | "keytable" => Ok(SchedulerKind::KeyTable),
+            other => Err(format!(
+                "unknown scheduler '{other}' (expected 'pin_stash' or 'key_table')"
+            )),
         }
     }
 }

@@ -223,8 +223,9 @@ async fn run_scatter(
     pending: Vec<PendingSubBatch>,
     assignment_epoch: u64,
 ) {
-    // Nothing to send and no deferred groups means no usable workers.
-    if pending.is_empty() && !inner.dispatcher.batch_has_flush_activity(&batch_id) {
+    // Nothing to send and nothing retained by the scheduler means no usable
+    // workers.
+    if pending.is_empty() && !inner.dispatcher.retains_work(&batch_id) {
         counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
         inner.report_error("No healthy workers available to route batch".to_string());
         return;
