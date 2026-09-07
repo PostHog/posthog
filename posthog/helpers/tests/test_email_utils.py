@@ -1,8 +1,10 @@
+from datetime import timedelta
 from typing import Optional, cast
 
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 import requests
 from parameterized import parameterized
@@ -71,6 +73,46 @@ class TestEmailLookupHandler(TestCase):
                         self.assertEqual(found_user.id, user.id)
         finally:
             user.delete()
+
+    @parameterized.expand(
+        [
+            ("typed_lowercase", "twin@example.com"),
+            ("typed_stored_case", "Twin@Example.com"),
+            ("typed_uppercase", "TWIN@EXAMPLE.COM"),
+        ]
+    )
+    def test_case_variants_resolve_to_the_account_used_most_recently(self, _name: str, typed_email: str) -> None:
+        abandoned = User(email="twin@example.com", first_name="Abandoned", last_name="Twin")
+        abandoned.set_password("testpass123")
+        abandoned.last_login = timezone.now() - timedelta(days=400)
+        abandoned.save()
+
+        in_use = User(email="Twin@Example.com", first_name="In", last_name="Use")
+        in_use.set_password("testpass123")
+        in_use.last_login = timezone.now()
+        in_use.save()
+
+        found_user = EmailLookupHandler.get_user_by_email(typed_email)
+
+        self.assertIsNotNone(found_user)
+        if found_user is not None:
+            self.assertEqual(found_user.id, in_use.id)
+
+    def test_account_that_never_logged_in_does_not_win_the_tie_break(self) -> None:
+        never_used = User(email="never@example.com", first_name="Never", last_name="Used")
+        never_used.set_password("testpass123")
+        never_used.save()
+
+        in_use = User(email="Never@Example.com", first_name="In", last_name="Use")
+        in_use.set_password("testpass123")
+        in_use.last_login = timezone.now()
+        in_use.save()
+
+        found_user = EmailLookupHandler.get_user_by_email("never@example.com")
+
+        self.assertIsNotNone(found_user)
+        if found_user is not None:
+            self.assertEqual(found_user.id, in_use.id)
 
 
 class TestEmailValidationHelper(TestCase):

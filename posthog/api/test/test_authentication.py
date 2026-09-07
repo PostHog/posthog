@@ -317,22 +317,21 @@ class TestLoginPrecheckAPI(APIBaseTest):
             response = self.client.post("/api/login/precheck", {"email": "victim-30@posthog.com"})
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_login_precheck_prefers_the_exact_case_match_like_login_does(self):
+    def test_login_precheck_describes_the_account_login_would_authenticate(self):
         # `User.email` is only unique case-*sensitively*, so variations can coexist. Precheck must
-        # describe the same account login would authenticate — an exact-case match wins.
+        # describe the same account login would authenticate: the one still in use, whichever case
+        # the person types.
         User.objects.create_and_join(self.organization, "casey@posthog.com", None)
         with_password = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
         # `create_user` normalizes the address to lowercase, so write the variation in directly — the
         # accounts this guards against predate that normalization.
-        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com")
+        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com", last_login=timezone.now())
 
-        response = self.client.post("/api/login/precheck", {"email": "Casey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], True)
-
-        response = self.client.post("/api/login/precheck", {"email": "casey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], False)
+        for typed_email in ("Casey@posthog.com", "casey@posthog.com"):
+            with self.subTest(email=typed_email):
+                response = self.client.post("/api/login/precheck", {"email": typed_email})
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["password_login_available"], True)
 
 
 class TestLoginAPI(APIBaseTest):
