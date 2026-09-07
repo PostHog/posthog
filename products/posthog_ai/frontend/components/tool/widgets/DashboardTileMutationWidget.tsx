@@ -43,7 +43,13 @@ export function DashboardTileMutationWidget(props: ToolRendererProps): JSX.Eleme
                         <IconDashboard className="text-base" />
                         <span className="min-w-0 truncate font-medium">Dashboard updated</span>
                     </div>
-                    <LemonButton to={to} targetBlank={!revealsTile} size="xsmall" onClick={captureReveal}>
+                    <LemonButton
+                        className="shrink-0"
+                        to={to}
+                        targetBlank={!revealsTile}
+                        size="xsmall"
+                        onClick={captureReveal}
+                    >
                         {revealsTile ? 'Show on dashboard' : 'View dashboard'}
                     </LemonButton>
                 </div>

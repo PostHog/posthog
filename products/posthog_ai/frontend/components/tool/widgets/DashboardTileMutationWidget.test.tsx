@@ -3,28 +3,13 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
 
+import { initKeaTests } from '~/test/init'
+
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { DashboardTileMutationWidget } from './DashboardTileMutationWidget'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-jest.mock('@posthog/lemon-ui', () => ({
-    LemonButton: ({
-        children,
-        onClick,
-        targetBlank,
-        to,
-    }: {
-        children: React.ReactNode
-        onClick?: () => void
-        targetBlank?: boolean
-        to: string
-    }) => (
-        <button role="link" href={to} target={targetBlank ? '_blank' : undefined} onClick={onClick}>
-            {children}
-        </button>
-    ),
-}))
 jest.mock('scenes/urls', () => ({ urls: { dashboard: (id: number): string => `/dashboard/${id}` } }))
 jest.mock('../DataToolRow', () => ({
     DataToolRow: ({ children }: { children: React.ReactNode }) => <div data-attr="data-tool-row">{children}</div>,
@@ -49,6 +34,10 @@ function message(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
 }
 
 describe('DashboardTileMutationWidget', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     afterEach(() => {
         cleanup()
         jest.mocked(posthog.capture).mockClear()
@@ -84,7 +73,7 @@ describe('DashboardTileMutationWidget', () => {
         const { container } = render(<DashboardTileMutationWidget isLastInGroup message={message()} />)
 
         const action = screen.getByRole('link', { name: 'Show on dashboard' })
-        expect(action).toHaveAttribute('href', '/dashboard/7?highlightTileId=41')
+        expect(action).toHaveAttribute('href', '/project/997/dashboard/7?highlightTileId=41')
         expect(action).not.toHaveAttribute('target', '_blank')
         expect(container.querySelector('.flex-wrap')).toBeInTheDocument()
         expect(container.querySelector('.min-w-0')).toBeInTheDocument()
@@ -111,7 +100,7 @@ describe('DashboardTileMutationWidget', () => {
         )
 
         const action = screen.getByRole('link', { name: 'View dashboard' })
-        expect(action).toHaveAttribute('href', '/dashboard/7')
+        expect(action).toHaveAttribute('href', '/project/997/dashboard/7')
         expect(action).toHaveAttribute('target', '_blank')
 
         fireEvent.click(action)
@@ -120,5 +109,18 @@ describe('DashboardTileMutationWidget', () => {
             target_kind: 'dashboard',
         })
         expect(JSON.stringify(jest.mocked(posthog.capture).mock.calls)).not.toContain('Sensitive dashboard name')
+    })
+
+    it('keeps its label and action responsive in a 520px container', () => {
+        const { container } = render(
+            <div data-attr="narrow-container" style={{ width: 520 }}>
+                <DashboardTileMutationWidget isLastInGroup message={message()} />
+            </div>
+        )
+
+        expect(screen.getByTestId('narrow-container')).toHaveStyle({ width: '520px' })
+        expect(container.querySelector('.flex-wrap')).toBeInTheDocument()
+        expect(screen.getByText('Dashboard updated')).toHaveClass('min-w-0', 'truncate')
+        expect(screen.getByRole('link', { name: 'Show on dashboard' })).toHaveClass('shrink-0')
     })
 })

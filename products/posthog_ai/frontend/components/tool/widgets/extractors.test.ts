@@ -4,12 +4,14 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 
 import {
     extractDashboard,
+    extractDashboardCreateRevealTarget,
     extractDashboardMutationRevealTarget,
     extractErrorTrackingResponse,
     extractInsightDashboardRevealTarget,
     extractQueryResult,
     extractRecordingFilters,
     extractVisualizationArtifact,
+    insightRequestIncludesDashboardTarget,
 } from './extractors'
 
 function toolMessage(
@@ -94,6 +96,46 @@ describe('mcp tool adapter extractors', () => {
                 rawInput: { command: 'call dashboard-create {}' },
             })
             expect(dashboard).toBeNull()
+        })
+    })
+
+    describe('extractDashboardCreateRevealTarget', () => {
+        it('accepts a completed dashboard-create response with a positive safe numeric id', () => {
+            expect(extractDashboardCreateRevealTarget(toolMessage({ id: 7 }, {}, 'dashboard-create'))).toEqual({
+                dashboardId: 7,
+            })
+        })
+
+        it.each([{}, { id: 0 }, { id: -1 }, { id: 1.5 }, { id: Number.MAX_SAFE_INTEGER + 1 }, { id: '7' }])(
+            'rejects malformed dashboard-create response %p',
+            (rawOutput) => {
+                expect(extractDashboardCreateRevealTarget(toolMessage(rawOutput, {}, 'dashboard-create'))).toBeNull()
+            }
+        )
+
+        it('rejects other tool keys and unfinished calls', () => {
+            expect(extractDashboardCreateRevealTarget(toolMessage({ id: 7 }, {}, 'dashboard-update'))).toBeNull()
+            expect(
+                extractDashboardCreateRevealTarget({
+                    ...toolMessage({ id: 7 }, {}, 'dashboard-create'),
+                    status: 'pending',
+                })
+            ).toBeNull()
+        })
+    })
+
+    describe('insightRequestIncludesDashboardTarget', () => {
+        it.each([
+            [{ dashboards: [7] }, true],
+            [{ dashboards: [0] }, true],
+            [{ dashboards: [7, 8] }, true],
+            [{ dashboards: '7' }, true],
+            [{ dashboards: [] }, false],
+            [{ dashboards: null }, false],
+            [{}, false],
+            [undefined, false],
+        ])('reports whether %p asks for dashboard placement', (innerInput, expected) => {
+            expect(insightRequestIncludesDashboardTarget(toolMessage({}, innerInput, 'insight-create'))).toBe(expected)
         })
     })
 

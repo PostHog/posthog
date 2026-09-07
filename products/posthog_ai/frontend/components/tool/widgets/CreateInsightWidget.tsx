@@ -8,7 +8,11 @@ import { urls } from 'scenes/urls'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
-import { extractInsightDashboardRevealTarget, extractVisualizationArtifact } from './extractors'
+import {
+    extractInsightDashboardRevealTarget,
+    extractVisualizationArtifact,
+    insightRequestIncludesDashboardTarget,
+} from './extractors'
 import { VisualizationWidget, getArtifactOpenTarget } from './VisualizationWidget'
 
 /**
@@ -19,13 +23,13 @@ import { VisualizationWidget, getArtifactOpenTarget } from './VisualizationWidge
 export function CreateInsightWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const artifact = message.status === 'completed' ? extractVisualizationArtifact(message) : null
+    const dashboardTarget = extractInsightDashboardRevealTarget(message)
 
-    if (!artifact) {
+    if (!artifact || (insightRequestIncludesDashboardTarget(message) && !dashboardTarget)) {
         return <GenericMcpToolRenderer {...props} />
     }
 
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
-    const dashboardTarget = extractInsightDashboardRevealTarget(message)
     const dashboardAction = dashboardTarget ? (
         <LemonButton
             to={

@@ -3,28 +3,13 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
 
+import { initKeaTests } from '~/test/init'
+
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { UpsertDashboardWidget } from './UpsertDashboardWidget'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-jest.mock('@posthog/lemon-ui', () => ({
-    LemonButton: ({
-        children,
-        onClick,
-        targetBlank,
-        to,
-    }: {
-        children: React.ReactNode
-        onClick?: () => void
-        targetBlank?: boolean
-        to: string
-    }) => (
-        <button role="link" href={to} target={targetBlank ? '_blank' : undefined} onClick={onClick}>
-            {children}
-        </button>
-    ),
-}))
 jest.mock('scenes/urls', () => ({ urls: { dashboard: (id: number): string => `/dashboard/${id}` } }))
 jest.mock('../DataToolRow', () => ({
     DataToolRow: ({ children }: { children: React.ReactNode }) => <div data-attr="data-tool-row">{children}</div>,
@@ -49,6 +34,10 @@ function message(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
 }
 
 describe('UpsertDashboardWidget', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     afterEach(() => {
         cleanup()
         jest.mocked(posthog.capture).mockClear()
@@ -73,7 +62,7 @@ describe('UpsertDashboardWidget', () => {
         const { container } = render(<UpsertDashboardWidget isLastInGroup message={message()} />)
 
         const action = screen.getByRole('link', { name: 'View dashboard' })
-        expect(action).toHaveAttribute('href', '/dashboard/7')
+        expect(action).toHaveAttribute('href', '/project/997/dashboard/7')
         expect(action).toHaveAttribute('target', '_blank')
         expect(container.querySelector('.flex-wrap')).toBeInTheDocument()
         expect(container.querySelector('.min-w-0')).toBeInTheDocument()
@@ -96,5 +85,47 @@ describe('UpsertDashboardWidget', () => {
         )
 
         expect(screen.getByRole('link', { name: 'View dashboard' })).toHaveAttribute('target', '_blank')
+    })
+
+    it.each([
+        ['an empty object', {}],
+        ['zero', { id: 0 }],
+        ['a negative number', { id: -1 }],
+        ['a decimal', { id: 1.5 }],
+        ['an unsafe integer', { id: Number.MAX_SAFE_INTEGER + 1 }],
+        ['a string', { id: '7' }],
+        ['an arbitrary object', { name: 'Dashboard', url: '/dashboard/7' }],
+        ['unstructured text', 'created dashboard 7'],
+    ])('falls back when dashboard-create returns %s', (_case, rawOutput) => {
+        render(
+            <UpsertDashboardWidget
+                isLastInGroup
+                message={message({ resolvedKey: 'dashboard-create', innerInput: { name: 'New dashboard' }, rawOutput })}
+            />
+        )
+
+        expect(screen.getByTestId('generic-mcp-tool-renderer')).toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: 'View dashboard' })).not.toBeInTheDocument()
+    })
+
+    it('keeps its label and action responsive in a 520px container', () => {
+        const { container } = render(
+            <div data-attr="narrow-container" style={{ width: 520 }}>
+                <UpsertDashboardWidget
+                    isLastInGroup
+                    message={message({
+                        rawOutput: {
+                            id: 7,
+                            name: 'A dashboard name that is intentionally long enough to require truncation',
+                        },
+                    })}
+                />
+            </div>
+        )
+
+        expect(screen.getByTestId('narrow-container')).toHaveStyle({ width: '520px' })
+        expect(container.querySelector('.flex-wrap')).toBeInTheDocument()
+        expect(screen.getByText(/intentionally long/)).toHaveClass('min-w-0', 'truncate')
+        expect(screen.getByRole('link', { name: 'View dashboard' })).toHaveClass('shrink-0')
     })
 })

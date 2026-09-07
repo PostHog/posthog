@@ -3,28 +3,13 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
 
+import { initKeaTests } from '~/test/init'
+
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { CreateInsightWidget } from './CreateInsightWidget'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-jest.mock('@posthog/lemon-ui', () => ({
-    LemonButton: ({
-        children,
-        onClick,
-        targetBlank,
-        to,
-    }: {
-        children: React.ReactNode
-        onClick?: () => void
-        targetBlank?: boolean
-        to: string
-    }) => (
-        <button role="link" href={to} target={targetBlank ? '_blank' : undefined} onClick={onClick}>
-            {children}
-        </button>
-    ),
-}))
 jest.mock('scenes/urls', () => ({
     urls: {
         dashboard: (id: number): string => `/dashboard/${id}`,
@@ -68,6 +53,10 @@ function message(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
 }
 
 describe('CreateInsightWidget', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     afterEach(() => {
         cleanup()
         jest.mocked(posthog.capture).mockClear()
@@ -89,7 +78,7 @@ describe('CreateInsightWidget', () => {
         render(<CreateInsightWidget isLastInGroup message={message()} />)
 
         const action = screen.getByRole('link', { name: 'Show on dashboard' })
-        expect(action).toHaveAttribute('href', '/dashboard/7?highlightTileId=41')
+        expect(action).toHaveAttribute('href', '/project/997/dashboard/7?highlightTileId=41')
         expect(action).not.toHaveAttribute('target', '_blank')
 
         fireEvent.click(action)
@@ -99,15 +88,50 @@ describe('CreateInsightWidget', () => {
         })
     })
 
-    it('retains the visualization but omits the reveal action for mismatched dashboard membership', () => {
+    it.each([
+        ['mismatched dashboard membership', { dashboards: [7] }, [{ id: 41, dashboard_id: 8, deleted: false }]],
+        [
+            'ambiguous dashboard membership',
+            { dashboards: [7] },
+            [
+                { id: 41, dashboard_id: 7, deleted: false },
+                { id: 42, dashboard_id: 7, deleted: false },
+            ],
+        ],
+        [
+            'unsafe dashboard membership',
+            { dashboards: [7] },
+            [{ id: Number.MAX_SAFE_INTEGER + 1, dashboard_id: 7, deleted: false }],
+        ],
+    ])('falls back for %s', (_case, innerInput, dashboardTiles) => {
         render(
             <CreateInsightWidget
                 isLastInGroup
                 message={message({
+                    innerInput,
                     rawOutput: {
                         short_id: 'abc12345',
                         query: { kind: 'TrendsQuery' },
-                        dashboard_tiles: [{ id: 41, dashboard_id: 8, deleted: false }],
+                        dashboard_tiles: dashboardTiles,
+                    },
+                })}
+            />
+        )
+
+        expect(screen.getByTestId('generic-mcp-tool-renderer')).toBeInTheDocument()
+        expect(screen.queryByTestId('visualization-widget')).not.toBeInTheDocument()
+    })
+
+    it('keeps the visualization for a valid insight that did not request dashboard placement', () => {
+        render(
+            <CreateInsightWidget
+                isLastInGroup
+                message={message({
+                    innerInput: { dashboards: [] },
+                    rawOutput: {
+                        short_id: 'abc12345',
+                        query: { kind: 'TrendsQuery' },
+                        dashboard_tiles: [],
                     },
                 })}
             />

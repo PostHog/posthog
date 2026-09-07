@@ -36,6 +36,10 @@ function asPositiveSafeInteger(value: unknown): number | null {
     return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
 }
 
+function asPositiveSafeIntegerNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
 function asRecordArray(value: unknown): Record<string, unknown>[] | null {
     if (!Array.isArray(value)) {
         return null
@@ -105,6 +109,26 @@ export interface DashboardRevealTarget {
     dashboardId: number
     tileId?: number
     insightShortId?: string
+}
+
+/** Dashboard creation routes require the numeric ID returned by the completed first-party tool. */
+export function extractDashboardCreateRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    if (message.status !== 'completed' || message.resolvedKey !== 'dashboard-create') {
+        return null
+    }
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
+    const dashboardId = asPositiveSafeIntegerNumber(output?.id)
+    return dashboardId === null ? null : { dashboardId }
+}
+
+/** Distinguishes an ordinary insight result from one that requested dashboard placement. */
+export function insightRequestIncludesDashboardTarget(message: ToolCallMessage): boolean {
+    const input = asRecord(message.innerInput)
+    if (!input || !Object.prototype.hasOwnProperty.call(input, 'dashboards')) {
+        return false
+    }
+    const dashboards = input.dashboards
+    return dashboards !== null && dashboards !== undefined && (!Array.isArray(dashboards) || dashboards.length > 0)
 }
 
 const DASHBOARD_TILE_CREATE_KEYS = new Set(['dashboard-create-tile', 'dashboard-create-text-tile'])

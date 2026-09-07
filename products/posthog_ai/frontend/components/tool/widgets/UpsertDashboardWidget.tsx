@@ -9,7 +9,11 @@ import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
-import { extractDashboard, extractDashboardMutationRevealTarget } from './extractors'
+import {
+    extractDashboard,
+    extractDashboardCreateRevealTarget,
+    extractDashboardMutationRevealTarget,
+} from './extractors'
 
 /**
  * Dashboard create / update tool calls. v1 is a status line + "View dashboard" CTA (a full
@@ -20,9 +24,13 @@ export function UpsertDashboardWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const dashboard = message.status === 'completed' ? extractDashboard(message) : null
     const dashboardTarget =
-        message.resolvedKey === 'dashboard-update' ? extractDashboardMutationRevealTarget(message) : null
+        message.resolvedKey === 'dashboard-update'
+            ? extractDashboardMutationRevealTarget(message)
+            : extractDashboardCreateRevealTarget(message)
+    const requiresStrictTarget =
+        message.resolvedKey === 'dashboard-update' || message.resolvedKey === 'dashboard-create'
 
-    if (!dashboard || (message.resolvedKey === 'dashboard-update' && !dashboardTarget)) {
+    if (!dashboard || (requiresStrictTarget && !dashboardTarget)) {
         return <GenericMcpToolRenderer {...props} />
     }
 
@@ -47,7 +55,14 @@ export function UpsertDashboardWidget(props: ToolRendererProps): JSX.Element {
                         <span className="min-w-0 truncate font-medium">{dashboard.name || 'Dashboard ready'}</span>
                     </div>
                     {to && (
-                        <LemonButton to={to} targetBlank size="xsmall" tooltip="Open dashboard" onClick={captureReveal}>
+                        <LemonButton
+                            className="shrink-0"
+                            to={to}
+                            targetBlank
+                            size="xsmall"
+                            tooltip="Open dashboard"
+                            onClick={captureReveal}
+                        >
                             View dashboard
                         </LemonButton>
                     )}
