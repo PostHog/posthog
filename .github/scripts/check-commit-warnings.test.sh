@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Covers the two warn-only pre-commit scripts.
+# Covers the warn-only pre-commit scripts.
 set -euo pipefail
 
 index="$(mktemp)"
@@ -54,5 +54,20 @@ output="$(run .github/scripts/check-claude-hooks.sh)"
 [ -z "$output" ] || fail "hooks warning fired on an unrelated path"
 output="$(run .github/scripts/check-quill-agents-md.sh)"
 [ -z "$output" ] || fail "quill warning fired on an unrelated path"
+
+# An index equal to HEAD has no staged diff, so nothing to warn about.
+from_head
+output="$(run .github/scripts/check-comment-density.sh 2>&1)"
+[ -z "$output" ] || fail "comment density warning fired with nothing staged"
+
+# A staged file that is mostly comment lines. Staged as a fresh blob so the diff
+# against HEAD is the file's whole content.
+commenty="$( (for i in $(seq 40); do echo "# step $i"; done; for i in $(seq 20); do echo "x$i = $i"; done) | git hash-object -w --stdin)"
+printf '100644 %s\t%s\n' "$commenty" posthog/new_commenty_module.py | GIT_INDEX_FILE="$index" git update-index --index-info
+output="$(run .github/scripts/check-comment-density.sh 2>&1)"
+case "$output" in
+    *"of added code lines are comments"*"posthog/new_commenty_module.py"*) ;;
+    *) fail "a comment-heavy staged file produced no comment density warning" ;;
+esac
 
 echo "ok"
