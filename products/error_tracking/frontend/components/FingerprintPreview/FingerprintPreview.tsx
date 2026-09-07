@@ -1,87 +1,111 @@
 import { useActions, useValues } from 'kea'
 
-import { ScatterChart, TooltipSurface } from '@posthog/quill-charts'
-
-import { useChartTheme } from 'lib/charts/hooks'
-import { Button, Spinner, Text } from 'lib/ui/quill'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Button, ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import { PropertyOperator } from '~/types'
 
+import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
+import { FingerprintList } from './FingerprintList'
+import { FingerprintMap } from './FingerprintMap'
 import { fingerprintProjectionLogic } from './fingerprintProjectionLogic'
+import { fingerprintSamplesLogic } from './fingerprintSamplesLogic'
+import { manageFingerprintsLogic } from './manageFingerprintsLogic'
+import { similarFingerprintsLogic } from './similarFingerprintsLogic'
+import { SimilarFingerprintsModal } from './SimilarFingerprintsModal'
 
 export function FingerprintPreview({ issueId }: { issueId: string }): JSX.Element {
+    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const { fingerprintDomains, fingerprintSeries, projection, projectionError, projectionLoading } = useValues(
         fingerprintProjectionLogic({ issueId })
     )
     const { loadProjection } = useActions(fingerprintProjectionLogic({ issueId }))
-    const { applyPropertyFilter } = useActions(issueFilterPreviewLogic)
-    const theme = useChartTheme()
+    const { issueFingerprints, issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { samples, samplesLoading } = useValues(fingerprintSamplesLogic({ issueId }))
+    const { fingerprintsViewMode } = useValues(issueFilterPreviewLogic)
+    const { applyPropertyFilter, setFingerprintsViewMode } = useActions(issueFilterPreviewLogic)
+    const { openSimilar } = useActions(similarFingerprintsLogic({ issueId }))
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId }))
+
+    const filterByFingerprint = (fingerprint: string): void => {
+        applyPropertyFilter('$exception_fingerprint', fingerprint, PropertyOperator.Exact, true)
+    }
+
+    const mapUnavailable = !projectionLoading && projectionError === null && projection.results.length === 0
+    // The view mode persists across issues, so an issue without embeddings has to fall back on its own.
+    const viewMode = mapUnavailable ? 'list' : fingerprintsViewMode
+
+    const mapToggleItem = (
+        <ToggleGroupItem value="map" disabled={mapUnavailable} data-attr="error-tracking-fingerprints-view-map">
+            Map
+        </ToggleGroupItem>
+    )
 
     return (
         <div className="flex flex-col">
-            <IssueFilterPreviewHeader preview="fingerprints" title="Fingerprints" />
-            <div className="flex h-64 min-h-0 flex-col px-3 pb-3 pt-2">
-                {projectionLoading ? (
-                    <div className="flex min-h-0 flex-1 items-center justify-center">
-                        <Spinner />
-                    </div>
-                ) : projectionError ? (
-                    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-center">
-                        <Text variant="muted">Couldn't load the fingerprint map.</Text>
+            <IssueFilterPreviewHeader preview="fingerprints" title="Fingerprints">
+                <div className="flex w-full items-center justify-between gap-3">
+                    <ToggleGroup
+                        size="sm"
+                        aria-label="Fingerprints view"
+                        value={[viewMode]}
+                        onValueChange={(value) => {
+                            const next = value[0]
+                            if (next === 'list' || next === 'map') {
+                                setFingerprintsViewMode(next)
+                            }
+                        }}
+                    >
+                        <ToggleGroupItem value="list" data-attr="error-tracking-fingerprints-view-list">
+                            List
+                        </ToggleGroupItem>
+                        {mapUnavailable ? (
+                            <Tooltip>
+                                <TooltipTrigger render={<span className="inline-flex" />}>
+                                    {mapToggleItem}
+                                </TooltipTrigger>
+                                <TooltipContent>No fingerprint embeddings for this issue yet.</TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            mapToggleItem
+                        )}
+                    </ToggleGroup>
+                    {hasIssueSplitting && (
                         <Button
                             variant="default"
                             size="sm"
-                            loading={projectionLoading}
-                            onClick={() => loadProjection()}
+                            onClick={openManage}
+                            data-attr="error-tracking-manage-fingerprints"
                         >
-                            Retry
+                            Manage fingerprints
                         </Button>
-                    </div>
-                ) : projection.results.length === 0 ? (
-                    <div className="flex min-h-0 flex-1 items-center justify-center text-center">
-                        <Text variant="muted">No fingerprint embeddings available yet.</Text>
-                    </div>
+                    )}
+                </div>
+            </IssueFilterPreviewHeader>
+            <div className="flex h-64 min-h-0 flex-col px-3 pb-3 pt-2">
+                {viewMode === 'map' ? (
+                    <FingerprintMap
+                        domains={fingerprintDomains}
+                        series={fingerprintSeries}
+                        hasMore={projection.hasMore}
+                        loading={projectionLoading}
+                        error={projectionError}
+                        onRetry={loadProjection}
+                        onSelect={filterByFingerprint}
+                    />
                 ) : (
-                    <>
-                        <div className="min-h-0 flex-1">
-                            <ScatterChart
-                                series={fingerprintSeries}
-                                theme={theme}
-                                config={{
-                                    xAxis: { hide: true, domain: fingerprintDomains?.x },
-                                    yAxis: { hide: true, domain: fingerprintDomains?.y },
-                                    margins: { top: 8, right: 8, bottom: 8, left: 8 },
-                                    pointRadius: 5,
-                                    tooltip: { placement: 'cursor' },
-                                }}
-                                className="h-full"
-                                dataAttr="error-tracking-fingerprint-scatter"
-                                tooltip={({ point }) => (
-                                    <TooltipSurface data-attr="error-tracking-fingerprint-tooltip">
-                                        {point.label}
-                                    </TooltipSurface>
-                                )}
-                                onPointClick={(point) => {
-                                    if (point.meta?.fingerprint) {
-                                        applyPropertyFilter(
-                                            '$exception_fingerprint',
-                                            point.meta.fingerprint,
-                                            PropertyOperator.Exact,
-                                            true
-                                        )
-                                    }
-                                }}
-                            />
-                        </div>
-                        <Text size="xs" variant="muted" className="pt-1 text-center">
-                            {projection.hasMore ? 'This map uses a sample of fingerprints. ' : ''}
-                            Nearby points are similar. Select one to filter exceptions.
-                        </Text>
-                    </>
+                    <FingerprintList
+                        fingerprints={issueFingerprints}
+                        samples={samples}
+                        loading={issueFingerprintsLoading || samplesLoading}
+                        onSelect={filterByFingerprint}
+                        onFindSimilar={openSimilar}
+                    />
                 )}
             </div>
+            <SimilarFingerprintsModal issueId={issueId} samples={samples} />
         </div>
     )
 }

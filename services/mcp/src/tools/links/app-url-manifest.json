@@ -649,11 +649,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "errorTrackingIssueFingerprints": {
-        "template": "/error_tracking/{id}/fingerprints",
-        "params": ["id"],
-        "scope": "project"
-    },
     "event": {
         "template": "/events/{id}/{timestamp}",
         "params": ["id", "timestamp"],

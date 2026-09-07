@@ -30,6 +30,8 @@ import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsL
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
+import { manageFingerprintsLogic } from '../../components/FingerprintPreview/manageFingerprintsLogic'
+import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
@@ -95,19 +97,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     <SceneMenuBar>
                                         <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
                                             <SceneMenuBarFileItems dataAttrKey="issue" />
-                                            {hasIssueSplitting && (
-                                                <SceneMenuBarItem
-                                                    onClick={() =>
-                                                        window.open(
-                                                            urls.errorTrackingIssueFingerprints(issue.id),
-                                                            '_self'
-                                                        )
-                                                    }
-                                                    data-attr="issue-menubar-fingerprints"
-                                                >
-                                                    Manage fingerprints
-                                                </SceneMenuBarItem>
-                                            )}
+                                            {hasIssueSplitting && <ManageFingerprintsMenuItem issueId={issueId} />}
                                         </SceneMenuBarMenu>
                                         <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
                                             <SceneMenuBarItem
@@ -221,6 +211,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 )}
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
+                                {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
@@ -325,5 +316,14 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
 
             {!isMobile && <Resizer {...resizerLogicProps} />}
         </div>
+    )
+}
+
+function ManageFingerprintsMenuItem({ issueId }: { issueId: string }): JSX.Element {
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId }))
+    return (
+        <SceneMenuBarItem onClick={openManage} data-attr="issue-menubar-fingerprints">
+            Manage fingerprints
+        </SceneMenuBarItem>
     )
 }

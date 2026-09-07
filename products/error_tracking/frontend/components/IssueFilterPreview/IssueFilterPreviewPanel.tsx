@@ -27,12 +27,11 @@ export function IssueFilterPreviewPanel({
     const { activePreview } = useValues(issueFilterPreviewLogic)
     const { issueId } = useValues(errorTrackingIssueSceneLogic)
     const { setActivePreview } = useActions(issueFilterPreviewLogic)
-    const hasFingerprintMap = useFeatureFlag('ERROR_TRACKING_FINGERPRINT_MAP')
     const hasReleases = useFeatureFlag('ERROR_TRACKING_ISSUE_RELEASES')
     const previewEnabled: Record<IssueFilterPreview, boolean> = {
         time: true,
         properties: true,
-        fingerprints: hasFingerprintMap,
+        fingerprints: true,
         releases: hasReleases,
     }
     const selectedPreview = previewEnabled[activePreview] ? activePreview : 'time'
@@ -92,22 +91,20 @@ export function IssueFilterPreviewPanel({
                                 </TooltipTrigger>
                                 <TooltipContent side="right">Properties</TooltipContent>
                             </Tooltip>
-                            {hasFingerprintMap && (
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        render={
-                                            <TabsTrigger
-                                                value="fingerprints"
-                                                aria-label="Fingerprints"
-                                                className="!size-8 !flex-none !justify-center !p-0"
-                                            />
-                                        }
-                                    >
-                                        <IconFingerprint />
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right">Fingerprints</TooltipContent>
-                                </Tooltip>
-                            )}
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <TabsTrigger
+                                            value="fingerprints"
+                                            aria-label="Fingerprints"
+                                            className="!size-8 !flex-none !justify-center !p-0"
+                                        />
+                                    }
+                                >
+                                    <IconFingerprint />
+                                </TooltipTrigger>
+                                <TooltipContent side="right">Fingerprints</TooltipContent>
+                            </Tooltip>
                             {hasReleases && (
                                 <Tooltip>
                                     <TooltipTrigger
@@ -131,11 +128,9 @@ export function IssueFilterPreviewPanel({
                         <TabsContent value="properties" className="min-w-0 !flex-none flex-1">
                             <MiniBreakdowns />
                         </TabsContent>
-                        {hasFingerprintMap && (
-                            <TabsContent value="fingerprints" className="min-w-0 !flex-none flex-1">
-                                <FingerprintPreview issueId={issueId} />
-                            </TabsContent>
-                        )}
+                        <TabsContent value="fingerprints" className="min-w-0 !flex-none flex-1">
+                            <FingerprintPreview issueId={issueId} />
+                        </TabsContent>
                         {hasReleases && (
                             <TabsContent value="releases" className="min-w-0 !flex-none flex-1">
                                 <IssueReleasesPreview issueId={issueId} />

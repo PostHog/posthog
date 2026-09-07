@@ -24,14 +24,18 @@ import { TEST_EVENTS } from './__mocks__/events'
 import { results as stackFrameResults } from './__mocks__/stack_frames/batch_get'
 import { BreakdownPreset } from './components/Breakdowns/consts'
 import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic'
+import { manageFingerprintsLogic } from './components/FingerprintPreview/manageFingerprintsLogic'
+import { similarFingerprintsLogic } from './components/FingerprintPreview/similarFingerprintsLogic'
 import {
     issueFilterPreviewLogic,
     IssueFilterPreview,
+    IssueFingerprintsViewMode,
     IssueReleasesViewMode,
 } from './components/IssueFilterPreview/issueFilterPreviewLogic'
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const FINGERPRINT_LIST_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5c'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
 const STORY_FINGERPRINTS = [FINGERPRINT, ...Array.from({ length: 11 }, (_, index) => `story-fingerprint-${index + 1}`)]
 const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
@@ -41,6 +45,42 @@ const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
         y: Math.sin(index * 1.7) * (1 + (index % 4) * 0.3),
     })),
     hasMore: false,
+}
+const STORY_FINGERPRINT_SAMPLE_EXCEPTIONS = [
+    { type: 'TypeError', value: "Cannot read property 'billing' of undefined", lib: 'web' },
+    { type: 'TypeError', value: 'response.json is not a function', lib: 'posthog-node' },
+    { type: 'RangeError', value: 'Maximum call stack size exceeded', lib: 'web' },
+    { type: 'SyntaxError', value: 'Unexpected token < in JSON at position 0', lib: 'posthog-python' },
+    { type: 'ReferenceError', value: 'plan is not defined', lib: 'posthog-ruby' },
+    { type: 'NetworkError', value: 'Failed to fetch', lib: 'posthog-go' },
+]
+const STORY_FINGERPRINT_SAMPLES_RESPONSE = {
+    results: STORY_FINGERPRINTS.map((fingerprint, index) => [
+        fingerprint,
+        (index + 1) * 7,
+        [STORY_FINGERPRINT_SAMPLE_EXCEPTIONS[index % STORY_FINGERPRINT_SAMPLE_EXCEPTIONS.length]],
+    ]),
+}
+const STORY_SIMILAR_ISSUE_IDS = ['01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a60', '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a61']
+const STORY_SIMILARITY_RESPONSE = {
+    results: STORY_FINGERPRINTS.slice(1, 7).map((fingerprint, index) => ({
+        result: {
+            product: 'error_tracking',
+            document_type: 'fingerprint',
+            document_id: fingerprint,
+            timestamp: '2024-07-08T15:42:00.000Z',
+            model_name: 'text-embedding-3-large-3072',
+            rendering: 'type_message_and_stack',
+        },
+        distance: 0.04 + index * 0.13,
+    })),
+}
+const STORY_SIMILAR_HYDRATION_RESPONSE = {
+    results: STORY_FINGERPRINTS.slice(1, 7).map((fingerprint, index) => [
+        fingerprint,
+        index % 3 === 0 ? ISSUE_ID : STORY_SIMILAR_ISSUE_IDS[index % 2],
+        [STORY_FINGERPRINT_SAMPLE_EXCEPTIONS[index % STORY_FINGERPRINT_SAMPLE_EXCEPTIONS.length]],
+    ]),
 }
 const STORY_STACK_FRAME_RESULTS = stackFrameResults.map((record) => ({
     ...record,
@@ -82,6 +122,13 @@ const STORY_PERSON = {
     created_at: '2024-07-01T10:00:00.000Z',
     properties: { email: 'developer@example.com' },
 }
+// The manage-fingerprints pane asks for one sample event per fingerprint, with its own column set.
+const STORY_FINGERPRINT_EVENT_RESPONSE = {
+    columns: ['uuid', 'properties', 'timestamp', 'distinct_id'],
+    hasMore: false,
+    results: [[STORY_EVENT_UUIDS[0], STORY_EVENT_PROPERTIES, STORY_TIMESTAMPS[0], STORY_PERSON.distinct_id]],
+}
+
 const STORY_EVENTS_RESPONSE = {
     columns: ['*', 'timestamp', 'person'],
     hasMore: false,
@@ -473,15 +520,30 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as {
-                        query?: { kind?: string; select?: string[]; maxReleases?: number }
+                        query?: {
+                            kind?: string
+                            issueId?: string
+                            select?: string[]
+                            where?: string[]
+                            maxReleases?: number
+                            query?: string
+                        }
                     }
                     if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
                     if (body.query?.kind === NodeKind.ErrorTrackingFingerprintProjectionQuery) {
-                        return [200, STORY_FINGERPRINT_PROJECTION_RESPONSE]
+                        return [
+                            200,
+                            body.query.issueId === FINGERPRINT_LIST_ISSUE_ID
+                                ? { results: [], hasMore: false }
+                                : STORY_FINGERPRINT_PROJECTION_RESPONSE,
+                        ]
                     }
                     if (body.query?.kind === NodeKind.EventsQuery) {
+                        if (body.query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
+                            return [200, STORY_FINGERPRINT_EVENT_RESPONSE]
+                        }
                         return body.query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
@@ -489,9 +551,18 @@ const meta: Meta = {
                     if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
                         return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    if (body.query?.kind === NodeKind.DocumentSimilarityQuery) {
+                        return [200, STORY_SIMILARITY_RESPONSE]
+                    }
+                    if (body.query?.kind === NodeKind.HogQLQuery) {
+                        if (body.query.query?.includes('any(issue_id)')) {
+                            return [200, STORY_SIMILAR_HYDRATION_RESPONSE]
+                        }
+                        return body.query.query?.includes('$exception_fingerprint')
+                            ? [200, STORY_FINGERPRINT_SAMPLES_RESPONSE]
+                            : [200, { results: [] }]
+                    }
+                    return [200, STORY_SUMMARY_RESPONSE]
                 },
                 '/api/environments/:team_id/error_tracking/stack_frames/batch_get/': [
                     200,
@@ -663,20 +734,36 @@ function IssueScenePreviewStory({
     openBreakdown,
     propertyFilter,
     releasesViewMode,
+    fingerprintsViewMode,
+    openSimilarFingerprint,
+    manageFingerprintsOpen,
 }: {
     activePreview: IssueFilterPreview
     selectedEventProperties?: string
     openBreakdown?: BreakdownPreset
     propertyFilter?: { key: string; value: string }
     releasesViewMode?: IssueReleasesViewMode
+    fingerprintsViewMode?: IssueFingerprintsViewMode
+    openSimilarFingerprint?: string
+    manageFingerprintsOpen?: boolean
 }): JSX.Element {
-    const { applyPropertyFilter, setActivePreview, setReleasesViewMode } = useActions(issueFilterPreviewLogic)
+    const { applyPropertyFilter, setActivePreview, setReleasesViewMode, setFingerprintsViewMode } =
+        useActions(issueFilterPreviewLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic({ id: ISSUE_ID }))
     const { openBreakdownDetails } = useActions(miniBreakdownsLogic({ issueId: ISSUE_ID }))
+    const { openSimilar } = useActions(similarFingerprintsLogic({ issueId: ISSUE_ID }))
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId: FINGERPRINT_LIST_ISSUE_ID }))
 
     useLayoutEffect(() => {
         setActivePreview(activePreview)
         setReleasesViewMode(releasesViewMode ?? 'list')
+        setFingerprintsViewMode(fingerprintsViewMode ?? 'list')
+        if (openSimilarFingerprint) {
+            openSimilar(openSimilarFingerprint, '2024-07-08T15:42:00.000Z')
+        }
+        if (manageFingerprintsOpen) {
+            openManage()
+        }
         if (selectedEventProperties) {
             selectEvent({
                 event: '$exception',
@@ -700,13 +787,19 @@ function IssueScenePreviewStory({
     }, [
         activePreview,
         applyPropertyFilter,
+        fingerprintsViewMode,
         openBreakdown,
         openBreakdownDetails,
+        manageFingerprintsOpen,
+        openManage,
+        openSimilar,
+        openSimilarFingerprint,
         propertyFilter,
         releasesViewMode,
         selectEvent,
         selectedEventProperties,
         setActivePreview,
+        setFingerprintsViewMode,
         setReleasesViewMode,
     ])
 
@@ -799,11 +892,29 @@ export const GroupPageCappedBreakdownPanel: Story = {
 
 export const GroupPageFingerprintMap: Story = {
     name: 'Issue scene with fingerprint map',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_FINGERPRINT_MAP],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" fingerprintsViewMode="map" />,
+}
+
+export const GroupPageFingerprintList: Story = {
+    name: 'Issue scene with fingerprint list',
+    parameters: { pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="fingerprints" />,
+}
+
+export const GroupPageSimilarFingerprints: Story = {
+    name: 'Issue scene with similar fingerprints',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" openSimilarFingerprint={FINGERPRINT} />,
+}
+
+export const GroupPageManageFingerprints: Story = {
+    name: 'Issue scene with manage fingerprints',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_SPLITTING],
+    },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" manageFingerprintsOpen />,
 }
 
 export const GroupPageReleases: Story = {
