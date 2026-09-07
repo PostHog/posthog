@@ -1,3 +1,5 @@
+import { DashboardPlacement } from '~/types'
+
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 export interface DashboardAgentContextDashboard {
@@ -60,4 +62,11 @@ export function buildDashboardAgentContext(dashboard: DashboardAgentContextDashb
             dismissGroup: DASHBOARD_DISMISS_GROUP,
         },
     ]
+}
+
+export function dashboardAgentContextForPlacement(
+    dashboard: DashboardAgentContextDashboard | null,
+    placement: DashboardPlacement
+): AttachedContextItem[] | null {
+    return dashboard && placement === DashboardPlacement.Dashboard ? buildDashboardAgentContext(dashboard) : null
 }

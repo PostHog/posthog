@@ -1,4 +1,6 @@
-import { buildDashboardAgentContext } from './dashboardAgentContext'
+import { DashboardPlacement } from '~/types'
+
+import { buildDashboardAgentContext, dashboardAgentContextForPlacement } from './dashboardAgentContext'
 
 function instructionValues(contextItems: ReturnType<typeof buildDashboardAgentContext>): string[] {
     return contextItems.filter((item) => item.type === 'instructions').map((item) => item.value ?? '')
@@ -56,5 +58,29 @@ describe('dashboardAgentContext', () => {
             'Open dashboard: {"id":6}',
             'Open dashboard: {"id":5}',
         ])
+    })
+
+    it('attaches context on the standard dashboard page', () => {
+        expect(
+            dashboardAgentContextForPlacement({ id: 5, name: 'Growth overview' }, DashboardPlacement.Dashboard)
+        ).toEqual(buildDashboardAgentContext({ id: 5, name: 'Growth overview' }))
+    })
+
+    test.each([
+        DashboardPlacement.CustomerAnalytics,
+        DashboardPlacement.ProjectHomepage,
+        DashboardPlacement.FeatureFlag,
+        DashboardPlacement.Public,
+        DashboardPlacement.Export,
+        DashboardPlacement.Person,
+        DashboardPlacement.Group,
+        DashboardPlacement.Builtin,
+        DashboardPlacement.DataOps,
+    ])('does not attach dashboard scene context for %s placement', (placement) => {
+        expect(dashboardAgentContextForPlacement({ id: 5 }, placement)).toBeNull()
+    })
+
+    it('does not attach context before the dashboard has loaded', () => {
+        expect(dashboardAgentContextForPlacement(null, DashboardPlacement.Dashboard)).toBeNull()
     })
 })
