@@ -4333,6 +4333,41 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(insight_tile.layouts["sm"], {"x": 0, "y": 2, "w": 4, "h": 5})
         self.assertEqual(insight_tile.layouts["xs"], {"x": 0, "y": 2, "w": 1, "h": 5})
 
+    @parameterized.expand(
+        [
+            ("boolean", True),
+            ("string", "2"),
+            ("zero", 0),
+            ("negative", -1),
+        ]
+    )
+    def test_reorder_tiles_three_column_falls_back_for_invalid_saved_separator_height(
+        self, _case: str, saved_height: object
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        header_tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            text=Text.objects.create(body="# Website health", team=self.team),
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": saved_height}},
+        )
+        insight_tile = DashboardTile.objects.create(
+            dashboard=dashboard, insight=Insight.objects.create(team=self.team, name="Insight")
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [header_tile.pk, insight_tile.pk], "layout": "three_column"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        header_tile.refresh_from_db()
+        insight_tile.refresh_from_db()
+        self.assertEqual(header_tile.layouts["sm"], {"x": 0, "y": 0, "w": 12, "h": 2})
+        self.assertEqual(header_tile.layouts["xs"], {"x": 0, "y": 0, "w": 1, "h": 2})
+        self.assertEqual(insight_tile.layouts["sm"], {"x": 0, "y": 2, "w": 4, "h": 5})
+        self.assertEqual(insight_tile.layouts["xs"], {"x": 0, "y": 2, "w": 1, "h": 5})
+
     def test_reorder_tiles_three_column_requires_every_visible_tile(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         first_tile = DashboardTile.objects.create(

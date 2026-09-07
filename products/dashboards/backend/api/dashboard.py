@@ -482,7 +482,7 @@ def _three_column_separator_height(tile: DashboardTile) -> int:
             layouts = None
     sm = layouts.get("sm") if isinstance(layouts, dict) else None
     height = sm.get("h") if isinstance(sm, dict) else None
-    return height if isinstance(height, int) and height > 0 else DEFAULT_TEXT_TILE_SIZE.height
+    return height if type(height) is int and height > 0 else DEFAULT_TEXT_TILE_SIZE.height
 
 
 def _apply_reorder_layout(
