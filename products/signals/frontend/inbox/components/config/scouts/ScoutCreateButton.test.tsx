@@ -33,9 +33,11 @@ const mockGetAccessControlDisabledReason = getAccessControlDisabledReason as jes
 
 describe('scout creation buttons', () => {
     let startedChatTypes: string[]
+    let refreshRequests: number
 
     beforeEach(() => {
         startedChatTypes = []
+        refreshRequests = 0
         mockGetAccessControlDisabledReason.mockReturnValue(null)
         useMocks({
             get: {
@@ -98,7 +100,7 @@ describe('scout creation buttons', () => {
         setSuggestionsFlag(true)
         const logic = scoutSuggestionsLogic()
         logic.mount()
-        await waitFor(() => expect(logic.values.hasBatch).toBe(true))
+        await waitFor(() => expect(logic.values.hasPicks).toBe(true))
         const { findByText, queryByText } = render(<ScoutsRosterActions />)
         expect(queryByText('Suggest a scout')).toBeNull()
 
@@ -107,6 +109,33 @@ describe('scout creation buttons', () => {
 
         expect(logic.values.stripHidden).toBe(false)
         expect(logic.values.collapsed).toBe(false)
+        expect(startedChatTypes).toEqual([])
+        logic.unmount()
+    })
+
+    // A project with no picks has no strip to reopen, so the header button is the only entry point
+    // there. It has to be present, and it has to pay for a scan rather than open a chat.
+    it('starts a scan from the header on a project with no picks', async () => {
+        setSuggestionsFlag(true)
+        useMocks({
+            get: { '/api/projects/:team/signals/scout/suggestions/': mockScoutSuggestionSet({ items: [] }) },
+            post: {
+                '/api/projects/:team/signals/scout/suggestions/refresh/': () => {
+                    refreshRequests += 1
+                    return [200, { workflow_id: 'workflow-1' }]
+                },
+            },
+        })
+        const logic = scoutSuggestionsLogic()
+        logic.mount()
+        const { findByText } = render(<ScoutsRosterActions />)
+        // The button is busy until the batch is known, so a press before then costs no scan.
+        await waitFor(() => expect(logic.values.suggestionSet).not.toBeNull())
+
+        fireEvent.click(await findByText('Suggest a scout'))
+
+        await waitFor(() => expect(refreshRequests).toBe(1))
+        expect(logic.values.stripVisible).toBe(true)
         expect(startedChatTypes).toEqual([])
         logic.unmount()
     })
