@@ -22,7 +22,9 @@ It is exercised locally via management commands, and it is also used by the prod
   - final report title
   - very short factual summary
   - optional charts (see below), when the team is opted in
-    The repository used for research is tracked separately via the `repo_selection` artefact.
+  - a `Steps to verify fix` note artefact for actionable reports, produced in the final turn from the completed research
+
+  The repository used for research is tracked separately via the `repo_selection` artefact.
 - `reviewer_telemetry.py`
   Emits the `signals_suggested_reviewers_resolved` product-analytics event whenever a report's suggested reviewers are persisted, recording which GitHub logins link to a PostHog user and which don't (unlinkable reviewers can't be routed or run autostart, but still count as "assigned" in reviewer metrics).
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
@@ -57,7 +59,7 @@ When a report was spawned because a signal would have grouped into an already-**
 In production, the `update` path is triggered automatically when a `ready` report is re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`) reconstructs the previous `ReportResearchOutput` from stored artefacts and the report's title/summary fields, then passes it to `run_multi_turn_research()`.
 
 This module is intentionally prompt-orchestration only.
-Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
+Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes. The final verification turn runs only after the actionability, priority, and presentation turns, and only when actionability is not `not_actionable`. The caller appends its `Steps to verify fix` output as a task-attributed `note` artefact.
 
 ### Charts
 
