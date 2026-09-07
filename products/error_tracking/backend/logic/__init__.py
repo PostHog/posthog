@@ -338,7 +338,7 @@ def _sanitize_release_remote_url(remote_url: str) -> str:
     return remote_url[:authority_start] + remote_url[credentials_end + 1 : sanitized_end]
 
 
-def _sanitize_release_metadata(metadata: dict | None) -> dict | None:
+def sanitize_release_metadata(metadata: dict | None) -> dict | None:
     if not isinstance(metadata, dict):
         return metadata
     git_metadata = metadata.get("git")
@@ -369,7 +369,7 @@ def create_release(
         hash_id=resolved_hash_id,
         defaults={
             "id": release_id,
-            "metadata": _sanitize_release_metadata(metadata),
+            "metadata": sanitize_release_metadata(metadata),
             "project": str(project),
             "version": str(version),
         },
@@ -392,7 +392,7 @@ def update_release(
     if release is None:
         return None
     if metadata:
-        release.metadata = _sanitize_release_metadata(metadata)
+        release.metadata = sanitize_release_metadata(metadata)
     if version:
         release.version = str(version)
     if project:
