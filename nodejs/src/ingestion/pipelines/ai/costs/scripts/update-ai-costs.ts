@@ -100,8 +100,73 @@ export const withoutDiscount = (pricing: Record<string, unknown> | undefined): R
     return rest
 }
 
-/** `default` must stay at the served price whatever the list payload carries. */
-export const buildDefaultCost = (
+/** Route vendors OpenRouter names differently from the namespace it files their
+ * models under; a namespace absent here matches its own name. Not
+ * `PROVIDER_ALIASES`: that resolves `$ai_provider` onto one canonical key, where
+ * `google` means `google-ai-studio` and would miss `google-vertex-*`. */
+export const MODEL_NAMESPACE_VENDORS: Record<string, string> = {
+    'bytedance-seed': 'seed',
+    mistralai: 'mistral',
+    qwen: 'alibaba',
+    rekaai: 'reka',
+    'x-ai': 'xai',
+}
+
+/** True when the model's own vendor operates the route. */
+export const isFirstPartyRoute = (modelId: string, providerKey: string): boolean => {
+    const separator = modelId.indexOf('/')
+    if (separator < 0) {
+        return false
+    }
+
+    const vendor = normalizeProviderKey(modelId.slice(0, separator))
+    const routeVendor = MODEL_NAMESPACE_VENDORS[vendor] ?? vendor
+    // Hyphen-anchored, so `google` claims `google-vertex` but `openai` cannot
+    // claim a reseller that merely starts with those letters.
+    return providerKey === routeVendor || providerKey.startsWith(`${routeVendor}-`)
+}
+
+export interface RouteRate {
+    discount: number
+    firstParty: boolean
+    /** Prompt price as served, and where dividing the rate out would put it.
+     * Undefined when the feed's price does not parse, which corroborates nothing. */
+    servedPrompt: number | undefined
+    listPrompt: number | undefined
+}
+
+/** Where dividing a rate out puts a price. Shared with `buildModelCost` so a
+ * corroboration check compares against the number that actually gets stored. */
+const toListPrice = (value: number, discount: number): number =>
+    discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
+
+/** True when a rate is the vendor's own promotion, which its direct callers pay
+ * too, so the route keeps the served price. Two things refute it: an unrelated
+ * operator on the same rate, which makes the promotion OpenRouter's; and a
+ * de-discounted price landing on an undiscounted route, which proves the
+ * division recovers a list price somebody still charges. */
+export const isVendorPromotion = (route: RouteRate, routes: RouteRate[]): boolean => {
+    if (!route.firstParty || route.discount <= 0) {
+        return false
+    }
+
+    if (routes.some((other) => !other.firstParty && other.discount === route.discount)) {
+        return false
+    }
+
+    return !routes.some(
+        (other) => other.discount === 0 && other.servedPrompt !== undefined && other.servedPrompt === route.listPrompt
+    )
+}
+
+/** True when no route could have satisfied either refutation above: none outside
+ * the vendor to carry the rate, and none undiscounted to carry the price. The
+ * verdict then stands on the vendor's word alone. */
+export const hasNoRefuter = (routes: RouteRate[]): boolean =>
+    !routes.some((route) => !route.firstParty || route.discount === 0)
+
+/** Keeps a cost at the price OpenRouter serves, promotion included. */
+export const buildServedCost = (
     modelPricing: Record<string, unknown> | undefined,
     context?: string
 ): ModelCost | null => buildModelCost(withoutDiscount(modelPricing), context)
@@ -119,18 +184,16 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
     }
 
     const discount = parseDiscountRate(pricing, context)
-    const toListPrice = (value: number): number =>
-        discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
 
     const cost: ModelCost = {
-        prompt_token: toListPrice(promptToken),
-        completion_token: toListPrice(completionToken),
+        prompt_token: toListPrice(promptToken, discount),
+        completion_token: toListPrice(completionToken, discount),
     }
 
     for (const [targetField, sourceField] of OPTIONAL_PRICING_FIELDS) {
         const parsedValue = parsePricingNumber(pricing[sourceField])
         if (parsedValue !== undefined && parsedValue !== 0) {
-            cost[targetField] = FLAT_FEE_FIELDS.has(targetField) ? parsedValue : toListPrice(parsedValue)
+            cost[targetField] = FLAT_FEE_FIELDS.has(targetField) ? parsedValue : toListPrice(parsedValue, discount)
         }
     }
 
@@ -141,6 +204,13 @@ export interface EndpointCandidate {
     key: string
     cost: ModelCost
     discount: number
+    vendorPromotion: boolean
+    /** True when nothing in the model could have refuted `vendorPromotion`. */
+    unrefutable: boolean
+    /** Served price and where dividing the rate out would put it, carried so the
+     * report can show a reader the spread it asks them to check. */
+    servedPrompt: number | undefined
+    listPrompt: number | undefined
 }
 
 /*
@@ -150,7 +220,7 @@ export interface EndpointCandidate {
  * two readers needs an `openrouter` key in `CanonicalProvider` first.
  */
 
-export type DiscountConfirmation = 'confirmed' | 'unconfirmed' | 'not-checkable'
+export type DiscountConfirmation = 'confirmed' | 'unconfirmed' | 'not-checkable' | 'not-applicable'
 
 /** Corroborates one route's de-discount against an undiscounted sibling. Per
  * route, or a verdict rolled up across a model's routes gets displayed against
@@ -160,6 +230,11 @@ export const confirmDiscountAgainstSiblings = (
     candidate: EndpointCandidate,
     candidates: EndpointCandidate[]
 ): DiscountConfirmation => {
+    // A route stored at its served price had nothing divided out to corroborate.
+    if (candidate.vendorPromotion) {
+        return 'not-applicable'
+    }
+
     const undiscounted = candidates.filter((other) => other.discount === 0)
     if (candidate.discount === 0 || undiscounted.length === 0) {
         return 'not-checkable'
@@ -173,7 +248,17 @@ export const confirmDiscountAgainstSiblings = (
 
 export interface DiscountReportEntry {
     model: string
-    endpoints: Array<{ key: string; discount: number; confirmation: DiscountConfirmation }>
+    endpoints: Array<{
+        key: string
+        discount: number
+        confirmation: DiscountConfirmation
+        /** What was stored, carried rather than read back off the verdict: the
+         * report is the only audit surface for these prices. */
+        vendorPromotion: boolean
+        unrefutable: boolean
+        servedPrompt: number | undefined
+        listPrompt: number | undefined
+    }>
 }
 
 /** Share of the catalogue that may go unchecked before the run says so loudly. */
@@ -181,6 +266,16 @@ export const UNCHECKED_WARN_FRACTION = 0.1
 
 /** Table rows rendered before the remainder collapses into a count line. */
 export const DISCOUNT_REPORT_ROW_LIMIT = 200
+
+/** Served price against the one dividing the rate out recovers, per million
+ * tokens. Only kept routes get it: the reader has to judge those by hand. */
+const renderSpread = (endpoint: DiscountReportEntry['endpoints'][number]): string => {
+    if (!endpoint.vendorPromotion || endpoint.servedPrompt === undefined || endpoint.listPrompt === undefined) {
+        return ''
+    }
+    const perMillion = (value: number): string => `$${parseFloat((value * 1e6).toPrecision(6))}`
+    return `${perMillion(endpoint.servedPrompt)} vs ${perMillion(endpoint.listPrompt)}`
+}
 
 /** Confines a third-party string to inert text in one table cell. An allowlist,
  * because a denylist has to anticipate every markdown construct that renders. */
@@ -204,10 +299,18 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     }
 
     const rows = [...entries].sort((a, b) => a.model.localeCompare(b.model))
-    const verdicts = rows.map((row) => row.endpoints.map((e) => e.confirmation))
+    // Routes that kept their promotion would pad the denominator with nothing
+    // reconstructed.
+    const verdicts = rows.map((row) => row.endpoints.filter((e) => !e.vendorPromotion).map((e) => e.confirmation))
     const confirmed = verdicts.filter((v) => v.includes('confirmed')).length
     const checkable = verdicts.filter((v) => v.some((c) => c !== 'not-checkable')).length
-    const endpointCount = rows.reduce((total, row) => total + row.endpoints.length, 0)
+
+    const allEndpoints = rows.flatMap((row) => row.endpoints)
+    const kept = allEndpoints.filter((e) => e.vendorPromotion)
+    // The platform's own promotions: a vendor's is not OpenRouter running one.
+    const endpointCount = allEndpoints.length - kept.length
+    const modelCount = rows.filter((row) => row.endpoints.some((e) => !e.vendorPromotion)).length
+    const unrefuted = kept.filter((e) => e.unrefutable).length
 
     const flatFeeList = [...FLAT_FEE_FIELDS]
         .sort()
@@ -217,18 +320,24 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     const lines = [
         '## Discounts',
         '',
-        `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${rows.length} model(s)**.`,
-        'Per-provider keys below are stored at list rate, with the promotion divided back',
+        `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${modelCount} model(s)**.`,
+        'Reseller keys below are stored at list rate, with the promotion divided back',
         'out, so a provider key keeps meaning what that provider charges a direct caller.',
         `Per-call fees (${flatFeeList}) carry across untouched: promotional routes in`,
         'the feed serve `web_search` at the same fee as their undiscounted siblings,',
         'and every other per-call fee follows the same policy.',
-        'The `default` key is left as OpenRouter serves it.',
+        '',
+        `The \`default\` key is left as OpenRouter serves it, and so are **${kept.length} endpoint(s)**`,
+        'marked `served` below, where the model vendor runs the route and neither an',
+        'unrelated operator on the same rate nor an undiscounted sibling price',
+        `contradicts it. **${unrefuted}** of those had no route that could have refuted`,
+        "either way, so they stand on the vendor's word: the spread column gives the",
+        'served and recovered prices to check against the vendor’s own pricing page.',
         '',
         `Independently confirmed against an undiscounted sibling route: ${confirmed}/${checkable} checkable model(s).`,
         unchecked,
-        '| Model | Endpoint | Rate | Confirmed |',
-        '| --- | --- | --- | --- |',
+        '| Model | Endpoint | Rate | Stored | Spread /1M | Confirmed |',
+        '| --- | --- | --- | --- | --- | --- |',
     ]
 
     // Bounded on emitted rows, not models: the widest model carries 32 endpoints,
@@ -243,8 +352,9 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
         for (const [index, endpoint] of row.endpoints.entries()) {
             const model = index === 0 ? sanitizeReportCell(row.model) : ''
             const confirmation = endpoint.confirmation
+            const stored = endpoint.vendorPromotion ? (endpoint.unrefutable ? 'served (unrefuted)' : 'served') : 'list'
             lines.push(
-                `| ${model} | \`${sanitizeReportCell(endpoint.key)}\` | ${Math.round(endpoint.discount * 100)}% | ${confirmation} |`
+                `| ${model} | \`${sanitizeReportCell(endpoint.key)}\` | ${Math.round(endpoint.discount * 100)}% | ${stored} | ${renderSpread(endpoint)} | ${confirmation} |`
             )
         }
         emitted += row.endpoints.length
@@ -275,34 +385,59 @@ export const buildModelRow = (
     modelPricing: Record<string, unknown> | undefined,
     endpoints: unknown[]
 ): BuiltModelRow | null => {
-    const defaultCost = buildDefaultCost(modelPricing, modelId)
+    const defaultCost = buildServedCost(modelPricing, modelId)
     if (!defaultCost) {
         return null
     }
     const cost: Record<string, ModelCost> = { default: defaultCost }
     const candidates: EndpointCandidate[] = []
 
-    for (const raw of endpoints) {
+    // Rates are read across every route before any cost is built: whether a
+    // vendor's own rate is its promotion depends on who else is running it.
+    const routes = endpoints.map((raw) => {
         const endpoint = (raw ?? {}) as { tag?: string; provider_name?: string; pricing?: Record<string, unknown> }
+        const providerKey = endpointProviderKey(endpoint)
+        // Normalized too: every key here is interpolated into canonical-providers.ts
+        // as a string literal, so it must be [a-z0-9-] by construction.
+        const key =
+            providerKey && providerKey !== 'default'
+                ? providerKey
+                : `provider-${normalizeProviderKey(endpoint.provider_name ?? 'unknown') || 'unknown'}`
         const context = `${modelId} (${endpoint.tag ?? '?'})`
-        const endpointCost = buildModelCost(endpoint.pricing, context)
+        // Silent here; the builder below warns on whatever it is handed.
+        const discount = parseDiscountRate(endpoint.pricing ?? {}, context, false)
+        const servedPrompt = parsePricingNumber(endpoint.pricing?.prompt)
+        return {
+            endpoint,
+            key,
+            context,
+            discount,
+            firstParty: isFirstPartyRoute(modelId, key),
+            servedPrompt,
+            listPrompt: servedPrompt === undefined ? undefined : toListPrice(servedPrompt, discount),
+        }
+    })
+
+    const unrefutable = hasNoRefuter(routes)
+
+    for (const route of routes) {
+        const vendorPromotion = isVendorPromotion(route, routes)
+        const endpointCost = vendorPromotion
+            ? buildServedCost(route.endpoint.pricing, route.context)
+            : buildModelCost(route.endpoint.pricing, route.context)
         if (!endpointCost) {
             continue
         }
 
-        const providerKey = endpointProviderKey(endpoint)
-        // Normalized too: every key here is interpolated into canonical-providers.ts
-        // as a string literal, so it must be [a-z0-9-] by construction.
-        const safeProviderKey =
-            providerKey && providerKey !== 'default'
-                ? providerKey
-                : `provider-${normalizeProviderKey(endpoint.provider_name ?? 'unknown') || 'unknown'}`
-
-        cost[safeProviderKey] = endpointCost
+        cost[route.key] = endpointCost
         candidates.push({
-            key: safeProviderKey,
+            key: route.key,
             cost: endpointCost,
-            discount: parseDiscountRate(endpoint.pricing ?? {}, context, false),
+            discount: route.discount,
+            vendorPromotion,
+            unrefutable,
+            servedPrompt: route.servedPrompt,
+            listPrompt: route.listPrompt,
         })
     }
 
@@ -324,6 +459,10 @@ export const buildModelRow = (
                           key: candidate.key,
                           discount: candidate.discount,
                           confirmation: confirmDiscountAgainstSiblings(candidate, candidates),
+                          vendorPromotion: candidate.vendorPromotion,
+                          unrefutable: candidate.unrefutable,
+                          servedPrompt: candidate.servedPrompt,
+                          listPrompt: candidate.listPrompt,
                       })),
                   }
                 : undefined,

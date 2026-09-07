@@ -1,0 +1,6 @@
+{
+    "id": "VB9",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "The premise fails: nothing in the tree promises any-assignee semantics. Single-acting-reviewer gating is the documented, deliberate design, not a gap this PR introduced. receivers.py:160-173 records it as prior maintainer decisions (2026-07-02/03): creator-if-assigned, else first resolved reviewer, whose review_inbox_prs AND stamphog_review_inbox_prs toggles both gate — the new stamphog toggle deliberately mirrors the pre-existing ReviewHog toggle (receivers.py:17-18, models.py:277-280). README:14, AGENTS.md:86-87, and inbox_hooks.py:5 all describe the same acting-reviewer gate; the doc accurately matches the code (receivers.py:126, 151-156). A second assignee's toggle being inert is intentional per-run acting-user resolution, consistent across both products, not a reachable defect."
+}

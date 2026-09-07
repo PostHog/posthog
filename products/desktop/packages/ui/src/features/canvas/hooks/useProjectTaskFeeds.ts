@@ -2,6 +2,7 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
+  ownedProjectFeeds,
   type TaskFeed,
   useTaskFeedsStore,
 } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
@@ -14,12 +15,7 @@ export function useProjectTaskFeeds(): TaskFeed[] {
   const ownerId = currentUser?.uuid;
   const feeds = useTaskFeedsStore((state) => state.feeds);
   return useMemo(
-    () =>
-      projectId === null || ownerId === undefined
-        ? []
-        : feeds.filter(
-            (feed) => feed.projectId === projectId && feed.ownerId === ownerId,
-          ),
+    () => ownedProjectFeeds(feeds, projectId, ownerId),
     [feeds, ownerId, projectId],
   );
 }
@@ -27,4 +23,11 @@ export function useProjectTaskFeeds(): TaskFeed[] {
 export function useProjectTaskFeed(feedId: string): TaskFeed | undefined {
   const feeds = useProjectTaskFeeds();
   return feeds.find((feed) => feed.id === feedId);
+}
+
+export function useProjectTaskFeedsReady(): boolean {
+  const client = useOptionalAuthenticatedClient();
+  const { isLoading } = useCurrentUser({ client });
+  const hasHydrated = useTaskFeedsStore((state) => state.hasHydrated);
+  return hasHydrated && !isLoading;
 }

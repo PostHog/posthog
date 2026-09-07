@@ -55,18 +55,13 @@ const mockTrpcSkills = vi.hoisted(() => ({
   resolveDependencies: { query: vi.fn() },
 }));
 
-const mockTrpcHandoff = vi.hoisted(() => ({
-  preflightToCloud: { query: vi.fn() },
-  executeToCloud: { mutate: vi.fn() },
-}));
-
-const mockTrpcOs = vi.hoisted(() => ({
-  openExternal: { mutate: vi.fn() },
-}));
+const mockToast = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn() }));
 
 const mockSessionStoreSetters = vi.hoisted(() => ({
   setSession: vi.fn(),
   removeSession: vi.fn(),
+  setTaskStarting: vi.fn(),
+  clearTaskStarting: vi.fn(),
   updateSession: vi.fn(),
   updateCloudStatus: vi.fn(),
   appendEvents: vi.fn(),
@@ -278,6 +273,11 @@ const mockFeatureFlags = vi.hoisted(() => ({
 
 const mockSettingsState = vi.hoisted(() => ({
   customInstructions: "",
+  ste100Enabled: true,
+  codexModelAccess: "posthog-gateway" as "posthog-gateway" | "own-subscription",
+  claudeModelAccess: "posthog-gateway" as
+    | "posthog-gateway"
+    | "own-subscription",
   spokenNotifications: false,
   syncCustomInstructionsFromFile: false,
   syncedCustomInstructions: null as {
@@ -327,7 +327,7 @@ vi.mock("../../shell/logger", () => ({
   },
 }));
 vi.mock("@posthog/ui/primitives/toast", () => ({
-  toast: { error: vi.fn(), info: vi.fn() },
+  toast: mockToast,
 }));
 vi.mock("@posthog/di/container", () => ({
   resolveService: (token: unknown) => {
@@ -339,8 +339,6 @@ vi.mock("@posthog/di/container", () => ({
         cloudTask: mockTrpcCloudTask,
         fs: mockTrpcFs,
         skills: mockTrpcSkills,
-        handoff: mockTrpcHandoff,
-        os: mockTrpcOs,
       };
     }
     if (token === Symbol.for("posthog.ui.ImperativeQueryClient")) {
@@ -432,7 +430,6 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     hasSessionPromptEventForTaskRun: mockHasSessionPromptEventForTaskRun,
     isAbsoluteFolderPath: actual.isAbsoluteFolderPath,
     isFatalSessionError: actual.isFatalSessionError,
-    isRateLimitError: actual.isRateLimitError,
     isSteerPromptParams: actual.isSteerPromptParams,
     isTurnCompleteEvent: actual.isTurnCompleteEvent,
     normalizePromptToBlocks: vi.fn((p) =>
@@ -440,11 +437,11 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     ),
     promptReferencesAbsoluteFolder: actual.promptReferencesAbsoluteFolder,
     selectEchoedOptimisticItemIds: actual.selectEchoedOptimisticItemIds,
+    selectUnseededPendingFollowups: actual.selectUnseededPendingFollowups,
     shellExecutesToContextBlocks: vi.fn(() => []),
   };
 });
 
-import { toast } from "@posthog/ui/primitives/toast";
 import {
   getSessionService,
   resetSessionService,
@@ -494,6 +491,9 @@ describe("SessionService", () => {
     mockHasSessionPromptEventForTaskRun.mockReturnValue(false);
     resetSessionService();
     mockSettingsState.customInstructions = "";
+    mockSettingsState.ste100Enabled = true;
+    mockSettingsState.codexModelAccess = "posthog-gateway";
+    mockSettingsState.claudeModelAccess = "posthog-gateway";
     mockSettingsState.spokenNotifications = false;
     mockFeatureFlags.isEnabled.mockReturnValue(false);
     mockSettingsState.syncCustomInstructionsFromFile = false;
@@ -548,14 +548,6 @@ describe("SessionService", () => {
     mockTrpcSkills.resolveDependencies.query.mockImplementation(
       async (refs: unknown) => refs,
     );
-    mockTrpcHandoff.preflightToCloud.query.mockResolvedValue({
-      canHandoff: true,
-    });
-    mockTrpcHandoff.executeToCloud.mutate.mockResolvedValue({
-      success: true,
-      logEntryCount: 0,
-    });
-    mockTrpcOs.openExternal.mutate.mockResolvedValue(undefined);
     mockAuthenticatedClient.prepareTaskRunArtifactUploads.mockResolvedValue([]);
     mockAuthenticatedClient.finalizeTaskRunArtifactUploads.mockResolvedValue(
       [],
@@ -883,7 +875,78 @@ describe("SessionService", () => {
       });
 
       expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({ customInstructions: "synced from file" }),
+        expect.objectContaining({
+          customInstructions:
+            "synced from file\n\nTalk and write only in Simplified Technical English (ASD-STE100).",
+        }),
+      );
+    });
+
+    it("starts Codex with the access selected for the task", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+      });
+
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+    });
+
+    it("starts Claude with the access selected for the task", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      });
+
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "claude",
+          claudeModelAccess: "own-subscription",
+        }),
+      );
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "claude",
+          claudeModelAccess: "own-subscription",
+        }),
       );
     });
 
@@ -3014,7 +3077,7 @@ describe("SessionService", () => {
                 sessionUpdate: "agent_message_chunk",
                 content: {
                   type: "text",
-                  text: '<insight id="9pQx3">Checkout funnel</insight>',
+                  text: '<insight id="9pQx3">Checkout funnel</insight> <report id="rep-1">Latency regression</report>',
                 },
               },
             },
@@ -3048,6 +3111,12 @@ describe("SessionService", () => {
             name: "Checkout funnel",
             object_kind: "insight",
             object_id: "9pQx3",
+            source_message_id: "turn-1700000000",
+          },
+          {
+            name: "Latency regression",
+            object_kind: "report",
+            object_id: "rep-1",
             source_message_id: "turn-1700000000",
           },
         ]);
@@ -7755,6 +7824,9 @@ describe("SessionService", () => {
       );
 
       expect(result.stopReason).toBe("queued");
+      expect(mockSessionStoreSetters.setTaskStarting).toHaveBeenCalledWith(
+        "task-123",
+      );
       expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
         "task-123",
         "feature/codex-run",
@@ -8137,19 +8209,20 @@ describe("SessionService", () => {
       );
     });
 
-    it("does not run session recovery for a transient upstream API timeout", async () => {
+    it.each([
+      "Internal error: API Error: the operation timed out",
+      "Internal error: API Error: Content block is not a thinking block",
+    ])("does not run session recovery for %j", async (providerError) => {
       const service = getSessionService();
       const mockSession = createMockSession();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-123": mockSession,
       });
-      mockTrpcAgent.prompt.mutate.mockRejectedValue(
-        new Error("Internal error: API Error: the operation timed out"),
-      );
+      mockTrpcAgent.prompt.mutate.mockRejectedValue(new Error(providerError));
 
       await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow(
-        /provider timed out/,
+        /could not complete the request/,
       );
 
       // The session stays as-is: no recovery reconnect, no error overlay —
@@ -8185,9 +8258,9 @@ describe("SessionService", () => {
       mockSessionStoreSetters.setSession.mockImplementation((next) => {
         session = next as AgentSession;
       });
-      mockSessionStoreSetters.dequeueMessagesAsText.mockReturnValue(
-        "follow up",
-      );
+      mockSessionStoreSetters.dequeueMessages.mockReturnValue([
+        { id: "q-1", content: "follow up", queuedAt: 1 },
+      ]);
 
       mockBuildAuthenticatedClient.mockReturnValue({
         ...mockAuthenticatedClient,
@@ -8335,9 +8408,7 @@ describe("SessionService", () => {
         expect(
           mockNotificationService.notifyPromptComplete,
         ).toHaveBeenCalledWith("Test Task", "end_turn", "task-123", undefined);
-        expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
-        ).not.toHaveBeenCalled();
+        expect(mockSessionStoreSetters.dequeueMessages).not.toHaveBeenCalled();
         expect(mockTrpcAgent.prompt.mutate).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
@@ -8359,9 +8430,7 @@ describe("SessionService", () => {
         onData(promptResponse(42, "cancelled"));
         await vi.advanceTimersByTimeAsync(20);
 
-        expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
-        ).not.toHaveBeenCalled();
+        expect(mockSessionStoreSetters.dequeueMessages).not.toHaveBeenCalled();
         expect(mockTrpcAgent.prompt.mutate).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
@@ -8382,9 +8451,9 @@ describe("SessionService", () => {
             ],
           }),
         );
-        mockSessionStoreSetters.dequeueMessagesAsText
-          .mockReturnValueOnce("first")
-          .mockReturnValueOnce("second");
+        mockSessionStoreSetters.dequeueMessages
+          .mockReturnValueOnce([{ id: "q-1", content: "first", queuedAt: 1 }])
+          .mockReturnValueOnce([{ id: "q-2", content: "second", queuedAt: 2 }]);
         mockTrpcAgent.prompt.mutate.mockResolvedValue({
           stopReason: "end_turn",
         });
@@ -8394,7 +8463,7 @@ describe("SessionService", () => {
 
         expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalledTimes(1);
         expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
+          mockSessionStoreSetters.dequeueMessages,
         ).toHaveBeenLastCalledWith("task-123", { stopAtEdited: true, max: 1 });
 
         // The sent message's turn runs and completes: its prompt echo claims a
@@ -8413,9 +8482,9 @@ describe("SessionService", () => {
         await vi.advanceTimersByTimeAsync(20);
 
         expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalledTimes(2);
-        expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
-        ).toHaveBeenCalledTimes(2);
+        expect(mockSessionStoreSetters.dequeueMessages).toHaveBeenCalledTimes(
+          2,
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -8436,9 +8505,9 @@ describe("SessionService", () => {
             editingQueuedId: "q-2",
           }),
         );
-        mockSessionStoreSetters.dequeueMessagesAsText
-          .mockReturnValueOnce("first")
-          .mockReturnValueOnce("second");
+        mockSessionStoreSetters.dequeueMessages
+          .mockReturnValueOnce([{ id: "q-1", content: "first", queuedAt: 1 }])
+          .mockReturnValueOnce([{ id: "q-2", content: "second", queuedAt: 2 }]);
         // Keep the first send in flight so the raced timer must observe it.
         mockTrpcAgent.prompt.mutate.mockImplementation(
           () => new Promise(() => {}),
@@ -8453,9 +8522,83 @@ describe("SessionService", () => {
         await vi.advanceTimersByTimeAsync(20);
 
         expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalledTimes(1);
+        expect(mockSessionStoreSetters.dequeueMessages).toHaveBeenCalledTimes(
+          1,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      "Internal error: API Error: Content block not found",
+      "Internal error: API Error: Content block is not a thinking block",
+    ])("restores a queued message after %j", async (providerError) => {
+      const { onData, setSession } = await connectWithLiveSession();
+      vi.useFakeTimers();
+      try {
+        const queuedMessage = {
+          id: "q-1",
+          content: "follow up",
+          rawPrompt: [{ type: "text" as const, text: "follow up" }],
+          queuedAt: 1,
+        };
+        setSession(
+          createMockSession({
+            currentPromptId: 42,
+            isPromptPending: true,
+            messageQueue: [queuedMessage],
+          }),
+        );
+        mockSessionStoreSetters.dequeueMessages
+          .mockReset()
+          .mockReturnValue([queuedMessage]);
+        mockTrpcAgent.prompt.mutate.mockRejectedValue(new Error(providerError));
+
+        onData(promptResponse(42, "end_turn"));
+        await vi.advanceTimersByTimeAsync(20);
+
         expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
-        ).toHaveBeenCalledTimes(1);
+          mockSessionStoreSetters.prependQueuedMessages,
+        ).toHaveBeenCalledWith("task-123", [queuedMessage]);
+        expect(mockToast.error).toHaveBeenCalledWith(
+          "Couldn't send the queued message",
+          {
+            description:
+              "Your message is still queued. Use Steer to try again.",
+          },
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("restores a rate-limited queued message", async () => {
+      const { onData, setSession } = await connectWithLiveSession();
+      vi.useFakeTimers();
+      try {
+        const queuedMessage = { id: "q-1", content: "follow up", queuedAt: 1 };
+        setSession(
+          createMockSession({
+            currentPromptId: 42,
+            isPromptPending: true,
+            messageQueue: [queuedMessage],
+          }),
+        );
+        mockSessionStoreSetters.dequeueMessages
+          .mockReset()
+          .mockReturnValue([queuedMessage]);
+        mockTrpcAgent.prompt.mutate.mockRejectedValue(
+          new Error("Rate limit exceeded: User burst rate limit exceeded"),
+        );
+
+        onData(promptResponse(42, "end_turn"));
+        await vi.advanceTimersByTimeAsync(20);
+
+        expect(
+          mockSessionStoreSetters.prependQueuedMessages,
+        ).toHaveBeenCalledWith("task-123", [queuedMessage]);
+        expect(mockToast.error).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
       }
@@ -8713,7 +8856,9 @@ describe("SessionService", () => {
       try {
         const service = getSessionService();
         seedEditedIdleSession();
-        mockSessionStoreSetters.dequeueMessagesAsText.mockReturnValue("edited");
+        mockSessionStoreSetters.dequeueMessages.mockReturnValue([
+          { id: "q-1", content: "edited", queuedAt: 1 },
+        ]);
         mockTrpcAgent.prompt.mutate.mockResolvedValue({
           stopReason: "end_turn",
         });
@@ -8732,9 +8877,10 @@ describe("SessionService", () => {
         expect(
           mockSessionStoreSetters.clearEditingQueuedMessage,
         ).toHaveBeenCalledWith("task-123");
-        expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
-        ).toHaveBeenCalledWith("task-123", { stopAtEdited: true, max: 1 });
+        expect(mockSessionStoreSetters.dequeueMessages).toHaveBeenCalledWith(
+          "task-123",
+          { stopAtEdited: true, max: 1 },
+        );
         expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalledWith(
           expect.objectContaining({ sessionId: "run-123" }),
         );
@@ -8777,9 +8923,7 @@ describe("SessionService", () => {
           mockSessionStoreSetters.clearEditingQueuedMessage,
         ).toHaveBeenCalledWith("task-123");
         // Left for the turn-end drain — nothing sent mid-turn.
-        expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
-        ).not.toHaveBeenCalled();
+        expect(mockSessionStoreSetters.dequeueMessages).not.toHaveBeenCalled();
         expect(mockTrpcAgent.prompt.mutate).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
@@ -8791,7 +8935,9 @@ describe("SessionService", () => {
       try {
         const service = getSessionService();
         seedEditedIdleSession();
-        mockSessionStoreSetters.dequeueMessagesAsText.mockReturnValue("q-1");
+        mockSessionStoreSetters.dequeueMessages.mockReturnValue([
+          { id: "q-1", content: "q-1", queuedAt: 1 },
+        ]);
         mockTrpcAgent.prompt.mutate.mockResolvedValue({
           stopReason: "end_turn",
         });
@@ -8799,9 +8945,10 @@ describe("SessionService", () => {
         service.clearEditingQueuedMessage("task-123");
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(
-          mockSessionStoreSetters.dequeueMessagesAsText,
-        ).toHaveBeenCalledWith("task-123", { stopAtEdited: true, max: 1 });
+        expect(mockSessionStoreSetters.dequeueMessages).toHaveBeenCalledWith(
+          "task-123",
+          { stopAtEdited: true, max: 1 },
+        );
         expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
@@ -9398,12 +9545,13 @@ describe("SessionService", () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
     });
 
@@ -9450,12 +9598,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(true);
       // Optimistic update
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -9513,8 +9662,13 @@ describe("SessionService", () => {
         new Error("Failed"),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(currentSession.configOptions).toEqual([
         expect.objectContaining({
           id: "mode",
@@ -9626,8 +9780,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledTimes(1);
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
@@ -10022,43 +10181,6 @@ describe("SessionService", () => {
       await expect(
         service.clearSessionError("task-123", "/repo"),
       ).resolves.not.toThrow();
-    });
-  });
-
-  describe("handoffToCloud", () => {
-    it("starts GitHub reauth when cloud handoff needs user authorization", async () => {
-      const service = getSessionService();
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession(),
-      );
-      mockTrpcHandoff.executeToCloud.mutate.mockResolvedValue({
-        success: false,
-        code: "github_authorization_required",
-        error: "Connect GitHub in your browser, then retry Continue in cloud.",
-      });
-
-      await service.handoffToCloud("task-123", "/repo/path");
-
-      expect(
-        mockAuthenticatedClient.startGithubUserIntegrationConnect,
-      ).toHaveBeenCalledWith(123);
-      expect(mockTrpcOs.openExternal.mutate).toHaveBeenCalledWith({
-        url: "https://github.com/login/oauth/authorize",
-      });
-      expect(toast.info).toHaveBeenCalledWith(
-        "Connect GitHub to continue in cloud",
-        "Complete the authorization in your browser, then click Continue again.",
-      );
-      expect(toast.error).not.toHaveBeenCalledWith(
-        expect.stringContaining("github_authorization_required"),
-      );
-      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
-        "run-123",
-        {
-          handoffInProgress: false,
-          status: "disconnected",
-        },
-      );
     });
   });
 

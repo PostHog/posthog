@@ -58,6 +58,11 @@ export const dashboardsRouter = router({
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .listComponents(input),
     ),
+  listAll: publicProcedure
+    .output(z.array(dashboardRecordSchema))
+    .query(({ ctx }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listAll(),
+    ),
   get: publicProcedure
     .input(dashboardIdInput)
     .output(dashboardRecordSchema.nullable())

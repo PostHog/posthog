@@ -652,13 +652,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     listeners(({ actions, props, values, cache, selectors }) => ({
         setDisplayUrl: ({ url }, _, __, previousState) => {
-            // Don't clobber a separately edited data URL when the page URL changes.
-            if (!values.userTouchedDataUrl) {
+            const previousDisplayUrl = selectors.displayUrl(previousState)
+            const dataUrlWasFollowingDisplayUrl = selectors.dataUrl(previousState) === previousDisplayUrl
+
+            if (!values.userTouchedDataUrl && dataUrlWasFollowingDisplayUrl) {
                 actions.setDataUrl(url?.trim() ?? null)
             }
-            // the iframe loads displayUrl, so only an actual change produces a load
-            // event; arming on anything else leaves a timer nothing can cancel
-            if (url?.trim().length && url !== selectors.displayUrl(previousState)) {
+            if (url?.trim().length && url !== previousDisplayUrl) {
                 actions.startTrackingLoading()
             }
         },

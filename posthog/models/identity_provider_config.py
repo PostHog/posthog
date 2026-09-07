@@ -1,11 +1,13 @@
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 import structlog
 
+from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
@@ -21,6 +23,13 @@ class DomainScope(models.TextChoices):
 
 
 DEFAULT_DOMAIN_SCOPE = DomainScope.SELECTED
+
+
+@frozen
+class IDJagIdentityProviderResolution:
+    organization_domain: Optional["OrganizationDomain"]
+    identity_provider_config: Optional["IdentityProviderConfig"]
+    error: Optional[str]
 
 
 def has_verified_organization_domain_q() -> models.Q:
@@ -49,6 +58,86 @@ def saml_configured_q() -> models.Q:
     )
 
 
+class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):
+    def for_scope(self, config_scope: str) -> "IdentityProviderConfigQuerySet":
+        return self.filter(models.Q(config_scope=config_scope) | models.Q(config_scope__isnull=True))
+
+    def with_verified_domain_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
+        if "@" not in email:
+            return self.none()
+
+        domain = email.rsplit("@", 1)[-1]
+        explicitly_linked = models.Q(
+            linked_identity_provider_configs__organization_domain__domain__iexact=domain,
+            linked_identity_provider_configs__organization_domain__verified_at__isnull=False,
+        )
+        organization_wide = models.Q(
+            domain_scope=DomainScope.ALL,
+            organization__domains__domain__iexact=domain,
+            organization__domains__verified_at__isnull=False,
+        )
+        return self.filter(explicitly_linked | organization_wide).distinct()
+
+    def saml_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
+        return self.for_scope(ConfigScope.SAML).filter(saml_configured_q()).with_verified_domain_for_email(email)
+
+
+class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
+    def get_queryset(self) -> IdentityProviderConfigQuerySet:
+        return IdentityProviderConfigQuerySet(self.model, using=self._db)
+
+    def saml_for_email(self, email: str) -> IdentityProviderConfigQuerySet:
+        return self.get_queryset().saml_for_email(email)
+
+    def get_id_jag_for_request(self, email: str, issuer: str) -> IDJagIdentityProviderResolution:
+        normalized_issuer = (issuer or "").rstrip("/")
+        issuer_configs = (
+            self.get_queryset()
+            .for_scope(ConfigScope.ID_JAG)
+            .annotate(
+                normalized_id_jag_issuer_url=models.Func(
+                    "id_jag_issuer_url",
+                    models.Value("/"),
+                    function="RTRIM",
+                    output_field=models.CharField(),
+                )
+            )
+            .filter(normalized_id_jag_issuer_url=normalized_issuer)
+        )
+
+        matching: list[tuple[IdentityProviderConfig, OrganizationDomain]] = []
+        if "@" in email:
+            domain = email.rsplit("@", 1)[-1]
+            for config in issuer_configs:
+                verified_domains = config.organization_domains.filter(domain__iexact=domain, verified_at__isnull=False)
+                matching.extend((config, organization_domain) for organization_domain in verified_domains)
+
+        if not matching:
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG email domain is not a verified domain associated with this IdP configuration",
+            )
+
+        if len(matching) > 1:
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG configuration is ambiguous: multiple configurations match this request",
+            )
+
+        config, organization_domain = matching[0]
+        return IDJagIdentityProviderResolution(
+            organization_domain=organization_domain,
+            identity_provider_config=config,
+            error=None,
+        )
+
+    def get_is_saml_available_for_email(self, email: str) -> bool:
+        configs = self.get_queryset().saml_for_email(email).select_related("organization")
+        return any(config.organization.is_feature_available(AvailableFeature.SAML) for config in configs)
+
+
 class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     """
     Identity provider (IdP) configuration for an organization.
@@ -61,6 +150,8 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     This model is the sole read/write interface for IdP settings (SAML/SCIM/ID-JAG). The legacy
     IdP columns on `OrganizationDomain` are no longer written to — they're frozen.
     """
+
+    objects = IdentityProviderConfigManager()
 
     organization = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="identity_provider_configs"

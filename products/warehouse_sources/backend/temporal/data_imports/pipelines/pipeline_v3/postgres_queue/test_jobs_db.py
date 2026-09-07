@@ -72,6 +72,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             is_resume BOOLEAN NOT NULL DEFAULT FALSE,
             is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
             metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
             latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             latest_attempt SMALLINT NOT NULL DEFAULT 0,
             state_changed_at TIMESTAMPTZ,
@@ -85,7 +86,8 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
             ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE
+            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)

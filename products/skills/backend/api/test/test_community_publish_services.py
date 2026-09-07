@@ -25,6 +25,7 @@ from products.skills.backend.api.community_publish_services import (
     render_skill_md,
 )
 from products.skills.backend.api.skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
+from products.skills.backend.api.skill_template_services import MAX_TEMPLATE_VARIABLE_BYTES, parse_template_variables
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 
 # Mirror of the community-skills repo's frontmatter parser (scripts/build_registry.py) so these
@@ -71,6 +72,32 @@ class TestRenderSkillMd:
         assert frontmatter["license"] == "MIT"
         assert frontmatter["compatibility"] == "Requires gh"
         assert frontmatter["author_handle"] == "andymaguire"
+
+    def test_renders_normalized_template_variables(self) -> None:
+        metadata = {
+            "owner": "internal-only",
+            "variables": [
+                {"name": "service", "prompt": "Service name", "required": True},
+                {"name": "environment", "prompt": "Target environment", "default": "staging"},
+            ],
+        }
+        content = render_skill_md(
+            name="Deploy service",
+            description="Deploy a service to an environment.",
+            body="Deploy {{ service }} to {{ environment }}.",
+            metadata=metadata,
+        )
+
+        frontmatter, _ = _parse(content)
+
+        assert frontmatter["metadata"] == {
+            "variables": [
+                {"name": "service", "prompt": "Service name", "required": True},
+                {"name": "environment", "prompt": "Target environment", "required": False, "default": "staging"},
+            ]
+        }
+        # Install reads the schema back out of this frontmatter, so it must parse to the same variables.
+        assert parse_template_variables(frontmatter["metadata"]) == parse_template_variables(metadata)
 
     def test_preserves_leading_whitespace_in_the_body(self) -> None:
         # strip() would turn an opening indented code block into an ordinary paragraph, so the
@@ -151,6 +178,77 @@ class TestRenderCommunitySkillFiles:
             "skills/make-pr/references/playbook.md",
             "skills/make-pr/scripts/run.sh",
         }
+
+    @parameterized.expand(
+        [
+            (
+                "undeclared placeholder in the body",
+                "Deploy {{ missing }}.",
+                "hints",
+                {},
+                "undeclared variable 'missing'",
+            ),
+            (
+                "undeclared placeholder in a bundled file",
+                "body",
+                "Use {{ missing }}.",
+                {},
+                "undeclared variable 'missing'",
+            ),
+            (
+                "default over the value cap",
+                "{{ repository }}",
+                "hints",
+                {"default": "x" * (MAX_TEMPLATE_VARIABLE_BYTES + 1)},
+                "exceeds the",
+            ),
+            (
+                "default that renders the body past its cap",
+                "{{ repository }}" * (MAX_SKILL_BODY_BYTES // 20),
+                "hints",
+                {"default": "0123456789" * 3},
+                "skill body exceeds the",
+            ),
+        ]
+    )
+    def test_rejects_a_template_that_could_not_install(
+        self, _label: str, body: str, file_content: str, variable: dict[str, Any], message: str
+    ) -> None:
+        # Sync does not validate templates, so a broken one otherwise merges and fails every install.
+        with pytest.raises(CommunitySkillPublishValidationError, match=message):
+            render_community_skill_files(
+                slug="make-pr",
+                name="Make PR",
+                description="Open a PR.",
+                body=body,
+                files=[{"path": "references/playbook.md", "content": file_content, "content_type": "text/markdown"}],
+                metadata={"variables": [{"name": "repository", "prompt": "Repository", **variable}]},
+            )
+
+    @parameterized.expand(
+        [
+            ("no metadata", None),
+            ("variables is not a list", {"variables": "repository"}),
+            ("variables has no valid declarations", {"variables": [{"prompt": "Repository"}]}),
+        ]
+    )
+    def test_a_plain_skill_keeps_double_braces_verbatim(self, _label: str, metadata: dict[str, Any] | None) -> None:
+        # Install leaves a plain skill's text alone, so publish must too: GitHub Actions, Liquid and Go
+        # template syntax cannot be declared as variables and must not block publishing.
+        rendered = render_community_skill_files(
+            slug="make-pr",
+            name="Make PR",
+            description="Open a PR.",
+            body="Run on ${{ github.ref }}.",
+            files=[{"path": "references/playbook.md", "content": "{{ .Title }}", "content_type": "text/markdown"}],
+            metadata=metadata,
+        )
+
+        frontmatter, body = _parse(rendered[0].content)
+
+        assert "metadata" not in frontmatter
+        assert body == "Run on ${{ github.ref }}."
+        assert rendered[1].content == "{{ .Title }}"
 
     def test_rejects_bad_slug(self) -> None:
         # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
@@ -306,6 +404,7 @@ class TestCommunitySkillsPublisher:
         [
             ("the app is not installed here", 404, False),
             ("github refuses the app credentials", 401, False),
+            ("the installation does not grant the permissions a publish needs", 422, False),
             ("github fails the mint", 500, True),
         ]
     )

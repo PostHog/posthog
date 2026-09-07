@@ -8,6 +8,7 @@ from .evaluation_directories import EvaluationDirectoryViewSet
 from .evaluation_reports import EvaluationReportViewSet
 from .evaluation_runs import EvaluationRunViewSet
 from .evaluations import EvaluationViewSet
+from .instrumentation_checklist import AIObservabilityInstrumentationChecklistViewSet
 from .models import LLMModelsViewSet
 from .offline_evaluations import AIObservabilityOfflineEvaluationsViewSet
 from .parser_recipes import ParserRecipeViewSet
@@ -27,6 +28,7 @@ __all__ = [
     "ClusteringConfigViewSet",
     "ClusteringJobViewSet",
     "AIObservabilityClusteringRunViewSet",
+    "AIObservabilityInstrumentationChecklistViewSet",
     "LLMModelsViewSet",
     "LLMProxyViewSet",
     "AIObservabilityTextReprViewSet",

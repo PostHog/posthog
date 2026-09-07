@@ -17,12 +17,15 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import WorkflowJobAggregate
+from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope, WorkflowJobAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
+    cost_run_scope_filter_clause,
     date_to_filter_clause,
+    run_scope_filter_clause,
+    run_windowed_job_created_floor_constant,
 )
 
 _LIMIT = 200
@@ -54,7 +57,12 @@ _AGGREGATE_SELECT = f"""
         countIf(conclusion IN ('failure', 'timed_out')) / nullIf(countIf(status = 'completed'), 0) AS failure_rate,
         countIf(run_attempt > 1) AS retry_job_count
     FROM __JOBS_SOURCE__ AS j
-    WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
+    -- NOT is_rerun_copy: "Re-run failed jobs" re-lists every already-passed job under the new attempt
+    -- with the earlier attempt's timestamps. Counting those would double every duration sample and
+    -- report retry pressure for jobs nobody retried.
+    WHERE NOT is_rerun_copy
+        AND workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
+        __JOBS_RUN_SCOPE__
     GROUP BY job_name
     ORDER BY job_count DESC
     LIMIT {_LIMIT}
@@ -71,14 +79,25 @@ _COST_SELECT = f"""
         countIf(estimated_cost_usd IS NOT NULL) AS costed_jobs
     FROM __COST_SOURCE__ AS c
     WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
+        __COST_RUN_SCOPE__
     GROUP BY job_name
 """
 
-_RUN_COUNT_SELECT = """
+_RUNS_WINDOW = (
+    "workflow_name = {workflow_name} AND run_started_at >= {date_from}"
+    " __RUNS_DATE_TO__ __RUNS_BRANCH__ __RUNS_RUN_SCOPE__"
+)
+
+_RUN_COUNT_SELECT = f"""
     SELECT count() AS total_runs
     FROM __RUNS_SOURCE__ AS r
-    WHERE workflow_name = {workflow_name} AND run_started_at >= {date_from} __RUNS_DATE_TO__ __RUNS_BRANCH__
+    WHERE {_RUNS_WINDOW}
 """
+
+# The jobs source carries no attribution or merge-queue column, so a job can only be scoped through
+# the run it belongs to. The subquery reuses the run-count window so both sides of the jobs table read
+# the same population.
+_RUNS_SCOPE_SUBQUERY = f"AND run_id IN (SELECT id FROM __RUNS_SOURCE__ AS r WHERE {_RUNS_WINDOW})"
 
 
 def query_job_aggregates(
@@ -88,9 +107,14 @@ def query_job_aggregates(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None,
+    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> list[WorkflowJobAggregate]:
-    jobs_source = curated.jobs_source()
-    cost_source = curated.job_cost_source()
+    # Both templates window the job's OWN created_at, but this query EXCLUDES re-run copies, and a copy
+    # is only recognisable while its original attempt is still in the scan: a re-run a day or more after
+    # the original push would otherwise pull the copy inside the window, drop the original below a tight
+    # floor, and count the copy as an execution. So take the wide floor, same as the cost surfaces.
+    jobs_source = curated.jobs_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True)
     if jobs_source is None or cost_source is None:
         return []
 
@@ -98,6 +122,7 @@ def query_job_aggregates(
     placeholders: dict[str, ast.Expr] = {
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
+        "job_created_floor": run_windowed_job_created_floor_constant(date_from),
     }
     # Shared filter clauses (each registers its own placeholder). The jobs/cost templates window and
     # branch-filter on the per-job created_at + head_branch; the run-count template reads the run
@@ -106,11 +131,17 @@ def query_job_aggregates(
     runs_date_to_clause = date_to_filter_clause(date_to, placeholders, column="run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
     runs_branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
+    runs_run_scope_clause = run_scope_filter_clause(run_scope)
+    cost_run_scope_clause = cost_run_scope_filter_clause(run_scope)
+    jobs_run_scope_clause = _RUNS_SCOPE_SUBQUERY if runs_run_scope_clause else ""
 
     def fill(template: str) -> str:
         return (
             template.replace("__JOBS_SOURCE__", jobs_source)
             .replace("__COST_SOURCE__", cost_source)
+            .replace("__JOBS_RUN_SCOPE__", jobs_run_scope_clause)
+            .replace("__COST_RUN_SCOPE__", cost_run_scope_clause)
+            .replace("__RUNS_RUN_SCOPE__", runs_run_scope_clause)
             .replace("__RUNS_SOURCE__", curated.run_source())
             .replace("__DATE_TO__", date_to_clause)
             .replace("__RUNS_DATE_TO__", runs_date_to_clause)

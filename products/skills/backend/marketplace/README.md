@@ -24,6 +24,31 @@ unit-testable against the real `git` binary without booting the app
 
 - **Zip export** — `GET /api/projects/:team/llm_skills/name/:name/export` → `application/zip`,
   one spec-compliant skill directory nested under `:name/` (web-authenticated, `llm_skill:read`).
+- **Skill bundle** — `GET /api/projects/:team/llm_skills/bundle?content=stub|full&limit=N` →
+  `application/zip`, every skill the requesting user created or owns (latest, not archived, not
+  `scout`, and readable under the same object-level access filter as the list endpoint), each nested
+  under `<name>/` so the zip unpacks straight into `~/.claude/skills` / `~/.agents/skills`.
+  `content=stub` (default) writes one `SKILL.md` per skill with only its name, description and
+  instructions to fetch the real skill with `skill-get` / `skill-file-get` when it is invoked, so a
+  sandbox gets discovery for a few KB and skill content only moves over MCP when a skill is used.
+  `content=full` writes the rendered `SKILL.md`, bundled files and Codex sidecar. Newest first,
+  `limit` skills (default 20, at most 100; every skill in the zip costs the agent prompt context on
+  each turn) and 5 MB uncompressed for `full`; the walk stops at the first skill that would cross a
+  cap, and sizes are checked from column byte counts before any content loads.
+  `X-Skills-Included`, `X-Skills-Dropped` (over the cap) and `X-Skills-Skipped` (failed the spec
+  check, or a legacy name or file path that is not safe to unpack) carry counts; names are logged.
+  Behind the `skills-store-in-sandbox` flag (off → 404, flag service unavailable → 503).
+  `llm_skill:read`, which the sandbox OAuth token already carries. Throttled per user, so one caller
+  cannot 429 the rest of the project. Consumer-facing contract: `docs/internal/skills/skill-bundle-api.md`.
+- **Sandbox run state** — `select_skill_stubs` in `adapters.py` is the same stub walk without the zip.
+  The tasks worker calls it when it builds a run's processing context and writes the entries into
+  `TaskRun.state["store_skills"]` (`products/tasks/backend/logic/services/store_skills.py`); the sandbox
+  agent renders one pointer `SKILL.md` per entry into `~/.claude/skills` and `~/.agents/skills`
+  (`products/desktop/packages/agent/src/server/store-skills.ts`), skipping any name a bundled skill
+  already uses. The stub file the agent writes must stay in step with `render_skill_stub_md`.
+  The list is the acting user's, so the worker writes it again when that user changes after the
+  session started (a warm run activated by its first message, a shared Slack task whose next
+  message comes from another member) and the agent re-reads the run and resyncs the stubs.
 - **Zip import** — `POST /api/projects/:team/llm_skills/import` (multipart `file` field, a spec
   skill `.zip`) → creates the skill (web-authenticated, `llm_skill:write`). The inverse of
   export: `parse_skill_zip` reads `SKILL.md` frontmatter + bundled files. Round-trips with export.

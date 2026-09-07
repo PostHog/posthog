@@ -13,7 +13,13 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
-import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
+import {
+    type FlagGatedTool,
+    getFlagGatedTools,
+    getRequiredFeatureFlags,
+    getScopeGatedTools,
+    type ScopeGatedTool,
+} from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
@@ -41,6 +47,7 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    flagGatedTools: FlagGatedTool[]
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -111,6 +118,17 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 }
 
 // ─── Resolver ───
+
+// Task origins whose sandbox mounts every shared gateway server as its own MCP server
+// (`mcp__<server>__<tool>`). Surfacing the same tools through `exec` as `<slug>__<tool>` gives
+// those agents a second, member-scoped name for each tool — one that resolves for a person
+// running the task interactively and comes back empty for the service account the scheduled
+// run uses, so instructions learned on one path silently fail on the other.
+const DIRECT_GATEWAY_MOUNT_ORIGINS: ReadonlySet<string> = new Set(['signals_scout'])
+
+function mountsGatewayServersDirectly(taskOriginProduct: string | undefined): boolean {
+    return taskOriginProduct !== undefined && DIRECT_GATEWAY_MOUNT_ORIGINS.has(taskOriginProduct)
+}
 
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
@@ -229,6 +247,8 @@ export class RequestStateResolver {
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        // Only exec redirects a call to a gated tool; tools mode just omits it.
+        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
@@ -250,7 +270,12 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
-            gatewayToolsEnabled: useSingleExec && !readOnly && mergedFlags[MCP_GATEWAY_FLAG] === true,
+            flagGatedTools,
+            gatewayToolsEnabled:
+                useSingleExec &&
+                !readOnly &&
+                mergedFlags[MCP_GATEWAY_FLAG] === true &&
+                !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
             metadata,

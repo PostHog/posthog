@@ -122,7 +122,7 @@ interface ContentItem {
     hideable: boolean
     // --- Tool-specific properties vary per type ---
     // text/heading: { text: string }                                  — text is an HTML fragment
-    // image: { src: { url, width, height }, alt, action }
+    // image: { src: { url, width, height }, alt, action }             — url from media-image-upload-complete or media-images-list, see SKILL.md#images
     // button: { text, href, buttonColors, size, borderRadius, ... }
     // html: { html: string }                                          — raw HTML block
   }

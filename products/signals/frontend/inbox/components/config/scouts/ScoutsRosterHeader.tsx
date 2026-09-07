@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL } from '../../../utils/scoutRunsWindow'
-import { ScoutsRosterFilters } from './ScoutsRosterFilters'
+import { ScoutsRosterFiltersLegacy } from './ScoutsRosterFiltersLegacy'
 
 function Stat({ value, label, compact = false }: { value: string; label: string; compact?: boolean }): JSX.Element {
     return (
@@ -32,7 +32,7 @@ export function ScoutsRosterHeader({ compact }: { compact: boolean }): JSX.Eleme
             )}
         >
             <RosterStats compact={compact} />
-            <ScoutsRosterFilters compact={compact} />
+            <ScoutsRosterFiltersLegacy compact={compact} />
         </div>
     )
 }

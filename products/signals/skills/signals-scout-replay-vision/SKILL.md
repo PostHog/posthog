@@ -1,10 +1,9 @@
 ---
 name: signals-scout-replay-vision
 description: >
-  Signals scout for PostHog Replay Vision scanners. Watches that enabled scanners keep
-  observing (throughput / quota cliffs) and that what they see in aggregate gets surfaced
-  (score shifts, recurring themes across sessions), and files each validated finding as a
-  report in the inbox.
+  Signals scout for PostHog Replay Vision scanners. Watches that enabled scanners keep observing
+  (throughput and quota cliffs) and that aggregate score shifts and recurring themes get
+  surfaced.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the replay-vision tools in
@@ -122,7 +121,7 @@ Patterns to watch — starting points, not a checklist. Compare every candidate 
 
 A candidate is an **enabled** scanner whose `obs_7d` dropped well below `obs_prior_7d` (say < ~40%) while recordings kept flowing (the session-replay capture query, or just a steady `$pageview`/session count, confirms the denominator held). Then tell apart "stopped running" from "running but failing" (footgun #5):
 
-- `vision-scanners-get` (`scanner_id`) — read the scanner row directly. `enabled: false` means an operator turned it off — not a gap. `updated_at` near the drop with a bumped `scanner_version` means a config edit (narrowed query, lowered sampling) — deliberate; cite it as context and stop. `last_swept_at` going stale while `enabled` is true is the schedule itself stalling. (Scanner edits aren't in the activity log, so this row is the **only** place to date them — don't reach for `advanced-activity-logs-list`.)
+- `vision-scanners-get` (`id`, **not** `scanner_id`) — read the scanner row directly. `enabled: false` means an operator turned it off — not a gap. `updated_at` near the drop with a bumped `scanner_version` means a config edit (narrowed query, lowered sampling) — deliberate; cite it as context and stop. `last_swept_at` going stale while `enabled` is true is the schedule itself stalling. (Scanner edits aren't in the activity log, so this row is the **only** place to date them — don't reach for `advanced-activity-logs-list`.)
 - `vision-scanners-observations-list` (`scanner_id`, `status: "failed"` then `status: "ineligible"`) — a wall of failures is a broken scanner (model/provider error); a wall of `ineligible` (`too_short`, `no_recording`) is usually a query that now matches sessions it can't observe. Read `error_reason`.
 - `vision-quota-retrieve` — the budget is org-wide credits (1 credit = $0.01, priced per model) for the current billing period. `exhausted: true` means every scheduled observation is being skipped org-wide until the period resets; that silences _all_ scanners at once.
 
@@ -187,7 +186,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 - key `noise:replay_vision:old-test-scanner` — _"Scanner 'Old test' (scanner_id abc…) abandoned, ~0 obs since 2026-05-20. Ignore in roster reads."_
 - key `dedupe:replay_vision:frustration-score-regression` — _"Reported scorer regression on 'Frustration' 2026-06-13 (mean 2.1→3.4/5 over the week, 210 sessions). Skip unless it recovers and re-steps."_
 - key `addressed:replay_vision:scanner-health-bundle` — _"Filed watch-gap bundle 2026-06-08 (2 enabled scanners silent on quota exhaustion). Don't re-report unless the silent set changes."_
-- key `report:replay_vision:frustration:score-regression` — the `report_id` of a report you authored for a scanner's aggregate shift, so the next run edits it (`append_note` the fresh window) instead of duplicating.
+- key `report:replay_vision:frustration:score-regression` — the `report_id` of a report you authored for a scanner's aggregate shift, so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `reviewer:replay_vision:<area>` — a resolved owner (bare lowercase GitHub login) for a scanner / replay surface, so reports route to a human faster.
 
 By run #5 you should know the live roster, each scanner's baseline output distribution, which scanners are on the push path, and which are dead — so a real shift stands out cheaply.
@@ -196,7 +195,7 @@ By run #5 you should know the live roster, each scanner's baseline output distri
 
 The generic report mechanics — search the inbox first (via the `report:replay_vision:<scanner-slug>` pointer, else an `inbox-reports-list` search on the scanner's _specific_ name, not a broad word like `scanner`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the replay-vision judgment layered on top:
 
-- **Edit** when a still-live report already tracks the same scanner's shift and it's still moving — a `yes`-rate still climbing, a scorer mean still depressed, a tag still concentrating. A persistent aggregate shift is one report across runs: a fresh complete week confirming it's ongoing is a re-escalation (`append_note` the new rate/score and session count), not a new report per tick.
+- **Edit** when a still-live report already tracks the same scanner's shift and it is still moving — a `yes`-rate still climbing, a scorer mean still depressed, a tag still concentrating. A persistent aggregate shift is one report across runs: a fresh complete week confirming it is ongoing is a re-escalation (`append_evidence` with the new rate/score and session count), not a new report per tick.
 - **Author** a fresh report only when nothing live covers the shift. A report-worthy finding names the scanner and its type, quantifies the **aggregate** shift against the scanner's _own_ baseline (rate/score before vs after, distinct sessions, the dated onset), attaches the matching series via `charts` (the `yes`-rate, mean score, or tag share over time for an output shift; observation throughput with recording volume alongside for a watch gap, since failed or ineligible runs emit no `$recording_observed` to rate) so the shift is visible, links 2–3 example recordings, and — for anything touching an `emits_signals` scanner or a session-replay / error-tracking surface — cites the overlapping inbox report. These are watcher findings, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. Priority: a high-value scanner fully silent or a clear aggregate regression on a key flow is **P2**; scanner-health bundles and minor trends **P3**; FYI themes **P4**. After authoring, write the `report:replay_vision:<scanner-slug>` pointer with the `report_id`.
 - **Remember** if below the bar but worth carrying forward (a rate drifting inside the noise band, a new scanner accruing its first baseline, a single-session storm), or to record what you ruled out.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, covers it, or if it's a per-session fact the push path already owns.
@@ -234,9 +233,11 @@ Direct calls (read-only):
 
 - `execute-sql` against `events` (`event = '$recording_observed'`) — the primary route. Key properties: `scanner_id`, `scanner_name`, `scanner_type`, `scanner_version`, `session_id`, `emits_signals`, `model_used`, `provider_used`, and the flattened `scanner_output_*` fields (`scanner_output_confidence`, `scanner_output_verdict`, `scanner_output_score`, `scanner_output_tags` (JSON array — `JSONExtract` before `arrayJoin`, footgun #3), `scanner_output_tags_freeform`, `scanner_output_title`, `scanner_output_summary`, `scanner_output_reasoning`). Time-filter on `timestamp` with the upper bound (footgun #1); count reach with `uniq(session_id)` (footgun #2); group/filter by `scanner_id` (footgun #4).
 - `vision-scanners-list` — roster + `enabled` / `emits_signals` / `scanner_type` state. Feature-gated; if absent, lean on the roster SQL above.
-- `vision-scanners-get` (`scanner_id`) — the one scanner's full row: `enabled`, `scanner_version`, `updated_at`, `last_swept_at`. The **only** place to date a config edit (scanner changes aren't in the activity log).
+- `vision-scanners-get` (`id`, **not** `scanner_id`, unlike the `vision-scanners-observations-*` tools) — the one scanner's full row: `enabled`, `scanner_version`, `updated_at`, `last_swept_at`. The **only** place to date a config edit (scanner changes aren't in the activity log).
 - `vision-scanners-observations-list` (`scanner_id`, `status`, `verdict`, `tags`, `triggered_by`) — the **only** way to see failed/ineligible observations (footgun #5) and read `error_reason`.
 - `vision-observations-list` (`session_id`) — every scanner's observation on one session, for example links.
+  A `$recording_observed` event row's `uuid` is the observation id, so on the primary `execute-sql` route select `toString(uuid)` and pass it straight to `vision-observations-retrieve` (`id`).
+  Fall back to this list when you have only a session id, or to pick one scanner's observation out of a session several scanners observed.
 - `vision-quota-retrieve` — the org's credit budget for the billing period: `remaining` / `exhausted`.
 - `query-session-recordings-list` / `session-recording-get` — resolve `session_id`s to watchable recordings for a finding's example links.
 - `read-data-schema` — confirm `$recording_observed` and its `scanner_output_*` properties exist before aggregating.

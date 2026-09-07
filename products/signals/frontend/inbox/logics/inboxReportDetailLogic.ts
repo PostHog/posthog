@@ -57,6 +57,7 @@ import {
     CurrentReviewerUser,
 } from '../components/detail/reviewerDisplay'
 import {
+    captureInboxReportAction,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
     InboxReportFeedbackSentiment,
@@ -74,17 +75,17 @@ import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
 
-// A report funds one implementation task at a time, enforced server-side by
-// `_live_implementation_exists` in products/signals/backend/task_run_artefacts.py. Only a failed or
-// cancelled run hands the slot back there, so `completed` is deliberately absent: reusing
-// TERMINAL_RUN_STATUSES here would offer a second PR the server then refuses.
-const IMPLEMENTATION_SLOT_RELEASING_STATUSES: TaskRunStatus[] = [TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
+/** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
+export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
 // gone), and the activity timeline renders the whole log. Pull a generous page so early entries
 // (the first task runs, repo selection) stay visible on reports with many findings — matching the
 // limit the kickoff flow already uses to find the repo-selection artefact.
 const ARTEFACT_FETCH_LIMIT = 1000
+
+/** The report column's tabs on a PR-bearing report: the summary, or the branch diff. */
+export type ReportDetailTab = 'summary' | 'files'
 
 export interface InboxReportDetailLogicProps {
     reportId: string
@@ -101,28 +102,39 @@ export interface ReportTaskEntry {
 }
 
 /**
- * Whether an implementation task still holds this report's single implementation slot, which makes a
- * manual "Create PR" fail with a `signal_report_task_cap` 429.
+ * Why an implementation task still holds this report's single implementation slot, or `null` when
+ * the slot is free. A claim makes a manual "Create PR" fail with a `signal_report_task_cap` 429.
  *
- * Approximates the server predicate with what the client has: only `latest_run` rather than every
- * run, and a shipped PR is read off the report instead (`hasImplementationPr`). Unloaded tasks read
- * as no live implementation, so a cold load leaves the action enabled and the 429 stays the backstop
- * rather than blocking a legitimate first press.
+ * Mirrors `_implementation_slot_claim` in products/signals/backend/task_run_artefacts.py: a run
+ * that has not settled holds the slot while it works, a run that shipped a PR holds it for good,
+ * and a run that ended with no PR hands it back. Approximates the server with what the client has,
+ * which is only `latest_run` rather than every run. Unloaded tasks read as no claim, so a cold load
+ * leaves the action enabled and the 429 stays the backstop rather than blocking a legitimate first
+ * press.
  */
-export function hasLiveImplementationTask(reportTasks: ReportTaskEntry[] | null): boolean {
-    return (reportTasks ?? []).some(
-        (entry) =>
-            entry.purpose === 'implementation' &&
-            !IMPLEMENTATION_SLOT_RELEASING_STATUSES.includes(entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED)
-    )
+export function implementationSlotClaim(reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null {
+    let claim: ImplementationSlotClaim | null = null
+    for (const entry of reportTasks ?? []) {
+        if (entry.purpose !== 'implementation') {
+            continue
+        }
+        // A shipped PR is the better answer when one task shipped and another is still working.
+        if (getTaskPrUrl(entry.task)) {
+            return 'shipped_pr'
+        }
+        if (!TERMINAL_RUN_STATUSES.includes(entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED)) {
+            claim = 'in_flight'
+        }
+    }
+    return claim
 }
 
 /**
  * Whether an implementation run is still moving, which is what the Create PR gate waits on.
  *
- * Unlike `hasLiveImplementationTask` this counts `completed` as settled, because a completed run
- * holds the report's slot for good and no later change can hand it back. Reusing the slot predicate
- * here would leave the poll running forever on a finished implementation.
+ * Unlike `implementationSlotClaim` this ignores the PR a settled run shipped, because a shipped PR
+ * is not going to change on its own. Reusing the slot predicate here would leave the poll running
+ * forever on a finished implementation.
  */
 export function implementationRunInFlight(reportTasks: ReportTaskEntry[] | null): boolean {
     return (reportTasks ?? []).some(
@@ -238,6 +250,7 @@ export interface inboxReportDetailLogicValues {
     chartPlacements: ChartPlacements
     chartsById: Map<string, ReportChartApi>
     currentUserGithubLogin: string | null
+    detailTab: ReportDetailTab
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
     draftThread: DraftThread | null
@@ -249,8 +262,8 @@ export interface inboxReportDetailLogicValues {
     feedbackNoteSubmitting: boolean
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
-    hasLiveImplementationTask: boolean
     hasPersonalGithub: boolean
+    implementationSlotClaim: ImplementationSlotClaim | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
     isReResearch: boolean
@@ -464,6 +477,9 @@ export interface inboxReportDetailLogicActions {
     searchAvailableReviewers: (query: string) => {
         query: string
     }
+    setDetailTab: (tab: ReportDetailTab) => {
+        tab: ReportDetailTab
+    }
     setEditingCommentId: (commentId: string | null) => {
         commentId: string | null
     }
@@ -537,7 +553,7 @@ export interface inboxReportDetailLogicMeta {
             user: null | import('~/types').UserType
         ) => AvailableReviewerOption[]
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
-        hasLiveImplementationTask: (reportTasks: ReportTaskEntry[] | null) => boolean
+        implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
             reportTasks: ReportTaskEntry[] | null,
@@ -606,6 +622,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         searchAvailableReviewers: (query: string) => ({ query }),
         // Which linked task's run log the detail view shows; null falls back to `primaryTask`.
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
+        // Summary or Files changed in the report column (PR-bearing reports only).
+        setDetailTab: (tab: ReportDetailTab) => ({ tab }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
         // Thumbs feedback at the end of the report body. Recorded server-side as a report action
@@ -706,8 +724,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // Org members with a linked GitHub identity who can be added as reviewers.
                 // Filtered server-side via `query` (the backend ranks + caps at 100) so the picker
                 // isn't limited to the alphabetical first page. Empty query loads the default page.
-                loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
-                    return await api.signalReports.availableReviewers(query)
+                loadAvailableReviewers: async ({ query }: { query?: string } = {}, breakpoint) => {
+                    const reviewers = await api.signalReports.availableReviewers(query)
+                    // Discard this result if a newer search superseded it while the request was in
+                    // flight, so a slower earlier response cannot overwrite the newer rows.
+                    breakpoint()
+                    return reviewers
                 },
             },
         ],
@@ -792,6 +814,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 toggleExpandedTask: (state, { taskId }) =>
                     state.includes(taskId) ? state.filter((id) => id !== taskId) : [...state, taskId],
                 setReport: () => [],
+            },
+        ],
+        // Which tab the report column shows. The logic is keyed by report id, so each report keeps its
+        // own tab while open and a freshly opened report starts on the summary.
+        detailTab: [
+            'summary' as ReportDetailTab,
+            {
+                setDetailTab: (_, { tab }) => tab,
             },
         ],
         // The thumbs rating this reader gave the open report, so the row can read the choice back.
@@ -1130,9 +1160,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 return hasInFlight && hasPriorTerminal
             },
         ],
-        hasLiveImplementationTask: [
+        implementationSlotClaim: [
             (s) => [s.reportTasks],
-            (reportTasks: ReportTaskEntry[] | null): boolean => hasLiveImplementationTask(reportTasks),
+            (reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null =>
+                implementationSlotClaim(reportTasks),
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
@@ -1168,6 +1199,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        setDetailTab: ({ tab }) => {
+            // Reviewing the diff is the deepest engagement a report gets short of acting on it.
+            if (tab === 'files' && values.report) {
+                captureInboxReportAction({ report: values.report, actionType: 'view_diff', surface: 'detail_pane' })
+            }
+        },
         rateReport: ({ sentiment }) => {
             if (!values.report) {
                 return

@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Aggregated heatmap interactions for a page. For type 'click'/'rageclick'/'mousemove' each result is a point with relative x, absolute client-y, and a count. For type 'scrolldepth' the response is scroll-depth buckets instead (cumulative reach down the page).
  */
-export const HeatmapsListParams = /* @__PURE__ */ zod.object({
+export const HeatmapsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -33,7 +33,7 @@ export const heatmapsListQueryOffsetMax = 1000000
 
 export const heatmapsListQueryTypeDefault = `click`
 
-export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
+export const HeatmapsListQueryParams = () => zod.object({
     aggregation: zod
         .enum(['unique_visitors', 'total_count'])
         .default(heatmapsListQueryAggregationDefault)
@@ -58,6 +58,12 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe("End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today."),
+    events: zod
+        .string()
+        .nullish()
+        .describe(
+            "JSON array of event filters (e.g. '[{\"id\": \"purchase\", \"properties\": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller."
+        ),
     filter_test_accounts: zod
         .boolean()
         .nullish()
@@ -116,7 +122,7 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Drill into the individual session interactions behind one or more heatmap coordinates. Pass the 'points' you want to inspect (from the heatmaps list response) to get the underlying per-session events, so you can jump to the session recordings that produced a hotspot.
  */
-export const HeatmapsEventsRetrieveParams = /* @__PURE__ */ zod.object({
+export const HeatmapsEventsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -136,7 +142,7 @@ export const heatmapsEventsRetrieveQueryOffsetMin = 0
 
 export const heatmapsEventsRetrieveQueryTypeDefault = `click`
 
-export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const HeatmapsEventsRetrieveQueryParams = () => zod.object({
     aggregation: zod
         .enum(['unique_visitors', 'total_count'])
         .default(heatmapsEventsRetrieveQueryAggregationDefault)
@@ -161,6 +167,12 @@ export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe("End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today."),
+    events: zod
+        .string()
+        .nullish()
+        .describe(
+            "JSON array of event filters (e.g. '[{\"id\": \"purchase\", \"properties\": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller."
+        ),
     filter_test_accounts: zod
         .boolean()
         .nullish()
@@ -220,7 +232,7 @@ export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 /**
  * List saved heatmaps for the project. A saved heatmap pins a page URL and a set of viewport widths, and (for type 'screenshot') renders the page so heatmap data can be overlaid on it.
  */
-export const SavedListParams = /* @__PURE__ */ zod.object({
+export const SavedListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -231,7 +243,7 @@ export const SavedListParams = /* @__PURE__ */ zod.object({
 export const savedListQueryLimitDefault = 100
 export const savedListQueryOffsetDefault = 0
 
-export const SavedListQueryParams = /* @__PURE__ */ zod.object({
+export const SavedListQueryParams = () => zod.object({
     created_by: zod.number().optional().describe("Filter by the creating user's ID."),
     limit: zod.number().default(savedListQueryLimitDefault).describe('Maximum saved heatmaps to return.'),
     offset: zod.number().default(savedListQueryOffsetDefault).describe('Number to skip, for pagination.'),
@@ -248,7 +260,7 @@ export const SavedListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render of the page at each target width; poll the saved heatmap or its content endpoint until status is 'completed'. Provide 'widths' to control which viewport widths are rendered.
  */
-export const SavedCreateParams = /* @__PURE__ */ zod.object({
+export const SavedCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -260,7 +272,9 @@ export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
 
-export const savedCreateBodyDataUrlMax = 2000
+export const savedCreateBodyDataUrlOneMax = 2000
+
+export const savedCreateBodyDataUrlTwoMax = 0
 
 export const savedCreateBodyWidthsItemMin = 100
 export const savedCreateBodyWidthsItemMax = 3000
@@ -269,16 +283,15 @@ export const savedCreateBodyWidthsMax = 16
 
 export const savedCreateBodyTypeDefault = `screenshot`
 
-export const SavedCreateBody = /* @__PURE__ */ zod.object({
+export const SavedCreateBody = () => zod.object({
     name: zod.string().max(savedCreateBodyNameMax).nullish().describe('Human-readable label for the saved heatmap.'),
     url: zod
         .url()
         .max(savedCreateBodyUrlMax)
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedCreateBodyDataUrlMax)
-        .nullish()
+        .union([zod.url().max(savedCreateBodyDataUrlOneMax).nullable(), zod.string().max(savedCreateBodyDataUrlTwoMax)])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedCreateBodyWidthsItemMin).max(savedCreateBodyWidthsItemMax))
@@ -305,7 +318,7 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Get a single saved heatmap by its short_id, including per-width render status.
  */
-export const SavedRetrieveParams = /* @__PURE__ */ zod.object({
+export const SavedRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -317,7 +330,7 @@ export const SavedRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Update a saved heatmap (e.g. rename, change widths, or soft-delete via 'deleted'). Changing the URL of a 'screenshot' heatmap triggers a re-render.
  */
-export const SavedPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const SavedPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -330,14 +343,16 @@ export const savedPartialUpdateBodyNameMax = 400
 
 export const savedPartialUpdateBodyUrlMax = 2000
 
-export const savedPartialUpdateBodyDataUrlMax = 2000
+export const savedPartialUpdateBodyDataUrlOneMax = 2000
+
+export const savedPartialUpdateBodyDataUrlTwoMax = 0
 
 export const savedPartialUpdateBodyWidthsItemMin = 100
 export const savedPartialUpdateBodyWidthsItemMax = 3000
 
 export const savedPartialUpdateBodyWidthsMax = 16
 
-export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const SavedPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(savedPartialUpdateBodyNameMax)
@@ -349,9 +364,11 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedPartialUpdateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedPartialUpdateBodyDataUrlOneMax).nullable(),
+            zod.string().max(savedPartialUpdateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedPartialUpdateBodyWidthsItemMin).max(savedPartialUpdateBodyWidthsItemMax))
@@ -379,7 +396,7 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders and re-renders at every target width; status returns to 'processing'.
  */
-export const SavedRegenerateCreateParams = /* @__PURE__ */ zod.object({
+export const SavedRegenerateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -392,7 +409,7 @@ export const SavedRegenerateCreateParams = /* @__PURE__ */ zod.object({
  * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
  * @summary Summarize web analytics
  */
-export const WebAnalyticsWeeklyDigestParams = /* @__PURE__ */ zod.object({
+export const WebAnalyticsWeeklyDigestParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -403,7 +420,7 @@ export const WebAnalyticsWeeklyDigestParams = /* @__PURE__ */ zod.object({
 export const webAnalyticsWeeklyDigestQueryCompareDefault = true
 export const webAnalyticsWeeklyDigestQueryDaysDefault = 7
 
-export const WebAnalyticsWeeklyDigestQueryParams = /* @__PURE__ */ zod.object({
+export const WebAnalyticsWeeklyDigestQueryParams = () => zod.object({
     compare: zod
         .boolean()
         .default(webAnalyticsWeeklyDigestQueryCompareDefault)
@@ -420,7 +437,7 @@ export const WebAnalyticsWeeklyDigestQueryParams = /* @__PURE__ */ zod.object({
  * Merges the suggestion's rules into the team's path_cleaning_filters (never overwrites existing rules) and resolves the underlying health issue. Requires project admin, matching the team API's gate on path_cleaning_filters.
  * @summary Apply a path-cleaning suggestion
  */
-export const WebAnalyticsPathCleaningSuggestionsApplyParams = /* @__PURE__ */ zod.object({
+export const WebAnalyticsPathCleaningSuggestionsApplyParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -433,7 +450,7 @@ export const WebAnalyticsPathCleaningSuggestionsApplyParams = /* @__PURE__ */ zo
  * Samples the team's recent paths, asks the LLM for cleaning rules, validates them against the real paths, and stores the result as a `path_cleaning_suggestions` health issue (replacing any previous active one). Runs even if the team already has rules. Returns the suggestion (or a skip status when there aren't enough paths to suggest from).
  * @summary Generate path-cleaning suggestions on demand
  */
-export const WebAnalyticsPathCleaningSuggestionsGenerateParams = /* @__PURE__ */ zod.object({
+export const WebAnalyticsPathCleaningSuggestionsGenerateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

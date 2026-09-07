@@ -353,6 +353,31 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('clearClassifierTags', () => {
+        it('empties the categories of a classifier scanner', async () => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['checkout', 'pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_config: expect.objectContaining({ tags: [] }),
+                }),
+            })
+        })
+
+        it('is a no-op for non-classifier scanners', async () => {
+            // Default scanner is a monitor, so clearing must not add a tags field to its config.
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
+                scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
+            })
+        })
+    })
+
     describe('tag suggestions', () => {
         const setupClassifier = (): void => {
             logic.actions.setScannerType('classifier')
@@ -1418,6 +1443,19 @@ describe('replayScannerLogic', () => {
                 template_key: null,
                 goal_length: 'find users who get stuck'.length,
             })
+        })
+
+        it('the last path taken is what the save reports', async () => {
+            // Each of these replaces the form, so someone who drafts with AI and then picks a
+            // template saved the template's scanner. Reporting the first path would credit the AI
+            // flow with a scanner it did not produce.
+            await expectLogic(logic, () => {
+                logic.actions.draftScannerFromGoal('find users who get stuck')
+            }).toFinishAllListeners()
+            expect(logic.values.creationMethod).toEqual('ai')
+
+            logic.actions.startFromTemplate('dead_end')
+            expect(logic.values.creationMethod).toEqual('template')
         })
     })
 

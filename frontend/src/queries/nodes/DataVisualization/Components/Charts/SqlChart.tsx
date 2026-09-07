@@ -16,6 +16,8 @@ export type SqlChartProps = {
     presetChartHeight?: boolean
     dashboardId?: string
     goalLines?: GoalLine[]
+    insightNumericId?: number | 'new'
+    showAnnotations?: boolean
     className?: string
     /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
      *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */

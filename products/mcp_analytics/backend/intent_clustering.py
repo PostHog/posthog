@@ -30,7 +30,7 @@ import math
 import asyncio
 import hashlib
 from collections import Counter, defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -44,6 +44,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -148,10 +149,31 @@ class WindowStats:
 
 # Intent corpus -----------------------------------------------------------
 
-# Bound on sessions sampled from ClickHouse for the corpus. Keeps the IN-tuple
-# in the per-session queries below at a sane size; a larger sample mostly adds
-# long-tail singleton intents past DEFAULT_TOP_N_INTENTS anyway.
-MAX_CORPUS_SESSIONS = 2000
+# Total corpus budget. Raised alongside stratified sampling: the per-tool floors
+# below have to fit inside it before any of the budget goes to the dominant
+# tools, and the per-tool call cap (below) stops the extra sessions from
+# belonging only to those tools. The IN-tuple stays sane because per-session
+# queries chunk the ids.
+MAX_CORPUS_SESSIONS = 6000
+
+# Each tool keeps at least this many sessions in the corpus, so a low/mid-volume
+# tool (logs/tracing/metrics) survives sampling instead of being erased by the
+# dominant exec/scout traffic. ~400 is the statistical floor for reading a
+# discovery/capture rate to ±5%. Doubles as the per-tool candidate pool size in
+# ``fetch_tools_by_session``: a pool bigger than the floor buys nothing, since
+# the rest of the corpus budget comes from the uniform sample.
+MIN_SESSIONS_PER_TOOL = 400
+
+# No tool may contribute more than this many attributed calls to the corpus.
+# Stops one dominant tool from occupying the entire intent space; the freed
+# budget is what lets mid/low tools cluster into real themes rather than noise.
+MAX_CALLS_PER_TOOL = 1500
+
+# Sender-controlled tool names only ever expand the ``_SESSION_TOOLS_SQL``
+# buckets. One session honestly uses a handful of distinct tools, so bound how
+# many distinct tools a single session can contribute — an attacker emitting
+# thousands of unique names can't fan the buckets out from one session.
+MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET = 500
 
 # execute_hogql_query injects LIMIT 100 into any query without an explicit
 # LIMIT — far below what the per-session queries return at production scale
@@ -413,6 +435,218 @@ def fetch_window_stats(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -
         calls_with_intent=int(row[1] or 0),
         sessions=int(row[2] or 0),
     )
+
+
+# Intent-bearing sessions bucketed by effective tool, capped *per tool*.
+#
+# A single cap on candidate sessions cannot work here: the hash-ordered cut runs
+# before any bucketing, so at high total volume a low/mid-volume tool's handful
+# of sessions falls outside it and the per-tool floor has nothing left to keep —
+# the erasure this pipeline exists to prevent. ``LIMIT n BY tool`` gives each
+# tool its own pool, so whether a tool reaches the corpus stops depending on the
+# team's total session count.
+#
+# Both dimensions are sender-controlled, so each is bounded: ``groupUniqArray``
+# de-duplicates a session's tool names in aggregate state and ``arraySlice``
+# caps how many of them leave it, while the per-tool cap and the absolute row
+# cap bound the rows. Grouping by session alone (rather than session x tool)
+# keeps the aggregation one dimension wide, and lets a session qualify on any of
+# its calls carrying an intent — the population ``sample_corpus_sessions`` draws
+# from.
+#
+# ``cityHash64`` here and in ``sample_corpus_sessions`` is a fast pseudo-random
+# ordering, not a security boundary — the memory/CPU protection comes from the
+# numeric caps, not the hash. ``arraySort`` keeps the per-session tool slice
+# stable across reruns so repeat runs re-hit the embedding cache.
+_SESSION_TOOLS_SQL = """
+SELECT session_id, arrayJoin(tools) AS tool
+FROM (
+    SELECT
+        $session_id AS session_id,
+        arraySlice(arraySort(groupUniqArray(left({tool_expr}, {max_tool_len}))), 1, {max_distinct_tools}) AS tools,
+        countIf(coalesce(toString(properties.$mcp_intent), '') != '') AS intent_calls
+    FROM events
+    WHERE event = {event}
+        AND timestamp >= now() - INTERVAL {lookback_days} DAY
+        AND $session_id != ''
+        AND notEmpty({tool_expr_where})
+    GROUP BY session_id
+    HAVING intent_calls > 0
+)
+ORDER BY cityHash64(session_id)
+LIMIT {max_sessions_per_tool} BY tool
+LIMIT {max_rows}
+"""
+
+
+def fetch_tools_by_session(
+    team: Team,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    max_sessions_per_tool: int = MIN_SESSIONS_PER_TOOL,
+) -> dict[str, set[str]]:
+    """Return ``{tool: {intent-bearing session_ids}}``, capped per tool.
+
+    Each tool gets its own deterministic cityHash pool, so a tool's presence in
+    the corpus is independent of the team's total session count. The pool only
+    has to cover the tool's floor — ``select_corpus_sessions`` spends whatever
+    budget is left on the uniform sample.
+    """
+    query = parse_select(
+        _SESSION_TOOLS_SQL,
+        placeholders={
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "tool_expr": parse_expr(EFFECTIVE_TOOL_SQL),
+            "tool_expr_where": parse_expr(EFFECTIVE_TOOL_SQL),
+            "lookback_days": ast.Constant(value=lookback_days),
+            "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+            "max_sessions_per_tool": ast.Constant(value=max_sessions_per_tool),
+            "max_distinct_tools": ast.Constant(value=MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET),
+            "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+        },
+    )
+    rows = _run_corpus_query(team, query)
+    if len(rows) >= MAX_QUERY_ROWS:
+        # The row cap hit before every tool's pool came back, so some tool's
+        # bucket is short of its floor. Say so rather than let the missing tool
+        # read as a traffic change.
+        logger.warning(
+            "mcpa.intent_clustering.tool_buckets_truncated",
+            team_id=team.id,
+            max_rows=MAX_QUERY_ROWS,
+            max_sessions_per_tool=max_sessions_per_tool,
+        )
+    out: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        session_id, tool = str(row[0] or ""), str(row[1] or "")
+        if session_id and tool:
+            out[tool].add(session_id)
+    return dict(out)
+
+
+def stratify_session_ids(
+    tool_sessions: dict[str, set[str]],
+    min_sessions_per_tool: int,
+    max_total_sessions: int,
+) -> set[str]:
+    """Choose corpus sessions so no tool is erased by the dominant tools.
+
+    The prior uniform sample drew sessions proportionally to traffic, so in a
+    window where ``exec``/scout dominate, a low/mid-volume tool's handful of
+    sessions is statistically dropped and the tool becomes invisible to
+    clustering. This guarantees each tool keeps up to ``min_sessions_per_tool``
+    sessions (its full set when smaller), then fills any remaining budget with
+    the highest-volume tools, capped at ``max_total_sessions``.
+
+    Deterministic: per-tool session ids take the sorted-prefix, so reruns
+    re-hit the same ids and the embedding cache.
+
+    Every tool is visited: the budget is apportioned across tools rather than
+    consumed by the first ones, so a later (or alphabetically later equal-volume)
+    tool is never skipped, and the result is always within ``max_total_sessions``
+    regardless of how the floors interact with the budget.
+    """
+    tools = sorted(tool_sessions)
+    if not tools or max_total_sessions <= 0:
+        return set()
+
+    # The budget cannot always give every tool its full floor (many tools x
+    # floor swamps max_total_sessions), so the effective per-tool floor is
+    # min(the request, an even share of the budget). Even-share is the only
+    # allocation that never starves a tool while always fitting the budget.
+    budget_floor = max(1, max_total_sessions // len(tools))
+    floor_size = max(1, min(min_sessions_per_tool, budget_floor))
+
+    selected: set[str] = set()
+    # Ascending volume secures scarce tools' floors before dominant tools add
+    # their own (shared ids are de-duped through ``selected``).
+    for tool in sorted(tools, key=lambda t: (len(tool_sessions[t]), t)):
+        selected.update(sorted(tool_sessions[tool])[:floor_size])
+
+    # Spend the remainder on the highest-volume tools, which hold the bulk of
+    # the window's calls, keeping the whole result within budget.
+    room = max_total_sessions - len(selected)
+    if room > 0:
+        for tool in sorted(tools, key=lambda t: (-len(tool_sessions[t]), t)):
+            if room <= 0:
+                break
+            for sid in sorted(tool_sessions[tool]):
+                if room <= 0:
+                    break
+                if sid not in selected:
+                    selected.add(sid)
+                    room -= 1
+    return selected
+
+
+def select_corpus_sessions(
+    tool_sessions: dict[str, set[str]],
+    uniform_sample: Sequence[str],
+    min_sessions_per_tool: int,
+    max_total_sessions: int,
+) -> list[str]:
+    """The corpus session ids: per-tool floors first, uniform sample for the rest.
+
+    The floors are what keep a low/mid-volume tool in the corpus at any traffic
+    volume, but they only cover each tool's floor, so on their own they would
+    shrink the corpus for a team with a handful of tools. Spending the remaining
+    budget on the uniform hash sample keeps the corpus full size and keeps the
+    bulk of the window's traffic represented — the per-tool call cap is what
+    stops that bulk from crowding the intent space later.
+
+    ``uniform_sample`` is also the whole corpus when the per-tool buckets are
+    unavailable, so a capture or schema gap degrades to the prior behavior
+    rather than emptying the corpus.
+    """
+    if max_total_sessions <= 0:
+        return []
+    selected = stratify_session_ids(tool_sessions, min_sessions_per_tool, max_total_sessions)
+    for session_id in uniform_sample:
+        if len(selected) >= max_total_sessions:
+            break
+        selected.add(session_id)
+    return sorted(selected)
+
+
+@frozen
+class ToolCallCapResult:
+    """Outcome of ``cap_per_tool_call_volume``: the kept rows plus, for each
+    over-capped tool, how many of its calls were kept vs dropped."""
+
+    kept_rows: list[tuple[str, str, str, bool]]
+    per_tool_report: dict[str, dict[str, int]]
+
+
+def cap_per_tool_call_volume(
+    rows: list[tuple[str, str, str, bool]],
+    max_calls_per_tool: int,
+) -> ToolCallCapResult:
+    """Down-sample an over-represented tool's raw call rows before attribution.
+
+    Row-level (pre-attribution) so intents and LOCF see the capped population.
+    Deterministic: keeps an even stride across the tool's rows so the surviving
+    calls still span the tool's whole session/intent range rather than a prefix.
+    Each over-capped tool reports how many calls were ``kept`` vs ``dropped``.
+    """
+    tool_row_indexes: dict[str, list[int]] = defaultdict(list)
+    for idx, (_, tool, _, _) in enumerate(rows):
+        tool_row_indexes[tool].append(idx)
+
+    keep_indexes: set[int] = set()
+    report: dict[str, dict[str, int]] = {}
+    for tool, indexes in tool_row_indexes.items():
+        total = len(indexes)
+        if total <= max_calls_per_tool:
+            keep_indexes.update(indexes)
+            continue
+        # Even stride keeps breadth across the tool's calls.
+        stride = total / max_calls_per_tool
+        kept_positions = {int(i * stride) for i in range(max_calls_per_tool)}
+        kept = {indexes[pos] for pos in kept_positions}
+        keep_indexes.update(kept)
+        report[tool] = {"kept": len(kept), "dropped": total - len(kept)}
+
+    kept_rows = [row for idx, row in enumerate(rows) if idx in keep_indexes]
+    return ToolCallCapResult(kept_rows=kept_rows, per_tool_report=report)
 
 
 def fetch_tool_descriptions(
@@ -1170,6 +1404,16 @@ def build_snapshot(
         "dropped_tools": dropped_tools,
         "dropped_overlap_pairs": dropped_pairs,
         "description_coverage_pct": _pct(described_tools, len(tools)) if tools else None,
+        # Representation honesty: these per-tool numbers come from a *balanced
+        # sample*, never the population. Downstream surfaces must warn before
+        # treating a tool's capture/discovery rate as its true traffic share.
+        "sampled": True,
+        "corpus_strategy": "stratified_by_tool",
+        "sampling_warning": (
+            "Intent clusters are computed from a stratified sample of sessions "
+            "(per-tool floors, dominant tools capped). Per-tool capture and "
+            "discovery rates are sample statistics, not population totals."
+        ),
     }
 
     return {
@@ -1222,5 +1466,12 @@ def empty_snapshot(
             "dropped_tools": 0,
             "dropped_overlap_pairs": 0,
             "description_coverage_pct": None,
+            "sampled": True,
+            "corpus_strategy": "stratified_by_tool",
+            "sampling_warning": (
+                "Intent clusters are computed from a stratified sample of sessions "
+                "(per-tool floors, dominant tools capped). Per-tool capture and "
+                "discovery rates are sample statistics, not population totals."
+            ),
         },
     }

@@ -733,7 +733,7 @@ class TestFetchArrowBatches:
 
         tables = list(_fetch_arrow_batches(cursor, 5, _STREAM_SCHEMA, fetch_size=2))
 
-        assert _ids(tables) == [[1, 2, 3, 4, 5, 6], [7]]
+        assert _ids(tables) == [[1, 2, 3, 4, 5], [6, 7]]
         assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2, 2, 2, 2]
 
     def test_fetches_a_whole_chunk_at_a_time_by_default(self):

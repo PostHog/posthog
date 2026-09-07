@@ -1,6 +1,7 @@
 import {
     getRelativeNextPath,
     isExternalLink,
+    isHttpsUrl,
     isURL,
     parseNumericArrayFilter,
     parseTagsFilter,
@@ -363,6 +364,19 @@ describe('url utils', () => {
         it('returns undefined for null and undefined', () => {
             expect(parseNumericArrayFilter(null)).toBeUndefined()
             expect(parseNumericArrayFilter(undefined)).toBeUndefined()
+        })
+    })
+    describe('isHttpsUrl', () => {
+        it.each([
+            ['https://example.com/webhook', true],
+            ['https://example.com:444/webhook', true],
+            ['  https://example.com/webhook  ', true],
+            ['http://example.com/webhook', false],
+            ['not a URL', false],
+            ['   ', false],
+            ['', false],
+        ])('returns %s -> %s', (value, expected) => {
+            expect(isHttpsUrl(value)).toBe(expected)
         })
     })
 })

@@ -117,6 +117,17 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
         blank=True,
         help_text="Severity this run was judged at. Null for runs recorded before snapshots.",
     )
+    # Identities, not names: a deleted warehouse object frees its name for anyone to take, so a name
+    # recorded here would stop naming what the run read the moment someone reused it. Null means
+    # "recorded before runs pinned this"; an empty list means "read nothing beyond its subject".
+    referenced_subjects = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Subjects this run read besides its own, as {subject_type, subject_uuid} entries. "
+            "Null for runs recorded before references were pinned."
+        ),
+    )
 
     status = models.CharField(max_length=16, choices=[(s.value, s.value) for s in CheckRunStatus])
     failed_row_count = models.BigIntegerField(

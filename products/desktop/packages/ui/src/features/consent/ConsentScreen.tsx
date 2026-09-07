@@ -4,6 +4,7 @@ import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { openSettingsDialog } from "@posthog/ui/features/settings/SettingsDialog";
+import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import type { ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -62,12 +63,19 @@ export function ConsentScreen({
   return (
     <>
       <FullScreenLayout footerLeft={footerLeft} footerRight={footerRight}>
-        <div className="flex h-full items-center justify-center overflow-y-auto px-8 py-16">
-          {consent.status === "error" ? (
-            <ConsentErrorContent onRetry={consent.retry} />
-          ) : consent.status === "resolved" ? (
-            <ConsentPanel consent={consent} isAdmin={isAdmin === true} />
-          ) : null}
+        <div className="flex h-full flex-col overflow-y-auto px-8 pt-12 pb-16">
+          <div className="flex shrink-0 justify-end">
+            <div className="w-64 max-w-full">
+              <ProjectSwitcher />
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center py-8">
+            {consent.status === "error" ? (
+              <ConsentErrorContent onRetry={consent.retry} />
+            ) : consent.status === "resolved" ? (
+              <ConsentPanel consent={consent} isAdmin={isAdmin === true} />
+            ) : null}
+          </div>
         </div>
       </FullScreenLayout>
       {settingsDialog}
