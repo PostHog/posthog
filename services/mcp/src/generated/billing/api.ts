@@ -139,37 +139,33 @@ export const BillingSpendTimeseriesRetrieveParams = () => zod.object({
         ),
 })
 
-export const billingSpendTimeseriesRetrieveQueryAfterMax = 512
+export const billingSpendTimeseriesRetrieveQueryCursorMax = 512
 
-export const billingSpendTimeseriesRetrieveQueryLimitDefault = 100
-export const billingSpendTimeseriesRetrieveQueryOffsetDefault = 0
-export const billingSpendTimeseriesRetrieveQueryPageSizeMax = 1000
+export const billingSpendTimeseriesRetrieveQueryLimitMax = 1000
 
 export const billingSpendTimeseriesRetrieveQueryTopProjectsMax = 200
 
 export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
-    after: zod
-        .string()
-        .max(billingSpendTimeseriesRetrieveQueryAfterMax)
-        .nullish()
-        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
     breakdowns: zod
         .string()
         .nullish()
         .describe(
             'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
         ),
+    cursor: zod
+        .string()
+        .max(billingSpendTimeseriesRetrieveQueryCursorMax)
+        .nullish()
+        .describe("The cursor from a previous page's `next` link. Opaque. Ignored without `limit`."),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
-    limit: zod.number().default(billingSpendTimeseriesRetrieveQueryLimitDefault).describe('Series per page.'),
-    offset: zod.number().default(billingSpendTimeseriesRetrieveQueryOffsetDefault).describe('Series to skip.'),
-    page_size: zod
+    limit: zod
         .number()
         .min(1)
-        .max(billingSpendTimeseriesRetrieveQueryPageSizeMax)
+        .max(billingSpendTimeseriesRetrieveQueryLimitMax)
         .nullish()
         .describe(
-            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
+            'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.'
         ),
     start_date: zod.string().nullish(),
     team_ids: zod
@@ -256,37 +252,33 @@ export const BillingUsageTimeseriesRetrieveParams = () => zod.object({
         ),
 })
 
-export const billingUsageTimeseriesRetrieveQueryAfterMax = 512
+export const billingUsageTimeseriesRetrieveQueryCursorMax = 512
 
-export const billingUsageTimeseriesRetrieveQueryLimitDefault = 100
-export const billingUsageTimeseriesRetrieveQueryOffsetDefault = 0
-export const billingUsageTimeseriesRetrieveQueryPageSizeMax = 1000
+export const billingUsageTimeseriesRetrieveQueryLimitMax = 1000
 
 export const billingUsageTimeseriesRetrieveQueryTopProjectsMax = 200
 
 export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
-    after: zod
-        .string()
-        .max(billingUsageTimeseriesRetrieveQueryAfterMax)
-        .nullish()
-        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
     breakdowns: zod
         .string()
         .nullish()
         .describe(
             'JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.'
         ),
+    cursor: zod
+        .string()
+        .max(billingUsageTimeseriesRetrieveQueryCursorMax)
+        .nullish()
+        .describe("The cursor from a previous page's `next` link. Opaque. Ignored without `limit`."),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
-    limit: zod.number().default(billingUsageTimeseriesRetrieveQueryLimitDefault).describe('Series per page.'),
-    offset: zod.number().default(billingUsageTimeseriesRetrieveQueryOffsetDefault).describe('Series to skip.'),
-    page_size: zod
+    limit: zod
         .number()
         .min(1)
-        .max(billingUsageTimeseriesRetrieveQueryPageSizeMax)
+        .max(billingUsageTimeseriesRetrieveQueryLimitMax)
         .nullish()
         .describe(
-            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
+            'Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.'
         ),
     start_date: zod.string().nullish(),
     team_ids: zod

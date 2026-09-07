@@ -92608,16 +92608,16 @@ export namespace Schemas {
 
     export type BillingSpendTimeseriesRetrieveParams = {
     /**
-     * The `next` cursor from the previous page. Opaque. Ignored without page_size.
-     * @maxLength 512
-     * @nullable
-     */
-    after?: string | null;
-    /**
      * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
      * @nullable
      */
     breakdowns?: string | null;
+    /**
+     * The cursor from a previous page's `next` link. Opaque. Ignored without `limit`.
+     * @maxLength 512
+     * @nullable
+     */
+    cursor?: string | null;
     /**
      * @nullable
      */
@@ -92627,20 +92627,12 @@ export namespace Schemas {
      */
     interval?: string | null;
     /**
-     * Series per page.
-     */
-    limit?: number;
-    /**
-     * Series to skip.
-     */
-    offset?: number;
-    /**
-     * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
+     * Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.
      * @minimum 1
      * @maximum 1000
      * @nullable
      */
-    page_size?: number | null;
+    limit?: number | null;
     /**
      * @nullable
      */
@@ -92666,16 +92658,16 @@ export namespace Schemas {
 
     export type BillingUsageTimeseriesRetrieveParams = {
     /**
-     * The `next` cursor from the previous page. Opaque. Ignored without page_size.
-     * @maxLength 512
-     * @nullable
-     */
-    after?: string | null;
-    /**
      * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
      * @nullable
      */
     breakdowns?: string | null;
+    /**
+     * The cursor from a previous page's `next` link. Opaque. Ignored without `limit`.
+     * @maxLength 512
+     * @nullable
+     */
+    cursor?: string | null;
     /**
      * @nullable
      */
@@ -92685,20 +92677,12 @@ export namespace Schemas {
      */
     interval?: string | null;
     /**
-     * Series per page.
-     */
-    limit?: number;
-    /**
-     * Series to skip.
-     */
-    offset?: number;
-    /**
-     * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
+     * Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown; ignored without one. Omit it to get every series at once.
      * @minimum 1
      * @maximum 1000
      * @nullable
      */
-    page_size?: number | null;
+    limit?: number | null;
     /**
      * @nullable
      */

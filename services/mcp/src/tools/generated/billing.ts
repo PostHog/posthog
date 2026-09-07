@@ -185,13 +185,11 @@ const billingSpendGet = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/spend/timeseries/`,
             query: {
-                after: params.after,
                 breakdowns: params.breakdowns,
+                cursor: params.cursor,
                 end_date: params.end_date,
                 interval: params.interval,
                 limit: params.limit,
-                offset: params.offset,
-                page_size: params.page_size,
                 start_date: params.start_date,
                 team_ids: params.team_ids,
                 top_projects: params.top_projects,
@@ -269,6 +267,9 @@ const BillingUsageGetSchema = () => {
         limit: BillingUsageTimeseriesRetrieveQueryParams.shape['limit'].describe(
             'Return at most this many series, ranked by total, with a `next` link in the response for the page after. Prefer this over asking for everything at once on a large organization: a paged request stays well inside the size this endpoint refuses oversized breakdowns at, and combining it with a single-product `usage_types` filter is the cheapest way to walk a lot of data. Requires a project breakdown.'
         ),
+        cursor: BillingUsageTimeseriesRetrieveQueryParams.shape['cursor'].describe(
+            "The cursor from the previous page's `next` link. Opaque - do not construct one. Omit it for the first page, and stop when a response comes back with `next` null."
+        ),
     })
 }
 
@@ -284,13 +285,11 @@ const billingUsageGet = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/usage/timeseries/`,
             query: {
-                after: params.after,
                 breakdowns: params.breakdowns,
+                cursor: params.cursor,
                 end_date: params.end_date,
                 interval: params.interval,
                 limit: params.limit,
-                offset: params.offset,
-                page_size: params.page_size,
                 start_date: params.start_date,
                 team_ids: params.team_ids,
                 top_projects: params.top_projects,

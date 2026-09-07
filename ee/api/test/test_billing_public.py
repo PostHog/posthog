@@ -359,18 +359,32 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         mock_get.assert_not_called()
 
     @patch("ee.billing.billing_manager.requests.get")
-    def test_timeseries_is_paginated_over_series(self, mock_get):
-        mock_get.return_value = _response(SERIES)
+    def test_timeseries_pages_by_cursor_the_way_the_api_does(self, mock_get):
+        mock_get.return_value = _response({**SERIES, "next": "c2", "total_count": 7})
         response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
-        self.assertEqual(body["count"], 3)
-        self.assertEqual(len(body["results"]), 2)
-        self.assertIsNotNone(body["next"])
-        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/usage/timeseries/"))
         sent = mock_get.call_args.kwargs["params"]
-        self.assertEqual(sent["start_date"], "2026-09-01")
-        self.assertIn(str(self.team.id), json.loads(sent["teams_map"]))
+        # limit and cursor are the API's names; billing hears page_size and after.
+        self.assertEqual((sent.get("page_size"), "limit" in sent), (2, False))
+        self.assertEqual((body["count"], body["previous"], len(body["results"])), (7, None, 3))
+        self.assertTrue(
+            body["next"].endswith(
+                "/billing/usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2&cursor=c2"
+            ),
+            body["next"],
+        )
+
+        mock_get.return_value = _response(SERIES)
+        response = self.client.get(
+            self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2&cursor=c2")
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        sent = mock_get.call_args.kwargs["params"]
+        self.assertEqual((sent.get("after"), "cursor" in sent), ("c2", False))
+        body = response.json()
+        # An unpaged answer, or the last page, has no next link and counts what it holds.
+        self.assertEqual((body["count"], body["next"]), (3, None))
 
     def test_team_scoped_key_is_refused_on_organization_endpoints_like_everywhere_else(self):
         raw = generate_random_token_personal()

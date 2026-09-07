@@ -23,7 +23,6 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -35,7 +34,7 @@ from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFla
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
 
-from ee.api.billing import BillingTimeSeriesPointSerializer, BillingUsageRequestSerializer
+from ee.api.billing import BillingTimeSeriesPointSerializer, BillingUsageRequestSerializer, _resolve_team_labels
 from ee.billing.billing_manager import BillingManager
 from ee.billing.grants import (
     ORGANIZATION_BILLING_API_FLAG,
@@ -406,10 +405,30 @@ class PaginatedBillingTimeSeriesPointListSerializer(serializers.Serializer):
     results = BillingTimeSeriesPointSerializer(many=True)
 
 
-PAGINATION = [
-    OpenApiParameter("limit", int, OpenApiParameter.QUERY, description="Series per page.", default=100),
-    OpenApiParameter("offset", int, OpenApiParameter.QUERY, description="Series to skip.", default=0),
-]
+class OrganizationTimeseriesRequestSerializer(BillingUsageRequestSerializer):
+    """The root series read's parameters, with its cursor paging expressed the API's way: `limit`
+    and `cursor` in the request, `next` and `previous` links in the response."""
+
+    page_size = None  # type: ignore[assignment]
+    after = None  # type: ignore[assignment]
+    limit = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=1000,
+        help_text=(
+            "Series per page, ranked by total, with a `next` link for the page after. Requires a project "
+            "breakdown; ignored without one. Omit it to get every series at once."
+        ),
+    )
+    cursor = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=512,
+        help_text="The cursor from a previous page's `next` link. Opaque. Ignored without `limit`.",
+    )
+
 
 INCLUDE_PLANS = OpenApiParameter(
     "include_plans",
@@ -503,9 +522,14 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
-        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer = OrganizationTimeseriesRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
         params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        # Billing pages with page_size and after; the API's names for the same thing are limit and cursor.
+        if "limit" in params:
+            params["page_size"] = params.pop("limit")
+        if "cursor" in params:
+            params["after"] = params.pop("cursor")
         requested = json.loads(params["team_ids"]) if params.get("team_ids") else None
         organization_team_ids = set(Team.objects.filter(organization=organization).values_list("id", flat=True))
         if requested is not None and not set(requested) <= organization_team_ids:
@@ -526,13 +550,20 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise PermissionDenied("The credential does not cover the requested projects.")
         if grants.projects is not None or requested is not None or filtered_by_visibility:
             params["team_ids"] = json.dumps(scoped)
-        params["teams_map"] = {
-            str(team_id): name for team_id, name in Team.objects.filter(id__in=scoped).values_list("id", "name")
-        }
+        teams_map = dict(Team.objects.filter(id__in=scoped).values_list("id", "name"))
+        params["teams_map"] = {str(team_id): name for team_id, name in teams_map.items()}
         data = self._manager().get_public_timeseries(organization, grants, kind, params)
-        paginator = LimitOffsetPagination()
-        page = paginator.paginate_queryset(data.get("results", []), request, view=self)
-        return paginator.get_paginated_response(page)
+        results = data.get("results", [])
+        # Names the folded "all other projects" row and any project deleted since it reported, as the root read does.
+        _resolve_team_labels(results, teams_map)
+        return Response(
+            {
+                "count": data.get("total_count", len(results)),
+                "next": self._cursor_url(request, data.get("next")),
+                "previous": None,
+                "results": results,
+            }
+        )
 
     @extend_schema(
         operation_id="billing_subscription_retrieve",
@@ -661,7 +692,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_usage_timeseries_retrieve",
         summary="Usage over time",
-        parameters=[BillingUsageRequestSerializer, *PAGINATION],
+        parameters=[OrganizationTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage/timeseries")
@@ -671,7 +702,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_spend_timeseries_retrieve",
         summary="Spend over time",
-        parameters=[BillingUsageRequestSerializer, *PAGINATION],
+        parameters=[OrganizationTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="spend/timeseries")
