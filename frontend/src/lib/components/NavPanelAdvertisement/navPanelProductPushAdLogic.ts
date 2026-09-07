@@ -10,7 +10,7 @@ import { FileSystemImport, ProductIntentContext, ProductKey } from '~/queries/sc
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import type { ProductPushDisplay } from './navPanelAdShared'
+import { NAV_PANEL_CARD_TYPE, type ProductPushDisplay } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 import { getProductPushDisplay } from './navPanelProductPushDisplay'
 
@@ -26,8 +26,10 @@ const dismissKey = (campaign: ProductPushCampaignApi): string => `product-push-$
 export interface navPanelProductPushAdLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     hidden: boolean // navPanelAdvertisementLogic
+    destination: string | null
     display: ProductPushDisplay
     flagGated: boolean
+    label: string | null
     productInfo: FileSystemImport | undefined
     shouldRender: boolean
 }
@@ -52,7 +54,9 @@ export interface navPanelProductPushAdLogicMeta {
         productInfo: (arg: any) => FileSystemImport | undefined
         display: (arg: any) => ProductPushDisplay
         flagGated: (productInfo: FileSystemImport | undefined, featureFlags: FeatureFlagsSet) => boolean
-        shouldRender: (hidden: boolean, productInfo: FileSystemImport | undefined, flagGated: boolean) => boolean
+        destination: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | null
+        label: (display: ProductPushDisplay, productInfo: FileSystemImport | undefined) => string | null
+        shouldRender: (hidden: boolean, flagGated: boolean, destination: string | null) => boolean
     }
 }
 
@@ -71,7 +75,7 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            navPanelAdvertisementLogic({ campaign: dismissKey(props.campaign) }),
+            navPanelAdvertisementLogic({ dismissKey: dismissKey(props.campaign) }),
             ['hidden'],
         ],
     })),
@@ -98,39 +102,49 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): boolean => !!productInfo?.flag && !(featureFlags as Record<string, boolean>)[productInfo.flag],
         ],
+        // A surface links to its own href/label; a catalog product resolves them from its catalog entry.
+        destination: [
+            (s) => [s.display, s.productInfo],
+            (display: ProductPushDisplay, productInfo: FileSystemImport | undefined): string | null =>
+                display.href ?? productInfo?.href ?? null,
+        ],
+        label: [
+            (s) => [s.display, s.productInfo],
+            (display: ProductPushDisplay, productInfo: FileSystemImport | undefined): string | null =>
+                display.label ?? productInfo?.displayLabel ?? productInfo?.path ?? null,
+        ],
+        // flagGated is always false for a surface (no catalog entry, so no flag), so this covers both.
         shouldRender: [
-            (s) => [s.hidden, s.productInfo, s.flagGated],
-            (hidden: boolean, productInfo: FileSystemImport | undefined, flagGated: boolean): boolean =>
-                !hidden && !!productInfo && !flagGated,
+            (s) => [s.hidden, s.flagGated, s.destination],
+            (hidden: boolean, flagGated: boolean, destination: string | null): boolean =>
+                !hidden && !!destination && !flagGated,
         ],
     }),
-    listeners(({ props }) => ({
-        reportAdShown: () => {
-            posthog.capture('nav panel product push shown', {
-                campaign_id: props.campaign.id,
-                product_key: props.campaign.product_key,
-            })
-        },
-        reportAdClicked: () => {
-            posthog.capture('nav panel product push clicked', {
-                campaign_id: props.campaign.id,
-                product_key: props.campaign.product_key,
-            })
-            if (Object.values(ProductKey).includes(props.campaign.product_key as ProductKey)) {
-                addProductIntent({
-                    product_type: props.campaign.product_key as ProductKey,
-                    intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
-                    metadata: { campaign_id: props.campaign.id },
-                })
-            }
-        },
-        reportAdDismissed: () => {
-            posthog.capture('nav panel product push dismissed', {
-                campaign_id: props.campaign.id,
-                product_key: props.campaign.product_key,
-            })
-        },
-    })),
+    listeners(({ props }) => {
+        const eventProperties = {
+            campaign_id: props.campaign.id,
+            product_key: props.campaign.product_key,
+            card_type: NAV_PANEL_CARD_TYPE.PRODUCT_PUSH,
+        }
+        return {
+            reportAdShown: () => {
+                posthog.capture('nav panel product push shown', eventProperties)
+            },
+            reportAdClicked: () => {
+                posthog.capture('nav panel product push clicked', eventProperties)
+                if (Object.values(ProductKey).includes(props.campaign.product_key as ProductKey)) {
+                    addProductIntent({
+                        product_type: props.campaign.product_key as ProductKey,
+                        intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
+                        metadata: { campaign_id: props.campaign.id },
+                    })
+                }
+            },
+            reportAdDismissed: () => {
+                posthog.capture('nav panel product push dismissed', eventProperties)
+            },
+        }
+    }),
     afterMount(({ actions, values }) => {
         if (values.shouldRender) {
             actions.reportAdShown()

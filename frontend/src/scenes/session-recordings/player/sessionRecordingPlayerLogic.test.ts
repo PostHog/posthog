@@ -323,6 +323,22 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('end of recording', () => {
+        // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
+        // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
+        // flag. The flag also drives playerSpeed, so it must survive end-of-recording: a rewind back into
+        // a trailing inactive stretch lands in the same segment, which does not recompute it, and clearing
+        // it there would make that dead time play at 1x.
+        it('keeps the inactivity-skip flag so a rewind into a trailing inactive stretch still skips', async () => {
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.isSkippingInactivity).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
+                isSkippingInactivity: true,
+            })
+        })
+    })
+
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
         // otherwise the affected range buffers forever with no error shown.
@@ -936,6 +952,48 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        // Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
+        // synchronously when it rebuilds a full snapshot on a document without a head, which is the
+        // WebKit failure this recovery path guards against.
+        const fakeReplayer = (head: HTMLElement | null): any => {
+            const throwWhenHeadless = (): void => {
+                if (!head) {
+                    throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
+                }
+            }
+            return {
+                iframe: { contentDocument: { head } },
+                play: jest.fn(throwWhenHeadless),
+                pause: jest.fn(throwWhenHeadless),
+                getCurrentTime: jest.fn(() => 0),
+                setConfig: jest.fn(),
+                on: jest.fn(),
+                destroy: jest.fn(),
+                service: { state: { context: { events: [] } } },
+            }
+        }
+
+        it('re-inits the replayer instead of reporting a playback failure when the iframe has no head', async () => {
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            const captureSpy = jest.spyOn(posthog, 'captureException')
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            captureSpy.mockClear()
+            tryInitReplayerSpy.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPlayer({ replayer: fakeReplayer(null), windowId: 1 })
+            }).toFinishAllListeners()
+
+            expect(tryInitReplayerSpy).toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ feature: 'session-recording-replayer-playback' })
+            )
+            expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
+        })
     })
 
     describe('delete session recording', () => {

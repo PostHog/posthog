@@ -180,17 +180,7 @@ export type ConfirmDeleteArchivedTaskInput = z.infer<
 export type ConfirmDeleteArchivedTaskResult = z.infer<
   typeof confirmDeleteArchivedTaskOutput
 >;
-export type ConfirmDeleteWorktreeInput = z.infer<
-  typeof confirmDeleteWorktreeInput
->;
-export type ConfirmDeleteWorktreeResult = z.infer<
-  typeof confirmDeleteWorktreeOutput
->;
-
 export type TaskContextMenuResult = z.infer<typeof taskContextMenuOutput>;
-export type BulkTaskContextMenuResult = z.infer<
-  typeof bulkTaskContextMenuOutput
->;
 export type ArchivedTaskContextMenuResult = z.infer<
   typeof archivedTaskContextMenuOutput
 >;

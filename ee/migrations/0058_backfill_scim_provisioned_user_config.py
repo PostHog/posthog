@@ -84,6 +84,11 @@ def backfill_scim_provisioned_user_config(apps: Any, schema_editor: Any) -> None
 class Migration(migrations.Migration):
     dependencies = [("ee", "0057_scim_records_identity_provider_config_indexes")]
 
+    # This backfill reads OrganizationDomain.identity_provider_config, which posthog.1316 renames in
+    # migration state. Without this edge the planner is free to apply 1316 first, and the backfill
+    # then fails on a fresh database with an unsupported-lookup FieldError.
+    run_before = [("posthog", "1316_deprecate_organization_domain_idp_config")]
+
     operations = [
         migrations.RunPython(
             backfill_scim_provisioned_user_config,

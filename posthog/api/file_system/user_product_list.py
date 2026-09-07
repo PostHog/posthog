@@ -21,16 +21,12 @@ class UserProductListSerializer(serializers.ModelSerializer):
             "id",
             "product_path",
             "enabled",
-            "reason",
-            "reason_text",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
             "product_path",
-            "reason",
-            "reason_text",
             "created_at",
             "updated_at",
         ]
@@ -46,15 +42,6 @@ class UserProductListSerializer(serializers.ModelSerializer):
         )
 
         return user_product_list
-
-    def update(self, instance: UserProductList, validated_data: dict[str, Any]) -> UserProductList:
-        enabled = validated_data.get("enabled", instance.enabled)
-
-        if enabled:
-            validated_data["reason"] = UserProductList.Reason.PRODUCT_INTENT
-            validated_data["reason_text"] = ""
-
-        return super().update(instance, validated_data)
 
 
 class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

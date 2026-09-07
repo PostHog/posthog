@@ -10,7 +10,3 @@ function readBootFlags(): DevFlagsShape {
 }
 
 export const BOOT_DEV_FLAGS: DevFlagsShape = readBootFlags();
-
-export function isDevModeAtBoot(): boolean {
-  return BOOT_DEV_FLAGS.devMode;
-}

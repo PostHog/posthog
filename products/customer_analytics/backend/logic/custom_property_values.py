@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -30,6 +31,7 @@ from products.customer_analytics.backend.models import (
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 
 CoercedValue = float | bool | str | datetime
+_LINK_VALIDATOR = URLValidator(schemes=["http", "https"])
 
 
 class InvalidCustomPropertyValue(ValueError):
@@ -108,11 +110,11 @@ def set_account_custom_properties_by_id(
     actor: User | None = None,
     workflow_id: str | None = None,
 ) -> list[CustomPropertyValue]:
-    """Set several of an account's custom property values, addressing each by definition id.
+    """Set or clear several account custom property values by definition id.
 
-    Resolves each id to its team-scoped definition, then applies the same coerce + soft-delete +
-    insert as `set_custom_property_value`. Caller is responsible for wrapping the batch in a
-    transaction when all-or-nothing semantics are required.
+    Resolves each id to its team-scoped definition. A null value soft-deletes the active row.
+    Other values apply the same coerce + soft-delete + insert as `set_custom_property_value`.
+    Caller is responsible for wrapping the batch in a transaction when all-or-nothing semantics are required.
 
     Raises `CustomPropertyDefinitionNotFound` (unknown id, carrying the id),
     `InvalidCustomPropertyValue` (value doesn't match the data type, carrying the id in `field`),
@@ -125,6 +127,15 @@ def set_account_custom_properties_by_id(
             definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
         except (CustomPropertyDefinition.DoesNotExist, ValidationError) as exc:
             raise CustomPropertyDefinitionNotFound(definition_id) from exc
+        if value is None:
+            _clear_value(
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                actor=actor,
+                workflow_id=workflow_id,
+            )
+            continue
         try:
             row = _set_value(
                 team_id=team_id,
@@ -254,13 +265,44 @@ def _set_value(
     return row
 
 
+def _clear_value(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition: CustomPropertyDefinition,
+    actor: User | None = None,
+    workflow_id: str | None = None,
+) -> None:
+    with transaction.atomic():
+        active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id=account_id, definition_id=definition.id, is_deleted=False
+        )
+        previous_row = active_rows.first()
+        if previous_row is None:
+            return
+        cleared_rows = active_rows.filter(id=previous_row.id).update(is_deleted=True)
+        if cleared_rows == 0:
+            raise CustomPropertyValueConflict(
+                f"An active value for custom property '{definition.name}' was changed concurrently."
+            )
+        _schedule_value_changed_event(
+            team_id=team_id,
+            account_id=account_id,
+            definition=definition,
+            previous_row=previous_row,
+            current_value=None,
+            actor=actor,
+            workflow_id=workflow_id,
+        )
+
+
 def _schedule_value_changed_event(
     *,
     team_id: int,
     account_id: str | UUID,
     definition: CustomPropertyDefinition,
     previous_row: CustomPropertyValue | None,
-    current_value: CoercedValue,
+    current_value: CoercedValue | None,
     actor: User | None,
     workflow_id: str | None,
 ) -> None:
@@ -429,6 +471,15 @@ def _coerce_string(definition: CustomPropertyDefinition, value: Any) -> str:
     raise InvalidCustomPropertyValue(_expects(definition, "a text value"))
 
 
+def _coerce_link(definition: CustomPropertyDefinition, value: Any) -> str:
+    link = _coerce_string(definition, value)
+    try:
+        _LINK_VALIDATOR(link)
+    except ValidationError:
+        raise InvalidCustomPropertyValue(_expects(definition, "an HTTP or HTTPS URL"))
+    return link
+
+
 def _coerce_select(definition: CustomPropertyDefinition, value: Any) -> str:
     labels = [option["label"] for option in definition.options or []]
     if isinstance(value, str) and value in labels:
@@ -449,6 +500,8 @@ _HANDLER_BY_DATA_TYPE: dict[DataType, tuple[str, Callable[[CustomPropertyDefinit
 def _coerce_to_column(definition: CustomPropertyDefinition, value: Any) -> tuple[str, CoercedValue]:
     if definition.display_type == DisplayType.SELECT:
         return "value_str", _coerce_select(definition, value)
+    if definition.display_type == DisplayType.LINK:
+        return "value_str", _coerce_link(definition, value)
     column, coerce = _HANDLER_BY_DATA_TYPE[definition.data_type]
     return column, coerce(definition, value)
 

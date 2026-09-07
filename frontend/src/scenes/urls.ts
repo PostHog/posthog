@@ -175,6 +175,8 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    identityProviderConfig: (feature: 'saml' | 'scim' | 'xaa' | ':feature', configId: string | ':configId'): string =>
+        `/settings/organization-authentication/${feature}/${configId}`,
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
@@ -202,8 +204,7 @@ export const urls = {
     twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
-    verifyEmail: (userUuid: string = '', token: string = ''): string =>
-        `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    verifyEmail: (userUuid: string = ''): string => `/verify_email${userUuid ? `/${userUuid}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
     agenticAccountMismatch: (): string => '/agentic/account-mismatch',
@@ -251,6 +252,7 @@ export const urls = {
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
         combineUrl(`/organization/billing/${section}`).url,
+    organizationBillingRealTimeUsage: (): string => '/organization/billing/real-time-usage',
     advancedActivityLogs: (): string => '/activity-logs',
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
@@ -330,6 +332,7 @@ export const urls = {
             : '/health/alerts',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsPagePerformance: (): string => '/web/page-performance',
+    webAnalyticsAgents: (): string => '/web/agents',
     webAnalyticsHealth: (): string => '/web/health',
     webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',

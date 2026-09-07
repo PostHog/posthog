@@ -3054,6 +3054,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
+                if (productTab === ProductTab.AGENTS) {
+                    return []
+                }
+
                 return allTiles
                     .filter(isNotNil)
                     .filter((tile) =>
@@ -3090,6 +3094,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webVitalsPercentile,
                 domainFilter,
                 deviceTypeFilter,
+                countryFilter,
+                referrerFilter,
                 tileVisualizations,
                 includeHostPath,
             } = values
@@ -3106,6 +3112,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const rawBotAnalyticsFilters = botAnalyticsLogic.findMounted()?.values.rawBotAnalyticsFilters ?? []
                 if (rawBotAnalyticsFilters.length > 0) {
                     urlParams.set('filters', JSON.stringify(rawBotAnalyticsFilters))
+                } else {
+                    // A seeded `filters` param belongs to the previous tab; scrub it so a URL restore
+                    // cannot adopt it as bot filters. The bots URL carries only the bot tab's own
+                    // filters, which `botAnalyticsLogic` writes back when it mounts.
+                    urlParams.delete('filters')
                 }
                 if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
                     urlParams.set('date_from', dateFrom ?? '')
@@ -3114,7 +3125,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
                 return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             } else if (productTab === ProductTab.PAGE_PERFORMANCE) {
-                urlParams.delete('filters')
+                if (rawWebAnalyticsFilters.length > 0) {
+                    urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+                } else {
+                    urlParams.delete('filters')
+                }
                 if (conversionGoal) {
                     if ('actionId' in conversionGoal) {
                         urlParams.set('conversionGoal.actionId', conversionGoal.actionId.toString())
@@ -3139,7 +3154,45 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
                 urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
                 urlParams.set('compare_filter', JSON.stringify(rawCompareFilter))
+                // The queries consume the merged `webAnalyticsFilters`, which folds these
+                // drill-downs in, so a shared URL must carry every one to reproduce the same
+                // data. The page-performance tab has no UI to set or clear them, so an
+                // unserialized one would apply invisibly and not survive a reload.
+                if (domainFilter) {
+                    urlParams.set('domain', domainFilter)
+                } else {
+                    urlParams.delete('domain')
+                }
+                if (deviceTypeFilter) {
+                    urlParams.set('device_type', deviceTypeFilter)
+                } else {
+                    urlParams.delete('device_type')
+                }
+                if (countryFilter) {
+                    urlParams.set('country', countryFilter)
+                } else {
+                    urlParams.delete('country')
+                }
+                if (referrerFilter) {
+                    urlParams.set('referrer', referrerFilter)
+                } else {
+                    urlParams.delete('referrer')
+                }
                 return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+            } else if (productTab === ProductTab.AGENTS) {
+                urlParams.delete('filters')
+                if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
+                    urlParams.set('date_from', dateFrom ?? '')
+                    urlParams.set('date_to', dateTo ?? '')
+                    urlParams.set('interval', interval ?? '')
+                } else {
+                    urlParams.delete('date_from')
+                    urlParams.delete('date_to')
+                    urlParams.delete('interval')
+                }
+                urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
+                urlParams.set('compare_filter', JSON.stringify(rawCompareFilter))
+                return `/web/agents${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -3258,6 +3311,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setShouldFilterTestAccounts: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
+            setCountryFilter: stateToUrl,
+            setReferrerFilter: stateToUrl,
             setTileVisualization: stateToUrl,
             setIncludeHostPath: stateToUrl,
         }
@@ -3285,6 +3340,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 percentile,
                 domain,
                 device_type,
+                country,
+                referrer,
                 tile_visualizations,
                 include_host_path,
             }: Record<string, any>,
@@ -3299,6 +3356,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.LIVE,
                     ProductTab.BOT_ANALYTICS,
                     ProductTab.PAGE_PERFORMANCE,
+                    ProductTab.AGENTS,
                 ].includes(productTab)
             ) {
                 return
@@ -3321,6 +3379,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
+            if (productTab === ProductTab.AGENTS && !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_AGENT_ANALYTICS]) {
+                router.actions.replace(urls.webAnalytics())
+                return
+            }
+
             cache.hasRestoredWebUrl = true
 
             // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
@@ -3339,7 +3402,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         botLogic.actions.setBotAnalyticsFilters(nextFilters)
                     }
                 } else if (
-                    productTab !== ProductTab.PAGE_PERFORMANCE &&
+                    productTab !== ProductTab.AGENTS &&
                     !objectsEqual(nextFilters, values.rawWebAnalyticsFilters)
                 ) {
                     actions.setWebAnalyticsFilters(nextFilters)
@@ -3418,11 +3481,38 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
             }
+            // Drill-down filters fold into the query the same way `filters` does, so on a
+            // back-navigation to a URL that omits one, clear it instead of leaving the newer
+            // value applied, because otherwise the shown data can't be reproduced from the URL.
             if (domain && domain !== values.domainFilter) {
                 actions.setDomainFilter(domain === 'all' ? null : domain)
+            } else if (!domain && shouldResetAbsentFilters && tabSerializesFilters && values.domainFilter !== null) {
+                actions.setDomainFilter(null)
             }
             if (device_type && device_type !== values.deviceTypeFilter) {
                 actions.setDeviceTypeFilter(device_type)
+            } else if (
+                !device_type &&
+                shouldResetAbsentFilters &&
+                tabSerializesFilters &&
+                values.deviceTypeFilter !== null
+            ) {
+                actions.setDeviceTypeFilter(null)
+            }
+            if (country && country !== values.countryFilter) {
+                actions.setCountryFilter(country)
+            } else if (!country && shouldResetAbsentFilters && tabSerializesFilters && values.countryFilter !== null) {
+                actions.setCountryFilter(null)
+            }
+            if (referrer && referrer !== values.referrerFilter) {
+                actions.setReferrerFilter(referrer)
+            } else if (
+                !referrer &&
+                shouldResetAbsentFilters &&
+                tabSerializesFilters &&
+                values.referrerFilter !== null
+            ) {
+                actions.setReferrerFilter(null)
             }
             if (tile_visualizations && !objectsEqual(tile_visualizations, values.tileVisualizations)) {
                 for (const [tileId, visualization] of Object.entries(tile_visualizations)) {
@@ -3488,6 +3578,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             '/web': toAction,
             '/web/bots': (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
+            },
+            '/web/agents': (_, searchParams) => {
+                toAction({ productTab: ProductTab.AGENTS }, searchParams)
             },
             '/web/:productTab': toAction,
         }

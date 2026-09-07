@@ -1,10 +1,11 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type {
-  PiExtensionEvent,
+  PiExtensionSessionEvent,
   PiNativeModelInfo,
   PiPersistedSessionConfig,
   PiQueueSnapshot,
   PiThinkingLevel,
+  PiUsageStats,
   RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
@@ -31,7 +32,6 @@ import {
   createEmptyPiControllerSession,
   createPiSessionStore,
   type PiControllerSessionState,
-  type PiProjectTrustState,
   type PiSessionError,
   type PiSessionStore,
 } from "./piSessionStore";
@@ -72,8 +72,6 @@ export interface PiSession {
   retry?(): Promise<void>;
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
-  getProjectTrust?(): Promise<PiProjectTrustState>;
-  setProjectTrusted?(trusted: boolean): Promise<void>;
   sendUserMessage?(
     type: "prompt" | "steer" | "follow_up",
     message: string,
@@ -81,6 +79,7 @@ export interface PiSession {
     id: string,
   ): Promise<void>;
   health(): Promise<PiRuntimeHealth>;
+  usageStats?(): PiUsageStats | undefined;
   getConversation(): Promise<AgentConversationEvent[]>;
   onConversationEvent(
     onEvent: (
@@ -99,7 +98,7 @@ export interface PiSession {
     decision: McpToolPermissionDecision,
   ): Promise<void>;
   onExtensionEvent?(
-    onEvent: (event: PiExtensionEvent) => void,
+    onEvent: (event: PiExtensionSessionEvent) => void,
     onError: (error: unknown) => void,
     onComplete?: () => void,
   ): () => void;
@@ -129,7 +128,6 @@ type PiOperation =
   | "bash"
   | "cancel"
   | "queue"
-  | "trust"
   | "retry"
   | "restart";
 
@@ -157,16 +155,20 @@ function normalizeSessionError(error: unknown): {
   };
 }
 
+function isResumableCloudSendError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("No active sandbox") ||
+    message.includes("Task run workflow has ended")
+  );
+}
+
 @injectable()
 export class PiSessionController {
   readonly store: PiSessionStore = createPiSessionStore();
 
   private readonly sessions = new Map<string, Promise<PiSession>>();
   private readonly subscriptions = new Map<string, () => void>();
-  private readonly projectTrustTransitions = new Map<
-    string,
-    { trusted: boolean; promise: Promise<void> }
-  >();
   private readonly liveEvents = new Map<string, AgentConversationEvent[]>();
   private readonly connections = new Map<string, Promise<void>>();
   private readonly readiness = new Map<string, Promise<void>>();
@@ -336,71 +338,6 @@ export class PiSessionController {
       return queue;
     } catch (error) {
       throw this.recordOperationFailure(taskId, "queue", error);
-    }
-  }
-
-  setProjectTrusted(taskId: string, trusted: boolean): Promise<void> {
-    const existing = this.projectTrustTransitions.get(taskId);
-    if (existing) {
-      return existing.trusted === trusted
-        ? existing.promise
-        : Promise.reject(
-            new Error("A repository trust change is already in progress"),
-          );
-    }
-
-    const promise = this.setProjectTrustedInternal(taskId, trusted).finally(
-      () => {
-        if (this.projectTrustTransitions.get(taskId)?.promise === promise) {
-          this.projectTrustTransitions.delete(taskId);
-        }
-      },
-    );
-    this.projectTrustTransitions.set(taskId, { trusted, promise });
-    return promise;
-  }
-
-  private async setProjectTrustedInternal(
-    taskId: string,
-    trusted: boolean,
-  ): Promise<void> {
-    const current = this.getSession(taskId);
-    if (
-      current.connectionState !== "connected" ||
-      current.status?.isStreaming ||
-      current.isBashRunning
-    ) {
-      throw this.recordOperationFailure(
-        taskId,
-        "trust",
-        new Error(
-          "Wait for Pi to connect and finish before changing repository trust",
-        ),
-      );
-    }
-
-    const taskRunId = this.taskRunIds.get(taskId);
-    this.captureQueueForRestore(taskId);
-    this.updateSession(taskId, {
-      connectionState: "connecting",
-      error: undefined,
-    });
-    try {
-      const session = await this.getPiSession(taskId);
-      if (!session.setProjectTrusted) {
-        throw new Error("Pi session does not support repository trust");
-      }
-      await session.setProjectTrusted(trusted);
-      this.resetTransport(taskId);
-      await this.ensureConnected(taskId, taskRunId);
-    } catch (error) {
-      this.resetTransport(taskId);
-      try {
-        await this.ensureConnected(taskId, taskRunId);
-      } catch {
-        // Preserve the original trust-transition failure.
-      }
-      throw this.recordOperationFailure(taskId, "trust", error);
     }
   }
 
@@ -589,7 +526,13 @@ export class PiSessionController {
         }
         this.setTurnStreaming(taskId, wasStreaming);
         const operation = queuesMessage ? "queue" : "prompt";
-        throw this.recordOperationFailure(taskId, operation, error);
+        throw this.recordOperationFailure(
+          taskId,
+          operation,
+          error,
+          undefined,
+          message,
+        );
       }
     }
 
@@ -778,12 +721,11 @@ export class PiSessionController {
       const session = await this.getPiSession(taskId);
       const queueRevision = this.queueRevisions.get(taskId) ?? 0;
       const retainedStats = this.getSession(taskId).stats;
-      const [events, status, queue, stats, projectTrust] = await Promise.all([
+      const [events, status, queue, stats] = await Promise.all([
         session.getConversation(),
         session.client.getState(),
         session.getQueue(),
-        session.client.getSessionStats().catch(() => retainedStats),
-        session.getProjectTrust?.(),
+        this.loadStats(session, retainedStats),
       ]);
       if (this.getSessionVersion(taskId) !== connectedSessionVersion) {
         return;
@@ -852,7 +794,6 @@ export class PiSessionController {
         authRestoring: currentSession.authRestoring,
         isBashRunning: false,
         mcpToolPermissionRequests: currentSession.mcpToolPermissionRequests,
-        projectTrust,
       });
 
       await this.restoreQueueIfNeeded(taskId, session, resolvedStatus);
@@ -1106,12 +1047,22 @@ export class PiSessionController {
     this.updateSession(taskId, { cloudStatus });
   }
 
+  private async loadStats(
+    session: PiSession,
+    retained?: PiUsageStats,
+  ): Promise<PiUsageStats | undefined> {
+    const liveStats = await session.client
+      .getSessionStats()
+      .catch(() => undefined);
+    return liveStats ?? session.usageStats?.() ?? retained;
+  }
+
   private async refreshStats(taskId: string): Promise<void> {
     const sessionVersion = this.getSessionVersion(taskId);
     try {
       const session = await this.getPiSession(taskId);
-      const stats = await session.client.getSessionStats();
-      if (this.getSessionVersion(taskId) === sessionVersion) {
+      const stats = await this.loadStats(session);
+      if (stats && this.getSessionVersion(taskId) === sessionVersion) {
         this.updateSession(taskId, { stats });
       }
     } catch {
@@ -1238,7 +1189,9 @@ export class PiSessionController {
     failure: PromptFailure,
   ): string {
     if (failure.kind === "usage_limit") {
-      return "Usage limit reached";
+      return failure.limitCause === "model_unavailable"
+        ? "Model not available"
+        : "Usage limit reached";
     }
     if (failure.kind === "transient") {
       return "Provider temporarily unavailable";
@@ -1254,7 +1207,6 @@ export class PiSessionController {
       bash: "Failed to run Pi bash command",
       cancel: "Failed to stop Pi",
       queue: "Failed to update queued message",
-      trust: "Failed to change repository trust",
       retry: "Failed to reconnect to Pi",
       restart: "Failed to restart Pi",
     };
@@ -1448,9 +1400,8 @@ export class PiSessionController {
       await session.sendUserMessage(type, content, artifactIds, messageId);
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       const taskRunId = this.taskRunIds.get(taskId) ?? session.taskRunId;
-      if (!taskRunId || !message.includes("No active sandbox")) {
+      if (!taskRunId || !isResumableCloudSendError(error)) {
         throw error;
       }
 

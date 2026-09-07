@@ -20,6 +20,8 @@ DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
 BASETEN_DEEPSEEK_LITELLM_MODEL = "openai/deepseek-ai/DeepSeek-V4-Flash-0731"
 GLM53_MODEL = "zai-org/glm-5.3"
 BASETEN_GLM53_LITELLM_MODEL = "openai/zai-org/GLM-5.3"
+GLM53_FLASH_MODEL = "zai-org/glm-5.3-flash"
+BASETEN_GLM53_FLASH_LITELLM_MODEL = "openai/zai-org/GLM-5.3-Flash"
 
 
 @pytest.mark.parametrize(
@@ -28,6 +30,7 @@ BASETEN_GLM53_LITELLM_MODEL = "openai/zai-org/GLM-5.3"
         (GLM_MODEL, BASETEN_MODEL, "baseten/zai-org/glm-5.2", 1.4e-06, 4.4e-06, 1.4e-07),
         (DEEPSEEK_MODEL, BASETEN_DEEPSEEK_LITELLM_MODEL, f"baseten/{DEEPSEEK_MODEL}", 1.3e-07, 2.6e-07, 2.8e-08),
         (GLM53_MODEL, BASETEN_GLM53_LITELLM_MODEL, f"baseten/{GLM53_MODEL}", 1.4e-06, 4.4e-06, 1.4e-07),
+        (GLM53_FLASH_MODEL, BASETEN_GLM53_FLASH_LITELLM_MODEL, f"baseten/{GLM53_FLASH_MODEL}", 1.5e-07, 5e-07, 3e-08),
     ],
 )
 def test_inject_baseten_params_maps_model_and_pins_api_key(
@@ -55,7 +58,7 @@ def test_inject_baseten_params_maps_model_and_pins_api_key(
     assert MODEL_COST_OVERRIDES[metric_model]["input_cost_per_token"] == input_cost
     assert MODEL_COST_OVERRIDES[metric_model]["cache_read_input_token_cost"] == cache_read_cost
     assert MODEL_COST_OVERRIDES[metric_model]["output_cost_per_token"] == output_cost
-    assert normalize_metric_labels(litellm_model, "openai") == ("baseten", metric_model)
+    assert normalize_metric_labels(litellm_model, "openai") == ("baseten", public_model)
 
 
 @pytest.mark.parametrize("public_model", sorted(BASETEN_MODELS))
@@ -64,8 +67,9 @@ def test_every_baseten_model_is_priced_and_labeled(public_model: str) -> None:
     # billing nothing: the usage reporter drops any generation whose $ai_total_cost_usd is 0.
     litellm_key = f"openai/{BASETEN_MODELS[public_model]}"
     assert litellm_key in COST_ALIASES or litellm_key in MODEL_COST_OVERRIDES
-    provider, _ = ALIAS_METRIC_LABELS[litellm_key]
+    provider, metric_model = ALIAS_METRIC_LABELS[litellm_key]
     assert provider == "baseten"
+    assert metric_model == public_model
 
 
 def test_inject_baseten_params_forces_streaming_usage() -> None:

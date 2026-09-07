@@ -118,6 +118,13 @@ describe("model capability flags", () => {
       mcpInjection: true,
     },
     {
+      modelId: "claude-fable-5-1",
+      oneMContext: true,
+      effort: true,
+      xhighEffort: true,
+      mcpInjection: true,
+    },
+    {
       modelId: "claude-haiku-4-5",
       oneMContext: false,
       effort: false,
@@ -133,6 +140,13 @@ describe("model capability flags", () => {
     },
     {
       modelId: "zai-org/glm-5.3",
+      oneMContext: false,
+      effort: true,
+      xhighEffort: false,
+      mcpInjection: true,
+    },
+    {
+      modelId: "zai-org/glm-5.3-flash",
       oneMContext: false,
       effort: true,
       xhighEffort: false,
@@ -190,6 +204,7 @@ describe("getEffortOptions", () => {
     ["claude-opus-4-7", ["low", "medium", "high", "xhigh", "max", "ultracode"]],
     ["@cf/zai-org/glm-5.2", ["high", "max"]],
     ["zai-org/glm-5.3", ["high", "max"]],
+    ["zai-org/glm-5.3-flash", ["high", "max"]],
   ])("returns the exact effort levels for %s", (modelId, expected) => {
     expect(getEffortOptions(modelId)?.map((o) => o.value)).toEqual(expected);
   });

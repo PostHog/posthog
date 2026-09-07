@@ -42,13 +42,19 @@ export const browserTabsRouter = router({
   close: publicProcedure
     .input(closeTabInput)
     .output(browserTabsSnapshotOutput)
-    .mutation(({ ctx, input }) => svc(ctx.container).close(input.tabId)),
+    .mutation(({ ctx, input }) =>
+      svc(ctx.container).close(input.tabId, input.newTabId),
+    ),
 
   closeMany: publicProcedure
     .input(closeTabsInput)
     .output(browserTabsSnapshotOutput)
     .mutation(({ ctx, input }) =>
-      svc(ctx.container).closeMany(input.tabIds, input.focusTabId),
+      svc(ctx.container).closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
     ),
 
   setOrder: publicProcedure

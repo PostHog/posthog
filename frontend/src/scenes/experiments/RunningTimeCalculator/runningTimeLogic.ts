@@ -7,11 +7,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentsCalculateRunningTimeCreate } from 'products/experiments/frontend/generated/api'
 import type {
     RunningTimeCalculationInputApi,
