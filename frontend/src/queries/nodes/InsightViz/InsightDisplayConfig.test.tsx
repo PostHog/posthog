@@ -117,7 +117,7 @@ describe('InsightDisplayConfig', () => {
     }
 
     describe('Options menu sections per insight/chart type', () => {
-        const cases: [string, InsightQueryNode, { sections: string[]; displayItems: string[] | null }][] = [
+        const cases: [string, InsightQueryNode, { sections: string[]; displayItems?: string[] }][] = [
             [
                 'trends line graph',
                 makeTrendsQuery(ChartDisplayType.ActionsLineGraph),
@@ -182,7 +182,7 @@ describe('InsightDisplayConfig', () => {
                     ],
                 },
             ],
-            ['trends number', makeTrendsQuery(ChartDisplayType.BoldNumber), { sections: ['Unit'], displayItems: null }],
+            ['trends number', makeTrendsQuery(ChartDisplayType.BoldNumber), { sections: ['Unit'] }],
             [
                 'trends pie',
                 makeTrendsQuery(ChartDisplayType.ActionsPie),
@@ -212,21 +212,13 @@ describe('InsightDisplayConfig', () => {
                     ],
                 },
             ],
-            [
-                'trends table',
-                makeTrendsQuery(ChartDisplayType.ActionsTable),
-                { sections: ['Unit'], displayItems: null },
-            ],
+            ['trends table', makeTrendsQuery(ChartDisplayType.ActionsTable), { sections: ['Unit'] }],
             [
                 'trends bar value (horizontal)',
                 makeTrendsQuery(ChartDisplayType.ActionsBarValue),
                 { sections: ['Display', 'X-axis unit', 'Axis labels'], displayItems: ['Show values on series'] },
             ],
-            [
-                'trends world map',
-                makeTrendsQuery(ChartDisplayType.WorldMap),
-                { sections: ['Unit'], displayItems: null },
-            ],
+            ['trends world map', makeTrendsQuery(ChartDisplayType.WorldMap), { sections: ['Unit'] }],
             [
                 'box plot',
                 makeTrendsQuery(ChartDisplayType.BoxPlot),
@@ -253,11 +245,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: ['Show values on series', 'Show multiple Y-axes', 'Show legendBottom'],
                 },
             ],
-            [
-                'stickiness table',
-                makeStickinessQuery(ChartDisplayType.ActionsTable),
-                { sections: [], displayItems: null },
-            ],
+            ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { sections: [] }],
             [
                 'lifecycle',
                 makeLifecycleQuery(),
@@ -284,7 +272,7 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             expect(getSectionTitles()).toEqual(expected.sections)
-            if (expected.displayItems === null) {
+            if (!expected.displayItems) {
                 expect(screen.queryByTestId('options-display-section')).not.toBeInTheDocument()
             } else {
                 expect(getDisplaySectionItems()).toEqual(expected.displayItems)

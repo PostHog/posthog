@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -817,6 +818,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             const refreshResults = values.savedInsight.query
                 ? !compareQuery(query, values.savedInsight.query, { ignoreVisualizationOnlyChanges: true })
                 : false
+            const saveId = (cache.displayOptionsSaveId ?? 0) + 1
+            cache.displayOptionsSaveId = saveId
             try {
                 // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
                 // only cancels concurrent saves for this insight without affecting unrelated tiles.
@@ -824,12 +827,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 // Breakpoints cannot cancel PATCHes that have already started, so serialize them per insight.
                 await cache.displayOptionsSave
                 breakpoint()
-                const save = insightsApi.update(insightId, { query })
+                const save = withTimeout(
+                    (signal) => insightsApi.update(insightId, { query }, { signal }),
+                    15_000,
+                    'Saving display options timed out'
+                )
                 // The next save only needs to know when this request finishes.
                 cache.displayOptionsSave = save.catch(() => undefined)
                 const updatedItem = await save
-                // Drop the response if a newer save started while this request was in flight.
-                await breakpoint(0)
+                if (saveId !== cache.displayOptionsSaveId) {
+                    return
+                }
                 actions.renameInsightSuccess(updatedItem)
                 if (refreshResults) {
                     props.refreshAfterDisplayOptionsChange?.(updatedItem)
@@ -838,8 +846,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 lemonToast.success('Insight updated')
             } catch (e) {
                 // A breakpoint means a newer save superseded this one, and that save owns the state.
-                if (!isBreakpoint(e as Error)) {
-                    breakpoint()
+                if (!isBreakpoint(e as Error) && saveId === cache.displayOptionsSaveId) {
                     actions.syncQueryFromProps(values.savedInsight.query ?? null)
                     actions.persistDisplayOptionsSettled()
                     lemonToast.error('Failed to update insight')

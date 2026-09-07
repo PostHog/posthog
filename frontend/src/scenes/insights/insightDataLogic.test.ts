@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils/async'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -744,6 +745,49 @@ describe('insightDataLogic', () => {
 
             releaseSecondPatch()
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('lets the latest save proceed when the previous request hangs', async () => {
+            jest.useFakeTimers()
+            const laterQuery: InsightVizNode = {
+                ...updatedQuery,
+                source: {
+                    ...updatedQuery.source,
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                } as TrendsQuery,
+            }
+            const updateSpy = jest.spyOn(insightsApi, 'update') as jest.Mock
+            updateSpy
+                .mockImplementationOnce(
+                    async (
+                        _id: number,
+                        _update: Record<string, any>,
+                        options?: { signal?: AbortSignal }
+                    ): Promise<never> =>
+                        await new Promise((_, reject) => {
+                            options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')))
+                        })
+                )
+                .mockResolvedValueOnce({ id: insightId, short_id: Insight42, query: laterQuery })
+
+            try {
+                logic.actions.persistDisplayOptions(updatedQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                logic.actions.persistDisplayOptions(laterQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(15_000)
+                await jest.advanceTimersByTimeAsync(0)
+
+                expect(updateSpy).toHaveBeenCalledTimes(2)
+                expect(logic.values.query).toEqual(laterQuery)
+            } finally {
+                updateSpy.mockRestore()
+                jest.useRealTimers()
+            }
         })
     })
 

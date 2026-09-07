@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -5,6 +6,8 @@ import { Spinner } from '@posthog/lemon-ui'
 import { ChartFilter } from 'lib/components/ChartFilter/ChartFilter'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { isDisplayTabSupported } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
@@ -15,7 +18,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ChartDisplayType, InsightType } from '~/types'
+import { ChartDisplayType, InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { DashboardSqlChartType, DashboardSqlDisplayOptions } from './DashboardSqlDisplayOptions'
 
@@ -39,6 +42,27 @@ function productAnalyticsChartPicker(query: Node | null, canPersist: boolean): P
         return query.vizSpecificOptions?.[InsightType.RETENTION]?.hideLineGraph ? null : 'retention'
     }
     return null
+}
+
+function DashboardRetentionChartPicker(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+
+    const selectChart = useCallback(
+        (display: ChartDisplayType): void => {
+            updateInsightFilter({
+                display,
+                ...(!retentionFilter?.dashboardDisplay ||
+                retentionFilter.dashboardDisplay === RetentionDashboardDisplayType.TableOnly
+                    ? { dashboardDisplay: RetentionDashboardDisplayType.GraphOnly }
+                    : {}),
+            })
+        },
+        [retentionFilter?.dashboardDisplay, updateInsightFilter]
+    )
+
+    return <RetentionChartPicker fullWidth onSelect={selectChart} />
 }
 
 export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): DataVisualizationNode | null {
@@ -104,11 +128,13 @@ export function useDashboardVisualizationOptions({
         return (
             <div
                 {...inertProps}
-                className={props.savingDisplayOptions ? 'w-full pointer-events-none opacity-50' : 'w-full'}
+                className={
+                    props.savingDisplayOptions ? 'w-full px-2 pb-2 pointer-events-none opacity-50' : 'w-full px-2 pb-2'
+                }
                 aria-disabled={props.savingDisplayOptions}
             >
                 {props.insightChartPicker === 'retention' ? (
-                    <RetentionChartPicker fullWidth showGraphOnDashboard />
+                    <DashboardRetentionChartPicker />
                 ) : (
                     <ChartFilter fullWidth />
                 )}

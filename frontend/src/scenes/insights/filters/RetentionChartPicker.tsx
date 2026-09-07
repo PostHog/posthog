@@ -6,7 +6,7 @@ import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { ChartDisplayType, RetentionDashboardDisplayType } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
     return (
@@ -49,31 +49,24 @@ const OPTIONS: LemonSelectOptions<ChartDisplayType> = [
 
 export function RetentionChartPicker({
     fullWidth = false,
-    showGraphOnDashboard = false,
+    onSelect,
 }: {
     fullWidth?: boolean
-    showGraphOnDashboard?: boolean
+    onSelect?: (display: ChartDisplayType) => void
 }): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const selectChart = (value: ChartDisplayType): void => {
-        updateInsightFilter({
-            display: value,
-            ...(showGraphOnDashboard &&
-            (!retentionFilter?.dashboardDisplay ||
-                retentionFilter.dashboardDisplay === RetentionDashboardDisplayType.TableOnly)
-                ? { dashboardDisplay: RetentionDashboardDisplayType.GraphOnly }
-                : {}),
-        })
+        updateInsightFilter({ display: value })
     }
 
     return (
         <LemonSelect
             key="2"
             value={retentionFilter?.display || ChartDisplayType.ActionsLineGraph}
-            onChange={showGraphOnDashboard ? undefined : selectChart}
-            onSelect={showGraphOnDashboard ? selectChart : undefined}
+            onChange={onSelect ? undefined : selectChart}
+            onSelect={onSelect}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}

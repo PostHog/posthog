@@ -197,10 +197,12 @@ describe('dashboardVisualizationOptions', () => {
         it.each([
             ['Stickiness', stickinessQuery],
             ['Retention', retentionQuery],
-        ])('uses the full submenu width for %s', (_label, query) => {
+        ])('aligns the %s selector with the other full-width menu controls', (_label, query) => {
             const { container } = renderProductAnalyticsChartPicker(query)
+            const selector = container.querySelector('[data-attr="chart-filter"]')
 
-            expect(container.querySelector('[data-attr="chart-filter"]')).toHaveClass('LemonButton--full-width')
+            expect(selector).toHaveClass('LemonButton--full-width')
+            expect(selector?.parentElement).toHaveClass('px-2', 'pb-2')
         })
 
         it('shows the retention graph after selecting its active chart type on a dashboard', async () => {

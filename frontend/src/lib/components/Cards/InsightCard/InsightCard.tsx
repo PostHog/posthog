@@ -295,6 +295,11 @@ function InsightCardInternal(
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
         : true
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
+    const refreshAfterDisplayOptionsChangeRef = useRef(refreshAfterDisplayOptionsChange)
+    refreshAfterDisplayOptionsChangeRef.current = refreshAfterDisplayOptionsChange
+    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: QueryBasedInsightModel): void => {
+        refreshAfterDisplayOptionsChangeRef.current?.(updatedInsight)
+    }, [])
 
     // Base props without setQuery — used to mount insightDataLogic and retrieve the
     // persistDisplayOptions action before wiring it back in as setQuery below.
@@ -305,9 +310,9 @@ function InsightCardInternal(
             cachedInsight: insight,
             loadPriority,
             doNotLoad,
-            refreshAfterDisplayOptionsChange,
+            refreshAfterDisplayOptionsChange: handleRefreshAfterDisplayOptionsChange,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad, refreshAfterDisplayOptionsChange]
+        [insight, dashboardId, loadPriority, doNotLoad, handleRefreshAfterDisplayOptionsChange]
     )
 
     const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
