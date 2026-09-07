@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { FunnelLayout } from 'lib/constants'
+import { FunnelLayout, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
@@ -31,6 +31,7 @@ import {
     GroupMathType,
     GroupTypeIndex,
     PropertyMathType,
+    RetentionPeriod,
     SimpleIntervalType,
     StepOrderValue,
 } from '~/types'
@@ -40,6 +41,7 @@ import type { CustomerAnalyticsConfig } from '../../../frontend/src/queries/sche
 import type { GroupType } from '../../../frontend/src/types'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from './constants'
 import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
+import { toRetentionEntity } from './utils'
 
 export type BusinessType = 'b2c' | 'b2b'
 
@@ -138,6 +140,7 @@ export interface customerAnalyticsSceneLogicValues {
     mauSeries: AnyEntityNode | null
     mineOnly: boolean
     paymentSeries: AnyEntityNode | null
+    retentionInsights: InsightDefinition[]
     selectedGroupType: number
     sessionInsights: InsightDefinition[]
     signupInsights: InsightDefinition[]
@@ -258,6 +261,20 @@ export interface customerAnalyticsSceneLogicMeta {
             subscriptionSeries: AnyEntityNode | null,
             signupPageviewSeries: AnyEntityNode | null,
             dauSeries: AnyEntityNode | null,
+            dateRange: {
+                date_from: string | null
+                date_to: string | null
+            },
+            filterTestAccounts: boolean
+        ) => InsightDefinition[]
+        retentionInsights: (
+            businessType: BusinessType,
+            customerLabel: {
+                plural: string
+                singular: string
+            },
+            dauSeries: AnyEntityNode | null,
+            selectedGroupType: number,
             dateRange: {
                 date_from: string | null
                 date_to: string | null
@@ -947,6 +964,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
                             },
+                            compareFilter: {
+                                compare: true,
+                            },
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
@@ -978,6 +998,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 showPercentStackView: false,
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
+                            },
+                            compareFilter: {
+                                compare: true,
                             },
                             breakdownFilter: {
                                 breakdown_type: 'event',
@@ -1012,6 +1035,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 showPercentStackView: false,
                                 aggregationAxisFormat: 'numeric',
                                 showAlertThresholdLines: false,
+                            },
+                            compareFilter: {
+                                compare: true,
                             },
                             breakdownFilter: {
                                 breakdown_type: 'event',
@@ -1049,6 +1075,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 funnelWindowInterval: 14,
                                 breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                                 funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                            },
+                            compareFilter: {
+                                compare: true,
                             },
                             breakdownFilter: {
                                 breakdown_type: 'event',
@@ -1110,6 +1139,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                                 funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
                             },
+                            compareFilter: {
+                                compare: true,
+                            },
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
@@ -1118,6 +1150,79 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
             ],
+        ],
+        retentionInsights: [
+            (s) => [
+                s.businessType,
+                s.customerLabel,
+                s.dauSeries,
+                s.selectedGroupType,
+                s.dateRange,
+                s.filterTestAccounts,
+            ],
+            (
+                businessType: BusinessType,
+                customerLabel: {
+                    plural: string
+                    singular: string
+                },
+                dauSeries: AnyEntityNode | null,
+                selectedGroupType: number,
+                dateRange: {
+                    date_from: string | null
+                    date_to: string | null
+                },
+                filterTestAccounts: boolean
+            ): InsightDefinition[] => {
+                const entity = dauSeries ? toRetentionEntity(dauSeries) : undefined
+                const buildRetention = (
+                    name: string,
+                    description: string,
+                    period: RetentionPeriod,
+                    totalIntervals: number
+                ): InsightDefinition => ({
+                    name,
+                    description,
+                    requiredSeries: { dauSeries },
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.RetentionQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
+                            dateRange: {
+                                date_from: dateRange.date_from,
+                                date_to: dateRange.date_to,
+                                explicitDate: false,
+                            },
+                            properties: [],
+                            retentionFilter: {
+                                period,
+                                totalIntervals,
+                                targetEntity: entity,
+                                returningEntity: entity,
+                                retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                            },
+                            filterTestAccounts,
+                        },
+                    },
+                })
+
+                return [
+                    buildRetention(
+                        'Daily retention',
+                        `Share of new ${customerLabel.plural} that came back each day of their first week.`,
+                        RetentionPeriod.Day,
+                        8
+                    ),
+                    buildRetention(
+                        'Weekly retention',
+                        `Share of new ${customerLabel.plural} that came back each week of their first month.`,
+                        RetentionPeriod.Week,
+                        5
+                    ),
+                ]
+            },
         ],
     }),
     trackedActionToUrl(() => ({
