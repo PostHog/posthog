@@ -81,4 +81,19 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+
+    test('explains itself instead of drawing nothing for a display it cannot draw', async () => {
+        const { findByText } = render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-unsupported-display"
+                query={{ ...query, display: ChartDisplayType.ActionsBarValue }}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+                embedded
+            />
+        )
+
+        expect(await findByText(/can't draw this chart type here/)).toBeTruthy()
+    })
 })

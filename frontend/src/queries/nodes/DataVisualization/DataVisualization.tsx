@@ -325,6 +325,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else {
+        // Without this the tile is an empty box, and there is nothing to tell the reader why.
+        component = (
+            <div className="flex flex-1 items-center justify-center bg-surface-primary p-6 text-center">
+                <span className="text-secondary text-sm">
+                    PostHog can't draw this chart type here. Open the insight to pick another one.
+                </span>
+            </div>
+        )
     }
 
     if (props.embedded) {

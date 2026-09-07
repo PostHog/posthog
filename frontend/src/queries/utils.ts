@@ -550,11 +550,6 @@ export function queryVizRendersToCanvas(query?: Node | null): boolean {
     return classifyQueryVizCanvas(query) !== 'non-canvas'
 }
 
-/** Whether an insight's viz is definitely canvas-backed and safe to unmount when the page is hidden. */
-export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean {
-    return classifyQueryVizCanvas(query) === 'canvas'
-}
-
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
         return (
