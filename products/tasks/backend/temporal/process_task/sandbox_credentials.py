@@ -371,7 +371,9 @@ class SandboxCredential(Protocol):
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome: ...
 
 
-@dataclass
+# Mutable on purpose: the `SandboxCredential` Protocol below declares `kind` as a settable
+# variable, which a frozen dataclass cannot satisfy.
+@dataclass(frozen=False)
 class GitHubSandboxCredential:
     """Refreshes the GitHub token (user *or* installation, per authorship)."""
 
