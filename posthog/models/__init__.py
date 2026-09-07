@@ -18,6 +18,7 @@ from .data_color_theme import DataColorTheme
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .entity_dependencies.models import EntityDependency
 from .event.event import Event
 from .event_buffer import EventBuffer
 
@@ -103,6 +104,7 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
+    "EntityDependency",
     "Event",
     "EventBuffer",
     "EventDefinition",

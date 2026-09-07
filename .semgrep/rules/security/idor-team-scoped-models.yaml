@@ -164,6 +164,7 @@ rules:
                               |EvaluationContext
                               |Edge
                               |Endpoint
+                              |EntityDependency
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
@@ -569,6 +570,7 @@ rules:
                         |EvaluationContext
                         |Edge
                         |Endpoint
+                        |EntityDependency
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
