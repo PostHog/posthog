@@ -13,6 +13,10 @@ Every check reads fields that appear on the full object alone, such as `metrics`
 Always fetch each entity via `experiment-get` or `feature-flag-get-definition` before you run a check.
 A check that runs on a list payload reads empty fields and reports nothing.
 
+Both list tools are paginated and return at most 100 entities per page.
+Page through them until `next` is null, advancing `offset` by the number of results each call returns.
+Compare the IDs you collected with `count` before you run a check, and report the audit as partial if you could not reach the end.
+
 ## Usage modes
 
 ### Quick check (single entity)
