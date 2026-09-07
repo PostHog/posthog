@@ -49,6 +49,21 @@ describe("handleResultMessage error text", () => {
       "Internal error: API Error: 500 something broke",
     );
   });
+
+  it("keeps tool progress on a provider error", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "API Error: 500 something broke",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(
+      (error as unknown as { data?: { madeProgress?: boolean } }).data
+        ?.madeProgress,
+    ).toBe(true);
+  });
 });
 
 describe("stripMarkerTags", () => {

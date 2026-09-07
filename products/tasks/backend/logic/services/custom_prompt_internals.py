@@ -708,7 +708,7 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
         message = params.get("message")
         if not isinstance(message, str) or not message.strip():
             continue
-        raw_category = params.get("errorCategory")
+        raw_category = params.get("errorCategory") or params.get("error_category")
         category = raw_category.strip() if isinstance(raw_category, str) and raw_category.strip() else None
         found = AgentError(message=message.strip(), category=category)
     return found

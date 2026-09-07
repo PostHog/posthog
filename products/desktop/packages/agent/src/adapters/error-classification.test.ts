@@ -112,6 +112,21 @@ describe("sanitizeAgentErrorCause", () => {
       "upstream_provider_failure",
       "upstream_provider_failure",
     ],
+    [
+      "Connection failed: private request details",
+      "upstream_connection_error",
+      "upstream_connection_error",
+    ],
+    [
+      "Stream terminated after private tool output",
+      "upstream_stream_terminated",
+      "upstream_stream_terminated",
+    ],
+    [
+      "Request timed out after sending private repository content",
+      "upstream_timeout",
+      "upstream_timeout",
+    ],
     ["agent process exited", "agent_error", "agent process exited"],
   ] as const)("sanitizes %j as %j", (message, classification, expected) => {
     expect(sanitizeAgentErrorCause(message, classification)).toBe(expected);

@@ -921,6 +921,7 @@ export type ResultMessageHandlerResult = {
 
 export function handleResultMessage(
   message: SDKResultMessage,
+  madeProgress = false,
 ): ResultMessageHandlerResult {
   const usage = extractUsageFromResult(message);
 
@@ -945,9 +946,10 @@ export function handleResultMessage(
           classification === "subscription_usage_limit"
             ? new RequestError(ACP_INTERNAL_ERROR_CODE, message.result, {
                 classification,
+                madeProgress,
               })
             : RequestError.internalError(
-                { classification, result: message.result },
+                { classification, result: message.result, madeProgress },
                 message.result,
               );
         return { shouldStop: true, error, usage };

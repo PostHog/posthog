@@ -1030,6 +1030,52 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.eventStreamSender.stop).not.toHaveBeenCalled();
     });
 
+    it("does not stop a replacement session after reporting savings", async () => {
+      let releaseSavings!: () => void;
+      const savingsPending = new Promise<void>((resolve) => {
+        releaseSavings = resolve;
+      });
+      const testServer = createFailureTestServer() as unknown as {
+        eventStreamSender: {
+          enqueue: ReturnType<typeof vi.fn>;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        session: unknown;
+        emitRtkSavings: ReturnType<typeof vi.fn>;
+        signalTaskComplete(
+          payload: JwtPayload,
+          stopReason: string,
+          errorMessage?: string,
+          options?: { errorCategory?: string },
+        ): Promise<void>;
+      };
+      testServer.emitRtkSavings = vi.fn(() => savingsPending);
+      testServer.session = {
+        payload: { run_id: "run-1" },
+        logWriter: { appendRawLine: vi.fn(), flush: vi.fn(async () => {}) },
+        telemetry: { shutdown: vi.fn(async () => {}) },
+      };
+
+      const completion = testServer.signalTaskComplete(
+        interactivePayload,
+        "error",
+        "old run failed",
+        { errorCategory: "agent_error" },
+      );
+      await vi.waitFor(() =>
+        expect(testServer.emitRtkSavings).toHaveBeenCalledOnce(),
+      );
+      testServer.session = {
+        payload: { run_id: "run-2" },
+        logWriter: { appendRawLine: vi.fn(), flush: vi.fn() },
+      };
+      releaseSavings();
+      await completion;
+
+      expect(testServer.eventStreamSender.stop).not.toHaveBeenCalled();
+    });
+
     it("still stops event ingest when terminal failure status update fails", async () => {
       const testServer = new AgentServer({
         port,
@@ -1584,6 +1630,76 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
+    it("keeps replaced-run usage and completion out of the active run", async () => {
+      let releaseUsage!: () => void;
+      const usagePending = new Promise<void>((resolve) => {
+        releaseUsage = resolve;
+      });
+      const testServer = createFailureTestServer() as ReturnType<
+        typeof createFailureTestServer
+      > & {
+        recordTurnUsage(
+          usage: {
+            inputTokens: number;
+            outputTokens: number;
+            totalTokens: number;
+          },
+          payload: JwtPayload,
+        ): Promise<void>;
+      };
+      testServer.posthogAPI.updateTaskRun = vi
+        .fn()
+        .mockImplementationOnce(() => usagePending)
+        .mockResolvedValue({});
+      const error = new RequestError(-32603, "upstream timeout", {
+        classification: "upstream_timeout",
+        result: "upstream_timeout",
+        usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      });
+
+      const failure = testServer.handleTurnFailure(
+        interactivePayload,
+        "followup",
+        error,
+      );
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledOnce(),
+      );
+      const replacementPayload = { ...interactivePayload, run_id: "run-2" };
+      testServer.session = {
+        acpSessionId: "acp-2",
+        payload: replacementPayload,
+      };
+      releaseUsage();
+
+      await expect(failure).resolves.toBe("recoverable");
+      expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            method: POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+          }),
+        }),
+      );
+
+      await testServer.recordTurnUsage(
+        { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+        replacementPayload,
+      );
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
+        "task-1",
+        "run-2",
+        expect.objectContaining({
+          state: {
+            token_usage: expect.objectContaining({
+              input_tokens: 20,
+              output_tokens: 10,
+              total_tokens: 30,
+            }),
+          },
+        }),
+      );
+    });
+
     it("reports the app-server cause, not the generic display text, on a fatal error", async () => {
       // A codex fatal error reaches the host as a RequestError whose display
       // text is generic; the real cause rides on `data.result`. The live client
@@ -1727,6 +1843,7 @@ describe("AgentServer HTTP Mode", () => {
           usage?: { inputTokens?: number; outputTokens?: number };
         }>;
         runStartupTurn<T>(operation: () => Promise<T>): Promise<T>;
+        runRetryWrappedTurn<T>(operation: () => Promise<T>): Promise<T>;
       };
     }
 
@@ -1739,7 +1856,7 @@ describe("AgentServer HTTP Mode", () => {
           .mockResolvedValueOnce({ stopReason: "end_turn" });
         const testServer = createRetryTestServer(prompt);
 
-        const resultPromise = testServer.runStartupTurn(() =>
+        const resultPromise = testServer.runRetryWrappedTurn(() =>
           testServer.promptWithUpstreamRetry({
             sessionId: "acp-1",
             prompt: [{ type: "text", text: "do the task" }],
@@ -1841,7 +1958,7 @@ describe("AgentServer HTTP Mode", () => {
           .fn()
           .mockRejectedValueOnce(new Error("API Error: Connection error."));
         const testServer = createRetryTestServer(prompt);
-        const resultPromise = testServer.runStartupTurn(() =>
+        const resultPromise = testServer.runRetryWrappedTurn(() =>
           testServer.promptWithUpstreamRetry({
             sessionId: "acp-1",
             prompt: [{ type: "text", text: "do the task" }],
@@ -1955,6 +2072,45 @@ describe("AgentServer HTTP Mode", () => {
       expect(settled).toBe(false);
       releaseUsage();
       await expect(resultPromise).rejects.toThrow("fatal failure");
+    });
+
+    it("propagates accumulated failed usage for caller-owned persistence", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi.fn().mockRejectedValue(
+          new RequestError(-32603, "transient failure", {
+            classification: "upstream_provider_failure",
+            result: "upstream_provider_failure",
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          }),
+        );
+        const testServer = createRetryTestServer(prompt);
+        const resultPromise = testServer.promptWithUpstreamRetry(
+          {
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          },
+          false,
+        );
+        const assertion = expect(resultPromise).rejects.toMatchObject({
+          data: expect.objectContaining({
+            usage: {
+              cachedReadTokens: 0,
+              cachedWriteTokens: 0,
+              inputTokens: 30,
+              outputTokens: 15,
+              thoughtTokens: 0,
+              totalTokens: 45,
+            },
+          }),
+        });
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        await assertion;
+        expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("continues after tool progress and preserves usage across retries", async () => {

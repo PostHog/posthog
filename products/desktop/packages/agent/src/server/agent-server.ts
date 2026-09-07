@@ -12,6 +12,7 @@ import {
   ClientSideConnection,
   ndJsonStream,
   PROTOCOL_VERSION,
+  RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
 import { execGh } from "@posthog/git/gh";
@@ -458,6 +459,7 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
   private runUsage = new RunUsageAccumulator();
+  private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
@@ -497,7 +499,10 @@ export class AgentServer {
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
   private activeStartupTurnCount = 0;
-  private readonly activeStartupSessions = new WeakSet<ActiveSession>();
+  private readonly retryWrappedSessionDepth = new WeakMap<
+    ActiveSession,
+    number
+  >();
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
   private nonSteerDeliveryTail: Promise<void> = Promise.resolve();
@@ -1297,16 +1302,18 @@ export class AgentServer {
 
           const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
-            this.promptWithUpstreamRetry(
-              {
-                sessionId: acpSessionId,
-                prompt: [
-                  hiddenTextBlock(
-                    "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
-                  ),
-                ],
-              },
-              false,
+            this.runRetryWrappedTurn(() =>
+              this.promptWithUpstreamRetry(
+                {
+                  sessionId: acpSessionId,
+                  prompt: [
+                    hiddenTextBlock(
+                      "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
+                    ),
+                  ],
+                },
+                false,
+              ),
             );
 
           let result: PromptResponse;
@@ -1468,7 +1475,7 @@ export class AgentServer {
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
-        if (this.activeStartupSessions.has(this.session)) {
+        if (this.isRetryWrappedSession(this.session)) {
           this.cancelledStartupSessions.add(this.session);
         }
         await this.session.clientConnection.cancel({
@@ -1775,6 +1782,8 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
+    this.runUsage = new RunUsageAccumulator();
+    this.runUsageRunId = payload.run_id;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
@@ -2190,7 +2199,9 @@ export class AgentServer {
         this.logger.debug("Failed to set task run to in_progress", err),
       );
 
-    await this.sendInitialTaskMessage(payload, preTaskRun);
+    await this.runStartupTurn(() =>
+      this.sendInitialTaskMessage(payload, preTaskRun),
+    );
   }
 
   private extractErrorClassification(error: unknown): {
@@ -2240,18 +2251,39 @@ export class AgentServer {
   }
 
   private async runStartupTurn<T>(operation: () => Promise<T>): Promise<T> {
-    const startupSession = this.session;
-    if (startupSession) {
-      this.activeStartupSessions.add(startupSession);
-    }
     this.activeStartupTurnCount += 1;
     try {
-      return await this.runOwnedTurn(operation);
+      return await this.runRetryWrappedTurn(() => this.runOwnedTurn(operation));
     } finally {
       this.activeStartupTurnCount -= 1;
-      if (startupSession) {
-        this.activeStartupSessions.delete(startupSession);
-        this.cancelledStartupSessions.delete(startupSession);
+    }
+  }
+
+  private isRetryWrappedSession(session: ActiveSession): boolean {
+    return (this.retryWrappedSessionDepth.get(session) ?? 0) > 0;
+  }
+
+  private async runRetryWrappedTurn<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const session = this.session;
+    if (session) {
+      this.retryWrappedSessionDepth.set(
+        session,
+        (this.retryWrappedSessionDepth.get(session) ?? 0) + 1,
+      );
+    }
+    try {
+      return await operation();
+    } finally {
+      if (session) {
+        const depth = this.retryWrappedSessionDepth.get(session) ?? 0;
+        if (depth <= 1) {
+          this.retryWrappedSessionDepth.delete(session);
+          this.cancelledStartupSessions.delete(session);
+        } else {
+          this.retryWrappedSessionDepth.set(session, depth - 1);
+        }
       }
     }
   }
@@ -2332,18 +2364,25 @@ export class AgentServer {
         const usage = mergeUsage(retryUsage, response.usage ?? undefined);
         return { ...response, ...(usage ? { usage } : {}) };
       } catch (error) {
-        const { classification, message, madeProgress, usage } =
+        const { classification, message, cause, madeProgress, usage } =
           this.extractErrorClassification(error);
         const accumulatedUsage = mergeUsage(retryUsage, usage);
-        if (
-          !isRetryableUpstreamErrorClassification(classification) ||
-          retries >= MAX_UPSTREAM_TURN_RETRIES
-        ) {
+        const retryable =
+          isRetryableUpstreamErrorClassification(classification);
+        if (!retryable || retries >= MAX_UPSTREAM_TURN_RETRIES) {
           if (recordFailedUsage && this.session === originatingSession) {
             await this.recordTurnUsage(
               accumulatedUsage,
               originatingSession.payload,
             );
+          }
+          if (retryable && accumulatedUsage) {
+            throw new RequestError(-32603, message, {
+              classification,
+              result: cause,
+              madeProgress: continueInterruptedTurn || madeProgress,
+              usage: accumulatedUsage,
+            });
           }
           throw error;
         }
@@ -2414,17 +2453,22 @@ export class AgentServer {
       retryableDelivery,
     });
 
+    if (phase === "followup" && activeSessionOwnsFailure) {
+      await this.recordTurnUsage(usage, payload);
+    }
+    const failureSessionStillActive =
+      this.session?.payload.run_id === payload.run_id;
+
     if (retryableDelivery) {
       return "retryable_delivery";
     }
 
-    if (!suppressClientError && activeSessionOwnsFailure) {
+    if (!suppressClientError && failureSessionStillActive) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
-      await this.recordTurnUsage(usage, payload);
-      if (activeSessionOwnsFailure) {
+      if (failureSessionStillActive) {
         this.broadcastTurnComplete("error_recoverable");
       }
       return "recoverable";
@@ -2589,13 +2633,11 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.runStartupTurn(() =>
-        this.promptWithUpstreamRetry({
-          sessionId: acpSessionId,
-          prompt: initialPrompt,
-          ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
-        }),
-      );
+      const result = await this.promptWithUpstreamRetry({
+        sessionId: acpSessionId,
+        prompt: initialPrompt,
+        ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
+      });
 
       this.logger.debug("Initial task message completed", {
         stopReason: result.stopReason,
@@ -2640,55 +2682,57 @@ export class AgentServer {
     const resumeState = this.resumeState;
     taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
-    await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
-      const conversationSummary = formatConversationForResume(
-        resumeState.conversation,
-      );
+    await this.runStartupTurn(() =>
+      this.runResumeTurn(payload, taskRun, "Resume message", async () => {
+        const conversationSummary = formatConversationForResume(
+          resumeState.conversation,
+        );
 
-      const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
 
-      let resumePromptBlocks: ContentBlock[];
-      let resumePromptMeta: Record<string, unknown> | undefined;
-      let resumePromptMessageId: string | undefined;
-      if (pendingUserPrompt?.prompt.length) {
-        resumePromptMeta = pendingUserPrompt.meta;
-        resumePromptMessageId = pendingUserPrompt.messageId;
-        resumePromptBlocks = [
-          hiddenTextBlock(
-            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-              `Here is the conversation history from the previous session:\n\n` +
-              `${conversationSummary}\n\n` +
-              `The user has sent a new message:\n\n`,
-          ),
-          ...pendingUserPrompt.prompt,
-          hiddenTextBlock(
-            "\n\nRespond to the user's new message above. You have full context from the previous session.",
-          ),
-        ];
-      } else {
-        resumePromptBlocks = [
-          hiddenTextBlock(
-            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-              `Here is the conversation history from the previous session:\n\n` +
-              `${conversationSummary}\n\n` +
-              `Continue from where you left off. The user is waiting for your response.`,
-          ),
-        ];
-      }
+        let resumePromptBlocks: ContentBlock[];
+        let resumePromptMeta: Record<string, unknown> | undefined;
+        let resumePromptMessageId: string | undefined;
+        if (pendingUserPrompt?.prompt.length) {
+          resumePromptMeta = pendingUserPrompt.meta;
+          resumePromptMessageId = pendingUserPrompt.messageId;
+          resumePromptBlocks = [
+            hiddenTextBlock(
+              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                `Here is the conversation history from the previous session:\n\n` +
+                `${conversationSummary}\n\n` +
+                `The user has sent a new message:\n\n`,
+            ),
+            ...pendingUserPrompt.prompt,
+            hiddenTextBlock(
+              "\n\nRespond to the user's new message above. You have full context from the previous session.",
+            ),
+          ];
+        } else {
+          resumePromptBlocks = [
+            hiddenTextBlock(
+              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                `Here is the conversation history from the previous session:\n\n` +
+                `${conversationSummary}\n\n` +
+                `Continue from where you left off. The user is waiting for your response.`,
+            ),
+          ];
+        }
 
-      this.logger.debug("Sending resume message", {
-        taskId: payload.task_id,
-        conversationTurns: resumeState.conversation.length,
-        promptLength: promptBlocksToText(resumePromptBlocks).length,
-        hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-      });
+        this.logger.debug("Sending resume message", {
+          taskId: payload.task_id,
+          conversationTurns: resumeState.conversation.length,
+          promptLength: promptBlocksToText(resumePromptBlocks).length,
+          hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+        });
 
-      return {
-        prompt: resumePromptBlocks,
-        ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
-        messageId: resumePromptMessageId,
-      };
-    });
+        return {
+          prompt: resumePromptBlocks,
+          ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
+          messageId: resumePromptMessageId,
+        };
+      }),
+    );
   }
 
   private async settleIdleResume(
@@ -2837,34 +2881,38 @@ export class AgentServer {
     if (!this.session) return;
     taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
-    await this.runResumeTurn(
-      payload,
-      taskRun,
-      "Resume continuation",
-      async () => {
-        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-        const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
-          ? pendingUserPrompt.prompt
-          : [
-              {
-                type: "text",
-                text: "Continue from where you left off. The user is waiting for your response.",
-              },
-            ];
-        this.logger.debug("Sending resume continuation", {
-          taskId: payload.task_id,
-          sessionId: this.nativeResume?.sessionId,
-          warm: this.nativeResume?.warm,
-          hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        });
+    await this.runStartupTurn(() =>
+      this.runResumeTurn(
+        payload,
+        taskRun,
+        "Resume continuation",
+        async () => {
+          const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+          const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
+            ? pendingUserPrompt.prompt
+            : [
+                {
+                  type: "text",
+                  text: "Continue from where you left off. The user is waiting for your response.",
+                },
+              ];
+          this.logger.debug("Sending resume continuation", {
+            taskId: payload.task_id,
+            sessionId: this.nativeResume?.sessionId,
+            warm: this.nativeResume?.warm,
+            hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+          });
 
-        return {
-          prompt,
-          ...(pendingUserPrompt?.meta ? { meta: pendingUserPrompt.meta } : {}),
-          messageId: pendingUserPrompt?.messageId,
-        };
-      },
-      { retryOnOversizedPrompt: true },
+          return {
+            prompt,
+            ...(pendingUserPrompt?.meta
+              ? { meta: pendingUserPrompt.meta }
+              : {}),
+            messageId: pendingUserPrompt?.messageId,
+          };
+        },
+        { retryOnOversizedPrompt: true },
+      ),
     );
   }
 
@@ -2970,13 +3018,11 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.runStartupTurn(() =>
-        this.promptWithUpstreamRetry({
-          sessionId: acpSessionId,
-          prompt: builtPrompt.prompt,
-          ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
-        }),
-      );
+      const result = await this.promptWithUpstreamRetry({
+        sessionId: acpSessionId,
+        prompt: builtPrompt.prompt,
+        ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
+      });
 
       this.logger.debug(`${logLabel} completed`, {
         stopReason: result.stopReason,
@@ -4721,7 +4767,9 @@ ${commonInstructions}
         this.session === currentSession
       ) {
         await this.emitRtkSavings();
-        await this.eventStreamSender?.stop();
+        if (this.session === currentSession) {
+          await this.eventStreamSender?.stop();
+        }
       }
       // The run is terminal and the sandbox is torn down right after — and
       // teardown kills this exec'd process without SIGTERM, so this is the
@@ -5566,6 +5614,7 @@ ${commonInstructions}
     // Run usage is per run: a later session on this instance (e.g. a resume
     // with a different run_id) must not inherit the previous run's totals.
     this.runUsage = new RunUsageAccumulator();
+    this.runUsageRunId = null;
     this.session = null;
   }
 
@@ -5599,7 +5648,14 @@ ${commonInstructions}
     usage: PromptResponse["usage"],
     payload = this.session?.payload,
   ): Promise<void> {
-    if (!this.runUsage.add(usage) || !payload) return Promise.resolve();
+    if (!payload || this.session?.payload.run_id !== payload.run_id) {
+      return Promise.resolve();
+    }
+    if (this.runUsageRunId !== payload.run_id) {
+      this.runUsage = new RunUsageAccumulator();
+      this.runUsageRunId = payload.run_id;
+    }
+    if (!this.runUsage.add(usage)) return Promise.resolve();
     return reportRunUsage(
       this.runUsage,
       this.posthogAPI,

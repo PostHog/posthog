@@ -106,7 +106,15 @@ export function sanitizeAgentErrorCause(
   if (apiStatus) {
     return `API Error: ${apiStatus[1]}`;
   }
-  return classification === "upstream_provider_failure" ? classification : text;
+  if (
+    classification === "upstream_provider_failure" ||
+    classification === "upstream_connection_error" ||
+    classification === "upstream_stream_terminated" ||
+    classification === "upstream_timeout"
+  ) {
+    return classification;
+  }
+  return text;
 }
 
 /**
