@@ -1215,6 +1215,29 @@ describe('exec tool', () => {
             )
         })
 
+        // The hint is free text, so an author can name a tool that is behind its own
+        // gate here. Held to the same rule as the successors, or the redirect trades
+        // one dead end for another.
+        it.each<[string, string, boolean]>([
+            ['a tool the catalog serves', 'Pair it with notebooks-create-markdown for the new shape.', true],
+            ['a tool this connection cannot serve', 'Read the notebook with notebooks-get first.', false],
+            ['a hyphenated word that is not a tool', 'The revamped notebooks are cell-based.', true],
+        ])('holds a hint naming %s to the same reachability rule', async (_case, redirectHint, kept) => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [
+                    { name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'], redirectHint },
+                ],
+            })
+
+            const message = await exec.handler(mockContext, { command: 'call notebooks-create {}' }).then(
+                () => '',
+                (error: Error) => error.message
+            )
+
+            expect(message).toContain('is retired on this PostHog connection')
+            expect(message.includes(redirectHint)).toBe(kept)
+        })
+
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],

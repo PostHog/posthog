@@ -11,7 +11,7 @@ import { formatResponse } from '@/lib/response'
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
-import type { FlagGatedTool, ScopeGatedTool } from './toolDefinitions'
+import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_INFORMATIONAL_RESPONSE_KEY,
@@ -753,16 +753,34 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
+/** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
+const HINT_TOOL_NAME_PATTERN = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g
+
+/**
+ * Whether every tool the hint names is one this connection can call. A hint is
+ * free text, so it can name a tool that is behind its own gate here — the second
+ * dead end the successor filter exists to prevent. A hyphenated word the catalog
+ * has no tool for is prose, so it never suppresses the hint.
+ */
+function hintNamesOnlyAvailableTools(hint: string, available: Set<string>): boolean {
+    const definitions = getToolDefinitions()
+    return (hint.match(HINT_TOOL_NAME_PATTERN) ?? []).every(
+        (token) => definitions[token] === undefined || available.has(token)
+    )
+}
+
 /**
  * Message for a tool a feature flag removed from this connection's catalog.
  * Names only the successors the catalog can actually serve, because a successor
- * behind its own gate is no more callable than the tool it replaced. Never names
- * the flag — the agent cannot act on a flag key, and the key is internal.
+ * behind its own gate is no more callable than the tool it replaced. The hint is
+ * held to the same rule. Never names the flag — the agent cannot act on a flag
+ * key, and the key is internal.
  */
 function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[]): string {
     const available = new Set(tools.map((t) => t.name))
     const reachable = gated.supersededBy.filter((successor) => available.has(successor))
-    const hint = gated.redirectHint ? ` ${gated.redirectHint}` : ''
+    const hint =
+        gated.redirectHint && hintNamesOnlyAvailableTools(gated.redirectHint, available) ? ` ${gated.redirectHint}` : ''
     if (reachable.length === 0) {
         return `Tool "${gated.name}" exists, but it is not enabled on this PostHog connection. The capability was not removed. Run "search ${gated.name}" to find an enabled tool for the same job.${hint}`
     }
