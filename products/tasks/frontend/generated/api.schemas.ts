@@ -1231,6 +1231,11 @@ export interface PatchedChannelUpdateApi {
      * @nullable
      */
     auto_archive_after_days?: number | null
+    /** Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator and the requester as members. Making it public removes its member list. Personal #me spaces cannot change.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
 }
 
 export interface ChannelDeleteConflictApi {

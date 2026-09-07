@@ -7872,6 +7872,16 @@ def list_channel_members(
     return _channel_member_infos(channel, team_id)
 
 
+def _reset_channel_memberships(channel: Channel, team_id: int, user_id: int | None) -> None:
+    memberships = ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id)
+    memberships.delete()
+    if channel.channel_type != Channel.ChannelType.PRIVATE:
+        return
+    seed_ids = {member_id for member_id in (channel.created_by_id, user_id) if member_id is not None}
+    for member_id in seed_ids:
+        ChannelMembership.objects.for_team(team_id).create(team_id=team_id, channel_id=channel.id, user_id=member_id)
+
+
 def set_channel_members(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, member_ids: list[int]
 ) -> list[contracts.TaskUserBasicInfo] | str:
@@ -7911,6 +7921,7 @@ def update_channel(
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
     auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
+    channel_type: str | None = None,
 ) -> contracts.ChannelDTO | str:
     try:
         with transaction.atomic():
@@ -7920,13 +7931,17 @@ def update_channel(
             if channel.channel_type == Channel.ChannelType.PERSONAL:
                 if channel.created_by_id != user_id:
                     return "not_found"
-                if name is not None:
+                if name is not None or channel_type is not None:
                     return "personal"
             elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
                 return "auto_archive_forbidden"
-            if name is not None and _is_general_channel(channel):
+            if (name is not None or channel_type is not None) and _is_general_channel(channel):
                 return "general"
             update_fields: list[str] = []
+            if channel_type is not None and channel_type != channel.channel_type:
+                channel.channel_type = channel_type
+                update_fields.append("channel_type")
+                _reset_channel_memberships(channel, team_id, user_id)
             if name is not None:
                 normalized = normalize_channel_name(name)
                 if not normalized:

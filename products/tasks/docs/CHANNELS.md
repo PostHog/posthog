@@ -31,14 +31,14 @@ When the task owner forwards a message, the row also records the forwarding user
 
 Base path: `/api/projects/{id}/task_channels/`.
 
-| Request                                         | Result                                                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `GET /`                                         | List all accessible channels, sorted by name and ID.                                           |
-| `POST / {name, channel_type, member_ids, star}` | Create a channel or return an existing public channel with the same name.                      |
-| `PATCH /{id}/ {name}`                           | Rename an accessible public or private channel. Personal and general spaces cannot be renamed. |
-| `DELETE /{id}/`                                 | Delete an empty public or private channel. Personal and general spaces cannot be deleted.      |
-| `GET /{id}/members/`                            | List private channel members. Return an empty list for public and personal channels.           |
-| `PUT /{id}/members/ {user_ids}`                 | Replace a private channel's members. Keep the creator.                                         |
+| Request                                         | Result                                                                                               |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET /`                                         | List all accessible channels, sorted by name and ID.                                                 |
+| `POST / {name, channel_type, member_ids, star}` | Create a channel or return an existing public channel with the same name.                            |
+| `PATCH /{id}/ {name, channel_type}`             | Rename or switch an accessible public or private channel. Personal and general spaces cannot change. |
+| `DELETE /{id}/`                                 | Delete an empty public or private channel. Personal and general spaces cannot be deleted.            |
+| `GET /{id}/members/`                            | List private channel members. Return an empty list for public and personal channels.                 |
+| `PUT /{id}/members/ {user_ids}`                 | Replace a private channel's members. Keep the creator.                                               |
 
 Listing channels does not create them. Call `provision_defaults` to create the default channels.
 Send `limit` and `offset` to get one page with `count`, `next`, `previous`, and `results`.
@@ -54,6 +54,10 @@ An empty list removes all members except the creator.
 A creator who loses project access remains in the member list but cannot access the channel.
 Removing a member leaves their tasks in the channel and removes their access.
 The endpoint returns 400 for invalid users or public or personal channels. It returns 404 for inaccessible channels.
+
+A `channel_type` update switches a shared channel between `public` and `private`.
+Making a channel private removes every membership row and seeds the creator and the requester.
+Making a channel public removes every membership row. The name must be free among active public channels, or the request returns 400.
 
 Channel updates, deletion, membership changes, private channel handoffs, feed posts, instructions, context generation, and stars lock the channel row.
 Each write checks access after it acquires the lock. A request from a removed member fails even if it started before removal.
@@ -136,5 +140,4 @@ The backend channel UUID identifies the space across tasks, feeds, threads, canv
 - Per-member roles or permissions.
 - Activity log entries for membership changes.
 - Push notifications for membership, feed, or thread changes. Clients poll.
-- Converting a public space to private.
 - Message editing and emoji reactions.

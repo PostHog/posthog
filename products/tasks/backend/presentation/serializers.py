@@ -2250,6 +2250,14 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_value=365,
         help_text="Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.",
     )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        required=False,
+        help_text=(
+            "Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator "
+            "and the requester as members. Making it public removes its member list. Personal #me spaces cannot change."
+        ),
+    )
 
     def validate_name(self, value: str) -> str:
         if tasks_facade.is_reserved_channel_name(value):

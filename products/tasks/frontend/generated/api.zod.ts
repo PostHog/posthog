@@ -987,6 +987,13 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.'
         ),
+    channel_type: zod
+        .enum(['public', 'private'])
+        .describe('\* `public` - public\n\* `private` - private')
+        .optional()
+        .describe(
+            "Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator and the requester as members. Making it public removes its member list. Personal #me spaces cannot change.\n\n\* `public` - public\n\* `private` - private"
+        ),
 })
 
 /**
