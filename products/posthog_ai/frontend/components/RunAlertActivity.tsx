@@ -1,5 +1,5 @@
-import { IconWarning } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconRefresh, IconWarning } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import type { RunAlertKind, RunConnectionState } from '../types/streamTypes'
@@ -8,6 +8,8 @@ import { Activity } from './ActivityPrimitives'
 interface RunAlertActivityProps extends RunConnectionState {
     /** Stable id for the underlying `Activity` (drives markdown substep ids). Defaults per kind. */
     id?: string
+    /** `connection_failed`: when set, the card shows a Retry button that reopens the stream in place. */
+    onRetry?: () => void
 }
 
 const TITLES: Record<RunAlertKind, string> = {
@@ -27,7 +29,14 @@ const TITLES: Record<RunAlertKind, string> = {
  * `Activity` body auto-collapses, so the detail message rides the always-visible `children` region (mirrors
  * `ToolActivity`'s failed-error pattern) rather than the collapsible `details`.
  */
-export function RunAlertActivity({ kind, id, attempt, maxAttempts, message }: RunAlertActivityProps): JSX.Element {
+export function RunAlertActivity({
+    kind,
+    id,
+    attempt,
+    maxAttempts,
+    message,
+    onRetry,
+}: RunAlertActivityProps): JSX.Element {
     const activityId = id ?? `run-alert-${kind}`
 
     if (kind === 'reconnecting') {
@@ -56,6 +65,17 @@ export function RunAlertActivity({ kind, id, attempt, maxAttempts, message }: Ru
                 <div className="text-danger">
                     <MarkdownMessage content={message} id={`${activityId}-message`} />
                 </div>
+            ) : null}
+            {onRetry ? (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    onClick={onRetry}
+                    data-attr="run-stream-retry"
+                >
+                    Retry
+                </LemonButton>
             ) : null}
         </Activity>
     )

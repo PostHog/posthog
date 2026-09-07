@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { RunAlertActivity } from './RunAlertActivity'
 
@@ -23,5 +23,19 @@ describe('RunAlertActivity', () => {
 
         expect(screen.getByText(title)).toBeInTheDocument()
         expect(screen.getByText('boom')).toBeInTheDocument()
+    })
+
+    it('offers an in-place retry when onRetry is set', () => {
+        const onRetry = jest.fn()
+        render(<RunAlertActivity kind="connection_failed" message="boom" onRetry={onRetry} />)
+
+        const retry = screen.getByText('Retry')
+        fireEvent.click(retry)
+        expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows no retry button without onRetry', () => {
+        render(<RunAlertActivity kind="connection_failed" message="boom" />)
+        expect(screen.queryByText('Retry')).not.toBeInTheDocument()
     })
 })
