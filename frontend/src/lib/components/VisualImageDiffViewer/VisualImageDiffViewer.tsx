@@ -17,10 +17,15 @@ export interface DiffOverlayBox {
     height: number
 }
 
-/** A run of rows the current image gained or lost, in natural image coordinates. */
+/**
+ * A run of rows the current image gained or lost, in natural image coordinates.
+ * A deleted band's rows are not in the current image, so its `y` is the seam the
+ * removed rows left behind, not the top of a region that is still there.
+ */
 export interface DiffOverlayBand {
     y: number
     rows: number
+    kind: 'inserted' | 'deleted'
 }
 
 export interface VisualImageDiffViewerProps {
@@ -220,6 +225,11 @@ const BAND_FILL = 'rgba(124, 92, 214, 0.22)'
 // is non-scaling so it still draws, but the fill needs a floor to be visible.
 const MIN_OVERLAY_SIDE_PX = 3
 
+// A deleted band marks a seam, not a region, so it gets a fixed thin height
+// instead of the rows it removed. A deletion at the bottom edge sits at
+// y = height, so the seam is clamped to keep it inside the image.
+const BAND_SEAM_HEIGHT = 3
+
 interface OverlayRectProps {
     x: number
     y: number
@@ -288,19 +298,34 @@ function BboxOverlay({ boxes, bands, width, height, highlightedIndex, onHover }:
                 preserveAspectRatio="none"
             >
                 {/* A band spans the whole image, so it reads as a rule across the
-                 * diff rather than as a region of it. */}
-                {(bands ?? []).map((band, i) => (
-                    <OverlayRect
-                        key={`band-${i}`}
-                        x={0}
-                        y={band.y}
-                        width={width}
-                        height={band.rows}
-                        fill={BAND_FILL}
-                        stroke={BAND_STROKE}
-                        strokeWidth={2}
-                    />
-                ))}
+                 * diff rather than as a region of it. Inserted rows are there to
+                 * fill. Deleted rows are not, so their band marks the solid seam
+                 * they left behind instead of covering the rows below it. */}
+                {(bands ?? []).map((band, i) =>
+                    band.kind === 'deleted' ? (
+                        <OverlayRect
+                            key={`band-${i}`}
+                            x={0}
+                            y={Math.max(0, Math.min(band.y, height - BAND_SEAM_HEIGHT))}
+                            width={width}
+                            height={BAND_SEAM_HEIGHT}
+                            fill={BAND_STROKE}
+                            stroke={BAND_STROKE}
+                            strokeWidth={2}
+                        />
+                    ) : (
+                        <OverlayRect
+                            key={`band-${i}`}
+                            x={0}
+                            y={band.y}
+                            width={width}
+                            height={band.rows}
+                            fill={BAND_FILL}
+                            stroke={BAND_STROKE}
+                            strokeWidth={2}
+                        />
+                    )
+                )}
                 {boxes.map((b, i) => {
                     const isHighlighted = highlightedIndex === i
                     const isDimmed = highlightedIndex !== null && !isHighlighted
@@ -470,6 +495,15 @@ export function VisualImageDiffViewer({
         }
         return pixelated
     }
+
+    // The diff raster and the overlays are recorded in current-image coords, so
+    // on the shared canvas they cover the current image's fraction of it, the
+    // same way the current image layer does. Without that a current-sized diff
+    // stretches down over the empty area a taller baseline leaves behind.
+    const currentLayerIsFractional = Boolean(
+        stageAspectRatio && canvasWidth && canvasHeight && currentNaturalWidth && currentNaturalHeight
+    )
+    const currentLayerClass = currentLayerIsFractional ? 'absolute top-0 left-0' : 'absolute top-0 left-0 w-full h-full'
 
     const [internalMode, setInternalMode] = useState<ComparisonMode>('sideBySide')
     const requestedMode = controlledMode ?? internalMode
@@ -710,9 +744,12 @@ export function VisualImageDiffViewer({
                             <img
                                 src={diffUrl as string}
                                 alt="Diff overlay"
-                                className="absolute top-0 left-0 w-full h-full mix-blend-screen pointer-events-none"
+                                className={cn(currentLayerClass, 'mix-blend-screen pointer-events-none')}
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ opacity: diffOverlayOpacity / 100 }}
+                                style={{
+                                    ...layerStyle(currentNaturalWidth, currentNaturalHeight),
+                                    opacity: diffOverlayOpacity / 100,
+                                }}
                             />
                         )}
 
@@ -728,14 +765,20 @@ export function VisualImageDiffViewer({
                             !!overlayCoordWidth &&
                             !!overlayCoordHeight &&
                             overlayCoordsMatch && (
-                                <BboxOverlay
-                                    boxes={overlayBoxesIfShown ?? []}
-                                    bands={diffOverlayBands}
-                                    width={overlayCoordWidth}
-                                    height={overlayCoordHeight}
-                                    highlightedIndex={highlightedOverlayIndex ?? null}
-                                    onHover={onOverlayHover}
-                                />
+                                <div
+                                    className={cn(currentLayerClass, 'pointer-events-none')}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={layerStyle(currentNaturalWidth, currentNaturalHeight)}
+                                >
+                                    <BboxOverlay
+                                        boxes={overlayBoxesIfShown ?? []}
+                                        bands={diffOverlayBands}
+                                        width={overlayCoordWidth}
+                                        height={overlayCoordHeight}
+                                        highlightedIndex={highlightedOverlayIndex ?? null}
+                                        onHover={onOverlayHover}
+                                    />
+                                </div>
                             )}
 
                         {/* Split drag handle — inside image area */}
@@ -792,14 +835,20 @@ export function VisualImageDiffViewer({
                                     !!overlayCoordWidth &&
                                     !!overlayCoordHeight &&
                                     overlayCoordsMatch && (
-                                        <BboxOverlay
-                                            boxes={overlayBoxesIfShown ?? []}
-                                            bands={diffOverlayBands}
-                                            width={overlayCoordWidth}
-                                            height={overlayCoordHeight}
-                                            highlightedIndex={highlightedOverlayIndex ?? null}
-                                            onHover={onOverlayHover}
-                                        />
+                                        <div
+                                            className={cn(currentLayerClass, 'pointer-events-none')}
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={layerStyle(currentNaturalWidth, currentNaturalHeight)}
+                                        >
+                                            <BboxOverlay
+                                                boxes={overlayBoxesIfShown ?? []}
+                                                bands={diffOverlayBands}
+                                                width={overlayCoordWidth}
+                                                height={overlayCoordHeight}
+                                                highlightedIndex={highlightedOverlayIndex ?? null}
+                                                onHover={onOverlayHover}
+                                            />
+                                        </div>
                                     )}
                             </div>
                         </div>

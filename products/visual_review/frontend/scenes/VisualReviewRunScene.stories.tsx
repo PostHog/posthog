@@ -116,10 +116,15 @@ const snapshots = {
             current_artifact: artifact('curr_layout'),
             row_shift: {
                 inserted_rows: 40,
-                deleted_rows: 0,
+                deleted_rows: 12,
                 residual_percentage: 0.0,
                 raw_diff_percentage: 31.6,
-                bands: [{ y: 80, rows: 40, kind: 'inserted' }],
+                bands: [
+                    { y: 80, rows: 40, kind: 'inserted' },
+                    // A deletion at the bottom edge. Its seam sits at the image
+                    // height, so the viewer must clamp it back into frame.
+                    { y: 200, rows: 12, kind: 'deleted' },
+                ],
             },
         }),
     ],
