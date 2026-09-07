@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, Literal, Optional, Union
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -13,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.approvals.backend.actions.registry import get_action
@@ -337,17 +337,16 @@ def _evaluate_gate(
             approvers=decision.approvers,
         )
     except Exception as e:
-        logger.error(
+        logger.exception(
             "Failed to create ChangeRequest",
             extra={"action": action_class.key, "error": str(e), "error_type": type(e).__name__},
-            exc_info=True,
         )
-        error_msg = (
-            f"Failed to create approval request: {type(e).__name__}: {str(e)}"
-            if settings.DEBUG
-            else "Failed to create approval request"
+        # The policy is non-bypassable, so a message without the cause leaves the person stuck.
+        capture_exception(e, {"team_id": team.id, "action": action_class.key, "resource_id": resource_id})
+        return GateResult(
+            action="error",
+            error_message=f"Failed to create approval request: {type(e).__name__}: {e}",
         )
-        return GateResult(action="error", error_message=error_msg)
 
 
 def _result_to_exception(result: GateResult) -> None:

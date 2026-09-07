@@ -13,6 +13,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -320,6 +321,19 @@ class CreateFeatureFlagTool(MaxTool):
                 },
             )
 
+        except ApprovalRequired as e:
+            # The gate created a change request, so the flag is pending approval, not failed.
+            change_request_url = f"/project/{self._team.project_id}/approvals/{e.change_request.id}"
+            return (
+                f"Feature flag '{flag_schema.key}' needs approval before it is created. "
+                f"{e.message} Track the change request at {change_request_url}",
+                {
+                    "approval_pending": True,
+                    "flag_key": flag_schema.key,
+                    "change_request_id": str(e.change_request.id),
+                    "url": change_request_url,
+                },
+            )
         except ValidationError as e:
             errors = e.detail if hasattr(e, "detail") else str(e)
 
