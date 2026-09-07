@@ -1996,6 +1996,44 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mapping_schema = response.json()["mappings"][0]["inputs_schema"][0]
         assert not [key for key in integration_keys if key in mapping_schema]
 
+    def test_update_that_sends_no_inputs_schema_keeps_the_stored_one(self):
+        template = HogFunctionTemplate.objects.create(
+            template_id="template-ads",
+            sha="1.0.0",
+            name="Ads",
+            description="Send conversions",
+            code="print(inputs.account)",
+            code_language="hog",
+            type="destination",
+            status="stable",
+            inputs_schema=[{"key": "account", "type": "integration", "required": True}],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Ads",
+                "type": "destination",
+                "template_id": "template-ads",
+                "inputs": {"account": {"value": 1}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+        stored_inputs_schema = response.json()["inputs_schema"]
+
+        # A later template binds the input to an integration. An update that says nothing about
+        # inputs_schema must not pull that into the stored config.
+        template.inputs_schema = [
+            {"key": "account", "type": "integration", "integration": "google-ads", "required": True}
+        ]
+        template.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/", data={"name": "Renamed"}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["inputs_schema"] == stored_inputs_schema
+
     def test_update_that_sends_no_mappings_keeps_the_stored_ones(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

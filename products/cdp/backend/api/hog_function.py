@@ -567,6 +567,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
+        # Which config fields the caller actually sent, read before the defaults below fill them in.
+        # A field nobody sent must come out of `to_internal_value` untouched, or an update scoped to
+        # metadata rewrites stored config and versions the function for a rename.
+        sent_config_fields = {field for field in ("inputs_schema", "mappings") if field in data}
+
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
         data["template_id"] = instance.template_id if instance else data.get("template_id")
@@ -644,10 +649,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             (instance.inputs_schema, instance.mappings) if instance else (None, None),
             (template.inputs_schema, template.mapping_templates) if template else (None, None),
         ):
-            data["inputs_schema"] = _with_integration_metadata(data["inputs_schema"], schema_reference)
-            # Only when the caller sent mappings: writing the key back on a payload that left it out
-            # makes a metadata-only PATCH an explicit "clear the mappings".
-            if "mappings" in data:
+            if "inputs_schema" in sent_config_fields:
+                data["inputs_schema"] = _with_integration_metadata(data["inputs_schema"], schema_reference)
+            if "mappings" in sent_config_fields:
                 data["mappings"] = _mappings_with_integration_metadata(data["mappings"], mappings_reference)
 
         return super().to_internal_value(data)
