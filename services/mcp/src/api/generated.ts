@@ -58373,8 +58373,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `inserted` - Inserted
-     * * `deleted` - Deleted
+     * * `inserted` - inserted
+     * * `deleted` - deleted
      */
     export type ShiftBandKindEnum = typeof ShiftBandKindEnum[keyof typeof ShiftBandKindEnum];
 
@@ -58391,8 +58391,8 @@ export namespace Schemas {
       rows: number;
       /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
        *
-       * * `inserted` - Inserted
-       * * `deleted` - Deleted */
+       * * `inserted` - inserted
+       * * `deleted` - deleted */
       kind: ShiftBandKindEnum;
     }
 

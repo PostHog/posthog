@@ -90,7 +90,7 @@ class ShiftBandSerializer(DataclassSerializer):
     y = serializers.IntegerField(help_text="First row of the band, in current-image coordinates.")
     rows = serializers.IntegerField(help_text="How many rows the band covers.")
     kind = serializers.ChoiceField(
-        choices=ShiftBandKind.choices,
+        choices=[(kind.value, kind.value) for kind in ShiftBandKind],
         help_text=(
             "'inserted' when the current image gained these rows, 'deleted' when it lost them. "
             "A deleted band has no rows of its own in the current image, so its y is the seam "

@@ -2,8 +2,6 @@
 
 from enum import StrEnum
 
-from django.db import models
-
 
 class RunStatus(StrEnum):
     """Status of a visual review run."""
@@ -93,11 +91,11 @@ class ChangeKind(StrEnum):
     LAYOUT = "layout"
 
 
-class ShiftBandKind(models.TextChoices):
+class ShiftBandKind(StrEnum):
     """Whether a shift band marks rows the current image gained or lost.
 
-    A TextChoices class so the OpenAPI component is named after it and does
-    not collide with the other `kind` fields across products.
+    Named explicitly in ENUM_NAME_OVERRIDES (ShiftBandKindEnum) so the OpenAPI
+    component does not collide with the other `kind` fields across products.
     """
 
     INSERTED = "inserted"

@@ -362,8 +362,8 @@ export interface ArtifactApi {
 }
 
 /**
- * * `inserted` - Inserted
- * * `deleted` - Deleted
+ * * `inserted` - inserted
+ * * `deleted` - deleted
  */
 export type ShiftBandKindEnumApi = (typeof ShiftBandKindEnumApi)[keyof typeof ShiftBandKindEnumApi]
 
@@ -379,8 +379,8 @@ export interface ShiftBandApi {
     rows: number
     /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
      *
-     * * `inserted` - Inserted
-     * * `deleted` - Deleted */
+     * * `inserted` - inserted
+     * * `deleted` - deleted */
     kind: ShiftBandKindEnumApi
 }
 
