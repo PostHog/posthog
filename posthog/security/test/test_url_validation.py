@@ -116,8 +116,6 @@ class TestUrlValidation:
         "url",
         [
             "javascript:alert(1)",
-            # urlparse reads no scheme at all here, which used to end the reason at a colon and
-            # tell the reader nothing.
             "not-a-url",
         ],
     )
