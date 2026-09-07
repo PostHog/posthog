@@ -107,6 +107,35 @@ def get_organization_from_view(view) -> Organization:
     raise ValueError("View not compatible with organization-based permissions!")
 
 
+def get_target_organization_from_view(view) -> Optional[Organization]:
+    """The organization a request targets, preferring the row the view already loaded.
+
+    Reads the team's foreign key before `view.organization`. Routing loads the team with
+    `select_related("organization")` and the membership permission has already resolved it, whereas
+    `view.organization` runs its own primary-key query on a project-scoped view, where
+    `_is_team_view` is false. Every tenant boundary runs on every authenticated request, so a
+    boundary that refetched this row would add a query to all of them.
+
+    Returns None when the view names no organization this can resolve. A boundary treats that as
+    nothing to gate, and the view's own lookup is what fails on an unresolvable target.
+    """
+    try:
+        organization = view.team.organization
+        if isinstance(organization, Organization):
+            return organization
+    except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
+        pass
+
+    try:
+        organization = view.organization
+        if isinstance(organization, Organization):
+            return organization
+    except (KeyError, AttributeError, AssertionError, NotFound):
+        pass
+
+    return None
+
+
 def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
     membership = get_cached_organization_membership(organization.id, cast(User, request.user))
     if membership is None:
@@ -268,7 +297,7 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         if not view.parent_query_kwargs and not view.param_derived_from_user_current_team:
             return True
 
-        organization = self._target_organization(view)
+        organization = get_target_organization_from_view(view)
         if organization is None:
             return True
         return self._admits(request, organization)
@@ -300,27 +329,6 @@ class VerifiedDomainEnforcementPermission(BasePermission):
             raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
 
         return True
-
-    def _target_organization(self, view) -> Optional[Organization]:
-        # Same resolution as `get_organization_from_view`, but the team's FK first: routing loads
-        # the team with `select_related("organization")` and `TeamMemberAccessPermission` has
-        # already resolved it, whereas `view.organization` would issue its own PK query on
-        # team-scoped views.
-        try:
-            organization = view.team.organization
-            if isinstance(organization, Organization):
-                return organization
-        except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
-            pass
-
-        try:
-            organization = view.organization
-            if isinstance(organization, Organization):
-                return organization
-        except (KeyError, AttributeError, AssertionError):
-            pass
-
-        return None
 
 
 def is_authenticated_via_team_secret_token(request: Request) -> bool:
@@ -903,10 +911,7 @@ class MCPAccessPermission(ScopeBasePermission):
     def _target_organization(view) -> Optional[Organization]:
         if getattr(view, "scope_object", None) is None:
             return None
-        try:
-            return get_organization_from_view(view)
-        except (ValueError, NotFound):
-            return None
+        return get_target_organization_from_view(view)
 
     def _admits(self, request, view, organization: Optional[Organization]) -> bool:
         if organization is None:
@@ -963,9 +968,8 @@ class ActiveOrganizationPermission(BasePermission):
         if not target_in_url and getattr(view, "action", None) != "create":
             return True
 
-        try:
-            organization = get_organization_from_view(view)
-        except (ValueError, NotFound):
+        organization = get_target_organization_from_view(view)
+        if organization is None:
             # The view names no organization this class can resolve, so there is no target to cap.
             # The view's own lookup is what has to fail on an unresolvable target.
             return True

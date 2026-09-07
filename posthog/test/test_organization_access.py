@@ -4,6 +4,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.organization_access import (
     REACHABLE_METHODS,
     REVOCATION_MESSAGES,
@@ -14,6 +15,7 @@ from posthog.organization_access import (
     organization_access_revocation_for_team,
     organization_access_revocation_message,
 )
+from posthog.permissions import get_target_organization_from_view
 
 DEACTIVATED = OrganizationAccessRevocation.DEACTIVATED
 PENDING_DELETION = OrganizationAccessRevocation.PENDING_DELETION
@@ -104,3 +106,51 @@ class TestOrganizationAccessRevocationLookups(TestCase):
         # own lookup is what fails. Raising here would turn a deleted team into a 500 on the
         # billing gate instead of a 404 on the caller.
         assert lookup() is None
+
+
+class TestTargetOrganizationResolution(TestCase):
+    """`get_target_organization_from_view` backs three tenant boundaries that run on every
+    authenticated API request, so it must not refetch a row the view already holds."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        organization = Organization.objects.create(name="resolver org")
+        team = organization.teams.create(name="resolver team")
+        self.team_id = team.id
+
+    def _view(self, *, preload: bool):
+        # Mirrors a project-scoped view: routing loads the team with `select_related`, while the
+        # mixin's `organization` runs its own primary-key query because `_is_team_view` is false.
+        queryset = Team.objects.select_related("organization") if preload else Team.objects
+        team = queryset.get(id=self.team_id)
+
+        class View:
+            def __init__(self, team) -> None:
+                self.team = team
+
+            @property
+            def organization(self) -> Organization:
+                return Organization.objects.get(id=self.team.organization_id)
+
+        return View(team)
+
+    def test_a_preloaded_organization_costs_no_query(self) -> None:
+        # Fails if the resolver reads `view.organization` before the team's foreign key, which
+        # would add a query to every authenticated API request.
+        view = self._view(preload=True)
+
+        with self.assertNumQueries(0):
+            organization = get_target_organization_from_view(view)
+
+        assert organization is not None and organization.id == view.team.organization_id
+
+    def test_it_still_resolves_when_the_organization_is_not_preloaded(self) -> None:
+        view = self._view(preload=False)
+
+        organization = get_target_organization_from_view(view)
+
+        assert organization is not None and organization.id == view.team.organization_id
+
+    def test_a_view_naming_no_organization_resolves_to_none(self) -> None:
+        # A boundary treats None as nothing to gate, so this must not raise.
+        assert get_target_organization_from_view(object()) is None
