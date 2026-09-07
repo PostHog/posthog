@@ -17789,6 +17789,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `sparse` - sparse
+     * * `quiet` - quiet
+     */
+    export type CoarsenedReasonEnum = typeof CoarsenedReasonEnum[keyof typeof CoarsenedReasonEnum];
+
+
+    export const CoarsenedReasonEnum = {
+      Sparse: 'sparse',
+      Quiet: 'quiet',
+    } as const;
+
+    /**
      * * `dataset_archived` - dataset_archived
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
@@ -49825,7 +49837,14 @@ export namespace Schemas {
          * @nullable
          */
       band_ready_at: string | null;
-      /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+      /** Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at. */
+      interval_minutes: number;
+      /** Why this series does not sit at the requested grain, or null when it does. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one.
+       *
+       * * `sparse` - sparse
+       * * `quiet` - quiet */
+      coarsened_reason: CoarsenedReasonEnum | null;
+      /** One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end. */
       buckets: LogsSeriesBandBucket[];
     }
 
@@ -49852,13 +49871,13 @@ export namespace Schemas {
       serviceName: string;
       /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
       dateRange?: _SeriesBandsDateRange;
-      /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window.
+      /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to get the finest grain that fits the window. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
        *
        * * `5` - 5
        * * `15` - 15
        * * `30` - 30
        * * `60` - 60 */
-      intervalMinutes?: IntervalMinutesEnum;
+      intervalMinutes?: IntervalMinutesEnum | null;
     }
 
     export interface LogsSeriesBandsResponse {
@@ -49868,7 +49887,7 @@ export namespace Schemas {
       window_start: string;
       /** End of the observed window (UTC, exclusive). */
       window_end: string;
-      /** Display grain of the buckets, in minutes. */
+      /** Display grain requested, or picked as the finest that fits the window when the request left it out. */
       interval_minutes: number;
       /** True when the service has more series than the response carries; the quietest were dropped. */
       series_truncated: boolean;
