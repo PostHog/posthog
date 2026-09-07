@@ -24,12 +24,14 @@ import {
     createGaugeItems,
     createProductValueFormatter,
     getProductUnitLabel,
+    isUsageAtOrOverLimit,
     isProductVariantPrimary,
 } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
+import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
@@ -89,11 +91,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
-    const productDisplayNameOverrides: Record<string, string> = {
-        realtime_destinations: 'Data pipelines',
-        workflows_emails: 'Workflows',
-    }
-    const displayProductName = productDisplayNameOverrides[product.type] || product.name
+    const displayProductName = billingProductDisplayName(product)
     const isPlatformProduct = product.type === 'platform_and_support'
     const addonSectionLabel = isPlatformProduct ? 'Packages' : 'Add-ons'
 
@@ -225,10 +223,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8 pb-8 sm:pb-0">
-                    {/* Exceeded limit notice */}
-                    {product.percentage_usage > 1 && (
+                    {/* Reached limit notice */}
+                    {isUsageAtOrOverLimit(product.percentage_usage) && (
                         <LemonBanner className="mt-6" type="error">
-                            You have exceeded the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
+                            You have reached the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}

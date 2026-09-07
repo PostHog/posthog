@@ -11,9 +11,23 @@ from posthog import settings
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, MutationWaiter
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
-from posthog.models.event.deletion import cluster_has_events_json_table
+from posthog.dags.common.staged_dictionary import (
+    StagedDictionary,
+    create_on_every_cluster,
+    load_and_verify_on_every_cluster,
+)
+from posthog.dataclasses import frozen
+from posthog.models.deletion_targets import EVENTS_JSON, EVENTS_TARGETS, placement_for, sweep_clusters
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+
+def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
+    """Every cluster the person_id rewrite dispatches to, the handle in hand first.
+
+    The rewrite joins the snapshot dictionary, so the dictionary has to exist on each of them.
+    """
+    return sweep_clusters(cluster, EVENTS_TARGETS)
 
 
 @dataclass
@@ -58,11 +72,32 @@ class PersonOverridesSnapshotTable(OverridesSnapshotTable):
         )
 
 
-@dataclass
+@frozen
 class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
     source: PersonOverridesSnapshotTable
 
-    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+    def staged(self) -> StagedDictionary:
+        return StagedDictionary(
+            key=f"{self.name}.parquet",
+            columns="team_id, distinct_id, person_id, version",
+            structure="team_id Int64, distinct_id String, person_id UUID, version Int64",
+        )
+
+    @property
+    def query(self) -> str:
+        return f"SELECT team_id, distinct_id, person_id, version FROM {self.source.qualified_name}"
+
+    def create(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
+        # A host that cannot see the snapshot table reads the staged object instead, which is a
+        # query rather than a table name.
+        source = "QUERY %(query)s" if query else "TABLE %(table)s"
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -72,7 +107,7 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
                 version Int64
             )
             PRIMARY KEY team_id, distinct_id
-            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s USER %(user)s PASSWORD %(password)s))
+            SOURCE(CLICKHOUSE(DB %(database)s {source} USER %(user)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
@@ -80,6 +115,7 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
             {
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
+                "query": query,
                 "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
             },
@@ -200,20 +236,21 @@ class SnapshotDictionaryConfig(dagster.Config):
 
 @dagster.op
 def create_snapshot_dictionary(
+    context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: SnapshotDictionaryConfig,
     table: PersonOverridesSnapshotTable,
 ) -> PersonOverridesSnapshotDictionary:
-    """Create the snapshot dictionary (from the snapshot table data) on all hosts in the cluster."""
-    dictionary = PersonOverridesSnapshotDictionary(table)
-    cluster.map_all_hosts(
-        partial(
-            dictionary.create,
-            shards=config.shards,
-            max_execution_time=config.max_execution_time,
-            max_memory_usage=config.max_memory_usage,
-        )
-    ).result()
+    """Create the snapshot dictionary on every cluster the person_id rewrite will run on."""
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
+    create_on_every_cluster(
+        context,
+        _squash_clusters(cluster),
+        dictionary,
+        shards=config.shards,
+        max_execution_time=config.max_execution_time,
+        max_memory_usage=config.max_memory_usage,
+    )
     return dictionary
 
 
@@ -231,7 +268,7 @@ def get_existing_dictionary_for_run_id(
     This does not create the dictionary or ensure that it or any of its dependencies exist.
     """
     table = PersonOverridesSnapshotTable(uuid.UUID(config.id))
-    return PersonOverridesSnapshotDictionary(table)
+    return PersonOverridesSnapshotDictionary(source=table)
 
 
 @dagster.op
@@ -239,12 +276,8 @@ def load_and_verify_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
-    """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    # Loading and verifying the dictionary can consume a lot of CPU and memory, so we limit the amount of parallel
-    # queries to avoid substantial load increases on all hosts in the cluster at the same time, and instead try to
-    # spread the load out more evenly and gracefully.
-    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
-    assert len(set(checksums.values())) == 1
+    """Load the dictionary on every host of every cluster it will be joined on, and verify it."""
+    load_and_verify_on_every_cluster(_squash_clusters(cluster), dictionary)
     return dictionary
 
 
@@ -257,8 +290,13 @@ def run_person_id_update_mutations(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
     dictionary.update_mutation_runner.run_on_shards(cluster)
-    if cluster_has_events_json_table(cluster):
-        dictionary.events_json_update_mutation_runner.run_on_shards(cluster)
+
+    # sharded_events_json may be stored on another cluster, whose shards only its own handle
+    # enumerates. Skipping it would leave those rows on a person_id this run just squashed away,
+    # and the overrides that record the correct one are deleted immediately after.
+    placement = placement_for(cluster, EVENTS_JSON)
+    if placement is not None:
+        dictionary.events_json_update_mutation_runner.run_on_shards(placement.cluster)
     return dictionary
 
 
@@ -291,8 +329,9 @@ def drop_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotTable:
-    """Drop the snapshot dictionary on all hosts."""
-    cluster.map_all_hosts(dictionary.drop).result()
+    """Drop the snapshot dictionary on all hosts of every cluster it was created on."""
+    for handle in _squash_clusters(cluster):
+        handle.map_all_hosts(dictionary.drop).result()
     return dictionary.source
 
 

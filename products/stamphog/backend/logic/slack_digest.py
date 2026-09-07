@@ -19,6 +19,8 @@ from slack_sdk.web import SlackResponse
 
 from posthog.models.integration import Integration, SlackIntegration
 
+from .digest import as_channel_paragraph
+
 if TYPE_CHECKING:
     from .channel_resolution import Destination
     from .digest import DigestSummary
@@ -32,8 +34,13 @@ _MAX_SECTION_CHARS = 2900
 
 # What the digest is, and how to answer it. Every reader sees this line, so it carries the two things
 # that are not in any single digest: that the feature is still being tuned, and where to say so.
-_FOOTER_INVITE = "Full list in the thread. React with :+1: or :-1:, or reply with feedback."
+_FOOTER_INVITE = "React with :+1: or :-1:, or reply with feedback."
 _BETA_LABEL = "Beta"
+
+# The first line of the thread. It names whose judgment picked these changes, and it claims nothing
+# about completeness. The line it replaced said "Full list in the thread", which readers reasonably
+# read as the full list: the thread carries what cleared the bar, never every merge of the day.
+_THREAD_LEAD = "Changes Stamphog thinks your team should know about:"
 
 
 def _clip(text: str, limit: int) -> str:
@@ -75,28 +82,66 @@ def _scope_line(shown: int, considered: int) -> str:
     learns to skip, and putting chrome first spends the only line the digest gets to earn attention.
     """
     if considered > shown:
-        return f"{shown} of {considered} stamphog-approved merges."
-    return f"{shown} stamphog-approved {'merge' if shown == 1 else 'merges'}."
+        return f"{shown} of {considered} Stamphog-approved merges."
+    return f"{shown} Stamphog-approved {'merge' if shown == 1 else 'merges'}."
+
+
+def _lead_change_line(summary: DigestSummary) -> str:
+    """The first change's own line when it may stand in for a headline, otherwise "".
+
+    ``judged`` is the first condition. On the model path that line was written to the digest's bar
+    by something that read the diff, so promoting it to the channel promotes a sentence somebody
+    stood behind. On the deterministic fallback it is the PR's raw title, and putting an author's
+    unreviewed claim in the one slot the channel reads would present it as the digest's pick when
+    nothing judged it. A fallback keeps the scope line and reads like the quiet day it is.
+
+    Clearing ``as_channel_paragraph`` is the second. A change line is only ever validated for the
+    thread, where it is the label of its own link, and a model that omitted a summary leaves the
+    contributor's raw PR title standing in for it. Promoting one unchecked would put a title's URL
+    in the channel as bare clickable text, in the slot that rejects a headline for carrying one.
+    """
+    if not summary.judged or not summary.prs:
+        return ""
+    return as_channel_paragraph(summary.prs[0].summary)
+
+
+def _has_lead_line(summary: DigestSummary) -> bool:
+    """Whether anything better than the scope line is available to lead with.
+
+    One question asked in one place. The lead and the footer both branch on it, in opposite
+    directions, and a third lead source added to only one of them would make the post state its
+    count twice or not at all.
+    """
+    return bool(summary.headline or _lead_change_line(summary))
 
 
 def _lead_text(summary: DigestSummary) -> str:
-    """The one line the channel gets: the model's headline, or the scope line when it wrote none.
+    """The one line the channel gets, best available first.
 
-    The headline is model output over untrusted PR content, so it is escaped and clipped like any
-    other summary text. The scope line is built from counts and is safe as it stands.
+    The headline when there is one, otherwise the first change's own line, which is already the
+    first entry in the thread. So the channel still gets a sentence about something that shipped,
+    and it is one the reader can click through to. Leading with a bare count while real judged
+    lines sat in the thread was the old behavior, and it read as the digest giving up.
+
+    Both are model output over untrusted PR content, so both are escaped and clipped. The scope
+    line is built from counts and is safe as it stands.
     """
     if summary.headline:
         return _clip(_escape_mrkdwn(summary.headline), _MAX_SECTION_CHARS)
+    change_line = _lead_change_line(summary)
+    if change_line:
+        return _clip(_escape_mrkdwn(change_line), _MAX_SECTION_CHARS)
     return _scope_line(len(summary.prs), summary.considered)
 
 
 def _footer_text(summary: DigestSummary) -> str:
     """The context line under the lead.
 
-    The scope line appears here only when the lead is a headline, because a digest with no headline
-    already leads with it. Printing it twice would make a two-line post state its own count twice.
+    The scope line is dropped only when the lead is already the scope line, because printing it
+    twice would make a two-line post state its own count twice. Asked through the same helper the
+    lead uses, so the two can never disagree about whether a lead exists.
     """
-    if not summary.headline:
+    if not _has_lead_line(summary):
         return f"{_BETA_LABEL} · {_FOOTER_INVITE}"
     return f"{_BETA_LABEL} · {_scope_line(len(summary.prs), summary.considered)}\n{_FOOTER_INVITE}"
 
@@ -110,16 +155,23 @@ def _lead_blocks(summary: DigestSummary) -> list[dict]:
 
 
 def _detail_blocks(summary: DigestSummary) -> list[dict]:
-    """One section per change, for the thread under the lead."""
+    """The lead line, then one section per change, for the thread under the channel post."""
     # The sentence is the link, and it is the whole line. A leading "#412" makes a reader parse an
     # identifier before they reach what changed, and a trailing author repeats down the column on
     # the common day where one person did most of the work. Both are on the PR, one click away, for
     # the few readers who want them.
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": _link(pr.url, pr.summary)}} for pr in summary.prs]
+    return [
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _THREAD_LEAD}]},
+        *({"type": "section", "text": {"type": "mrkdwn", "text": _link(pr.url, pr.summary)}} for pr in summary.prs),
+    ]
 
 
 def _build_fallback_text(summary: DigestSummary) -> str:
-    """Plain text for the thread's notification preview and for clients that ignore blocks."""
+    """Plain text for the thread's notification preview and for clients that ignore blocks.
+
+    The lead line stays out of it. A notification shows the first few words, and spending them on
+    the same sentence every morning pushes the change itself out of view.
+    """
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
     lines = [_escape_mrkdwn(pr.summary) for pr in summary.prs]
     return "\n".join(lines) or "No merged PRs worth a mention."

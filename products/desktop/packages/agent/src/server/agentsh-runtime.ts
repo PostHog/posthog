@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "../utils/logger";
 
-export const AGENTSH_SESSION_ID_FILE = "/tmp/agentsh-session-id";
+const AGENTSH_SESSION_ID_FILE = "/tmp/agentsh-session-id";
 
 const execFileAsync = promisify(execFile);
 

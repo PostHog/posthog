@@ -1,60 +1,4 @@
 database "posthog" {
-  table "kafka_logs_avro" {
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "String"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    engine "kafka" {
-      broker_list          = "warpstream_logs"
-      topic_list           = "kafka_topic_list = 'clickhouse_logs'"
-      group_name           = "kafka_group_name = 'clickhouse-logs-avro-new'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
-      skip_broken_messages = 100
-      poll_timeout_ms      = 3000
-      poll_max_batch_size  = 1000
-      thread_per_consumer  = true
-    }
-  }
-
   table "kafka_metrics_avro" {
     column "uuid" {
       type = "String"
@@ -117,16 +61,16 @@ database "posthog" {
       type = "Nullable(Int64)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_metrics"
-      topic_list           = "kafka_topic_list = 'clickhouse_metrics'"
-      group_name           = "kafka_group_name = 'clickhouse-metrics-avro-new'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
-      max_block_size       = 65536
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro-new"
+      format               = "Avro"
+      num_consumers        = 2
+      max_block_size       = 4096
       skip_broken_messages = 100
-      poll_timeout_ms      = 3000
-      poll_max_batch_size  = 65536
-      flush_interval_ms    = 7500
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 4096
+      flush_interval_ms    = 10000
       thread_per_consumer  = true
     }
   }
@@ -196,10 +140,10 @@ database "posthog" {
       type = "Int32"
     }
     engine "kafka" {
-      broker_list          = "warpstream_traces"
-      topic_list           = "kafka_topic_list = 'clickhouse_traces'"
-      group_name           = "kafka_group_name = 'clickhouse-traces-avro'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
       num_consumers        = 8
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
@@ -501,6 +445,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -723,6 +673,12 @@ SQL
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -789,6 +745,85 @@ SQL
       cluster_name    = "logs"
       remote_database = "posthog"
       remote_table    = "logs_kafka_metrics"
+    }
+  }
+
+  table "logs_pattern_buckets" {
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
+    partition_by = "toDate(time_bucket)"
+    ttl          = "time_bucket + toIntervalDay(42)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.logs_pattern_buckets"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "logs_pattern_buckets_distributed" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "logs_pattern_buckets"
     }
   }
 
@@ -2357,106 +2392,6 @@ SQL
     }
   }
 
-  materialized_view "kafka_logs34_avro_mv" {
-    to_table = "posthog.logs34"
-    query    = <<SQL
-SELECT
-  uuid,
-  trace_id,
-  span_id,
-  trace_flags,
-  timestamp,
-  observed_timestamp,
-  body,
-  severity_text,
-  severity_number,
-  service_name,
-  instrumentation_scope,
-  event_name,
-  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
-  + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
-  ) AS original_expiry_timestamp,
-  _partition,
-  _topic,
-  _offset,
-  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed
-FROM posthog.kafka_logs_avro
-SQL
-
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "String"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(String, String)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_record_count" {
-      type = "Int64"
-    }
-    column "_bytes_uncompressed" {
-      type = "Nullable(Float64)"
-    }
-    column "_bytes_compressed" {
-      type = "Nullable(Float64)"
-    }
-  }
-
   materialized_view "kafka_logs_avro_billing_metrics_mv" {
     to_table = "posthog.logs_billing_metrics"
     query    = <<SQL
@@ -2896,68 +2831,6 @@ SQL
     }
   }
 
-  materialized_view "logs34_to_log_attributes" {
-    to_table = "posthog.log_attributes2"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-      arrayJoin(attributes) AS attribute,
-      'log' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.logs34
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
   materialized_view "logs34_to_log_attributes3" {
     to_table = "posthog.log_attributes3"
     query    = <<SQL
@@ -3018,67 +2891,6 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "logs34_to_resource_attributes" {
-    to_table = "posthog.log_attributes2"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      arrayJoin(resource_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.logs34
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, resource_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
       type = "LowCardinality(String)"
     }
     column "attribute_count" {
@@ -3937,10 +3749,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -4013,10 +3825,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,
@@ -4076,4 +3888,40 @@ SELECT
 SQL
 
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

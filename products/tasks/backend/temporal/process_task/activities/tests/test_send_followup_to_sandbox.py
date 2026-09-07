@@ -1,11 +1,21 @@
-import json
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
+from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_WATCHED_TIMEOUT,
+    get_task_run_stream_key,
+    get_task_run_stream_watched_key,
+)
+from products.tasks.backend.redis import get_tasks_stream_redis_sync
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
+    STEER_DECLINE_REASON_UNREPORTED,
     SendFollowupToSandboxInput,
     _get_stop_reason,
+    _steer_decline_reason,
     _write_turn_complete,
     send_followup_to_sandbox,
 )
@@ -24,32 +34,62 @@ class TestGetStopReason(BaseTest):
         self.assertEqual(_get_stop_reason({"result": "ok"}), "end_turn")
 
 
+class TestSteerDeclineReason(BaseTest):
+    @parameterized.expand(
+        [
+            ("startup_turn", {"result": {"steered": False, "reason": "startup_turn"}}, "startup_turn"),
+            ("no_active_turn", {"result": {"steered": False, "reason": "no_active_turn"}}, "no_active_turn"),
+            ("adapter_rejected", {"result": {"steered": False, "reason": "adapter_rejected"}}, "adapter_rejected"),
+            ("older_sandbox_omits_reason", {"result": {"steered": False}}, STEER_DECLINE_REASON_UNREPORTED),
+            ("reason_outside_result", {"reason": "startup_turn"}, STEER_DECLINE_REASON_UNREPORTED),
+            ("result_is_not_a_dict", {"result": "steer_declined"}, STEER_DECLINE_REASON_UNREPORTED),
+            ("empty_reason", {"result": {"reason": ""}}, STEER_DECLINE_REASON_UNREPORTED),
+            ("no_data", None, STEER_DECLINE_REASON_UNREPORTED),
+        ]
+    )
+    def test_reads_reason_from_command_result(self, _name, data, expected):
+        self.assertEqual(_steer_decline_reason(data), expected)
+
+
 class TestWriteTurnComplete(BaseTest):
     @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.publish_task_run_stream_event"
     )
-    def test_writes_stop_reason_to_synthetic_event(self, mock_get_tasks_stream_redis_sync):
-        mock_conn = MagicMock()
-        mock_get_tasks_stream_redis_sync.return_value = mock_conn
-
+    def test_writes_stop_reason_to_synthetic_event(self, mock_publish):
         _write_turn_complete("run-123", "max_tokens")
 
-        payload = mock_conn.xadd.call_args.args[1]["data"]
-        event = json.loads(payload)
+        event = mock_publish.call_args.args[1]
         self.assertEqual(event["notification"]["method"], "_posthog/turn_complete")
         self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
+
+    def test_presence_gated_write_skips_unwatched_stream_and_sets_ttl_when_watched(self):
+        run_id = f"test:{uuid4()}"
+        stream_key = get_task_run_stream_key(run_id)
+        watched_key = get_task_run_stream_watched_key(stream_key)
+        client = get_tasks_stream_redis_sync()
+        try:
+            _write_turn_complete(run_id, presence_gated=True)
+            self.assertFalse(client.exists(stream_key))
+
+            client.set(watched_key, "1", ex=TASK_RUN_STREAM_WATCHED_TIMEOUT)
+            _write_turn_complete(run_id, presence_gated=True)
+            self.assertEqual(client.xlen(stream_key), 1)
+            self.assertGreater(client.ttl(stream_key), 0)
+        finally:
+            client.delete(stream_key, watched_key)
 
 
 class TestSendFollowupToSandbox(BaseTest):
     @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.publish_task_run_stream_event"
     )
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun.objects")
     def test_propagates_stop_reason_from_command_result(
-        self, mock_task_run_objects, mock_send_user_message, mock_get_tasks_stream_redis_sync
+        self, mock_task_run_objects, mock_send_user_message, mock_publish
     ):
         task_run = MagicMock()
+        task_run.state = {}
         task_run.task.created_by = None
         mock_task_run_objects.select_related.return_value.get.return_value = task_run
         mock_send_user_message.return_value = MagicMock(
@@ -57,13 +97,9 @@ class TestSendFollowupToSandbox(BaseTest):
             data={"result": {"stopReason": "max_tokens"}},
         )
 
-        mock_conn = MagicMock()
-        mock_get_tasks_stream_redis_sync.return_value = mock_conn
-
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-123", message="hello"))
 
-        payload = mock_conn.xadd.call_args.args[1]["data"]
-        event = json.loads(payload)
+        event = mock_publish.call_args.args[1]
         self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
 
     # A bare mock would return a truthy value, which now reads as a rebind failure.
@@ -72,7 +108,7 @@ class TestSendFollowupToSandbox(BaseTest):
         return_value=None,
     )
     @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.publish_task_run_stream_event"
     )
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun.objects")
@@ -80,7 +116,7 @@ class TestSendFollowupToSandbox(BaseTest):
         self,
         mock_task_run_objects,
         mock_send_user_message,
-        mock_get_tasks_stream_redis_sync,
+        mock_publish,
         mock_refresh_sandbox_mcp,
     ):
         task_run = MagicMock()
@@ -123,4 +159,4 @@ class TestSendFollowupToSandbox(BaseTest):
             message_id=None,
             steer=True,
         )
-        mock_get_tasks_stream_redis_sync.assert_not_called()
+        mock_publish.assert_not_called()

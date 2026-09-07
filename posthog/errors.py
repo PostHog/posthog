@@ -40,6 +40,8 @@ class ExposedCHQueryError(InternalCHQueryError):
     """User-safe ClickHouse query error. Subclasses have user_safe=True in ErrorCodeMeta,
     which classify_query_error() uses to categorize them as USER_ERROR."""
 
+    user_safe = True
+
     def __str__(self) -> str:
         message: str = str(self.message)
         try:
@@ -161,6 +163,11 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
+    elif name == "QUERY_WAS_CANCELLED":
+        # Not retryable by default: a deploy cancelling in-flight queries and a deliberate
+        # KILL QUERY are indistinguishable here, so this stays out of CH_TRANSIENT_ERRORS and
+        # callers that want the deploy case retried opt in themselves.
+        return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -249,6 +256,10 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
     pass
 
 
@@ -1033,6 +1044,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
+# CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
+# and an operator or user deliberately killing one are indistinguishable at this layer, so callers
+# that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,

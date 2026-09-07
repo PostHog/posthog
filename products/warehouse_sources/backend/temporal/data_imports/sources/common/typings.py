@@ -120,3 +120,9 @@ class SourceInputs:
     # (flag on + parents verified synced). Evaluated once by the run-time gate in
     # `import_data_activity_sync` so sources don't re-evaluate the feature flag per run.
     fanout_warehouse_reuse: bool = False
+    # True when extraction batches should be bounded by accumulated bytes rather than by the
+    # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
+    byte_bounded_extraction: bool = False
+    # Temporal's attempt number for this activity, starting at 1. A source can read a retry
+    # differently from a first run, because the first run has already shown what fails.
+    activity_attempt: int = 1

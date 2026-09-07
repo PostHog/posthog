@@ -22,6 +22,7 @@ describe("buildAppendedInstructions", () => {
     "# Plan Mode",
     "# MCP Tool Access",
     "# Data Handling",
+    "# Repository Conventions",
     "# Shell Efficiency",
   ])("always appends %s", (heading) => {
     expect(buildAppendedInstructions({ spokenNarration: false })).toContain(

@@ -16,10 +16,17 @@ import {
   defaultEligibleModel,
   getCloudUrlFromRegion,
 } from "@posthog/shared";
+import type {
+  InboxReportActionFailureCode,
+  InboxReportActionSurface,
+  InboxReportActionType,
+} from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
+import { isSignalReportTaskCapError } from "@posthog/ui/features/inbox/hooks/inboxCloudTaskErrors";
 import { resolveDefaultModel } from "@posthog/ui/features/inbox/hooks/resolveDefaultModel";
+import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useUserRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -33,7 +40,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
 /** Variant-specific copy used in the toasts/errors emitted by the runner. */
-export interface InboxCloudTaskCopy {
+interface InboxCloudTaskCopy {
   /** Toast shown while the task is being created. */
   loadingTitle: string;
   /** Toast title used for any failure (repo / integration / sign-in / mutation). */
@@ -46,6 +53,8 @@ export interface InboxCloudTaskCopy {
   signedOut: string;
   /** Error description when no model can be resolved. */
   missingModel: string;
+  /** Error description when this report already has an implementation task. */
+  existingImplementationTask?: string;
   /**
    * Title for the success toast shown when `redirectOnSuccess` is false and the
    * runner stays in place instead of navigating to the task. Defaults to
@@ -75,6 +84,11 @@ export interface UseInboxCloudTaskRunnerOptions {
   /** Backing signal report, when the task is report-scoped (Create PR, Discuss). */
   reportId?: string;
   reportTitle?: string | null;
+  reportAction?: {
+    action_type: InboxReportActionType;
+    surface: InboxReportActionSurface;
+    triage_id?: string;
+  };
   cloudRepository: string | null;
   /**
    * When true, a missing repository is not an error: the task is created
@@ -103,7 +117,7 @@ export interface UseInboxCloudTaskRunnerOptions {
 
 export interface UseInboxCloudTaskRunnerReturn {
   /** Kick off the cloud-task flow. Resolves after the task is created (or failed). */
-  run: () => Promise<void>;
+  run: () => Promise<boolean>;
   /** True while a task is being created. */
   isRunning: boolean;
 }
@@ -117,6 +131,7 @@ export interface UseInboxCloudTaskRunnerReturn {
 export function useInboxCloudTaskRunner({
   reportId,
   reportTitle,
+  reportAction,
   cloudRepository,
   allowMissingRepository = false,
   copy,
@@ -136,17 +151,39 @@ export function useInboxCloudTaskRunner({
   const { isOnline } = useConnectivity();
 
   const run = useCallback(async () => {
-    if (isRunning) return;
+    if (isRunning) return false;
     const log = logger.scope(loggerScope);
+    const startedAt = Date.now();
+    const trackActionResult = (
+      outcome: "succeeded" | "failed",
+      failureCode?: InboxReportActionFailureCode,
+    ) => {
+      if (!reportId || !reportAction) return;
+      track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT, {
+        report_id: reportId,
+        action_type: reportAction.action_type,
+        surface: reportAction.surface,
+        outcome,
+        duration_ms: Date.now() - startedAt,
+        is_bulk: false,
+        bulk_size: 1,
+        ...(reportAction.triage_id
+          ? { triage_id: reportAction.triage_id }
+          : {}),
+        ...(failureCode ? { failure_code: failureCode } : {}),
+      });
+    };
 
     if (!isOnline) {
       showOfflineToast();
-      return;
+      trackActionResult("failed", "offline");
+      return false;
     }
 
     if (!cloudRepository && !allowMissingRepository) {
       toast.error(copy.errorTitle, { description: copy.missingRepository });
-      return;
+      trackActionResult("failed", "missing_repository");
+      return false;
     }
 
     // A repo-less run has no GitHub identity; only resolve/require the user
@@ -156,12 +193,14 @@ export function useInboxCloudTaskRunner({
       : null;
     if (cloudRepository && !githubUserIntegrationId) {
       toast.error(copy.errorTitle, { description: copy.missingIntegration });
-      return;
+      trackActionResult("failed", "missing_integration");
+      return false;
     }
 
     if (!cloudRegion) {
       toast.error(copy.errorTitle, { description: copy.signedOut });
-      return;
+      trackActionResult("failed", "signed_out");
+      return false;
     }
 
     setIsRunning(true);
@@ -191,7 +230,8 @@ export function useInboxCloudTaskRunner({
       toast.dismiss(toastId);
       toast.error(copy.errorTitle, { description: copy.missingModel });
       setIsRunning(false);
-      return;
+      trackActionResult("failed", "missing_model");
+      return false;
     }
 
     // The persisted effort belongs to `lastUsedModel`; if the resolver swapped in
@@ -236,6 +276,7 @@ export function useInboxCloudTaskRunner({
       });
 
       if (result.success) {
+        trackActionResult("succeeded");
         toast.dismiss(toastId);
         if (!redirectOnSuccess) {
           const task = createdTask;
@@ -267,10 +308,36 @@ export function useInboxCloudTaskRunner({
           ...analyticsExtras,
         });
       } else {
+        const failureCode: InboxReportActionFailureCode = isUsageLimitResult(
+          result,
+        )
+          ? "usage_limit"
+          : reportId && isSignalReportTaskCapError(result.error)
+            ? "existing_task"
+            : "task_creation_failed";
+        trackActionResult("failed", failureCode);
         toast.dismiss(toastId);
         // Usage-limit blocks already show the upgrade modal; don't double-toast.
         if (!isUsageLimitResult(result)) {
-          toastError(copy.errorTitle, result.error);
+          if (
+            reportId &&
+            copy.existingImplementationTask &&
+            isSignalReportTaskCapError(result.error)
+          ) {
+            await Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: ["inbox", "report-tasks", reportId],
+              }),
+              queryClient.invalidateQueries({
+                queryKey: reportKeys.artefacts(reportId),
+              }),
+            ]);
+            toast.error(copy.errorTitle, {
+              description: copy.existingImplementationTask,
+            });
+          } else {
+            toastError(copy.errorTitle, result.error);
+          }
           log.error("Cloud-task creation failed", {
             failedStep: result.failedStep,
             error: result.error,
@@ -279,13 +346,16 @@ export function useInboxCloudTaskRunner({
           });
         }
       }
+      return result.success;
     } catch (error) {
+      trackActionResult("failed", "unexpected_error");
       toast.dismiss(toastId);
       toastError(copy.errorTitle, error);
       log.error("Unexpected error during cloud-task creation", {
         error,
         reportId,
       });
+      return false;
     } finally {
       setIsRunning(false);
     }
@@ -298,6 +368,7 @@ export function useInboxCloudTaskRunner({
     cloudRegion,
     reportId,
     reportTitle,
+    reportAction,
     getUserIntegrationIdForRepo,
     invalidateTasks,
     queryClient,

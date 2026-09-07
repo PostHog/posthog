@@ -104,6 +104,9 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
         logger.warning("ses_tenant_events_webhook_no_tenant", detail_type=event.get("detail-type"))
         return HttpResponse(status=200)
 
+    # Logged because the only other line on this path is the failure one, which leaves a handled
+    # delivery and an ignored one looking identical from outside: both answer 2xx.
+    logger.info("ses_tenant_events_webhook_accepted", team_id=team_id, detail_type=event.get("detail-type"))
     # Ack fast; the sync fetches authoritative state and sends any transition emails.
     sync_ses_tenant_state_task.delay(team_id)
     return HttpResponse(status=202)

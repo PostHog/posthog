@@ -2,13 +2,18 @@ import { Plus, X } from "@phosphor-icons/react";
 import {
   type EnvVarRow,
   envVarError,
-  parseEnvVarText,
+  splitPastedEnvVars,
 } from "@posthog/core/settings/environmentSetup";
 import { Button, Input, Text } from "@posthog/quill";
-import type { ClipboardEvent } from "react";
+import { type ClipboardEvent, type ReactNode, useState } from "react";
 
 interface EnvVarRowsProps {
   rows: readonly EnvVarRow[];
+  /**
+   * Names already saved on the environment. Values are never returned, so these
+   * are listed rather than edited, and entering a row replaces all of them.
+   */
+  savedKeys?: readonly string[];
   onChange: (rows: EnvVarRow[]) => void;
 }
 
@@ -17,7 +22,12 @@ interface EnvVarRowsProps {
  * rows out, since that is how people carry these between machines, and the
  * value column masks what it holds because most of them are secrets.
  */
-export function EnvVarRows({ rows, onChange }: EnvVarRowsProps) {
+export function EnvVarRows({
+  rows,
+  savedKeys = [],
+  onChange,
+}: EnvVarRowsProps) {
+  const [skippedOnPaste, setSkippedOnPaste] = useState<string[]>([]);
   // Random ids, not row-count ones: a count repeats after delete-then-add,
   // and a repeated id makes patch() edit two rows at once.
   const nextId = () => crypto.randomUUID();
@@ -30,17 +40,25 @@ export function EnvVarRows({ rows, onChange }: EnvVarRowsProps) {
 
   /**
    * A paste that carries variables replaces the row it landed in, so pasting
-   * into the first empty row does not leave a blank one behind.
+   * into the first empty row does not leave a blank one behind. Keys the
+   * sandbox manages are reported rather than added, because a row holding one
+   * blocks the save and the sandbox drops it from the set anyway.
    */
   const handlePaste = (event: ClipboardEvent, row: EnvVarRow) => {
     const text = event.clipboardData.getData("text");
-    const parsed = parseEnvVarText(text);
-    if (parsed.length === 0) return;
-    if (parsed.length === 1 && !text.includes("\n") && row.key.trim() !== "") {
+    const { entries, skipped } = splitPastedEnvVars(text);
+    if (entries.length === 0 && skipped.length === 0) return;
+    if (
+      entries.length === 1 &&
+      skipped.length === 0 &&
+      !text.includes("\n") &&
+      row.key.trim() !== ""
+    ) {
       return;
     }
     event.preventDefault();
-    const added = parsed.map((entry) => ({
+    setSkippedOnPaste(skipped);
+    const added = entries.map((entry) => ({
       id: nextId(),
       ...entry,
     }));
@@ -51,9 +69,65 @@ export function EnvVarRows({ rows, onChange }: EnvVarRowsProps) {
     ]);
   };
 
+  const skippedNotice = skippedOnPaste.length > 0 && (
+    <Text className="max-w-[64ch] text-(--gray-11) text-[11.5px] leading-snug">
+      Left out {skippedOnPaste.length}{" "}
+      {skippedOnPaste.length === 1 ? "variable" : "variables"} the sandbox
+      manages: {skippedOnPaste.join(", ")}. Everything else was added.
+    </Text>
+  );
+
+  /** Every branch ends with the paste notice, which outlives the rows it changed. */
+  const wrap = (body: ReactNode) => (
+    <div className="flex flex-col gap-2">
+      {body}
+      {skippedNotice}
+    </div>
+  );
+
+  // Saved names with no rows entered yet is the resting state of an environment
+  // that has variables. Listing them is the only way to tell it apart from one
+  // that has none, since the values never come back from the API.
+  if (rows.length === 0 && savedKeys.length > 0) {
+    return wrap(
+      <div
+        className="flex flex-col gap-2"
+        data-attr="environment-setup-saved-variables"
+      >
+        <ColumnHeadings />
+        {savedKeys.map((key) => (
+          <div key={key} className="flex max-w-[640px] items-center gap-2">
+            <Text className="flex-1 font-mono text-(--gray-12) text-[12px]">
+              {key}
+            </Text>
+            <Text className="flex-1 font-mono text-(--gray-10) text-[12px]">
+              ••••••••
+            </Text>
+            <span className="w-7 shrink-0" />
+          </div>
+        ))}
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            data-attr="environment-setup-add-variable"
+            onClick={addRow}
+          >
+            <Plus size={12} />
+            Add a variable
+          </Button>
+          <Text className="text-(--gray-10) text-[11.5px]">
+            Adding one replaces every variable listed here, so re-enter the ones
+            you want to keep.
+          </Text>
+        </div>
+      </div>,
+    );
+  }
+
   if (rows.length === 0) {
-    return (
-      <div className="flex flex-col items-start gap-2 rounded-(--radius-3) border border-(--gray-5) border-dashed px-3 py-3">
+    return wrap(
+      <div className="flex flex-col items-start gap-2 rounded-(--radius-3) border border-border border-dashed px-3 py-3">
         <Text className="text-(--gray-11) text-[11.5px]">
           None yet. Add them one at a time, or paste a .env file into the first
           row.
@@ -67,17 +141,13 @@ export function EnvVarRows({ rows, onChange }: EnvVarRowsProps) {
           <Plus size={12} />
           Add a variable
         </Button>
-      </div>
+      </div>,
     );
   }
 
-  return (
+  return wrap(
     <div className="flex flex-col gap-2">
-      <div className="flex max-w-[640px] items-center gap-2">
-        <Text className="flex-1 text-(--gray-10) text-[11px]">Name</Text>
-        <Text className="flex-1 text-(--gray-10) text-[11px]">Value</Text>
-        <span className="w-7 shrink-0" />
-      </div>
+      <ColumnHeadings />
       {rows.map((row, index) => {
         const error = envVarError(row, rows);
         return (
@@ -136,6 +206,23 @@ export function EnvVarRows({ rows, onChange }: EnvVarRowsProps) {
           Pasting a .env file fills out the rows.
         </Text>
       </div>
+      {savedKeys.length > 0 && (
+        <Text className="max-w-[64ch] text-(--amber-11) text-[11.5px] leading-snug">
+          Saving these replaces the variables already on this environment:{" "}
+          {savedKeys.join(", ")}. Remove every row to keep them instead.
+        </Text>
+      )}
+    </div>,
+  );
+}
+
+/** The name and value columns, above both the saved list and the editable rows. */
+function ColumnHeadings() {
+  return (
+    <div className="flex max-w-[640px] items-center gap-2">
+      <Text className="flex-1 text-(--gray-10) text-[11px]">Name</Text>
+      <Text className="flex-1 text-(--gray-10) text-[11px]">Value</Text>
+      <span className="w-7 shrink-0" />
     </div>
   );
 }

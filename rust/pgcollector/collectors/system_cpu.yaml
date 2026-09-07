@@ -1,0 +1,13 @@
+name: system_cpu
+description: >
+  Host CPU jiffies from /proc/stat via pg_proctab (CREATE EXTENSION pg_proctab;
+  no reboot). Cumulative; utilisation = (user+nice+system+iowait) / total delta.
+interval: 60s
+scope: cluster
+kind: cumulative
+requires: { extension: pg_proctab }
+key: [id]
+query: |
+  SELECT 1 AS id, "user" AS user_jiffies, nice AS nice_jiffies, system AS system_jiffies,
+         idle AS idle_jiffies, iowait AS iowait_jiffies
+  FROM pg_cputime()

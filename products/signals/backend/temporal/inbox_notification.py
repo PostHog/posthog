@@ -1,8 +1,10 @@
 """Decides when to send a report's inbox Slack notification.
 
-Every actionable report notifies; the PR is enrichment, not a gate. With an auto-start task we
-wait (bounded by a timeout) for the PR so the card can link it, then notify either way; with no
-task we notify immediately. Actionability is enforced downstream (READY status + persisted
+Every actionable report notifies once, ever; the PR is enrichment, not a gate. With an auto-start
+task we wait (bounded by a timeout) for the PR so the card can link it, then notify either way; with
+no task we notify immediately. Research settles again every time a new signal carries the report to
+its next bucket, and every settle starts this workflow, so `SignalReport.inbox_notified_at` is what
+keeps one report to one card. Actionability is enforced downstream (READY status + persisted
 priority). Posting lives in `dispatch_inbox_item_notifications`; this workflow governs timing.
 """
 
@@ -12,12 +14,14 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -37,14 +41,27 @@ class InboxNotificationInput:
     report_id: str
 
 
-@dataclass
+@frozen
 class InboxNotificationState:
     has_implementation_task: bool
     pr_available: bool
     task_terminal: bool
+    # Whether the report already notified. Defaults to False so a history written before this field
+    # decodes to the old behavior and replays through the same commands (see
+    # .claude/rules/temporal-workflow-versioning.md, the activity-output gating pattern).
+    already_notified: bool = False
 
 
 def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNotificationState:
+    already_notified = SignalReport.objects.filter(
+        id=report_id, team_id=team_id, inbox_notified_at__isnull=False
+    ).exists()
+    if already_notified:
+        # Nothing downstream matters once the card is out, and skipping the task lookups keeps a
+        # re-researched report from paying for the PR wait it will not use.
+        return InboxNotificationState(
+            has_implementation_task=False, pr_available=False, task_terminal=False, already_notified=True
+        )
     impl_task_ids = [
         run.task_id
         for run in SignalReport.associated_task_runs(
@@ -76,6 +93,19 @@ async def get_inbox_notification_state_activity(input: InboxNotificationInput) -
     )
 
 
+def _claim_inbox_notification(team_id: int, report_id: str) -> bool:
+    """Stamp `inbox_notified_at`, returning False when another sender already claimed the report."""
+    return bool(
+        SignalReport.objects.filter(id=report_id, team_id=team_id, inbox_notified_at__isnull=True).update(
+            inbox_notified_at=timezone.now()
+        )
+    )
+
+
+def _release_inbox_notification_claim(team_id: int, report_id: str) -> None:
+    SignalReport.objects.filter(id=report_id, team_id=team_id).update(inbox_notified_at=None)
+
+
 def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Guard on status: a deferred wait can outlast the READY state (suppressed/deleted/re-promoted).
     report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status").first()
@@ -99,20 +129,44 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Re-derive source products at send time so a deferred notification reflects the current signals.
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
+
     # Point any support ticket that raised this report at it. Shares this function's READY guard.
-    # Guarded here as well as inside: the write-back is supplementary, and letting it raise would fail
-    # the activity before the Slack notification below, so a retry loop would drop the notification
-    # entirely over a side errand.
+    # This runs above the claim, so it also runs on a settle that sends no card. A note is per ticket
+    # and not per report, so a ticket that joins the report after its card still needs one, and the
+    # note's dedupe key stops a repeat from posting twice to the same ticket. Guarded here as well as
+    # inside: the write-back is supplementary, and letting it raise would fail the activity before the
+    # Slack notification below, so a retry loop would drop the notification entirely over a side errand.
     try:
         post_report_findings_to_tickets(team, report_id, signals)
     except Exception:
         logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
-    return dispatch_inbox_item_notifications(
-        report_id=report_id,
-        team_id=team_id,
-        source_products=source_products,
-        signals=signals,
-    )
+
+    # Claim the report immediately before the send. One conditional UPDATE, so a concurrent settle that
+    # got past the workflow's already-notified check loses here instead of sending a second card.
+    # Nothing else runs under the claim, because a worker that dies while holding it never reaches the
+    # release below and leaves the report stamped for a card it never sent. Keeping the covered span as
+    # short as the send itself is what bounds that window.
+    if not _claim_inbox_notification(team_id, report_id):
+        logger.info("inbox notification skipped: already notified", report_id=report_id, team_id=team_id)
+        return 0
+
+    try:
+        sent = dispatch_inbox_item_notifications(
+            report_id=report_id,
+            team_id=team_id,
+            source_products=source_products,
+            signals=signals,
+        )
+    except Exception:
+        # Release so a retry or a later settle can still send the card.
+        _release_inbox_notification_claim(team_id, report_id)
+        raise
+    if not sent:
+        # Nothing went out — no channel configured yet, or the report failed the dispatcher's own
+        # actionability check. Releasing lets a later settle try again, so a team that connects Slack
+        # after its first report still gets a card for it.
+        _release_inbox_notification_claim(team_id, report_id)
+    return sent
 
 
 @temporalio.activity.defn
@@ -137,7 +191,13 @@ class SignalReportInboxNotificationWorkflow:
         log_ctx = {"report_id": inputs.report_id, "team_id": inputs.team_id}
 
         state = await self._fetch_state(inputs)
-        if state.has_implementation_task and not state.pr_available and not state.task_terminal:
+        if state.already_notified:
+            # The card is out, so nothing is left to wait for and the PR wait is skipped. The send
+            # activity still runs, because it also carries the support write-back, which is per ticket
+            # and not per report: a ticket that joined this report after its card still needs its note.
+            # The claim inside that activity is what holds the report to one card.
+            workflow.logger.info("inbox notification: already notified, skipping the PR wait", extra=log_ctx)
+        elif state.has_implementation_task and not state.pr_available and not state.task_terminal:
             workflow.logger.info(
                 "inbox notification: implementation task present, waiting for its PR",
                 extra={**log_ctx, "timeout_seconds": timeout_seconds},
@@ -147,9 +207,14 @@ class SignalReportInboxNotificationWorkflow:
                 await workflow.sleep(timedelta(seconds=poll_seconds))
                 elapsed += poll_seconds
                 state = await self._fetch_state(inputs)
-                if state.pr_available or state.task_terminal:
+                # `already_notified` ends the wait as well. A concurrent settle that sent the card makes
+                # the state activity report no PR and no terminal task, so without this test the break
+                # condition can never be met again and the wait runs the full timeout for nothing.
+                if state.already_notified or state.pr_available or state.task_terminal:
                     break
-            if state.pr_available:
+            if state.already_notified:
+                wait_outcome = "notified_by_another_run"
+            elif state.pr_available:
                 wait_outcome = "pr_opened"
             elif state.task_terminal:
                 wait_outcome = "task_ended_without_pr"

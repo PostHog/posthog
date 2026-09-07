@@ -4,7 +4,7 @@ import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTrends } 
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconCumulativeChart, IconDonutChart, IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -81,38 +81,30 @@ export function ChartFilter(): JSX.Element {
                         />
                     ),
                 },
-                ...(featureFlags[FEATURE_FLAGS.BOX_PLOT_INSIGHT]
-                    ? [
-                          {
-                              value: ChartDisplayType.BoxPlot,
-                              icon: <IconGraph />,
-                              label: 'Box plot',
-                              disabledReason: trendsOnlyDisabledReason,
-                              labelInMenu: (
-                                  <ChartFilterOptionLabel
-                                      label="Box plot"
-                                      description="Distribution of a property over time showing quartiles."
-                                  />
-                              ),
-                          },
-                      ]
-                    : []),
-                ...(featureFlags[FEATURE_FLAGS.SLOPE_GRAPH_INSIGHT]
-                    ? [
-                          {
-                              value: ChartDisplayType.SlopeGraph,
-                              icon: <IconTrends />,
-                              label: 'Slope graph',
-                              disabledReason: trendsOnlyDisabledReason,
-                              labelInMenu: (
-                                  <ChartFilterOptionLabel
-                                      label="Slope graph"
-                                      description="Change from the start to the end of the range, one line per series."
-                                  />
-                              ),
-                          },
-                      ]
-                    : []),
+                {
+                    value: ChartDisplayType.BoxPlot,
+                    icon: <IconGraph />,
+                    label: 'Box plot',
+                    disabledReason: trendsOnlyDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Box plot"
+                            description="Distribution of a property over time showing quartiles."
+                        />
+                    ),
+                },
+                {
+                    value: ChartDisplayType.SlopeGraph,
+                    icon: <IconTrends />,
+                    label: 'Slope graph',
+                    disabledReason: trendsOnlyDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Slope graph"
+                            description="Change from the start to the end of the range, one line per series."
+                        />
+                    ),
+                },
             ],
         },
         {
@@ -167,6 +159,15 @@ export function ChartFilter(): JSX.Element {
                     disabledReason: trendsOnlyDisabledReason,
                     labelInMenu: (
                         <ChartFilterOptionLabel label="Pie chart" description="Proportions of a whole as a pie." />
+                    ),
+                },
+                {
+                    value: ChartDisplayType.ActionsDonut,
+                    icon: <IconDonutChart />,
+                    label: 'Donut chart',
+                    disabledReason: trendsOnlyDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel label="Donut chart" description="Proportions of a whole as a ring." />
                     ),
                 },
                 {

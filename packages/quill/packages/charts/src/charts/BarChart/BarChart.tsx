@@ -104,6 +104,7 @@ function BarChartInner<Meta = unknown>({
         bandPadding,
         minBandSize,
         minBarSize,
+        minBarSizeScope = 'always',
         fitToHeight = false,
         valueDomain,
         valuePadding,
@@ -293,6 +294,7 @@ function BarChartInner<Meta = unknown>({
                 barTrack,
                 barShadow,
                 barFillStyle,
+                minBarSizeScope,
             }),
         [
             showGrid,
@@ -307,6 +309,7 @@ function BarChartInner<Meta = unknown>({
             xTickFormatter,
             barShadow,
             barFillStyle,
+            minBarSizeScope,
         ]
     )
 

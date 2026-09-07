@@ -35,6 +35,26 @@ if not consume_github_installation_sync(installation_id, priority=Priority.BATCH
 They are **non-blocking** — the caller decides what to do on `False`.
 The GitHub helpers wrap the key construction; other domains expose their own thin gate the same way.
 
+### Pacing (for callers that can wait)
+
+Getting denied is recoverable but wasteful: the caller learns nothing about _when_ the budget frees, so it backs off blind, and the budget it already spent stays spent.
+A caller that can wait — a bulk import walking pages, not a request serving a person — should instead ask how long to wait and not get denied at all:
+
+```python
+pace = get_outbound_rate_limiter().pace_seconds(key, priority=Priority.BATCH)
+if pace > 0:
+    ...  # the caller owns the wait; the limiter never sleeps
+```
+
+`pace_seconds` returns **0 while a window still holds more than half of that priority's allowance**, so a short run is never slowed for a budget it cannot dent.
+Below that it spreads the allowance that is left over the time left in the window, which is the interval that keeps the caller admitted instead of shed.
+It reads the same reserved floors admission does, so a `BATCH` caller paces off the share it may actually take, not the whole window.
+
+Two things it is not.
+It is **advisory** — `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.
+And it is not a wait-for-reset: these are sliding windows, which free continuously, so waiting for a reset would idle for a whole window to get budget that was arriving all along.
+A store failure answers 0 rather than raising, because pacing sits in front of every gated call and the in-memory fallback's headroom is one process's, not the shared budget's.
+
 ### Budgets (policies)
 
 A budget is a `RatePolicy`: one or more `(count, period_seconds)` limits enforced _together_, so you can cap the hour and smooth per-minute bursts on the same key.
@@ -60,6 +80,12 @@ Firecrawl's per-plan limits are not discoverable from the running process, so th
 One scrape is one credit, so those numbers cap a bill as much as a rate; they are sized for traffic of roughly one scrape per event a person triggers, and are meant to be raised in settings as that grows.
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
+
+Harmonic (`harmonic/`) meters one account-wide rate limit, and an instance holds a single API key, so it uses one constant scope like the two above.
+The budget is a single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
+Harmonic publishes no rate limit we could confirm, so that default is seeded from observed throughput and is meant to be tuned against the rate-limit headers this domain records.
+Harmonic is the first async domain: it subclasses `AsyncEgressClient` rather than `EgressClient`, because its client speaks `aiohttp`.
+Its lanes carry very different traffic, so the reserve floor matters: signup enrichment and the ICP re-enrichment sweep run `CRITICAL` inside a short Temporal activity budget, while the Salesforce enrichment sweep runs `BATCH` and yields to them.
 
 ### Priority lanes
 
@@ -138,7 +164,7 @@ It is **never** a PostHog DB row id (`Integration.id`).
 Several PostHog integration rows can point at the same installation (multiple projects, one org), and GitHub gives that installation one shared budget: key a gauge by the row and one real budget splits into N flip-flopping series; key by the installation and you get one true series.
 Per-caller attribution is the `source` label's job, not the identity's.
 
-> The cache-hit counter in `github_integration_base` is a separate concern (cache efficiency per connection) and legitimately keys by the integration row — it is not egress-budget telemetry.
+> The cache-hit counter in `github_integration_base` is a separate concern (which rows are reading a warm cache) and legitimately keys by the integration row, not by the installation — it is not egress-budget telemetry. The caches it counts are installation-scoped, so a row can record a hit on an entry another row on the same installation filled.
 
 ## Identity-blind callers and the PAT scope decision
 

@@ -49,7 +49,7 @@ export type HogFunctionFilterDataWarehouse = {
 }
 
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     // Warehouse tables this function is subscribed to. Never compiled into bytecode, so the
@@ -334,7 +334,34 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     messageAssets: MessageAssetRow[]
+    conversionWatchers: ConversionWatcherRow[]
     execResult?: unknown
+}
+
+// The compiled conversion goal as it stood when a run enrolled. Pinned to the run rather than read
+// from the live flow, so editing a goal changes what future runs are measured against without
+// re-judging cohorts already in flight under the old one.
+export type PinnedConversionGoal = {
+    // Property-based goal, evaluated against person properties.
+    properties?: any[]
+    // Event-based goals, any one of which converts.
+    events?: any[][]
+}
+
+// One per enrolled run on a workflow with a conversion goal, outliving the run so a conversion that
+// lands after the last step is still observable. See the conversion_watchers migration for why this
+// is not a cyclotron_jobs row.
+export type ConversionWatcherRow = {
+    id: string
+    team_id: number
+    function_id: string
+    run_id: string
+    parent_run_id: string | null
+    distinct_id: string | null
+    person_id: string | null
+    flow_version: number | null
+    goal: PinnedConversionGoal
+    expires_at: Date
 }
 
 export type CyclotronJobInvocationHogFunctionContext = {
@@ -492,6 +519,8 @@ export type HogFunctionInputSchemaType = {
         | 'task_model'
         | 'task_repository'
         | 'task_mcp_installations'
+        | 'signals_scout'
+        | 'task_skills'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

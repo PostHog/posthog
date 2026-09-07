@@ -140,9 +140,15 @@ The rebuild is opt-in in exactly **two consumer wrappers**:
 `TaxonomicPopover.tsx` and
 `PropertyFilters/components/TaxonomicPropertyFilter.tsx`. Both check
 `TAXONOMIC_FILTER_MENU_REBUILD` and render `<TaxonomicFilterMenu>` or the
-legacy `<TaxonomicFilter>`. Call sites that build their own popover (e.g.
-`ActionFilterRow`) never see the rebuild — so "does this reach the
-rebuild?" depends on the call site, not a single global switch.
+legacy `<TaxonomicFilter>`. A call site reaching one of those wrappers can
+still land on the legacy path: `TaxonomicPopover` renders the rebuild only
+when `newMenuSupportsCallSite` holds (`!allowClear && closeOnChange && ref
+== null`), because the rebuilt menu cannot honour those three capabilities.
+So "does this reach the rebuild?" depends on the wrapper _and_ the props
+that call site passes, not a single global switch — `ActionFilterRow` goes
+through `TaxonomicPopover` and passes none of the three, so it does reach
+the rebuild. Only a call site that hand-rolls its own popover around
+`<TaxonomicFilter>` bypasses the wrappers entirely.
 
 **Touching tab/group rendering means testing all three surfaces.**
 
@@ -165,9 +171,12 @@ you change one, change the other (or flag to the human that you can't).
 
 **Genuinely shared — change once:** `types.ts` (the enum),
 `utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`),
-`utils/redistributeTopMatches.ts`, `recentTaxonomicFiltersLogic.ts` and
+`recentTaxonomicFiltersLogic.ts` and
 `taxonomicFilterPinnedPropertiesLogic.ts` (the rebuild reads recents/pinned
 through these via a bridge, it doesn't fork them).
+
+`redistributeTopMatches` is legacy-only, not shared: it lives in
+`taxonomicFilterLogic.tsx` and the rebuild never calls it.
 
 One intentional divergence is already documented in
 `useTaxonomicFilter.ts`: the rebuild **always** leads with SuggestedFilters,

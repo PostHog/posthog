@@ -319,6 +319,9 @@ export interface sidePanelNotificationsLogicActions {
     navigateToNotification: (notification: InAppNotification) => {
         notification: InAppNotification
     }
+    notificationClicked: (notification: InAppNotification) => {
+        notification: InAppNotification
+    }
     notificationReceived: (notification: InAppNotification) => {
         notification: InAppNotification
     }
@@ -472,6 +475,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         loadMoreArchivedSuccess: (count: number) => ({ count }),
         loadArchivedGroupChildren: (group: NotificationGroup) => ({ group }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
+        notificationClicked: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
@@ -940,6 +944,17 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 cache.disposables.dispose('sseFocusReconnect')
                 cache.disposables.dispose('sseConnection')
                 cache.nextStopReason = null
+            },
+            notificationClicked: ({ notification }) => {
+                posthog.capture('notification clicked', {
+                    notification_type: notification.notification_type,
+                    resource_type: notification.resource_type,
+                    was_unread: !notification.read,
+                    // How stale a notification is by the time anyone acts on it
+                    age_seconds: dayjs().diff(dayjs(notification.created_at), 'second'),
+                    has_navigation_target: !!values.sourcePathForNotification(notification),
+                    is_other_project: notification.team_id !== null && notification.team_id !== values.currentTeamId,
+                })
             },
             navigateToNotification: ({ notification }) => {
                 const path = values.sourcePathForNotification(notification)

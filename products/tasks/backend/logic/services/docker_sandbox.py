@@ -18,7 +18,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 
@@ -753,7 +753,7 @@ class DockerSandbox(SandboxBase):
 
         return _DockerExecutionStream(process, timeout_seconds, self.id)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
                 "Sandbox not in running state.",
@@ -761,6 +761,7 @@ class DockerSandbox(SandboxBase):
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
+        step_timeout = timeout_seconds or self.config.default_execution_timeout_seconds
         chunk_size = 50000
         encoded_payload = base64.b64encode(payload).decode("utf-8")
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
@@ -781,7 +782,7 @@ class DockerSandbox(SandboxBase):
                 "    response_file.write(payload)\n"
                 "EOF_SANDBOX_WRITE"
             )
-            result = self.execute(command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(command, timeout_seconds=step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -791,7 +792,7 @@ class DockerSandbox(SandboxBase):
 
         if result.exit_code == 0:
             move_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(move_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(move_command, timeout_seconds=step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -852,6 +853,9 @@ class DockerSandbox(SandboxBase):
         logger.info(f"Got connect credentials for sandbox {self.id}: {url}")
         return AgentServerResult(url=url, token=None)
 
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
+        raise NotImplementedError("Docker sandboxes do not support preview connect tokens")
+
     def _build_agent_server_command(
         self,
         repo_path: str | None,
@@ -879,6 +883,7 @@ class DockerSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
@@ -902,6 +907,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
@@ -996,6 +1002,7 @@ class DockerSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
@@ -1074,6 +1081,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
         )
@@ -1130,6 +1138,7 @@ class DockerSandbox(SandboxBase):
                 event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
+                benjamin_enabled=benjamin_enabled,
                 peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
             )

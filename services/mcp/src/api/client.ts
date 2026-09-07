@@ -690,6 +690,28 @@ export class ApiClient {
                 }
             },
 
+            createEventDefinition: async ({
+                projectId,
+                eventName,
+                data,
+            }: {
+                projectId: string
+                eventName: string
+                data?: {
+                    description?: string
+                    tags?: string[]
+                    verified?: boolean
+                    hidden?: boolean
+                }
+            }): Promise<Result<ApiEventDefinition>> => {
+                const createUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/`
+
+                return this.fetchJson<ApiEventDefinition>(createUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({ name: eventName, ...data }),
+                })
+            },
+
             updateEventDefinition: async ({
                 projectId,
                 eventName,

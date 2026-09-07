@@ -27,7 +27,7 @@ from products.conversations.backend.slack import (
 )
 from products.conversations.backend.tasks import process_supporthog_interactivity
 from products.customer_analytics.backend.facade import api as customer_analytics
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.facade.testing import create_account
 
 MODULE = "products.conversations.backend.slack"
 TASKS_MODULE = "products.conversations.backend.tasks"

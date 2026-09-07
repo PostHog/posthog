@@ -25,6 +25,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
+import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
@@ -34,7 +35,6 @@ import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
-import { WorkflowsIncidentReplayBanner } from './WorkflowsIncidentReplayBanner'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -130,6 +130,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     logic: workflowsSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
     productKey: ProductKey.WORKFLOWS,
+    emptyState: workflowsEmptyState,
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
@@ -326,7 +327,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     support to get sending re-enabled.
                 </LemonBanner>
             )}
-            <WorkflowsIncidentReplayBanner />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

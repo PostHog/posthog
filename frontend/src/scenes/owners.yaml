@@ -31,6 +31,10 @@ rules:
       owners: team-analytics-platform
     - match: '/data-pipelines/'
       owners: team-workflows
+    # Narrower than the rule above, which would otherwise route the batch exports
+    # scene to workflows. Backend counterpart: products/batch_exports/product.yaml.
+    - match: '/data-pipelines/batch-exports/'
+      owners: batch-exports
     - match: '/data-warehouse/'
       owners: team-data-stack
     - match: '/experiments/'

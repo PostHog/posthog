@@ -90,8 +90,14 @@ describe('robots policy', () => {
             allowed: false,
             reason: 'robots_disallow',
         })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({ allowed: true })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({ allowed: true })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
     })
 
     it('uses the greatest valid crawl delay in every selected field line', async () => {

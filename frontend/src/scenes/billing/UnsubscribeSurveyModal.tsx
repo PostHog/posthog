@@ -27,6 +27,7 @@ import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingLogic } from './billingLogic'
+import { billingProductDisplayName } from './billingProductDisplayName'
 import {
     UNSUBSCRIBE_REASONS,
     billingProductLogic,
@@ -138,7 +139,7 @@ export const UnsubscribeSurveyModal = ({
                         ? action
                         : product.type === 'platform_and_support'
                           ? `${action} your plan`
-                          : `${action} from ${product.name}`
+                          : `${action} from ${billingProductDisplayName(product)}`
                 }
                 footer={
                     unsubscribeModalStep === 1 ? (
@@ -211,7 +212,7 @@ export const UnsubscribeSurveyModal = ({
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'
                                 ? `Why are you ${actionVerb}?`
-                                : `Why are you ${actionVerb} from ${product.name}?`}{' '}
+                                : `Why are you ${actionVerb} from ${billingProductDisplayName(product)}?`}{' '}
                             <i className="text-secondary">(you can select multiple)</i>
                             <Tooltip title="Required">
                                 <span className="text-danger">*</span>

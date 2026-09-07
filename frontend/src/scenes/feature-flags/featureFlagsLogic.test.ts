@@ -3,9 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
@@ -431,16 +429,11 @@ describe('updateFeatureFlagArchived', () => {
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
     })
 
-    // The list arm of the disable-and-archive experiment: the row toggle has to reach
-    // updateFeatureFlagArchived with the list's own via, not the archive dialog's.
-    it('archives via the disable confirmation when the test variant picks it', async () => {
+    // The list arm of the disable-and-archive dialog: picking "Disable and archive" from the row
+    // toggle has to reach updateFeatureFlagArchived with the list's own via, not the archive dialog's.
+    it('archives via the disable confirmation when disable and archive is picked', async () => {
         const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
         jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
-        const flagsLogic = enabledFeaturesLogic()
-        flagsLogic.mount()
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
-            [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
-        })
 
         logic.actions.toggleFeatureFlagActive(1, false)
         expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')

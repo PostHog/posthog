@@ -18,7 +18,9 @@ from products.signals.backend.artefact_schemas import (
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
+    SummaryChange,
     TaskRunArtefact,
+    TitleChange,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -243,12 +245,38 @@ class TestScoutReportPersistence(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
         updated = update_scout_report(
-            team_id=self.team.id, report_id=result.report_id, title="new title", summary="new summary"
+            team_id=self.team.id,
+            report_id=result.report_id,
+            title="new title",
+            summary="new summary",
+            attribution=ArtefactAttribution.system(),
         )
         assert set(updated) == {"title", "summary", "updated_at"}
         report = SignalReport.objects.get(id=result.report_id)
         assert report.title == "new title"
         assert report.summary == "new summary"
+
+        # The edit is logged as typed title_change / summary_change artefacts carrying the value before
+        # and after — the same machine-readable shape the human PATCH path writes, not a prose note.
+        title_change = SignalReportArtefact.objects.get(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.TITLE_CHANGE
+        )
+        assert TitleChange.model_validate_json(title_change.content) == TitleChange(
+            old_title="old title", new_title="new title"
+        )
+        summary_change = SignalReportArtefact.objects.get(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE
+        )
+        assert SummaryChange.model_validate_json(summary_change.content) == SummaryChange(
+            old_summary="old summary", new_summary="new summary"
+        )
+        # The edit adds no prose note — only the one provenance note the create path wrote survives.
+        assert (
+            SignalReportArtefact.objects.filter(
+                report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE
+            ).count()
+            == 1
+        )
 
     def test_update_fails_closed_on_cross_team_report(self) -> None:
         # edit_report can target any inbox report (decision #2) — so the team scope is the only thing

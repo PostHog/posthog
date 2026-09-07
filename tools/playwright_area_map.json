@@ -78,7 +78,7 @@
         "experiments": ["playwright/e2e/experiments/"],
         "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
         "trends": ["playwright/e2e/product-analytics/"],
-        "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts"],
+        "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts", "playwright/e2e/data-quality-overview.spec.ts"],
         "dashboard": [
             "playwright/e2e/product-analytics/dashboards.spec.ts",
             "playwright/e2e/shared-dashboard-styling.spec.ts",
@@ -140,7 +140,11 @@
         "products/early_access_features/frontend/**": ["playwright/e2e/early-access-management.spec.ts"],
         "products/event_definitions/frontend/**": ["playwright/e2e/event-definitions.spec.ts"],
         "products/annotations/frontend/**": ["playwright/e2e/annotations.spec.ts"],
-        "products/data_warehouse/frontend/**": ["playwright/e2e/sql-editor*.spec.ts"],
+        "products/data_warehouse/frontend/**": [
+            "playwright/e2e/sql-editor*.spec.ts",
+            "playwright/e2e/data-quality-overview.spec.ts"
+        ],
+        "products/data_quality/frontend/**": ["playwright/e2e/data-quality-overview.spec.ts"],
         "products/workflows/frontend/**": [
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts"

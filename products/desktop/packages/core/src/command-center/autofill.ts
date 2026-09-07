@@ -4,9 +4,9 @@ import {
   isTaskEligibleForCell,
 } from "./eligibility";
 
-export const RECENT_WINDOW_MS = 2 * 60 * 60 * 1000;
+const RECENT_WINDOW_MS = 2 * 60 * 60 * 1000;
 
-export function getLastActivity(task: Task): number {
+function getLastActivity(task: Task): number {
   const taskTime = new Date(task.updated_at).getTime();
   const runTime = task.latest_run?.updated_at
     ? new Date(task.latest_run.updated_at).getTime()

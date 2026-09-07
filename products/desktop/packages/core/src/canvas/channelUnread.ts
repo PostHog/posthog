@@ -17,7 +17,7 @@ import type { MentionActivityItem } from "@posthog/core/canvas/mentionActivity";
  */
 
 /** Newest activity per channel id. Ignores items with no channel. */
-export function latestActivityByChannel(
+function latestActivityByChannel(
   items: readonly MentionActivityItem[],
 ): Map<string, string> {
   const latest = new Map<string, string>();

@@ -28,7 +28,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
     return (
         <>
             <h2 className="font-semibold text-lg my-4">Correlation analysis</h2>
-            <PayGateMini feature={AvailableFeature.CORRELATION_ANALYSIS}>
+            <PayGateMini feature={AvailableFeature.CORRELATION_ANALYSIS} featureDetail="funnel-correlation-analysis">
                 <div className="funnel-correlation">
                     <FunnelCorrelationSkewWarning />
                     <FunnelCorrelationTable />

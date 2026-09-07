@@ -1,3 +1,4 @@
+import { resolveInboxReportForRender } from "@posthog/core/inbox/inboxQuery";
 import {
   isDismissedReport,
   isPullRequestReport,
@@ -9,6 +10,7 @@ import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBack
 import {
   asInboxBackTarget,
   type InboxListRoute,
+  useInboxTriageOrigin,
 } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
@@ -79,13 +81,14 @@ export function InboxReportDetailGate({
   children,
 }: InboxReportDetailGateProps) {
   const navigate = useNavigate();
+  const triageOrigin = useInboxTriageOrigin();
   const {
     data: report,
     isLoading,
     isFetching,
     isFetchedAfterMount,
   } = useInboxReportById(reportId);
-  const resolvedReport = report ?? cachedReport;
+  const resolvedReport = resolveInboxReportForRender(report, cachedReport);
 
   // Keep the report on the route that matches its status. A status↔route mismatch
   // happens when a URL goes stale — browser history, a bookmark, a copied deep
@@ -117,10 +120,10 @@ export function InboxReportDetailGate({
   // fetch. Rendering the children then would briefly expose full triage actions
   // (create PR, discuss, archive) for a report that another session has already
   // suppressed, before the redirect kicks in. Hold the spinner until that same
-  // fetch settles. The Archive route stays render-from-cache (the PR's instant-open
-  // path): it's read-only and its one action, Restore, re-checks status server-side.
+  // fetch settles. Routes without status redirects and the Archive route render
+  // from cache: neither can expose actions for the wrong status route.
   const statusUnconfirmed =
-    !onDismissedRoute && isFetching && !isFetchedAfterMount;
+    statusRedirect && !onDismissedRoute && isFetching && !isFetchedAfterMount;
   const redirectReportId = resolvedReport?.id;
   useEffect(() => {
     if (!redirectTo || !redirectReportId) return;
@@ -134,16 +137,19 @@ export function InboxReportDetailGate({
       // the user is returning to. Validated because `backTo` may be a literal
       // path on the in-space route (which never redirects, but types can't see
       // that).
-      state:
-        redirectTo === "/inbox/dismissed/$reportId"
+      state: (previous) => ({
+        ...previous,
+        ...(redirectTo === "/inbox/dismissed/$reportId"
           ? {
               inboxBackOrigin:
                 asInboxBackTarget({ to: backTo, label: backLabel }) ??
                 undefined,
             }
-          : undefined,
+          : {}),
+        ...(triageOrigin ? { inboxTriageOrigin: triageOrigin } : {}),
+      }),
     });
-  }, [redirectTo, redirectReportId, navigate, backTo, backLabel]);
+  }, [redirectTo, redirectReportId, navigate, backTo, backLabel, triageOrigin]);
 
   if ((isLoading && !resolvedReport) || statusUnconfirmed) {
     return (

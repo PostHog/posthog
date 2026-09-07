@@ -376,7 +376,25 @@ def _query_search_analytics(
             continue
 
         if response.ok:
-            return response.json().get("rows", [])
+            try:
+                return response.json().get("rows", [])
+            except requests.exceptions.ChunkedEncodingError:
+                # The body streams via chunked transfer-encoding and can still be cut off
+                # mid-read after a 200 with a good `response` object — a dropped connection
+                # after headers rather than before, so it lands here instead of the
+                # ConnectionError/Timeout handling above. Same transient class; retry inline,
+                # then let Temporal retry the activity once the inline budget is spent.
+                if attempt == QUOTA_MAX_RETRIES:
+                    raise
+                wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+                logger.warning(
+                    "GSC response body truncated, backing off",
+                    site_url=site_url,
+                    attempt=attempt,
+                    wait_seconds=wait,
+                )
+                time.sleep(wait)
+                continue
 
         # Surface Google's real reason (e.g. usageLimits/quotaExceeded vs forbidden) —
         # raise_for_status() discards the body where that distinction lives.

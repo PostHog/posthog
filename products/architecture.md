@@ -98,7 +98,15 @@ These cross the boundary as classes — allowed only under all three rules:
    Extending the list is a core PR: define the base and validate at the registration point.
    DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; the `facade must not import presentation or DRF` import-linter contract enforces both, with the existing violations grandfathered in its TODO list) — their soundness is governed by the presentation rules above.
 2. **Designated location.**
-   The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies) — and isolated products keep those locations in their `backend:contract-check` inputs, so any change to a wiring implementation still re-runs the full suite.
+   The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies).
+   An isolated product keeps a wiring location in its `backend:contract-check` inputs while a test outside the product can execute what lives there, so such a change still re-runs the full suite.
+   The full suite matters only while such a test exists.
+   For `backend/hogql_queries/` that is measured.
+   Core dispatches runners by query kind, so `hogli product:crossings` reads the dispatch table and records every outside test that runs one of the product's kinds, or imports anything from the location, as a `drives(...)` line in the crossings baseline.
+   A test whose kind the scan cannot read statically counts as `drives(unresolved-kind)` against every query location it could reach, so an unreadable spelling holds the inputs instead of releasing them in silence.
+   `hogli product:lint` keeps the location in the inputs while a line for it stands, and lets it go when none does.
+   Nothing is declared. Move the driving tests into the product, regenerate the baseline, and the input may leave.
+   The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
    Registration points check `issubclass(cls, Base)` and reject anything else.
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
@@ -112,9 +120,10 @@ There the class crosses for registration only, core drives only the registry's m
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
 Two products hold entries.
 `warehouse_sources`: core HogQL reads its warehouse table/schema/source models to build queryable tables.
-`product_analytics`: `Insight`, `InsightVariable` and `InsightViewed`.
+`ExternalDataDestination`, `ExternalDataSourceDestination` and `ExternalDataSchemaDestination` cross for the same reason as the rest of the product's models — the destination CRUD `ModelViewSet` and the source-/schema-level link-table editors need the classes themselves for `Meta.model`, querysets, and edits to the link rows, not a read-only shape.
+`product_analytics`: `Insight` and `InsightVariable`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
-`InsightViewed` crosses for the view-tracking upsert (`update_or_create`) that shared-insight rendering and the demo generator perform.
+`InsightVariable` has no consumer left outside the product; its entry survives only because the SQL-variables `ModelViewSet` in `presentation/` needs the class and presentation may reach internals only through the facade, so retiring the entry means converting that viewset off `ModelSerializer` first.
 The dashboards→product_analytics `DashboardTile.insight` FK and `Dashboard.insights` M2M-through cross into the product against §8's direction rule; that coupling is accepted under this entry until dashboards pursues its own isolation.
 
 An allowance product's facade may hand out model classes defined under `backend/models/`.
@@ -150,12 +159,17 @@ The consumer keeps the orchestration and the ids.
 `apps.get_model('label', 'Class')` reaches a model through the Django app registry.
 It leaves no import edge, so tach and import-linter cannot see it.
 The scan therefore does not stop at the watched-models allowance on this channel: a reference from outside the owning product to any class on any product's model surface is counted as the disallowed kind `get_model`.
-Test modules stay out of scope, so a core test fixture may keep using the pattern.
+Test modules stay out of scope, which is a blind spot, not permission.
+A core test fixture that reaches a model this way is not counted here and, with no import edge, not selected by snob when the model changes.
+Seed product rows through a facade write function, or through a `facade/testing.py` helper for fixture-only needs, instead; any other exposed module is a legacy interface leak.
 Migrations stay out of scope too: a migration reaches a model through the historical registry, and that is the only way a migration can.
 Production code may not add one.
 
 **The ratchet.**
 `products/model_crossing_uses_baseline.txt` records every disallowed use still in the tree: one line for each model class, consumer module, kind, and count.
+`drives(...)` lines record the tests outside a product that execute its query runners.
+They are keyed by the product's `backend/hogql_queries/` location instead of a class, and read from test modules only.
+A new line is a new outside test that drives product code, and that test belongs in the product.
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.
@@ -506,18 +520,22 @@ tach handles _inter_-module boundaries (what can cross a product boundary). impo
 
 During migration, existing cross-product model imports are tracked in `tach.toml` `depends_on`. The goal is to replace them with facade calls over time.
 
-### Django Foreign Keys
+### Cross-product foreign keys
 
-Django allows `ForeignKey` relationships across products. This is still allowed, but ForeignKey relations create **implicit reverse dependencies**, even if you never use them:
+Django allows `ForeignKey` relationships across products. A relation that crosses a boundary creates an **implicit reverse dependency**, even if you never use it:
 
 ```python
 # visual_review/backend/models.py
 project = models.ForeignKey(Project, ...)
 ```
 
-Django will auto-generate reverse relations (`project.visualreview_set`), migration dependencies, and app loading order dependencies — all of which violate isolation.
+Django auto-generates a reverse accessor (`project.visualreview_set`), a reverse query name (`filter(visualreview__...)`), migration dependencies, and app loading order dependencies. No import checker can see the accessor, yet any caller can traverse it.
 
-**Rule:** a product may have ForeignKeys _to_ core models, but other products must not reference models _inside_ this product. Use `related_name='+'` to disable reverse relations. If you need reverse access, use explicit facade calls rather than ORM traversal.
+**Rule:** declare every relation field (FK, O2O, M2M) that crosses a product boundary with `related_name="+"`, and do not set an explicit `related_query_name` on it. `related_name="+"` alone removes the reverse accessor and the reverse query name; an explicit `related_query_name` keeps `filter()` traversal alive, and the ratchet records it as a `query:<name>` row. A product may point relations _at_ core models; other products must not reference models _inside_ this product. When a caller needs reverse access, add a facade read function — do not traverse the ORM.
+
+A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it or a review adds a baseline line. Regenerate with `bin/hogli product:crossings --all --write-baseline`.
+
+`db_constraint` is a separate concern: it is migration safety (see the hot-table FK rules in [products/README.md](README.md)) and multi-database planning, not Python isolation. Both `db_constraint=False` and a two-phase validated constraint are sanctioned.
 
 # 9. Turbo Tasks & Contract-Based Testing
 
@@ -531,7 +549,7 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 - `backend/facade/contracts.py` — frozen dataclasses (enums can live here too)
 - `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py grows
-- the product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/`) — implementations core registers and drives (see [Wiring couplings](#wiring-couplings))
+- the product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/`) — implementations core registers and drives (see [Wiring couplings](#wiring-couplings)); `backend/hogql_queries/` may leave the list once the crossings baseline records no outside test driving it, the others stay by presence
 
 **Implementation inputs** (used by `backend:test`):
 
