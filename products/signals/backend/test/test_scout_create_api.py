@@ -86,8 +86,9 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
         assert config.tags == ["on-call", "revenue"]
 
-    def test_matching_definition_retry_is_idempotent_and_applies_config(self) -> None:
-        payload = self._payload()
+    @parameterized.expand([("prefixed", "signals-scout-checkout-failures"), ("bare", "my-churn-watch")])
+    def test_matching_definition_retry_is_idempotent_and_applies_config(self, _name: str, skill_name: str) -> None:
+        payload = {**self._payload(), "name": skill_name}
 
         first = self.client.post(self._url(), data=payload, format="json")
         second = self.client.post(
@@ -155,8 +156,11 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         response = self.client.post(self._url(), data=payload, format="json")
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert LLMSkill.objects.filter(team=self.team, name="my-churn-watch", deleted=False).exists()
         assert SignalScoutConfig.all_teams.filter(team=self.team, skill_name="my-churn-watch").exists()
+        # `category` is derived from the name prefix on skill creation, so a bare-named scout only
+        # reaches the skills UI's Scouts tab if the endpoint stamps it.
+        skill = LLMSkill.objects.get(team=self.team, name="my-churn-watch", deleted=False)
+        assert skill.category == "scout"
 
     @parameterized.expand([("scratchpad",), ("findings",), ("runs",)])
     def test_create_rejects_a_name_the_inbox_reserves(self, name: str) -> None:

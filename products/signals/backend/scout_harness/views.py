@@ -67,7 +67,7 @@ from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
-from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
+from products.signals.backend.scout_harness.lazy_seed import SCOUT_SKILL_CATEGORY, scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
@@ -1912,6 +1912,13 @@ def create_scout_for_source(
             request=request,
             serializer_context=serializer_context,
         )
+        # `create_skill` derives the server-owned `category` from the name prefix, so a scout under
+        # any other name lands uncategorized: off the skills UI's Scouts tab, and refused by the
+        # duplicate-name branch above, which reads the category as proof that the stored skill is a
+        # scout. Stamp after the config row exists, since that row is what makes it one. The
+        # queryset update leaves the in-memory row stale, so mirror it onto the returned instance.
+        ensure_scout_category(team.id, skill_name=name)
+        skill.category = SCOUT_SKILL_CATEGORY
 
     return ScoutCreationOutcome(skill=skill, config=config, created=skill_created or config_created)
 
