@@ -717,6 +717,30 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('formulaNodes', () => {
+        it('keeps the same reference when an unrelated query update leaves the formula unchanged', async () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                series: [
+                    { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
+                    { kind: NodeKind.EventsNode, name: '$autocapture', event: '$autocapture' },
+                ],
+                trendsFilter: {
+                    formulaNodes: [{ formula: 'A + B', custom_name: 'Sum' }],
+                },
+            } as Partial<TrendsQuery>)
+
+            const before = builtInsightVizDataLogic.values.formulaNodes
+            expect(before).toEqual([{ formula: 'A + B', custom_name: 'Sum' }])
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({ date_from: '-7d', date_to: null })
+            }).toFinishAllListeners()
+
+            // Same content, so consumers must see the same array reference and not rerun on it
+            expect(builtInsightVizDataLogic.values.formulaNodes).toBe(before)
+        })
+    })
+
     describe('activeUsersMath', () => {
         it('returns null without active users math', () => {
             expectLogic(builtInsightVizDataLogic, () => {
