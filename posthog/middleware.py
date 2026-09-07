@@ -1275,7 +1275,9 @@ class CSPMiddleware:
                 f"media-src {permissive}",
                 f"worker-src {permissive}",
                 f"child-src {permissive}",
-                f"frame-src {permissive}",
+                # Heatmaps, the toolbar browser and site previews frame the URLs a team
+                # authorized, and those include http:// targets such as http://localhost:3000.
+                f"frame-src {permissive} http:",
                 f"connect-src {permissive} wss: {connect_debug_url}".rstrip(),
             ]
             # Views that serve untrusted content, such as public surveys and canvas artifacts, set

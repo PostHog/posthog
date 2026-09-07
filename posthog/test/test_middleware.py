@@ -1919,6 +1919,10 @@ class TestCSPMiddleware(APIBaseTest):
         # app still violates have to be named with a value that blocks nothing.
         for directive in ["script-src", "style-src", "img-src", "font-src", "worker-src", "frame-src"]:
             assert f"{directive} 'self' blob: data: https:" in enforced
+        # Heatmaps, the toolbar browser and site previews frame the URLs a team authorized, and
+        # those include http:// targets such as http://localhost:3000.
+        frame_src = next(part for part in enforced.split("; ") if part.startswith("frame-src "))
+        assert "http:" in frame_src.split()
         # A nonce makes browsers ignore 'unsafe-inline', which would block the app's inline scripts.
         assert "'unsafe-inline' 'unsafe-eval'" in enforced
         assert "nonce-" not in enforced
