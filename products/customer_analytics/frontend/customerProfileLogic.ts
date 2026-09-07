@@ -271,6 +271,11 @@ export type customerProfileLogicType = MakeLogicType<
     customerProfileLogicMeta
 >
 
+// Sharing pinned properties writes the same config row through the same actions as a layout
+// save, so the response has to be matched to the request that asked for it.
+const isLayoutSave = (config?: Partial<CustomerProfileConfigType>): boolean =>
+    !!config && ('content' in config || 'sidebar' in config)
+
 export const customerProfileLogic = kea<customerProfileLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'customerProfileLogic']),
     props({} as PersonProfileLogicProps),
@@ -525,11 +530,17 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                 actions.createConfig(config)
             }
         },
-        createConfigSuccess: () => {
+        createConfigSuccess: ({ payload }) => {
+            if (!isLayoutSave(payload?.config)) {
+                return
+            }
             actions.setLocalContent(values.content)
             actions.resetToDefaults()
         },
-        updateConfigSuccess: () => {
+        updateConfigSuccess: ({ payload }) => {
+            if (!isLayoutSave(payload?.config)) {
+                return
+            }
             actions.setLocalContent(values.content)
             actions.resetToDefaults()
         },

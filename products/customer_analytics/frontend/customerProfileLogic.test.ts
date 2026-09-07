@@ -10,6 +10,7 @@ import { CustomerProfileConfigType, CustomerProfileScope } from '~/types'
 import { customerProfileLogic } from './customerProfileLogic'
 
 const CONFIGS_URL = '/api/environments/:team_id/customer_profile_configs/'
+const CONFIG_URL = '/api/environments/:team_id/customer_profile_configs/:id/'
 
 const savedConfig = (content: CustomerProfileConfigType['content']): CustomerProfileConfigType => ({
     id: 'config-person',
@@ -24,6 +25,7 @@ const savedConfig = (content: CustomerProfileConfigType['content']): CustomerPro
 
 const mocksFor = (content: CustomerProfileConfigType['content']): Parameters<typeof useMocks>[0] => ({
     get: { [CONFIGS_URL]: () => ({ count: 1, results: [savedConfig(content)] }) },
+    patch: { [CONFIG_URL]: () => [200, savedConfig(content)] },
 })
 
 type BuiltLogic = ReturnType<typeof customerProfileLogic.build>
@@ -69,5 +71,26 @@ describe('customerProfileLogic', () => {
 
         expect(logic.values.storedContent).toBeNull()
         expect(logic.values.content).toEqual(logic.values.defaultContent)
+    })
+
+    it('drops an unsaved layout edit only when the layout itself was saved', async () => {
+        useMocks(mocksFor({}))
+        await mount()
+        const removedType = logic.values.defaultContent[1].type
+        logic.actions.removeNode(removedType as string)
+        const draftTypes = logic.values.content.map((node) => node.type)
+
+        // Sharing pinned properties writes the same row through the same action.
+        logic.actions.updateConfig('config-person', { pinned_properties: ['email'] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.content.map((node) => node.type)).toEqual(draftTypes)
+        expect(logic.values.changed).toBe(true)
+
+        logic.actions.updateConfig('config-person', { content: [], sidebar: [] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.profileLocalContent).toBeNull()
+        expect(logic.values.changed).toBe(false)
     })
 })
