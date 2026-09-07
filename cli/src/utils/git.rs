@@ -232,13 +232,19 @@ fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
 /// percent-encode `/`, `?` and `#`, and a URL holding an `@` in its path.
 fn strip_credentials(url: &str) -> Option<String> {
     // A query or a fragment can hold a token (`?token=`, `#access_token=`) and a git remote
-    // needs neither, so both go before anything else looks at the URL. The full input stays
-    // readable, because a malformed credential can put an `@` after the delimiter that goes.
-    let full = url;
-    let url = match url.find(['?', '#']) {
+    // needs neither, so both go before anything else looks at the URL.
+    let trimmed = match url.find(['?', '#']) {
         Some(index) => &url[..index],
         None => url,
     };
+
+    // Dropping the delimiter can drop an `@` with it, which leaves nothing to tell a malformed
+    // credential (`https://user:token?x@host/owner/repo.git`) from a query that holds an `@`.
+    // What remains can be the credential itself, so the input is refused rather than stored.
+    if url.contains('@') && !trimmed.contains('@') {
+        return None;
+    }
+    let url = trimmed;
 
     // SCP-like SSH remotes (`git@host:owner/repo.git`) have no `://` authority to parse, and
     // the leading `git` is a fixed SSH username rather than a stored secret. A second `@` sits
@@ -253,7 +259,7 @@ fn strip_credentials(url: &str) -> Option<String> {
     }
 
     let Ok(mut parsed) = Url::parse(url) else {
-        return if full.contains('@') {
+        return if url.contains('@') {
             None
         } else {
             Some(url.to_string())
@@ -525,13 +531,18 @@ mod tests {
                 None,
             ),
             (
-                "a malformed credential holding a `?` before the `@` is refused",
+                "a `?` before the `@` is refused, because dropping the query drops the `@`",
                 "https://user:ghp_abc123?x@github.com/owner/repo.git",
                 None,
             ),
             (
-                "a malformed credential holding a `#` before the `@` is refused",
+                "a `#` before the `@` is refused for the same reason",
                 "https://user:ghp_abc123#x@github.com/owner/repo.git",
+                None,
+            ),
+            (
+                "the truncated prefix is refused even when it parses as a host on its own",
+                "https://ghp_abc123?suffix@github.com/owner/repo.git",
                 None,
             ),
             (
@@ -598,6 +609,16 @@ mod tests {
     fn get_repo_name_from_paths_never_returns_a_credential() {
         let (_dir, paths) = write_config("https://user:ghp_abc123@github.com/owner/repo.git");
         assert_eq!(get_repo_name_from_paths(&paths), Some("repo".to_string()));
+
+        // A truncated prefix parses as a host, which would otherwise name the repository
+        // after the credential.
+        let (dir, paths) = write_config("https://ghp_abc123?suffix@github.com/owner/repo.git");
+        let name = get_repo_name_from_paths(&paths).unwrap();
+        assert!(
+            !name.contains("ghp_abc123"),
+            "credential leaked into repo name: {name}"
+        );
+        assert_eq!(name, dir.path().file_name().unwrap().to_string_lossy());
 
         // A remote with no path would otherwise name the repository after the authority.
         let (dir, paths) = write_config("https://user:ghp_abc123@github.com");
