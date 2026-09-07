@@ -111,3 +111,13 @@ export const DollarPropertiesOnPersonHidden: Story = {
         )
     },
 }
+
+export const LongValues: Story = {
+    render: () => {
+        const properties = {
+            $current_url: `https://example.com/checkout?${'utm_content=a-very-long-tracking-value&'.repeat(60)}`,
+            short_value: 'unaffected',
+        }
+        return <PropertiesTableComponent type={PropertyDefinitionType.Event} properties={properties} />
+    },
+}
