@@ -1845,6 +1845,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 posthog.capture('sql-editor-index-quickfix-applied')
             },
             fixIndexUsageWithAI: ({ prompt }) => {
+                // The prompt names a filter the server found in the text it analyzed. Sending it with
+                // newer text asks for a rewrite of a filter that may no longer be there. The editor
+                // lightbulb can still offer the action in that window, so the guard lives here rather
+                // than only on the table button, and it says why instead of doing nothing.
+                if (values.indexReportStale) {
+                    lemonToast.info('Still checking the latest version of this query. Try again in a moment.')
+                    return
+                }
                 // The error fixer takes free text as its "error", so an index instruction rides the
                 // same suggestion flow and lands as a reviewable diff rather than a silent rewrite.
                 actions.fixErrors(values.queryInput ?? '', prompt, values.selectedConnectionId)

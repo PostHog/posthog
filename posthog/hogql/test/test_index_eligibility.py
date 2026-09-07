@@ -1,3 +1,4 @@
+from enum import StrEnum
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -7,7 +8,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse
+from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    PredicateFixAction as SchemaPredicateFixAction,
+    PredicateIndexVerdict as SchemaPredicateIndexVerdict,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -104,6 +111,23 @@ def _plan(
         source_matches_semantics=blocker != PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE,
         minmax_blocker=blocker,
     )
+
+
+class TestIndexEnumsMatchTheSchema(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fix_action", PredicateFixAction, SchemaPredicateFixAction),
+            ("verdict", PredicateIndexVerdict, SchemaPredicateIndexVerdict),
+        ]
+    )
+    def test_wire_values_match_the_generated_enum(
+        self, _name: str, local: type[StrEnum], generated: type[StrEnum]
+    ) -> None:
+        # These enums are deliberately declared twice: the local one carries the ClickHouse reasoning
+        # in its docstrings, and keeping it off the generated schema keeps that module off this
+        # module's import path. `metadata.py` converts by value, so a new member added on one side
+        # only raises once a query happens to produce it.
+        assert {member.value for member in local} == {member.value for member in generated}
 
 
 class TestIndexEligibilityVerdicts(SimpleTestCase):
