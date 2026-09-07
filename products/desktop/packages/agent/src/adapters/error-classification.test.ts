@@ -38,6 +38,10 @@ describe("classifyAgentError", () => {
       "[ede_diagnostic] result_type=assistant last_content_type=text stop_reason=null",
       "agent_error",
     ],
+    [
+      "Claude AI usage limit reached. Your limit will reset at 3pm.",
+      "subscription_usage_limit",
+    ],
     ["API Error: 400 invalid request", "agent_error"],
     // 413 is a hard client rejection, never a transient upstream failure.
     ["API Error: 413 Payload Too Large", "agent_error"],

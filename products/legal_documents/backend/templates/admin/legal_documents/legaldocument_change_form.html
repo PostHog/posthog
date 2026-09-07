@@ -1,0 +1,38 @@
+{% extends "admin/change_form.html" %}
+{% block extrastyle %}{{ block.super }}
+    <style>
+  /* Django styles object-tools entries as anchors. The refetch control changes
+     state, so it is a POST form, and it borrows those styles to match. */
+  .object-tools form { display: inline; }
+  .object-tools form button {
+    /* Match the anchor box exactly: buttons default to border-box and a normal
+       line-height, which makes the pill shorter than its neighbors. */
+    box-sizing: content-box;
+    line-height: 20px;
+    padding: 3px 12px;
+    border: none;
+    border-radius: 15px;
+    background: var(--object-tools-bg);
+    color: var(--object-tools-fg);
+    font-family: inherit;
+    font-size: 0.6875rem;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .object-tools form button:hover,
+  .object-tools form button:focus { background: var(--object-tools-hover-bg); }
+    </style>
+{% endblock %}
+{% block object-tools-items %}
+    {% if refetch_pdf_url %}
+        <li>
+            <form method="post" action="{{ refetch_pdf_url }}">
+                {% csrf_token %}
+                <button type="submit">Refetch PDF from PandaDoc</button>
+            </form>
+        </li>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}

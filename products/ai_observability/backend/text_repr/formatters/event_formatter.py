@@ -180,7 +180,7 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
 def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """
     Generate text representation of an evaluation event.
-    Shows the evaluation name, result (pass/fail/N/A), and reasoning.
+    Shows the evaluation name, result (true/false/N/A), and reasoning.
     """
     lines: list[str] = []
     props = event.get("properties", {})
@@ -196,9 +196,9 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     if applicable is False or applicable == "false":
         result_str = "N/A"
     elif result is True or result == "true":
-        result_str = "PASS"
+        result_str = "true"
     elif result is False or result == "false":
-        result_str = "FAIL"
+        result_str = "false"
     else:
         result_str = "UNKNOWN"
 
