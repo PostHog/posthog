@@ -115,7 +115,9 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     Best-effort: any parsing/resolution failure degrades to no lineage rather than failing enrichment.
     """
     try:
-        parent_names = get_parents_from_model_query(team, saved_query.name, query_str)
+        parent_names = get_parents_from_model_query(
+            team, saved_query.name, query_str, schema_name=(saved_query.query or {}).get("schemaName")
+        )
     except Exception as e:
         capture_exception(e)
         return []

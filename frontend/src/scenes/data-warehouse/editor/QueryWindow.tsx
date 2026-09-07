@@ -262,7 +262,7 @@ export function QueryWindow({
                         isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                     )}
                 >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <ExpandDatabaseTreeButton
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
@@ -581,5 +581,5 @@ function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQ
         return null
     }
 
-    return <ConnectionSelector tabId={tabId} />
+    return <ConnectionSelector tabId={tabId} inline />
 }

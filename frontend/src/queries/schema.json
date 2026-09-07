@@ -20494,6 +20494,13 @@
                     },
                     "type": "array"
                 },
+                "schemas": {
+                    "description": "Schemas containing accessible tables in the selected connection.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "tables": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaTable"
@@ -29489,6 +29496,10 @@
                 "response": {
                     "$ref": "#/definitions/HogQLAutocompleteResponse"
                 },
+                "schemaName": {
+                    "description": "Default schema for unqualified table names. Defaults to posthog, or the selected connection's default.",
+                    "type": "string"
+                },
                 "sourceQuery": {
                     "$ref": "#/definitions/AnyDataNode",
                     "description": "Query in whose context to validate."
@@ -29607,6 +29618,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLMetadataResponse"
+                },
+                "schemaName": {
+                    "description": "Default schema for unqualified table names. Defaults to posthog, or the selected connection's default.",
+                    "type": "string"
                 },
                 "sourceQuery": {
                     "$ref": "#/definitions/AnyDataNode",
@@ -29754,6 +29769,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
+                },
+                "schemaName": {
+                    "description": "Default schema for unqualified table names. Defaults to posthog, or the selected connection's default.",
+                    "type": "string"
                 },
                 "sendRawQuery": {
                     "description": "Run the selected connection query directly without translating it through HogQL first",
@@ -46226,6 +46245,13 @@
                         "joins": {
                             "items": {
                                 "$ref": "#/definitions/DataWarehouseViewLink"
+                            },
+                            "type": "array"
+                        },
+                        "schemas": {
+                            "description": "Schemas containing accessible tables in the selected connection.",
+                            "items": {
+                                "type": "string"
                             },
                             "type": "array"
                         },

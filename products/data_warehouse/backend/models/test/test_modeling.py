@@ -218,21 +218,24 @@ class TestModelPath(BaseTest):
         self.assertEqual(len(paths), 1)
         self.assertIn([table.id.hex, saved_query.id.hex], paths)
 
-    def test_create_from_warehouse_table_new_notation_nodes_query(self):
+    @parameterized.expand([("qualified", "stripe.invoice", None), ("selected_schema", "invoice", "stripe")])
+    def test_create_from_warehouse_table_new_notation_nodes_query(
+        self, _name: str, table_name: str, schema_name: str | None
+    ) -> None:
         """Test creation of a model path from a query that reads from a managed source using new notation."""
 
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
         table = DataWarehouseTable.objects.create(team=self.team, name="stripe_invoice", external_data_source=source)
         ExternalDataSchema.objects.create(team=self.team, name="Invoice", source=source, table=table)
 
-        query = """\
+        query = f"""\
           select *
-          from stripe.invoice
+          from {table_name}
         """
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="my_model",
-            query={"query": query},
+            query={"query": query, "schemaName": schema_name},
         )
 
         model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
@@ -240,6 +243,11 @@ class TestModelPath(BaseTest):
 
         self.assertEqual(len(paths), 1)
         self.assertIn([table.id.hex, saved_query.id.hex], paths)
+
+        DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
+        assert get_parents_from_model_query(self.team, saved_query.name, query, schema_name=schema_name) == {
+            "stripe.invoice"
+        }
 
     def test_create_from_table_functions_root_nodes_query(self):
         """Table functions like numbers() are not real parents — they produce root nodes."""

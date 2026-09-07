@@ -591,6 +591,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             }
 
             setFiltersHashParam(shareUrl, sourceQuery.source.filters)
+            if (sourceQuery.source.schemaName) {
+                const hash = new URLSearchParams(shareUrl.hash.slice(1))
+                hash.set('schema', sourceQuery.source.schemaName)
+                shareUrl.hash = hash.toString()
+            }
 
             void copyToClipboard(shareUrl.toString(), 'share link')
         },

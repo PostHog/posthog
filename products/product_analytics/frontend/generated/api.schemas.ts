@@ -5772,6 +5772,8 @@ export interface HogQLQueryApi {
     name?: string | null
     query: string
     response?: HogQLQueryResponseApi | null
+    /** Default schema for unqualified table names. Defaults to posthog, or the selected connection's default. */
+    schemaName?: string | null
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean | null
     tags?: QueryLogTagsApi | null

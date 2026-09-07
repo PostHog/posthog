@@ -432,6 +432,9 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
             hash['raw'] = '1'
         }
     }
+    if (values.sourceQuery.source.schemaName) {
+        hash['schema'] = values.sourceQuery.source.schemaName
+    }
     const filters = normalizeFiltersForUrl(values.sourceQuery?.source.filters)
     if (filters) {
         hash['filters'] = filters
@@ -548,7 +551,7 @@ export interface sqlEditorLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
-    database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
+    database: DatabaseSchemaQueryResponse | null // databaseTableListLogic
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
@@ -597,11 +600,13 @@ export interface sqlEditorLogicValues {
     originalQueryInput: string | null | undefined
     queryInput: string | null
     rejectText: string
+    schemaNames: string[]
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
     selectedDirectSource: ExternalDataSource | undefined
     selectedQueryColumns: Record<string, boolean>
     selectedQueryTablesAndColumns: Record<string, Record<string, boolean>>
+    selectedSchemaName: string | undefined
     sendRawQueryEnabled: boolean
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
@@ -1092,6 +1097,9 @@ export interface sqlEditorLogicActions {
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null
     }
+    setSchemaName: (schemaName: string | undefined) => {
+        schemaName: string | undefined
+    }
     setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => {
         tablesAndColumns: Record<string, Record<string, boolean>>
     }
@@ -1164,9 +1172,22 @@ export interface sqlEditorLogicMeta {
         ) => string | null | undefined
         editingView: (activeTab: QueryTab | null) => DataWarehouseSavedQuery | undefined
         editingMetricName: (activeTab: QueryTab | null) => string | null
-        changesToSave: (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => boolean
+        changesToSave: (
+            editingView: DataWarehouseSavedQuery | undefined,
+            queryInput: string | null,
+            sourceQuery: DataVisualizationNode
+        ) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
+        selectedSchemaName: (
+            sourceQuery: DataVisualizationNode,
+            selectedConnectionId: string | undefined
+        ) => string | undefined
+        schemaNames: (
+            database: DatabaseSchemaQueryResponse | null,
+            selectedConnectionId: string | undefined,
+            databaseConnectionId: string | null
+        ) => string[]
         selectedDirectSource: (
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             selectedConnectionId: string | undefined
@@ -1444,6 +1465,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             viewId,
         }),
         syncUrlWithQuery: true,
+        setSchemaName: (schemaName: string | undefined) => ({ schemaName }),
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
@@ -1903,9 +1925,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const tabName = insight ? (insight.name ?? NEW_QUERY) : draft?.name || view?.name || NEW_QUERY
                 const tabDescription = insight?.description ?? ''
                 const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
+                const savedSource = draft?.query ?? view?.query
                 const insightVisualizationQuery = rawInsightVisualizationQuery
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
-                    : undefined
+                    : savedSource
+                      ? sanitizeSourceQuery({
+                            ...values.sourceQuery,
+                            source: { ...savedSource, kind: NodeKind.HogQLQuery, query: query || savedSource.query },
+                        })
+                      : undefined
 
                 if (props.monaco) {
                     const uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
@@ -1941,6 +1969,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
                 if (insightVisualizationQuery) {
+                    if (savedSource && !rawInsightVisualizationQuery) {
+                        actions.setSourceQuery(insightVisualizationQuery)
+                    }
                     actions.setLastRunQuery(insightVisualizationQuery)
                 }
                 if (query) {
@@ -1985,6 +2016,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...currentSourceQuery.source,
                         sendRawQuery: sendRawQuery || undefined,
                     },
+                })
+                actions.syncUrlWithQuery()
+            },
+            setSchemaName: ({ schemaName }) => {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: { ...values.sourceQuery.source, schemaName },
                 })
                 actions.syncUrlWithQuery()
             },
@@ -3066,6 +3104,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }
     }),
     subscriptions(({ actions, values, cache, props }) => ({
+        selectedSchemaName: () => {
+            cache.subqueryValidationCache?.clear()
+            cache.scheduleActiveQueryDecoration?.()
+        },
         queryInput: (queryInput: string | null) => {
             // Subquery validation results are keyed by subquery text — but the same text
             // may now refer to a subquery with different surrounding context, so drop
@@ -3221,9 +3263,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         changesToSave: [
-            (s) => [s.editingView, s.queryInput],
-            (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => {
-                return editingView?.query?.query !== queryInput
+            (s) => [s.editingView, s.queryInput, s.sourceQuery],
+            (
+                editingView: DataWarehouseSavedQuery | undefined,
+                queryInput: string | null,
+                sourceQuery: DataVisualizationNode
+            ) => {
+                return (
+                    editingView?.query?.query !== queryInput ||
+                    (editingView?.query?.schemaName ?? (editingView?.query?.connectionId ? undefined : 'posthog')) !==
+                        (sourceQuery.source.schemaName ?? (sourceQuery.source.connectionId ? undefined : 'posthog'))
+                )
             },
         ],
         exportContext: [
@@ -3245,6 +3295,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ? sourceQuery.source.connectionId
                     : undefined
             },
+        ],
+        selectedSchemaName: [
+            (s) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery: DataVisualizationNode, connectionId: string | undefined): string | undefined =>
+                sourceQuery.source.schemaName ?? (connectionId ? undefined : 'posthog'),
+        ],
+        schemaNames: [
+            (s) => [s.database, s.selectedConnectionId, s.databaseConnectionId],
+            (
+                database: DatabaseSchemaQueryResponse | null,
+                connectionId: string | undefined,
+                databaseConnectionId: string | null
+            ): string[] =>
+                (connectionId ?? null) === databaseConnectionId
+                    ? (database?.schemas ?? (connectionId ? [] : ['posthog']))
+                    : connectionId
+                      ? []
+                      : ['posthog'],
         ],
         selectedDirectSource: [
             (s) => [s.dataWarehouseSources, s.selectedConnectionId],
@@ -3431,6 +3499,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const connectionIdFromHash =
                 typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
             const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
+            const schemaNameFromHash =
+                typeof hashParams.schema === 'string' && hashParams.schema !== '' ? hashParams.schema : undefined
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
             const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
@@ -3443,6 +3513,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             if (
                 connectionIdFromHash !== currentConnectionId ||
+                schemaNameFromHash !== values.sourceQuery.source.schemaName ||
                 sendRawQueryFromHash !== currentSendRawQuery ||
                 shouldSyncFilters
             ) {
@@ -3451,6 +3522,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
+                        schemaName: schemaNameFromHash,
                         sendRawQuery: sendRawQueryFromHash || undefined,
                         filters: filtersForSourceQuery,
                     },
@@ -3763,6 +3835,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             }
 
+            if (schemaNameFromHash !== undefined && schemaNameFromHash !== values.sourceQuery.source.schemaName) {
+                actions.setSchemaName(schemaNameFromHash)
+            }
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
                 actions.setConnection(expectedDatabaseConnectionId)
                 actions.loadDatabase(schemaLoadOptions(values.featureFlags))
@@ -3820,7 +3895,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!cache.subqueryValidationCache) {
                     cache.subqueryValidationCache = new Map<string, { errorMessage: string | null }>()
                 }
-                const cached = cache.subqueryValidationCache.get(subqueryText)
+                const cacheKey = JSON.stringify([values.selectedConnectionId, values.selectedSchemaName, subqueryText])
+                const cached = cache.subqueryValidationCache.get(cacheKey)
                 if (cached) {
                     return cached
                 }
@@ -3829,6 +3905,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         kind: NodeKind.HogQLMetadata,
                         language: HogLanguage.hogQL,
                         query: subqueryText,
+                        connectionId: values.selectedConnectionId,
+                        schemaName: values.selectedSchemaName,
                     })
                     const errors = response?.errors ?? []
                     const result =
@@ -3837,7 +3915,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                   errorMessage: `This subquery may fail standalone:\n${errors.map((e) => e.message).join('\n')}`,
                               }
                             : { errorMessage: null }
-                    cache.subqueryValidationCache.set(subqueryText, result)
+                    cache.subqueryValidationCache.set(cacheKey, result)
                     return result
                 } catch {
                     return { errorMessage: 'This subquery may fail standalone' }

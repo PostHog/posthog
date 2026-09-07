@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconPin } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
@@ -27,15 +26,16 @@ const sourceIcon = (src: string): JSX.Element => (
 
 interface ConnectionSelectorProps {
     tabId: string
+    inline?: boolean
 }
 
-export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
+export function ConnectionSelector({ tabId, inline = false }: ConnectionSelectorProps): JSX.Element | null {
     const logic = sqlEditorLogic({ tabId })
-    const { sourceQuery, selectedConnectionId } = useValues(logic)
+    const { sourceQuery, selectedConnectionId, selectedSchemaName, schemaNames, sendRawQueryEnabled } = useValues(logic)
     const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
         useValues(connectionSelectorLogic())
     const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
-    const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+    const { setSourceQuery, syncUrlWithQuery, setSchemaName } = useActions(logic)
 
     useOnMountEffect(() => {
         maybeLoadConnectionOptions()
@@ -54,12 +54,12 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
         }
 
     return (
-        <div className="flex flex-col gap-1 flex-1 min-w-0">
+        <div className={cn('flex min-w-0', inline ? 'flex-row gap-2' : 'flex-1 flex-col gap-1')}>
             <LemonSelect
                 size="small"
-                fullWidth
+                fullWidth={!inline}
                 // Long connection names must fit within the resizable database sidebar.
-                className="min-w-0"
+                className={cn('min-w-0', inline && 'max-w-48')}
                 truncateText={{ maxWidthClass: 'max-w-full' }}
                 value={connectionSelectorValue}
                 onChange={(nextValue) => {
@@ -69,6 +69,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                             source: {
                                 ...sourceQuery.source,
                                 connectionId: undefined,
+                                schemaName: undefined,
                                 sendRawQuery: undefined,
                             },
                         } as typeof sourceQuery)
@@ -94,6 +95,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                         source: {
                             ...sourceQuery.source,
                             connectionId: nextValue,
+                            schemaName: undefined,
                             sendRawQuery: undefined,
                         },
                     } as typeof sourceQuery)
@@ -103,24 +105,24 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     options: group.options.map(toLemonSelectOption),
                 }))}
             />
-            {!selectedConnectionId && (
-                <div className="flex items-center gap-1 text-xs text-secondary">
-                    Default schema:
-                    <Tooltip
-                        title={
-                            <>
-                                Table names without a schema resolve in <code>posthog</code> first. For example,{' '}
-                                <code>events</code> uses <code>posthog.events</code>. Use a qualified table name to
-                                query another schema.
-                            </>
-                        }
-                    >
-                        <LemonTag type="muted" size="small" weight="normal" tabIndex={0}>
-                            <code>posthog</code>
-                        </LemonTag>
-                    </Tooltip>
-                </div>
-            )}
+            <LemonSelect
+                size="small"
+                fullWidth={!inline}
+                className={cn('min-w-0', inline && 'max-w-40')}
+                truncateText={{ maxWidthClass: 'max-w-full' }}
+                icon={<IconPin />}
+                aria-label="Default schema"
+                data-attr="sql-editor-schema-selector"
+                value={sendRawQueryEnabled ? '' : (selectedSchemaName ?? '')}
+                onChange={(schemaName) => setSchemaName(schemaName || undefined)}
+                disabledReason={sendRawQueryEnabled ? 'Switch to HogQL to choose a default schema' : undefined}
+                options={[
+                    ...(selectedConnectionId ? [{ value: '', label: 'Connection default schema' }] : []),
+                    ...Array.from(new Set([...schemaNames, ...(selectedSchemaName ? [selectedSchemaName] : [])])).map(
+                        (schemaName) => ({ value: schemaName, label: schemaName })
+                    ),
+                ]}
+            />
         </div>
     )
 }

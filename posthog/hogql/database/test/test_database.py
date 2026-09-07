@@ -52,6 +52,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     LazyJoin,
     LazyTable,
+    SavedQuery,
     StringDatabaseField,
     Table,
     TableNode,
@@ -161,6 +162,71 @@ class TestBuildDatabaseRootNode(TestCase):
         )
         assert "event" in database.get_table("ai_events").fields
         assert "warehouse_id" not in database.get_table("ai_events").fields
+
+    def test_selected_schema_resolves_tables_without_changing_other_queries(self) -> None:
+        database = Database()
+        warehouse_events = Table(name="stripe.events", fields={"invoice_id": StringDatabaseField(name="invoice_id")})
+        database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "stripe": TableNode(
+                        name="stripe", children={"events": TableNode(name="events", table=warehouse_events)}
+                    )
+                }
+            )
+        )
+        context = HogQLContext(team_id=1, database=database, schema_name="stripe")
+        for query, expected in [
+            ("SELECT invoice_id FROM events", warehouse_events),
+            ("SELECT invoice_id FROM stripe.events", warehouse_events),
+            ("SELECT event FROM posthog.events", database.get_table("events")),
+        ]:
+            resolved = resolve_types(parse_select(query), context, dialect="hogql")
+            assert isinstance(resolved, ast.SelectQuery)
+            assert resolved.select_from is not None
+            assert isinstance(resolved.select_from.type, ast.BaseTableType)
+            assert resolved.select_from.type.resolve_database_table(context) is expected
+        resolve_types(
+            parse_select("WITH events AS (SELECT 1 AS value) SELECT value FROM events"), context, dialect="hogql"
+        )
+        with pytest.raises(QueryError, match="Unknown table `stripe.persons`"):
+            resolve_types(parse_select("SELECT * FROM persons"), context, dialect="hogql")
+        with pytest.raises(QueryError, match="Unknown schema `missing`"):
+            database.get_table("events", schema_name="missing")
+        assert database.get_table("events") is database.get_table("posthog.events")
+        assert {"posthog", "stripe"} <= set(database.get_schema_names())
+
+    def test_saved_views_resolve_in_their_own_schema(self) -> None:
+        database = Database()
+        invoices = Table(name="stripe.invoices", fields={"invoice_id": StringDatabaseField(name="invoice_id")})
+        database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "stripe": TableNode(
+                        name="stripe", children={"invoices": TableNode(name="invoices", table=invoices)}
+                    ),
+                    "invoice_view": TableNode(
+                        name="invoice_view",
+                        table=SavedQuery(
+                            id="view-1",
+                            name="invoice_view",
+                            fields={},
+                            query="SELECT invoice_id FROM invoices",
+                            schema_name="stripe",
+                        ),
+                    ),
+                    "event_view": TableNode(
+                        name="event_view",
+                        table=SavedQuery(id="view-2", name="event_view", fields={}, query="SELECT event FROM events"),
+                    ),
+                }
+            )
+        )
+        for schema_name in [None, "posthog", "stripe"]:
+            context = HogQLContext(team_id=1, database=database, schema_name=schema_name)
+            resolve_types(parse_select("SELECT invoice_id FROM invoice_view"), context, dialect="hogql")
+            resolve_types(parse_select("SELECT event FROM event_view"), context, dialect="hogql")
+            assert context.schema_name == schema_name
 
     @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
     def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):

@@ -25,7 +25,10 @@ from parameterized import parameterized
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
+    HogLanguage,
     HogQLFilters,
+    HogQLMetadata,
+    HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     QueryTiming,
@@ -33,8 +36,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import TableNode
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
@@ -45,6 +51,7 @@ from posthog.hogql.test.utils import (
 )
 
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -103,6 +110,40 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
         return random_uuid
+
+    @parameterized.expand(
+        [
+            ("selected", "SELECT id FROM visitors LIMIT 0", "id"),
+            ("qualified_lazy", "SELECT id FROM posthog.persons LIMIT 0", "id"),
+            ("qualified_join", "SELECT posthog.events.person.id AS person_id FROM posthog.events LIMIT 0", "person_id"),
+        ]
+    )
+    def test_selected_schema_reaches_execution_metadata_and_lazy_expansion(
+        self, _name: str, query: str, column: str
+    ) -> None:
+        database = Database.create_for(team=self.team)
+        database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "analytics": TableNode(
+                        name="analytics",
+                        children={
+                            "visitors": TableNode(name="visitors", table=database.get_table("persons")),
+                            "raw_persons": TableNode(name="raw_persons", table=database.get_table("events")),
+                        },
+                    )
+                }
+            )
+        )
+        with patch.object(Database, "create_for", return_value=database):
+            response = HogQLQueryRunner(HogQLQuery(query=query, schemaName="analytics"), self.team).calculate()
+            metadata = get_hogql_metadata(
+                HogQLMetadata(query=query, language=HogLanguage.HOG_QL, schemaName="analytics"), self.team
+            )
+            assert metadata.isValid, metadata.errors
+        assert response.columns == [column]
+        assert response.results == []
+        assert response.error is None
 
     def test_extended_query_time(self):
         self.assertEqual(HOGQL_INCREASED_MAX_EXECUTION_TIME, 600)

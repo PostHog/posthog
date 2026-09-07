@@ -158,40 +158,69 @@ export const DatabaseSchemaTree: Story = {
                             return [
                                 200,
                                 {
-                                    tables: Object.fromEntries(
-                                        [
-                                            'events',
-                                            'persons',
-                                            'groups',
-                                            'sessions',
-                                            'ai_events',
-                                            'logs',
-                                            'metrics',
-                                            'session_replay_events',
-                                            'trace_spans',
-                                        ].map((name) => [
-                                            name,
-                                            {
-                                                id: name,
+                                    schemas: ['posthog', 'stripe', 'stripe.billing'],
+                                    joins: [],
+                                    tables: {
+                                        ...Object.fromEntries(
+                                            [
+                                                'events',
+                                                'persons',
+                                                'groups',
+                                                'sessions',
+                                                'ai_events',
+                                                'logs',
+                                                'metrics',
+                                                'session_replay_events',
+                                                'trace_spans',
+                                            ].map((name) => [
                                                 name,
-                                                type: 'posthog',
-                                                fields: {
-                                                    id: {
-                                                        name: 'id',
-                                                        type: 'string',
-                                                        hogql_value: 'id',
-                                                        schema_valid: true,
-                                                    },
-                                                    properties: {
-                                                        name: 'properties',
-                                                        type: 'json',
-                                                        hogql_value: 'properties',
-                                                        schema_valid: true,
+                                                {
+                                                    id: name,
+                                                    name,
+                                                    type: 'posthog',
+                                                    fields: {
+                                                        id: {
+                                                            name: 'id',
+                                                            type: 'string',
+                                                            hogql_value: 'id',
+                                                            schema_valid: true,
+                                                        },
+                                                        properties: {
+                                                            name: 'properties',
+                                                            type: 'json',
+                                                            hogql_value: 'properties',
+                                                            schema_valid: true,
+                                                        },
                                                     },
                                                 },
-                                            },
-                                        ])
-                                    ),
+                                            ])
+                                        ),
+                                        ...Object.fromEntries(
+                                            ['stripe.invoices', 'stripe.billing.customers'].map((name) => [
+                                                name,
+                                                {
+                                                    id: name,
+                                                    name,
+                                                    type: 'data_warehouse',
+                                                    format: 'Parquet',
+                                                    url_pattern: 'https://example.com/data/*.parquet',
+                                                    source: {
+                                                        id: 'example-stripe-source',
+                                                        source_type: 'Stripe',
+                                                        prefix: '',
+                                                    },
+                                                    fields: {
+                                                        id: {
+                                                            name: 'id',
+                                                            type: 'string',
+                                                            hogql_value: 'id',
+                                                            schema_valid: true,
+                                                        },
+                                                    },
+                                                },
+                                            ])
+                                        ),
+                                    },
                                 },
                             ]
                         }

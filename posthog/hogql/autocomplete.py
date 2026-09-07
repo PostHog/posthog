@@ -37,6 +37,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, find_hogql_aggregation, find_hogql_function
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
@@ -389,8 +390,10 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
 
         # Handle a base table
         table_chain = [str(e) for e in join_expr.table.chain]
-        if context.database.has_table(table_chain):
-            return context.database.get_table(table_chain)
+        try:
+            return context.database.get_table(table_chain, schema_name=context.schema_name)
+        except QueryError:
+            return None
     elif isinstance(join_expr.table, ast.SelectQuery):
         if join_expr.table.select_from is None:
             return None
@@ -573,7 +576,9 @@ def get_hogql_autocomplete(
     else:
         database = Database.create_for(team=team, user=user, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database, timings=timings)
+    context = HogQLContext(
+        team_id=team.pk, team=team, user=user, database=database, timings=timings, schema_name=query.schemaName
+    )
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
@@ -700,7 +705,13 @@ def get_hogql_autocomplete(
                 try:
                     select_ast = cast(
                         ast.SelectQuery,
-                        replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team, database=database),
+                        replace_filters(
+                            cast(ast.SelectQuery, select_ast),
+                            query.filters,
+                            team,
+                            database=database,
+                            schema_name=query.schemaName,
+                        ),
                     )
                 except Exception:
                     pass
@@ -891,6 +902,21 @@ def get_hogql_autocomplete(
                             ]
                         )
                     )
+
+                    if query.schemaName:
+                        if query.schemaName != "posthog":
+                            table_names = [
+                                name for name in table_names if not database.tables.has_child(["posthog", name])
+                            ]
+                        prefix = f"{query.schemaName}."
+                        table_names = list(
+                            dict.fromkeys(
+                                [
+                                    *table_names,
+                                    *(name.removeprefix(prefix) for name in table_names if name.startswith(prefix)),
+                                ]
+                            )
+                        )
 
                     if len(node.chain) == 1:
                         extend_responses(

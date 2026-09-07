@@ -233,7 +233,9 @@ class BoundedResolver(Resolver):
             and self.ctes.get(".".join(str(n) for n in node.table.chain)) is None
         ):
             try:
-                database_table = self.database.get_table([str(n) for n in node.table.chain])
+                database_table = self.database.get_table(
+                    [str(n) for n in node.table.chain], schema_name=self.context.schema_name
+                )
             except QueryError:
                 pass  # falls through to the parent class
             else:
@@ -462,7 +464,7 @@ def _select_queries_with_scope(
 
 
 def get_parents_from_model_query(
-    team: Team, model_name: str, model_query: str, database: Database | None = None
+    team: Team, model_name: str, model_query: str, database: Database | None = None, *, schema_name: str | None = None
 ) -> set[str]:
     """Get parents from a given query.
 
@@ -484,6 +486,7 @@ def get_parents_from_model_query(
         team_id=team.pk,
         team=team,
         enable_select_queries=True,
+        schema_name=schema_name,
     )
     context.database = database
     if context.database is None:
@@ -576,6 +579,8 @@ def get_parents_from_model_query(
                 if isinstance(parent_name, str):
                     cte = _lookup_cte(parent_name, scope)
                     if cte is None:
+                        if schema_name and context.database:
+                            parent_name = ".".join(context.database.resolve_table_name(parent_name, schema_name))
                         parents.add(parent_name)
                     elif id(cte) not in expanded_ctes:
                         expanded_ctes.add(id(cte))
@@ -727,6 +732,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             saved_query_id=saved_query.id,
             created_by=saved_query.created_by,
             label=saved_query.id.hex,
+            schema_name=saved_query.query.get("schemaName") if isinstance(saved_query.query, dict) else None,
         )
 
     def create_leaf_paths_from_query(
@@ -738,6 +744,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         saved_query_id: uuid.UUID,
         created_by: User | None = None,
         table_id: uuid.UUID | None = None,
+        schema_name: str | None = None,
     ) -> "list[DataWarehouseModelPath]":
         """Create all paths to a new leaf model.
 
@@ -747,7 +754,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             if self.filter(team=team, saved_query_id=saved_query_id).exists():
                 raise ModelPathAlreadyExistsError(saved_query_id.hex)
 
-            parent_paths = self.get_or_create_query_parent_paths(team, model_name, model_query)
+            parent_paths = self.get_or_create_query_parent_paths(team, model_name, model_query, schema_name=schema_name)
 
             # If we don't have any parent paths then we can treat ourselves as a root node
             # This can happen when creating a query that returns a static set of rows, like a SELECT 1.e
@@ -826,11 +833,11 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         return self.filter(team=team, path__lquery=f"*.{leaf_id}")
 
     def get_or_create_query_parent_paths(
-        self, team: Team, model_name: str, model_query: str
+        self, team: Team, model_name: str, model_query: str, *, schema_name: str | None = None
     ) -> list["DataWarehouseModelPath"]:
         """Get a list of model paths for a query's parents, creating root nodes if they do not exist."""
         parent_paths = []
-        for parent in get_parents_from_model_query(team, model_name, model_query):
+        for parent in get_parents_from_model_query(team, model_name, model_query, schema_name=schema_name):
             try:
                 parent_query = (
                     DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=parent).get()
@@ -889,6 +896,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             model_query=model_query,
             label=saved_query.id.hex,
             saved_query_id=saved_query.id,
+            schema_name=saved_query.query.get("schemaName") if isinstance(saved_query.query, dict) else None,
         )
 
     def update_paths_from_query(
@@ -899,6 +907,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         label: str,
         saved_query_id: uuid.UUID | None = None,
         table_id: uuid.UUID | None = None,
+        schema_name: str | None = None,
     ) -> None:
         """Update all model paths from a given query.
 
@@ -909,7 +918,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         This may lead to duplicate paths, so we have to defer constraints, until the end of
         the transaction and clean them up.
         """
-        parents = get_parents_from_model_query(team, model_name, model_query)
+        parents = get_parents_from_model_query(team, model_name, model_query, schema_name=schema_name)
         # Dependencies retain the spelling used in SQL, so recognize both PostHog table aliases.
         database = self.get_hogql_database(team)
         posthog_table_names = set(database.get_posthog_table_names(include_hidden=True))

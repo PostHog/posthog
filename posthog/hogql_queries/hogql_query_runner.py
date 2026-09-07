@@ -204,7 +204,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 # once, instead of replace_filters building a throwaway one. With a connection id the
                 # schema is the external connection's, so keep the per-call build there.
                 database = self.shared_database if self.query.connectionId is None else None
-                parsed_select = replace_filters(parsed_select, self.query.filters, self.team, database)
+                parsed_select = replace_filters(
+                    parsed_select, self.query.filters, self.team, database, schema_name=self.query.schemaName
+                )
         if self.query.variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
@@ -249,6 +251,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 timings=self.timings,
                 variables=self.query.variables,
                 connection_id=self.query.connectionId,
+                schema_name=self.query.schemaName,
                 limit_context=self.limit_context,
                 workload=self.workload,
                 ch_user=self.ch_user,
@@ -291,6 +294,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             timings=self.timings,
             variables=self.query.variables,
             connection_id=self.query.connectionId,
+            schema_name=self.query.schemaName,
             limit_context=self.limit_context,
             workload=self.workload,
             ch_user=self.ch_user,

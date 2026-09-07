@@ -722,7 +722,9 @@ class Database(BaseModel):
 
         return self.tables.get_child(table_name)
 
-    def get_table(self, table_name: str | list[str]) -> Table:
+    def get_table(self, table_name: str | list[str], *, schema_name: str | None = None) -> Table:
+        if schema_name:
+            table_name = self.resolve_table_name(table_name, schema_name)
         try:
             table = cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
@@ -739,6 +741,38 @@ class Database(BaseModel):
             self._ensure_foreign_keys_built()
 
         return table
+
+    def resolve_table_name(self, table_name: str | list[str], schema_name: str) -> list[str]:
+        parts = table_name.split(".") if isinstance(table_name, str) else table_name
+        if len(parts) > 1 and self.tables.has_child(parts):
+            return parts
+        schema_parts = schema_name.split(".")
+        try:
+            schema = self.tables.get_child(schema_parts)
+        except ResolutionError as error:
+            raise QueryError(f"Unknown schema `{schema_name}`.") from error
+        if schema.table is not None or not schema.children:
+            raise QueryError(f"Unknown schema `{schema_name}`.")
+        qualified = [*schema_parts, *parts]
+        if schema.has_child(parts) or self.is_table_access_denied(qualified):
+            return qualified
+        if len(parts) > 1:
+            return parts
+        if schema_name != "posthog" and self.tables.has_child(["posthog", *parts]):
+            return qualified
+        return parts
+
+    def get_schema_names(self) -> list[str]:
+        def visit(node: TableNode, path: list[str]) -> list[str]:
+            names = []
+            if path and any(child.table is not None and not child.hidden for child in node.children.values()):
+                names.append(".".join(path))
+            for key, child in node.children.items():
+                if child.table is None and not child.hidden:
+                    names.extend(visit(child, [*path, key]))
+            return names
+
+        return sorted(visit(self.tables, []))
 
     def _should_build_foreign_keys_for(self, table_name: str | list[str]) -> bool:
         trigger_names = self._foreign_key_trigger_names

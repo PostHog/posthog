@@ -9,6 +9,7 @@ import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import {
+    applySchemaToTree,
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
     getSidebarPropertyDefinitionTarget,
@@ -33,6 +34,39 @@ const jsonField = (name = 'properties'): DatabaseSchemaField => ({
 })
 
 describe('queryDatabaseLogic', () => {
+    it('changes queryable names with the selected schema while preserving column hydration identities', () => {
+        const items = [
+            { id: 'table-events', name: 'events', record: { type: 'table', table: { type: 'posthog' } } },
+            {
+                id: 'table-stripe.invoices',
+                name: 'stripe.invoices',
+                record: { type: 'table', table: { type: 'data_warehouse' } },
+            },
+            {
+                id: 'table-stripe.billing.invoices',
+                name: 'stripe.billing.invoices',
+                record: { type: 'table', table: { type: 'data_warehouse' } },
+            },
+        ]
+        expect(applySchemaToTree(items, 'posthog').map((item) => item.record?.queryName)).toEqual([
+            'events',
+            'stripe.invoices',
+            'stripe.billing.invoices',
+        ])
+        const stripeTree = applySchemaToTree(items, 'stripe')
+        expect(stripeTree.map((item) => item.record?.queryName)).toEqual([
+            'posthog.events',
+            'invoices',
+            'billing.invoices',
+        ])
+        expect(stripeTree.map((item) => item.id)).toEqual(items.map((item) => item.id))
+        expect(stripeTree.map((item) => item.name)).toEqual(items.map((item) => item.name))
+        expect(applySchemaToTree(items, 'stripe.billing').map((item) => item.displayName)).toEqual([
+            'posthog.events',
+            'stripe.invoices',
+            'invoices',
+        ])
+    })
     it('shows popular shortcuts and the complete catalog, with one result per table when searching', async () => {
         initKeaTests()
         localStorage.clear()

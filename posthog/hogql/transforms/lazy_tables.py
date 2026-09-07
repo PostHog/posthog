@@ -568,7 +568,11 @@ class LazyTableResolver(TraversingVisitor):
             subquery = cast(
                 ast.SelectQuery,
                 resolve_types(
-                    subquery, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
+                    subquery,
+                    dataclasses.replace(self.context, schema_name=None),
+                    self.dialect,
+                    [select_type],
+                    resolver_factory=self.resolver_factory,
                 ),
             )
             if self.context.property_swapper is not None:
@@ -626,7 +630,11 @@ class LazyTableResolver(TraversingVisitor):
             join_to_add = cast(
                 ast.JoinExpr,
                 resolve_types(
-                    join_to_add, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
+                    join_to_add,
+                    dataclasses.replace(self.context, schema_name=None),
+                    self.dialect,
+                    [select_type],
+                    resolver_factory=self.resolver_factory,
                 ),
             )
             if self.context.property_swapper is not None:

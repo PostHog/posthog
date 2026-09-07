@@ -253,7 +253,9 @@ def sync_saved_query_to_dag(
     # parse query to extract dependencies and create edges
     try:
         model_name = saved_query.name
-        dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
+        dependencies = get_parents_from_model_query(
+            team, model_name, model_query, database=database, schema_name=(saved_query.query or {}).get("schemaName")
+        )
         for dependency_name in dependencies:
             source = resolve_dependency_to_node(dependency_name, team, database, dag)
             Edge.objects.create(

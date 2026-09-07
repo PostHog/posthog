@@ -1769,14 +1769,14 @@ describe('sqlEditorLogic', () => {
             })
         })
 
-        it('offers every sidebar table while excluding hidden PostHog tables', () => {
+        it('offers every table returned in the sidebar catalog', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
 
             databaseLogic.actions.loadDatabaseSuccess({
                 tables: {
                     persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
-                    hidden_table: { id: 'hidden_table', name: 'hidden_table', type: 'posthog', fields: {} },
+                    ai_events: { id: 'ai_events', name: 'ai_events', type: 'posthog', fields: {} },
                     events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
                     sessions: { id: 'sessions', name: 'sessions', type: 'posthog', fields: {} },
                     groups: { id: 'groups', name: 'groups', type: 'posthog', fields: {} },
@@ -1794,6 +1794,7 @@ describe('sqlEditorLogic', () => {
             })
 
             expect(biLogic.values.availableDataSources).toEqual([
+                { table: 'ai_events', connectionId: undefined },
                 { table: 'custom_orders', connectionId: undefined },
                 { table: 'events', connectionId: undefined },
                 { table: 'groups', connectionId: undefined },
@@ -2363,6 +2364,42 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
+
+        it('persists schema selection with the query and restores it from the URL', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT * FROM invoices', schema: 'stripe' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            expect(logic.values.selectedSchemaName).toEqual('stripe')
+            expect(logic.values.sourceQuery.source.schemaName).toEqual('stripe')
+            await expectLogic(logic, () => logic.actions.setSchemaName('posthog')).toDispatchActions([
+                'setSourceQuery',
+                'updateTab',
+                'syncUrlWithQuery',
+            ])
+            expect(logic.values.activeTab?.sourceQuery?.source.schemaName).toEqual('posthog')
+            expect(router.values.hashParams.schema).toEqual('posthog')
+            expect(logic.values.queryInput).toEqual('SELECT * FROM invoices')
+        })
+
+        it.each(['view', 'draft'])(
+            'restores the saved schema when opening a %s and tracks schema-only edits',
+            async (kind) => {
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                const view = { ...MOCK_VIEW, query: { ...MOCK_VIEW.query, schemaName: 'stripe' } }
+                const draft = { ...MOCK_DRAFT, query: { ...MOCK_DRAFT.query, schemaName: 'stripe.billing' } }
+                await expectLogic(logic, () =>
+                    logic.actions.createTab('', view, undefined, kind === 'draft' ? draft : undefined)
+                ).toFinishAllListeners()
+                expect(logic.values.selectedSchemaName).toEqual(kind === 'draft' ? 'stripe.billing' : 'stripe')
+                if (kind === 'view') {
+                    expect(logic.values.changesToSave).toEqual(false)
+                    logic.actions.setSchemaName('posthog')
+                    expect(logic.values.changesToSave).toEqual(true)
+                }
+            }
+        )
 
         it('strips legacy top-level connection ids when source query changes', async () => {
             logic = sqlEditorLogic({

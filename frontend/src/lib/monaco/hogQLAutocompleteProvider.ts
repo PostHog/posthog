@@ -134,6 +134,10 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
                 globals: logic.isMounted() ? logic.props.globals : undefined,
                 sourceQuery,
                 connectionId,
+                schemaName:
+                    logic.props.sourceQuery?.kind === NodeKind.HogQLQuery
+                        ? logic.props.sourceQuery.schemaName
+                        : undefined,
                 startPosition: startOffset - statementOffset,
                 endPosition: endOffset - statementOffset,
             },

@@ -83,15 +83,22 @@ The `posthog` folder contains the full available PostHog catalog, including tabl
 Tables explicitly marked as hidden stay out of the sidebar and autocomplete, and access controls and feature gates still apply.
 
 `posthog` is the default namespace for built-in tables.
-The SQL editor shows **Default schema: posthog** below the database selector, including when the sidebar is collapsed.
+Choose a default schema using the schema selector or the pin beside a schema in the sidebar.
+The filled pin marks the active schema; new PostHog queries default to `posthog`.
 For example, `SELECT event FROM events` and `SELECT event FROM posthog.events` use the same table, project settings, and joins.
 This also applies to newer tables: both `ai_events` and `posthog.ai_events` work.
 Autocomplete supports both spellings and suggests table names after `posthog.`.
 
-An unqualified name resolves in `posthog` first, then falls back to warehouse tables and saved views.
-Use a warehouse source's qualified name when it collides with a PostHog table.
-Queries scoped to a direct database connection resolve against that connection's catalog instead.
-There is no schema selector or `USE` statement.
+An unqualified name resolves in the selected schema first, then falls back to root warehouse aliases and saved views.
+With `stripe` selected, use `invoices` for `stripe.invoices` and `posthog.events` for PostHog events.
+Sidebar table labels and copied names include the prefixes needed for the selected schema.
+Autocomplete and query validation use the same schema as execution.
+
+The `schemaName` field on `HogQLQuery`, `HogQLMetadata`, and `HogQLAutocomplete` carries this choice alongside `connectionId`.
+Saved queries and editor URLs preserve the choice. Saved views resolve their contents in their own saved schema.
+Omitting `schemaName` preserves the default `posthog` behavior, or the selected direct connection's default.
+Direct HogQL queries offer schemas from that connection's catalog. Raw SQL uses the connection's native schema settings;
+switch to HogQL to use the schema selector or sidebar pins. HogQL does not support `USE` statements.
 
 The catalog is defined in [hogql/database/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/database.py).
 Register new built-in tables under the `posthog` node so resolution and discovery include them automatically.

@@ -1455,6 +1455,27 @@ const createEndpointNode = (
     }
 }
 
+export const getTableQueryName = (tableName: string, tableType: string | undefined, schemaName?: string): string => {
+    const qualifiedName = tableType === 'posthog' && !tableName.includes('.') ? `posthog.${tableName}` : tableName
+    const prefix = schemaName ? `${schemaName}.` : ''
+    return prefix && qualifiedName.startsWith(prefix) ? qualifiedName.slice(prefix.length) : qualifiedName
+}
+
+export const applySchemaToTree = (items: TreeDataItem[], schemaName?: string): TreeDataItem[] =>
+    items.map((item) => ({
+        ...item,
+        ...(item.record?.type === 'table'
+            ? {
+                  displayName: getTableQueryName(item.name, item.record.table?.type, schemaName),
+                  record: {
+                      ...item.record,
+                      queryName: getTableQueryName(item.name, item.record.table?.type, schemaName),
+                  },
+              }
+            : {}),
+        ...(item.children ? { children: applySchemaToTree(item.children, schemaName) } : {}),
+    }))
+
 const createSourceFolderNode = (
     sourceType: string,
     tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable)[],
@@ -1482,6 +1503,31 @@ const createSourceFolderNode = (
     // Distinct ExternalDataSources behind this type folder, so it can link each to its edit page.
     // A type can have several sources (e.g. two Postgres connections), distinguished by prefix.
     const sourceTables = isSearch ? matches.map(([table]) => table) : tables
+    const schemaNames = new Set<string>(
+        sourceTables.map((table) => {
+            const name = getTableQueryName(table.name, table.type)
+            return name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : ''
+        })
+    )
+    const schemaName = schemaNames.size === 1 ? [...schemaNames][0] : undefined
+    const schemaChildren =
+        schemaNames.size > 1
+            ? [...schemaNames].sort().map((name) => ({
+                  id: `${sourceFolderId}-schema-${name || 'ungrouped'}`,
+                  name: name || 'Tables',
+                  type: 'node' as const,
+                  icon: <IconFolder />,
+                  record: { type: 'source-folder', schemaName: name || undefined },
+                  children: sourceChildren.filter((child) => {
+                      const qualifiedName = getTableQueryName(child.name, child.record?.table?.type)
+                      return (
+                          (qualifiedName.includes('.')
+                              ? qualifiedName.slice(0, qualifiedName.lastIndexOf('.'))
+                              : '') === name
+                      )
+                  }),
+              }))
+            : sourceChildren
     const sources: { id: string; label: string }[] = []
     const seenSourceIds = new Set<string>()
     sourceTables.forEach((table) => {
@@ -1496,7 +1542,7 @@ const createSourceFolderNode = (
 
     return {
         id: sourceFolderId,
-        name: sourceType === 'PostHog' ? 'posthog' : sourceType,
+        name: schemaName || (sourceType === 'PostHog' ? 'posthog' : sourceType),
         type: 'node',
         icon: (
             <SourceIcon
@@ -1517,8 +1563,9 @@ const createSourceFolderNode = (
             type: 'source-folder',
             sourceType,
             sources,
+            schemaName,
         },
-        children: sourceChildren,
+        children: schemaChildren,
     }
 }
 
@@ -1639,7 +1686,7 @@ const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[])
 const getDirectConnectionSchemaName = (tableNode: TreeDataItem, defaultSchemaName?: string | null): string | null => {
     const tableName =
         tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
+    const dotIndex = tableName.lastIndexOf('.')
 
     if (dotIndex > 0) {
         return tableName.slice(0, dotIndex)
@@ -1655,7 +1702,7 @@ const getDirectConnectionSchemaName = (tableNode: TreeDataItem, defaultSchemaNam
 const getDirectConnectionDisplayTableName = (tableNode: TreeDataItem): string => {
     const tableName =
         tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
+    const dotIndex = tableName.lastIndexOf('.')
 
     return dotIndex > 0 ? tableName.slice(dotIndex + 1) : tableName
 }
@@ -1684,7 +1731,7 @@ export const groupDirectConnectionTableNodesBySchema = (
         tablesBySchema.set(schemaName, currentNodes)
     })
 
-    const schemaFolders = Array.from(tablesBySchema.entries())
+    const schemaFolders: TreeDataItem[] = Array.from(tablesBySchema.entries())
         .sort(([leftSchema], [rightSchema]) => leftSchema.localeCompare(rightSchema))
         .map(([schemaName, schemaTables]) => ({
             id: `${isSearch ? 'search-' : ''}schema-${schemaName}`,
@@ -1694,6 +1741,7 @@ export const groupDirectConnectionTableNodesBySchema = (
             record: {
                 type: 'source-folder',
                 sourceType: schemaName,
+                schemaName,
             },
             children: [...schemaTables].sort((leftTable, rightTable) => leftTable.name.localeCompare(rightTable.name)),
         }))
@@ -3650,7 +3698,16 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         const sourceChildren = item.children ?? []
                         sourceChildren.forEach((sourceChild) => {
                             if (sourceChild.record?.type === 'source-folder') {
-                                flattenedTables.push(...(sourceChild.children ?? []))
+                                const collectTables = (children: TreeDataItem[]): void => {
+                                    children.forEach((child) => {
+                                        if (child.record?.type === 'source-folder') {
+                                            collectTables(child.children ?? [])
+                                        } else {
+                                            flattenedTables.push(child)
+                                        }
+                                    })
+                                }
+                                collectTables(sourceChild.children ?? [])
                                 return
                             }
 

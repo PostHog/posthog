@@ -70,7 +70,7 @@ const shouldPollSources = (): boolean => SOURCE_LIST_PATHS.includes(router.value
 export interface sourceManagementLogicValues {
     availableSources: Record<string, SourceConfig> | null // availableSourcesLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
-    database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
+    database: DatabaseSchemaQueryResponse | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic

@@ -15,7 +15,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField, TableNode
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
@@ -278,6 +279,42 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert {"events", "persons", "sessions", "ai_events", "metrics"} <= labels
         assert "system.activity_logs" not in labels
         assert "error_tracking_recent_issue_state" not in labels
+
+    def test_autocomplete_selected_schema_tables_and_columns(self) -> None:
+        database = Database()
+        invoices = HogQLDataWarehouseTable(
+            name="stripe.invoices",
+            url="https://example.com/invoices.parquet",
+            format="Parquet",
+            fields={"invoice_id": StringDatabaseField(name="invoice_id")},
+        )
+        database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "stripe": TableNode(
+                        name="stripe", children={"invoices": TableNode(name="invoices", table=invoices)}
+                    )
+                }
+            )
+        )
+        for query, position, expected, excluded in [
+            ("SELECT * FROM ", 14, {"invoices", "stripe.invoices", "posthog.events"}, {"events"}),
+            ("SELECT  FROM invoices", 7, {"invoice_id"}, {"event"}),
+        ]:
+            result = get_hogql_autocomplete(
+                query=HogQLAutocomplete(
+                    query=query,
+                    language=HogLanguage.HOG_QL,
+                    startPosition=position,
+                    endPosition=position,
+                    schemaName="stripe",
+                ),
+                team=self.team,
+                database_arg=database,
+            )
+            labels = {suggestion.label for suggestion in result.suggestions}
+            assert expected <= labels
+            assert not labels & excluded
 
     def test_autocomplete_table_name_dot_notation(self):
         query = "select event from events."

@@ -163,6 +163,9 @@ class TestQueryService(APIBaseTest):
         )
 
         assert set(shallow.tables.keys()) == set(full.tables.keys())
+        assert "posthog" in (full.schemas or [])
+        assert shallow.schemas == full.schemas == filtered.schemas
+        assert "error_tracking_recent_issue_state" not in full.tables
         assert all(table.fields == {} for table in shallow.tables.values())
         assert full.tables["events"].fields != {}
 

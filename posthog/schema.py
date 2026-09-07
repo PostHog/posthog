@@ -26778,6 +26778,12 @@ class HogQLQuery(BaseModel):
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str
     response: HogQLQueryResponse | None = None
+    schemaName: str | None = Field(
+        default=None,
+        description=(
+            "Default schema for unqualified table names. Defaults to posthog, or the selected connection's default."
+        ),
+    )
     sendRawQuery: bool | None = Field(
         default=None,
         description=("Run the selected connection query directly without translating it through HogQL first"),
@@ -29400,6 +29406,10 @@ class QueryResponseAlternative71(BaseModel):
         extra="forbid",
     )
     joins: list[DataWarehouseViewLink]
+    schemas: list[str] | None = Field(
+        default=None,
+        description="Schemas containing accessible tables in the selected connection.",
+    )
     tables: dict[
         str,
         DatabaseSchemaPostHogTable
@@ -29503,6 +29513,10 @@ class DatabaseSchemaQueryResponse(BaseModel):
         extra="forbid",
     )
     joins: list[DataWarehouseViewLink]
+    schemas: list[str] | None = Field(
+        default=None,
+        description="Schemas containing accessible tables in the selected connection.",
+    )
     tables: dict[
         str,
         DatabaseSchemaPostHogTable
@@ -31416,6 +31430,12 @@ class HogQLAutocomplete(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
     response: HogQLAutocompleteResponse | None = None
+    schemaName: str | None = Field(
+        default=None,
+        description=(
+            "Default schema for unqualified table names. Defaults to posthog, or the selected connection's default."
+        ),
+    )
     sourceQuery: (
         EventsNode
         | ActionsNode
@@ -31542,6 +31562,12 @@ class HogQLMetadata(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query: str = Field(..., description="Query to validate")
     response: HogQLMetadataResponse | None = None
+    schemaName: str | None = Field(
+        default=None,
+        description=(
+            "Default schema for unqualified table names. Defaults to posthog, or the selected connection's default."
+        ),
+    )
     sourceQuery: (
         EventsNode
         | ActionsNode
