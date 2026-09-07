@@ -1133,6 +1133,29 @@ describe('survey utils', () => {
             expect(query).not.toContain('is_completed_event')
         })
 
+        it.each([
+            ['the question charts', (survey: Survey, f: SurveyQueryFilters) => buildAggregateQuery(survey, f)],
+            ['the open text panel', (survey: Survey, f: SurveyQueryFilters) => buildOpenEndedQuery(survey, f)?.query],
+        ])('reads partially completed dismissals for %s only when the viewer asked for them', (_surface, build) => {
+            const survey = buildSurvey(true)
+
+            // A submission the respondent only ever dismissed has no `survey sent` event to read.
+            // Scanning that event alone hides answers the responses table already lists, so the
+            // switch would mean one thing in the table and another in the charts.
+            const withPartials = build(survey, buildFilters(survey, { includePartialResponses: true }))
+            // The dismissal branch stays parenthesized, so its `AND` cannot be read as part of
+            // the `survey sent` branch.
+            expect(withPartials).toContain(
+                `event = '${SurveyEventName.SENT}' OR (event == '${SurveyEventName.DISMISSED}'`
+            )
+            expect(withPartials).toContain(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED)
+            // The same submission key merges a dismissal with the `survey sent` event that
+            // followed it, so a submission that produced both stays one row.
+            expect(withPartials).toContain('GROUP BY submission_key')
+
+            expect(build(survey, buildFilters(survey))).not.toContain(SurveyEventName.DISMISSED)
+        })
+
         it('applies answer and archive filters to the merged answer, not to single events', () => {
             const survey = buildSurvey(true)
             const filters = buildFilters(survey, {

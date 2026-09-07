@@ -692,6 +692,12 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
+/** Matches a `survey dismissed` event carrying the answers a respondent gave before closing the survey. */
+function buildPartiallyCompletedDismissalEventFilter(): string {
+    return `event == '${SurveyEventName.DISMISSED}'
+        AND coalesce(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), '') == 'true'`
+}
+
 /**
  * Matches the `survey dismissed` events that carry the answers a respondent gave before they
  * closed the survey. When a `survey sent` event followed for the same submission it holds those
@@ -704,8 +710,7 @@ export function buildPartiallyCompletedDismissalFilter(survey: Survey, dateRange
     const submissionId = `properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\``
 
     return `(
-        event == '${SurveyEventName.DISMISSED}'
-        AND coalesce(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), '') == 'true'
+        ${buildPartiallyCompletedDismissalEventFilter()}
         AND (
             coalesce(${submissionId}, '') == ''
             OR ${submissionId} NOT IN (
@@ -844,11 +849,20 @@ function buildMergedSubmissionsSubquery(
         havingConditions.push(stripLeadingAnd(filters.archivedResponsesFilter))
     }
 
+    // A submission that was only ever dismissed has no `survey sent` event to read, so scanning
+    // that event alone leaves its answers out of every question chart and the open text panel,
+    // while the responses table already lists the submission. Grouping by submission key merges a
+    // dismissal with the `survey sent` event that followed it, so a submission that produced both
+    // still yields one row.
+    const eventScope = filters.includePartialResponses
+        ? `(event = '${SurveyEventName.SENT}' OR (${buildPartiallyCompletedDismissalEventFilter()}))`
+        : `event = '${SurveyEventName.SENT}'`
+
     return `SELECT ${outerColumns.join(',\n            ')}
         FROM (
             SELECT ${innerColumns.join(',\n                ')}
             FROM events
-            WHERE event = '${SurveyEventName.SENT}'
+            WHERE ${eventScope}
                 AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
                 ${filters.timestampFilter}
                 AND {filters}
