@@ -50,15 +50,19 @@ impl AppContext {
             .register("worker".to_string(), Duration::from_secs(60))
             .await;
 
-        let kafka_consumer =
-            SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
-
         let kafka_transactional_liveness = health_registry
             .register("transactional_kafka".to_string(), Duration::from_secs(30))
             .await;
 
         let transactional_producer =
             connect_transactional_producer(&config.kafka, &kafka_transactional_liveness).await?;
+
+        // Build the consumer only once Kafka answers. A consumer subscribes as it
+        // is built, and librdkafka holds a transport error on its queue until the
+        // first poll. A consumer built during an outage therefore hands that stale
+        // error to the first batch, and the worker panics on it.
+        let kafka_consumer =
+            SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
