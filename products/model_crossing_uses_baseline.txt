@@ -284,7 +284,6 @@ product_analytics.Insight posthog.api.sharing instance-many(filter) 1
 product_analytics.Insight posthog.api.sharing instance-single 1
 product_analytics.Insight posthog.api.sharing_publish_gate isinstance 1
 product_analytics.Insight posthog.caching.calculate_results isinstance 1
-product_analytics.Insight posthog.caching.warming instance-many(filter) 1
 product_analytics.Insight posthog.caching.warming instance-single 1
 product_analytics.Insight posthog.helpers.dashboard_templates write(create) 2
 product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata instance-many(filter) 1
