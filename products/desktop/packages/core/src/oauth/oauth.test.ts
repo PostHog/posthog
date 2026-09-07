@@ -1,3 +1,7 @@
+import {
+  parseDesktopPreviewManifest,
+  registerPreviewDeployment,
+} from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OAuthEnv, OAuthHost } from "./identifiers";
 import { OAuthService } from "./oauth";
@@ -251,5 +255,47 @@ describe("OAuthService deep-link callback handler", () => {
         scope: "",
       },
     });
+  });
+});
+
+describe("OAuthService callbacks in a preview build", () => {
+  const previewManifest = parseDesktopPreviewManifest({
+    schemaVersion: 1,
+    kind: "desktop-preview",
+    repository: "PostHog/posthog",
+    prNumber: 123,
+    commitSha: "1111111111111111111111111111111111111111",
+    backendOrigin: "https://preview.example.com",
+    gatewayBaseUrl: null,
+    oauthClientId: "example-public-client-id-1234",
+  });
+
+  afterEach(() => {
+    registerPreviewDeployment(null);
+  });
+
+  it("uses the loopback callback for other regions and the PR scheme for its own", async () => {
+    registerPreviewDeployment(previewManifest);
+    const { service, host, urlLauncher } = createDeps();
+    vi.mocked(host.waitForCode).mockImplementation(async (options) => {
+      options.onListening?.();
+      return "code";
+    });
+    fetchMock.mockResolvedValue(jsonResponse(TOKEN_RESPONSE));
+
+    await service.startFlow("us");
+    expect(host.waitForCode).toHaveBeenCalledTimes(1);
+    expect(String(urlLauncher.launch.mock.calls[0][0])).toContain(
+      encodeURIComponent("http://localhost:8237/callback"),
+    );
+
+    const pending = service.startFlow("preview");
+    await vi.waitFor(() => expect(urlLauncher.launch).toHaveBeenCalledTimes(2));
+    expect(host.waitForCode).toHaveBeenCalledTimes(1);
+    expect(String(urlLauncher.launch.mock.calls[1][0])).toContain(
+      encodeURIComponent("posthog-code://callback"),
+    );
+    service.cancelFlow();
+    await expect(pending).resolves.toMatchObject({ success: false });
   });
 });

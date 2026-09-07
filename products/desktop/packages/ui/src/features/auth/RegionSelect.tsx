@@ -6,7 +6,11 @@ import {
   SelectValue,
   Text,
 } from "@posthog/quill";
-import { type CloudRegion, REGION_LABELS } from "@posthog/shared";
+import {
+  type CloudRegion,
+  getPreviewDeployment,
+  REGION_LABELS,
+} from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 
 interface RegionSelectProps {
@@ -20,14 +24,33 @@ interface RegionSelectProps {
 const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
 const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev"];
 
-export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
-  return includeDevRegion
-    ? [...PRODUCTION_REGIONS, ...DEVELOPMENT_REGIONS]
-    : PRODUCTION_REGIONS;
+export function getSelectableRegions(
+  includeDevRegion: boolean,
+  includePreview = getPreviewDeployment() !== null,
+): CloudRegion[] {
+  return [
+    ...(includePreview ? (["preview"] as const) : []),
+    ...PRODUCTION_REGIONS,
+    ...(includeDevRegion ? DEVELOPMENT_REGIONS : []),
+  ];
+}
+
+function describeRegion(region: CloudRegion): {
+  flag: string;
+  label: string;
+  hint: string;
+} {
+  const preview = region === "preview" ? getPreviewDeployment() : null;
+  return preview
+    ? {
+        ...REGION_LABELS.preview,
+        hint: `PR ${preview.prNumber} · ${preview.commitSha.slice(0, 7)}`,
+      }
+    : REGION_LABELS[region];
 }
 
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
-  const { flag, hint, label } = REGION_LABELS[region];
+  const { flag, hint, label } = describeRegion(region);
   return (
     <span className="flex items-center gap-2">
       <span className="shrink-0 leading-none">{flag}</span>
@@ -57,7 +80,7 @@ export function RegionSelect({
         }
         items={offered.map((candidate) => ({
           value: candidate,
-          label: `${REGION_LABELS[candidate].label} - ${REGION_LABELS[candidate].hint}`,
+          label: `${describeRegion(candidate).label} - ${describeRegion(candidate).hint}`,
         }))}
       >
         {/* Fixed width so switching regions never reflows the row beneath the button. */}

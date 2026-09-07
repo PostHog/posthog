@@ -3,15 +3,23 @@ import { getSelectableRegions } from "./RegionSelect";
 
 describe("getSelectableRegions", () => {
   it.each([
-    { includeDevRegion: false, expected: ["us", "eu"] },
+    { includeDevRegion: false, includePreview: false, expected: ["us", "eu"] },
     {
       includeDevRegion: true,
+      includePreview: false,
       expected: ["us", "eu", "dev-cloud", "dev"],
     },
+    {
+      includeDevRegion: false,
+      includePreview: true,
+      expected: ["preview", "us", "eu"],
+    },
   ])(
-    "returns the regions available when development regions are $includeDevRegion",
-    ({ includeDevRegion, expected }) => {
-      expect(getSelectableRegions(includeDevRegion)).toEqual(expected);
+    "offers development regions $includeDevRegion and the preview $includePreview",
+    ({ includeDevRegion, includePreview, expected }) => {
+      expect(getSelectableRegions(includeDevRegion, includePreview)).toEqual(
+        expected,
+      );
     },
   );
 });

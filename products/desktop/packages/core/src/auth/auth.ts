@@ -135,14 +135,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     super();
   }
   private isRegionAllowed(region: CloudRegion): boolean {
-    return (region === "preview") === (getPreviewDeployment() !== null);
+    return region !== "preview" || getPreviewDeployment() !== null;
   }
   private assertRegionAllowed(region: CloudRegion): void {
     if (this.isRegionAllowed(region)) return;
     throw new DesktopPreviewConfigError(
-      getPreviewDeployment()
-        ? "Preview builds can only sign in to their preview backend."
-        : "This build has no preview deployment to sign in to.",
+      "This build has no preview deployment to sign in to.",
     );
   }
   async initialize(): Promise<void> {
@@ -1505,7 +1503,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
     if (!this.isRegionAllowed(stored.cloudRegion)) {
       this.logger.warn(
-        "Stored session targets a region this build cannot use; requiring sign-in",
+        "Stored preview session has no preview deployment in this build; requiring sign-in",
       );
       this.authSession.clearCurrent();
       return null;

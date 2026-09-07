@@ -2564,25 +2564,31 @@ describe("AuthService", () => {
       expect(service.getState().cloudRegion).toBe("preview");
     });
 
-    it("refuses regions that belong to the other kind of build", async () => {
+    it("still signs in to ordinary regions from a preview build", async () => {
       registerPreviewDeployment(previewManifest);
-      await expect(service.login("us")).rejects.toThrow(
-        DesktopPreviewConfigError,
-      );
+      oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
+      stubAuthFetch();
 
-      registerPreviewDeployment(null);
+      await service.initialize();
+      await service.login("us");
+
+      expect(oauthFlow.startFlow).toHaveBeenCalledWith("us");
+      expect((await service.getValidAccessToken()).apiHost).toBe(
+        "https://us.posthog.com",
+      );
+    });
+
+    it("refuses the preview region in an ordinary build", async () => {
       await expect(service.signup("preview")).rejects.toThrow(
         DesktopPreviewConfigError,
       );
-      expect(oauthFlow.startFlow).not.toHaveBeenCalled();
       expect(oauthFlow.startSignupFlow).not.toHaveBeenCalled();
     });
 
-    it("does not resume a session stored by the other kind of build", async () => {
-      registerPreviewDeployment(previewManifest);
+    it("does not resume a preview session in an ordinary build", async () => {
       sessionPort.getCurrent = () => ({
         refreshTokenEncrypted: "old-token",
-        cloudRegion: "us",
+        cloudRegion: "preview",
         selectedProjectId: 1,
         scopeVersion: OAUTH_SCOPE_VERSION,
       });

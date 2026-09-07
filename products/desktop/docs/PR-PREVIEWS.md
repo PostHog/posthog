@@ -75,7 +75,11 @@ Ordinary builds reject preview input.
 
 Inside the app the preview backend is the `preview` region.
 Each process registers the inlined manifest at startup, so the region resolves its URL, OAuth client ID, and gateway the same way `us` and `eu` do.
-A preview build signs in to the `preview` region only, and an ordinary build never does.
+The region picker lists the preview first and still offers US Cloud and EU Cloud, so one installer can test the PR against production data too.
+An ordinary build never offers the `preview` region.
+
+A preview build registers only its own URL scheme, so for US and EU it uses the loopback OAuth callback `http://localhost:8237/callback`, the one development builds use.
+The production desktop OAuth applications must list that redirect URI before a preview build can sign in to US or EU.
 
 Readiness requires a real tester login, PKCE authorization and token exchange, an authenticated user read, desktop project access, and a gateway liveness check through the proxy.
 

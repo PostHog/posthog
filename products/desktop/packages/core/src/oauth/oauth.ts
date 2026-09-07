@@ -20,6 +20,7 @@ import {
   type BackoffOptions,
   getCloudUrlFromRegion,
   getOauthClientIdFromRegion,
+  getPreviewDeployment,
   OAUTH_SCOPES,
   sleepWithBackoff,
 } from "@posthog/shared";
@@ -132,10 +133,19 @@ export class OAuthService {
   }
 
   /**
-   * Get the redirect URI based on environment.
+   * Dev builds always use the loopback callback. A preview build registers
+   * only its own PR scheme, so for any other region it uses the loopback
+   * callback too; that URI must be listed on those regions' OAuth apps.
    */
-  private getRedirectUri(): string {
-    return this.host.isDev
+  private usesLoopbackCallback(region: CloudRegion): boolean {
+    return (
+      this.host.isDev ||
+      (region !== "preview" && getPreviewDeployment() !== null)
+    );
+  }
+
+  private getRedirectUri(region: CloudRegion): string {
+    return this.usesLoopbackCallback(region)
       ? `http://localhost:${DEV_CALLBACK_PORT}/callback`
       : `${this.deepLinkService.getProtocol()}://callback`;
   }
@@ -367,7 +377,7 @@ export class OAuthService {
     config: OAuthConfig,
   ): Promise<OAuthTokenResponse> {
     const cloudUrl = getCloudUrlFromRegion(config.cloudRegion);
-    const redirectUri = this.getRedirectUri();
+    const redirectUri = this.getRedirectUri(config.cloudRegion);
     const body = JSON.stringify({
       grant_type: "authorization_code",
       code,
@@ -432,7 +442,7 @@ export class OAuthService {
 
   private buildAuthorizeUrl(region: CloudRegion, codeVerifier: string): URL {
     const codeChallenge = this.generateCodeChallenge(codeVerifier);
-    const redirectUri = this.getRedirectUri();
+    const redirectUri = this.getRedirectUri(region);
     const cloudUrl = getCloudUrlFromRegion(region);
     const authUrl = new URL(`${cloudUrl}/oauth/authorize`);
     authUrl.searchParams.set("client_id", getOauthClientIdFromRegion(region));
@@ -458,7 +468,7 @@ export class OAuthService {
     codeVerifier: string,
     authUrl: string,
   ): Promise<StartFlowOutput> {
-    const code = this.host.isDev
+    const code = this.usesLoopbackCallback(config.cloudRegion)
       ? await this.waitForHttpCallback(codeVerifier, config, authUrl)
       : await this.waitForDeepLinkCallback(codeVerifier, config, authUrl);
 

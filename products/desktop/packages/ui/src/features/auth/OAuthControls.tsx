@@ -1,5 +1,4 @@
-import { type CloudRegion, getPreviewDeployment } from "@posthog/shared";
-import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import type { CloudRegion } from "@posthog/shared";
 import { Callout, Spinner } from "@radix-ui/themes";
 import { RegionSelect } from "./RegionSelect";
 import { useOAuthFlow } from "./useOAuthFlow";
@@ -14,7 +13,6 @@ export function OAuthControls({
   onAuthInitiated,
   includeDevRegion = import.meta.env.DEV,
 }: OAuthControlsProps = {}) {
-  const preview = getPreviewDeployment();
   const {
     region,
     handleAuth,
@@ -66,22 +64,12 @@ export function OAuthControls({
         {isPending ? "Cancel" : "Sign in with PostHog"}
       </button>
 
-      {preview ? (
-        <button
-          type="button"
-          onClick={() => void openExternalUrl(preview.backendOrigin)}
-          className="self-center rounded-(--radius-3) border border-(--gray-6) px-2 py-1 text-(--gray-10) text-xs transition-colors hover:text-(--gray-12)"
-        >
-          Preview PR {preview.prNumber} · {preview.commitSha.slice(0, 7)}
-        </button>
-      ) : (
-        <RegionSelect
-          region={region}
-          onRegionChange={handleRegionChange}
-          disabled={isPending}
-          includeDevRegion={includeDevRegion}
-        />
-      )}
+      <RegionSelect
+        region={region}
+        onRegionChange={handleRegionChange}
+        disabled={isPending}
+        includeDevRegion={includeDevRegion}
+      />
     </div>
   );
 }
