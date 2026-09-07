@@ -1,5 +1,16 @@
+import { LogicWrapper, MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { router } from 'kea-router'
+
+import { urls } from 'scenes/urls'
+
+import { DashboardType, QueryBasedInsightModel } from '~/types'
+
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { parseToolOutputRecord, resolveToolCall } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
+
+import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export const DASHBOARD_AI_MUTATION_TOOLS = [
     'alert-create',
@@ -57,6 +68,18 @@ export interface DashboardAiKnownOwnership {
 export interface DashboardAiMutationResolution {
     candidate: DashboardAiSyncCandidate | null
     ownership: DashboardAiKnownOwnership
+}
+
+export interface DashboardAiSyncBatch {
+    families: DashboardAiToolFamily[]
+    tileIds: number[]
+    insightIds: Array<number | string>
+    queuedEventCount: number
+    startedAt: number
+}
+
+export interface DashboardAiSyncLogicProps {
+    dashboardId: number
 }
 
 type InsightIdentifier = number | string
@@ -828,3 +851,248 @@ export function resolveDashboardAiMutation(
     }
     return { candidate: null, ownership: knownOwnership }
 }
+
+function emptyKnownOwnership(): DashboardAiKnownOwnership {
+    return {
+        subscriptionDashboardById: {},
+        insightDashboardsById: {},
+        alertInsightById: {},
+    }
+}
+
+function targetFromCommittedDashboard(
+    dashboardId: number,
+    dashboard: DashboardType<QueryBasedInsightModel> | null
+): DashboardAiSyncTarget {
+    return {
+        dashboardId,
+        tiles: (dashboard?.tiles ?? []).map((tile) => ({
+            tileId: tile.id,
+            insightId: tile.insight?.id ?? null,
+            insightShortId: tile.insight?.short_id ?? null,
+            alertIds: tile.insight?.alerts?.map((alert) => alert.id) ?? [],
+        })),
+    }
+}
+
+function batchFromCandidate(candidate: DashboardAiSyncCandidate): DashboardAiSyncBatch {
+    return {
+        families: [candidate.family],
+        tileIds: [...candidate.tileIds],
+        insightIds: [...candidate.insightIds],
+        queuedEventCount: 1,
+        startedAt: Date.now(),
+    }
+}
+
+function mergeBatches(left: DashboardAiSyncBatch, right: DashboardAiSyncBatch): DashboardAiSyncBatch {
+    return {
+        families: [...new Set([...left.families, ...right.families])].sort(),
+        tileIds: sortedUniqueNumbers([...left.tileIds, ...right.tileIds]),
+        insightIds: sortedUniqueInsightIds([...left.insightIds, ...right.insightIds]),
+        queuedEventCount: left.queuedEventCount + right.queuedEventCount,
+        startedAt: Math.min(left.startedAt, right.startedAt),
+    }
+}
+
+function copyBatch(batch: DashboardAiSyncBatch): DashboardAiSyncBatch {
+    return {
+        families: [...new Set(batch.families)].sort(),
+        tileIds: sortedUniqueNumbers(batch.tileIds),
+        insightIds: sortedUniqueInsightIds(batch.insightIds),
+        queuedEventCount: batch.queuedEventCount,
+        startedAt: batch.startedAt,
+    }
+}
+
+function copyKnownOwnership(ownership: DashboardAiKnownOwnership): DashboardAiKnownOwnership {
+    return {
+        subscriptionDashboardById: { ...ownership.subscriptionDashboardById },
+        insightDashboardsById: Object.fromEntries(
+            Object.entries(ownership.insightDashboardsById).map(([insightId, dashboardIds]) => [
+                insightId,
+                [...dashboardIds],
+            ])
+        ),
+        alertInsightById: { ...ownership.alertInsightById },
+    }
+}
+
+function confirmedHighlightTileIds(
+    batch: DashboardAiSyncBatch,
+    dashboard: DashboardType<QueryBasedInsightModel> | null
+): number[] {
+    return sortedUniqueNumbers(
+        (dashboard?.tiles ?? [])
+            .filter((tile) => {
+                if (batch.tileIds.includes(tile.id)) {
+                    return true
+                }
+                const insightId = tile.insight?.id
+                const insightShortId = tile.insight?.short_id
+                return (
+                    (insightId !== undefined && batch.insightIds.includes(insightId)) ||
+                    (insightShortId !== undefined && batch.insightIds.includes(insightShortId))
+                )
+            })
+            .map((tile) => tile.id)
+    )
+}
+
+function refreshMountedInsightAlerts(
+    dashboardId: number,
+    dashboard: DashboardType<QueryBasedInsightModel> | null,
+    candidate: DashboardAiSyncCandidate
+): void {
+    const insight = dashboard?.tiles.find((tile) => candidate.tileIds.includes(tile.id))?.insight
+    if (!insight?.id) {
+        return
+    }
+
+    const insightLogicProps = {
+        dashboardItemId: insight.short_id,
+        dashboardId,
+        cachedInsight: insight,
+    }
+    insightAlertsLogic.findMounted({ insightId: insight.id, insightLogicProps })?.actions.loadAlerts()
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface dashboardAiSyncLogicValues {
+    activeBatch: DashboardAiSyncBatch | null
+    knownOwnership: DashboardAiKnownOwnership
+    queuedBatch: DashboardAiSyncBatch | null
+    transientHighlightedTileIds: number[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface dashboardAiSyncLogicActions {
+    applyToolCompletion: (
+        event: ToolStreamEvent,
+        innerInput: Record<string, unknown> | null
+    ) => {
+        event: ToolStreamEvent
+        innerInput: Record<string, unknown> | null
+    }
+    queueDashboardSync: (candidate: DashboardAiSyncCandidate) => {
+        candidate: DashboardAiSyncCandidate
+    }
+    setActiveBatch: (batch: DashboardAiSyncBatch | null) => {
+        batch: DashboardAiSyncBatch | null
+    }
+    setKnownOwnership: (ownership: DashboardAiKnownOwnership) => {
+        ownership: DashboardAiKnownOwnership
+    }
+    setQueuedBatch: (batch: DashboardAiSyncBatch | null) => {
+        batch: DashboardAiSyncBatch | null
+    }
+    setTransientHighlightedTileIds: (tileIds: number[]) => {
+        tileIds: number[]
+    }
+    syncDashboard: (batch: DashboardAiSyncBatch) => {
+        batch: DashboardAiSyncBatch
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface dashboardAiSyncLogicMeta {
+    key: number
+}
+
+export type dashboardAiSyncLogicType = MakeLogicType<
+    dashboardAiSyncLogicValues,
+    dashboardAiSyncLogicActions,
+    DashboardAiSyncLogicProps,
+    dashboardAiSyncLogicMeta
+>
+
+export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<dashboardAiSyncLogicType>([
+    props({} as DashboardAiSyncLogicProps),
+    key((props) => props.dashboardId),
+    path((key) => ['scenes', 'dashboard', 'dashboardAiSyncLogic', key]),
+    actions({
+        applyToolCompletion: (event: ToolStreamEvent, innerInput: Record<string, unknown> | null) => ({
+            event,
+            innerInput,
+        }),
+        queueDashboardSync: (candidate: DashboardAiSyncCandidate) => ({ candidate }),
+        setActiveBatch: (batch: DashboardAiSyncBatch | null) => ({ batch }),
+        setQueuedBatch: (batch: DashboardAiSyncBatch | null) => ({ batch }),
+        setKnownOwnership: (ownership: DashboardAiKnownOwnership) => ({ ownership }),
+        setTransientHighlightedTileIds: (tileIds: number[]) => ({ tileIds }),
+        syncDashboard: (batch: DashboardAiSyncBatch) => ({ batch }),
+    }),
+    reducers({
+        activeBatch: [
+            null as DashboardAiSyncBatch | null,
+            { setActiveBatch: (_, { batch }) => (batch ? copyBatch(batch) : null) },
+        ],
+        queuedBatch: [
+            null as DashboardAiSyncBatch | null,
+            { setQueuedBatch: (_, { batch }) => (batch ? copyBatch(batch) : null) },
+        ],
+        knownOwnership: [
+            emptyKnownOwnership(),
+            { setKnownOwnership: (_, { ownership }) => copyKnownOwnership(ownership) },
+        ],
+        transientHighlightedTileIds: [
+            [] as number[],
+            { setTransientHighlightedTileIds: (_, { tileIds }) => [...tileIds] },
+        ],
+    }),
+    listeners(({ actions, props, values }) => ({
+        applyToolCompletion: ({ event, innerInput }) => {
+            const dashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
+            const target = targetFromCommittedDashboard(props.dashboardId, dashboard)
+            const resolution = resolveDashboardAiMutation(target, values.knownOwnership, event, innerInput)
+            if (!resolution.candidate) {
+                return
+            }
+
+            actions.setKnownOwnership(resolution.ownership)
+            const candidate = resolution.candidate
+            if (candidate.deletesDashboard) {
+                router.actions.push(urls.dashboards())
+                return
+            }
+            if (candidate.family === 'subscription') {
+                subscriptionsLogic.findMounted({ dashboardId: props.dashboardId })?.actions.loadAllSubscriptions()
+                return
+            }
+            if (candidate.family === 'alert') {
+                refreshMountedInsightAlerts(props.dashboardId, dashboard, candidate)
+                return
+            }
+            actions.queueDashboardSync(candidate)
+        },
+        queueDashboardSync: ({ candidate }) => {
+            const batch = batchFromCandidate(candidate)
+            if (values.activeBatch) {
+                actions.setQueuedBatch(values.queuedBatch ? mergeBatches(values.queuedBatch, batch) : batch)
+                return
+            }
+            actions.setActiveBatch(batch)
+            actions.syncDashboard(batch)
+        },
+        syncDashboard: async ({ batch }) => {
+            try {
+                await dashboardLogic({ id: props.dashboardId }).asyncActions.loadDashboard({
+                    action: DashboardLoadAction.Update,
+                })
+
+                const committedDashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
+                actions.setTransientHighlightedTileIds(confirmedHighlightTileIds(batch, committedDashboard))
+            } catch {
+                // The dashboard loader keeps the last committed dashboard visible on failure.
+            } finally {
+                const successor = values.queuedBatch
+                actions.setActiveBatch(null)
+                if (successor) {
+                    actions.setQueuedBatch(null)
+                    actions.setActiveBatch(successor)
+                    actions.syncDashboard(successor)
+                }
+            }
+        },
+    })),
+])

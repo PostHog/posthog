@@ -1,13 +1,52 @@
+import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
+import { urls } from 'scenes/urls'
+
+import { initKeaTests } from '~/test/init'
+import {
+    AccessControlLevel,
+    DashboardType,
+    InsightColor,
+    InsightLogicProps,
+    InsightShortId,
+    QueryBasedInsightModel,
+    SubscriptionType,
+} from '~/types'
+
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 
 import {
     DASHBOARD_AI_MUTATION_TOOLS,
     DashboardAiKnownOwnership,
     DashboardAiMutationResolution,
+    DashboardAiSyncBatch,
     DashboardAiSyncCandidate,
     DashboardAiSyncTarget,
+    dashboardAiSyncLogic,
     resolveDashboardAiMutation,
 } from './dashboardAiSyncLogic'
+
+let mockCommittedDashboard: DashboardType<QueryBasedInsightModel> | null = null
+const mockLoadDashboard = jest.fn<Promise<void>, [unknown]>()
+
+jest.mock('scenes/dashboard/dashboardLogic', () => ({
+    ...jest.requireActual('scenes/dashboard/dashboardLogic'),
+    dashboardLogic: jest.fn(() => ({
+        values: {
+            get dashboard(): DashboardType<QueryBasedInsightModel> | null {
+                return mockCommittedDashboard
+            },
+        },
+        asyncActions: {
+            loadDashboard: (payload: unknown): Promise<void> => mockLoadDashboard(payload),
+        },
+    })),
+}))
 
 const dashboardId = 7
 const target: DashboardAiSyncTarget = {
@@ -75,6 +114,108 @@ function dashboardCandidate(overrides: Partial<DashboardAiSyncCandidate> = {}): 
         deletesDashboard: false,
         ...overrides,
     }
+}
+
+function committedInsight(id: number, shortId: string, alertIds: string[] = []): QueryBasedInsightModel {
+    return {
+        id,
+        short_id: shortId as InsightShortId,
+        name: shortId,
+        query: null,
+        order: null,
+        result: null,
+        deleted: false,
+        saved: true,
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: null,
+        is_sample: false,
+        dashboards: [dashboardId],
+        dashboard_tiles: [],
+        updated_at: '2026-01-01T00:00:00Z',
+        last_modified_at: '2026-01-01T00:00:00Z',
+        last_modified_by: null,
+        last_refresh: null,
+        user_access_level: AccessControlLevel.Editor,
+        alerts: alertIds.map((alertId) => ({ id: alertId })) as QueryBasedInsightModel['alerts'],
+    }
+}
+
+function committedDashboard(): DashboardType<QueryBasedInsightModel> {
+    return {
+        id: dashboardId,
+        name: 'AI dashboard',
+        description: '',
+        pinned: false,
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: null,
+        last_accessed_at: null,
+        is_shared: false,
+        deleted: false,
+        creation_mode: 'default',
+        user_access_level: AccessControlLevel.Editor,
+        filters: {},
+        tiles: [
+            {
+                id: 41,
+                color: InsightColor.White,
+                insight: committedInsight(101, 'alpha'),
+            },
+        ],
+    }
+}
+
+function dashboardWithInsight(
+    tileId: number,
+    insightId: number,
+    shortId: string,
+    alertIds: string[] = []
+): DashboardType<QueryBasedInsightModel> {
+    const dashboard = committedDashboard()
+    return {
+        ...dashboard,
+        tiles: [
+            {
+                id: tileId,
+                color: InsightColor.White,
+                insight: committedInsight(insightId, shortId, alertIds),
+            },
+        ],
+    }
+}
+
+function insightLogicPropsForDashboard(dashboard: DashboardType<QueryBasedInsightModel>): InsightLogicProps | null {
+    const insight = dashboard.tiles[0]?.insight
+    return insight
+        ? {
+              dashboardItemId: insight.short_id,
+              dashboardId: dashboard.id,
+              cachedInsight: insight,
+          }
+        : null
+}
+
+function deferred<T>(): {
+    promise: Promise<T>
+    resolve: (value: T) => void
+    reject: (error: unknown) => void
+} {
+    let resolve!: (value: T) => void
+    let reject!: (error: unknown) => void
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise
+        reject = rejectPromise
+    })
+    return { promise, resolve, reject }
+}
+
+function subscription(id: number, title: string): SubscriptionType {
+    return {
+        id,
+        title,
+        target_type: 'email',
+        target_value: 'demo@example.com',
+        frequency: 'weekly',
+    } as SubscriptionType
 }
 
 interface DashboardStructureCase {
@@ -736,5 +877,358 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             expect(result).toEqual({ candidate: null, ownership })
             expect(result.ownership).toBe(ownership)
         }
+    })
+
+    describe('dashboard synchronization', () => {
+        it('stores immutable sorted and deduplicated synchronization batches', () => {
+            initKeaTests()
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+            const batch: DashboardAiSyncBatch = {
+                families: ['insight', 'dashboard', 'insight'],
+                tileIds: [9, 3, 9],
+                insightIds: ['zeta', 2, 'alpha', 2],
+                queuedEventCount: 3,
+                startedAt: 123,
+            }
+
+            logic.actions.setActiveBatch(batch)
+
+            expect(logic.values.activeBatch).toEqual({
+                families: ['dashboard', 'insight'],
+                tileIds: [3, 9],
+                insightIds: [2, 'alpha', 'zeta'],
+                queuedEventCount: 3,
+                startedAt: 123,
+            })
+            batch.tileIds.push(1)
+            batch.insightIds.push('mutated')
+            expect(logic.values.activeBatch?.tileIds).toEqual([3, 9])
+            expect(logic.values.activeBatch?.insightIds).toEqual([2, 'alpha', 'zeta'])
+
+            const ownership: DashboardAiKnownOwnership = {
+                subscriptionDashboardById: { 71: dashboardId },
+                insightDashboardsById: { 101: [dashboardId] },
+                alertInsightById: { 501: '101' },
+            }
+            logic.actions.setKnownOwnership(ownership)
+            ownership.subscriptionDashboardById[71] = 8
+            ownership.insightDashboardsById[101]!.push(8)
+            ownership.alertInsightById[501] = '202'
+            expect(logic.values.knownOwnership).toEqual({
+                subscriptionDashboardById: { 71: dashboardId },
+                insightDashboardsById: { 101: [dashboardId] },
+                alertInsightById: { 501: '101' },
+            })
+            logic.unmount()
+        })
+
+        it('serializes structural reloads into one active and one merged successor batch', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            const firstReload = deferred<void>()
+            const secondReload = deferred<void>()
+            mockLoadDashboard
+                .mockReset()
+                .mockReturnValueOnce(firstReload.promise)
+                .mockReturnValueOnce(secondReload.promise)
+
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(
+                eventFor('dashboard-create-tile', { id: 7 }, { id: 63, dashboard_id: 7 }),
+                { id: 7 }
+            )
+            logic.actions.applyToolCompletion(
+                eventFor('dashboard-update-text-tile', { id: 7, tile_id: 42 }, { id: 42, dashboard_id: 7 }),
+                { id: 7, tile_id: 42 }
+            )
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-reorder-tiles',
+                    { id: 7, tile_order: [42, 41] },
+                    { id: 7, tiles: [{ id: 42 }, { id: 41 }] }
+                ),
+                { id: 7, tile_order: [42, 41] }
+            )
+
+            expect(mockLoadDashboard).toHaveBeenCalledTimes(1)
+            expect(logic.values.activeBatch).toMatchObject({
+                families: ['dashboard'],
+                tileIds: [63],
+                insightIds: [],
+                queuedEventCount: 1,
+                startedAt: expect.any(Number),
+            })
+            expect(logic.values.queuedBatch).toMatchObject({
+                families: ['dashboard'],
+                tileIds: [41, 42],
+                insightIds: [],
+                queuedEventCount: 2,
+                startedAt: expect.any(Number),
+            })
+
+            firstReload.resolve()
+            await waitFor(() => expect(mockLoadDashboard).toHaveBeenCalledTimes(2))
+
+            secondReload.resolve()
+            await waitFor(() => expect(logic.values.activeBatch).toBeNull())
+            logic.unmount()
+        })
+
+        it('refreshes a mounted subscription list through a create, ID-only update, and 204 delete chain', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            mockLoadDashboard.mockReset()
+
+            const initialResponse = { results: [], count: 0 }
+            const listSpy = jest.spyOn(api.subscriptions, 'list').mockResolvedValue(initialResponse)
+            const mountedSubscriptions = subscriptionsLogic({ dashboardId })
+            mountedSubscriptions.mount()
+            await waitFor(() => expect(mountedSubscriptions.values.subscriptionsLoading).toBe(false))
+
+            const created = deferred<{ results: SubscriptionType[]; count: number }>()
+            const updated = deferred<{ results: SubscriptionType[]; count: number }>()
+            const deleted = deferred<{ results: SubscriptionType[]; count: number }>()
+            const directResponses = [created, updated, deleted]
+            let directRequestIndex = 0
+            listSpy.mockReset().mockImplementation(({ dashboardId: requestedDashboardId, dashboardTiles }) => {
+                if (dashboardTiles) {
+                    return Promise.resolve(initialResponse)
+                }
+                expect(requestedDashboardId).toBe(dashboardId)
+                return directResponses[directRequestIndex++]!.promise
+            })
+
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+            logic.actions.applyToolCompletion(
+                eventFor('subscriptions-create', { dashboard: 7 }, { id: 71, dashboard: 7 }),
+                { dashboard: 7 }
+            )
+            await waitFor(() => expect(directRequestIndex).toBe(1))
+            logic.actions.applyToolCompletion(eventFor('subscriptions-partial-update', { id: 71 }, { id: 71 }), {
+                id: 71,
+            })
+            await waitFor(() => expect(directRequestIndex).toBe(2))
+            logic.actions.applyToolCompletion(
+                eventFor('subscriptions-delete', { id: 71 }, { _posthogUrl: '/subscriptions' }),
+                { id: 71 }
+            )
+
+            await waitFor(() => expect(directRequestIndex).toBe(3))
+            expect(logic.values.knownOwnership.subscriptionDashboardById).toEqual({})
+
+            deleted.resolve({ results: [], count: 0 })
+            await waitFor(() => expect(mountedSubscriptions.values.subscriptionsLoading).toBe(false))
+            updated.resolve({ results: [subscription(71, 'Updated')], count: 1 })
+            created.resolve({ results: [subscription(71, 'Created')], count: 1 })
+            await waitFor(() => expect(mountedSubscriptions.values.subscriptions).toEqual([]))
+
+            logic.actions.applyToolCompletion(
+                eventFor('subscriptions-create', { dashboard: 8 }, { id: 72, dashboard: 8 }),
+                { dashboard: 8 }
+            )
+            expect(directRequestIndex).toBe(3)
+            expect(mockLoadDashboard).not.toHaveBeenCalled()
+
+            logic.unmount()
+            mountedSubscriptions.unmount()
+            listSpy.mockRestore()
+        })
+
+        it('reloads an authoritative insight create and highlights its exact committed tile', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            const reload = deferred<void>()
+            mockLoadDashboard.mockReset().mockReturnValue(reload.promise)
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'insight-create',
+                    { dashboards: [7] },
+                    {
+                        id: 303,
+                        short_id: 'gamma',
+                        dashboard_tiles: [{ id: 61, dashboard_id: 7, deleted: false }],
+                    }
+                ),
+                { dashboards: [7] }
+            )
+            expect(mockLoadDashboard).toHaveBeenCalledTimes(1)
+
+            mockCommittedDashboard = dashboardWithInsight(61, 303, 'gamma')
+            reload.resolve()
+            await waitFor(() => expect(logic.values.activeBatch).toBeNull())
+            expect(logic.values.transientHighlightedTileIds).toEqual([61])
+
+            logic.actions.applyToolCompletion(
+                eventFor('insight-create', { dashboards: [7] }, { id: 404, short_id: 'request-only' }),
+                { dashboards: [7] }
+            )
+            expect(mockLoadDashboard).toHaveBeenCalledTimes(1)
+            logic.unmount()
+        })
+
+        it('refreshes only the mounted alert logic for the exact dashboard insight', async () => {
+            initKeaTests()
+            mockCommittedDashboard = dashboardWithInsight(41, 101, 'alpha')
+            mockLoadDashboard.mockReset()
+            const alertListSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
+            const insightLogicProps = insightLogicPropsForDashboard(mockCommittedDashboard)!
+            const mountedAlerts = insightAlertsLogic({
+                insightId: 101,
+                insightLogicProps,
+                deferInitialAlertsLoad: true,
+            })
+            mountedAlerts.mount()
+            alertListSpy.mockClear()
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'alert-create',
+                    { insight: 101 },
+                    { id: 'alert-new', insight: 101, insight_short_id: 'alpha' }
+                ),
+                { insight: 101 }
+            )
+            await waitFor(() => expect(alertListSpy).toHaveBeenCalledWith(101))
+
+            logic.actions.applyToolCompletion(
+                eventFor('alert-create', { insight: 999 }, { id: 'other', insight: 999, insight_short_id: 'other' }),
+                { insight: 999 }
+            )
+            expect(alertListSpy).toHaveBeenCalledTimes(1)
+            expect(mockLoadDashboard).not.toHaveBeenCalled()
+
+            logic.unmount()
+            mountedAlerts.unmount()
+            alertListSpy.mockRestore()
+        })
+
+        it('refreshes a cold ID-only alert delete from committed tile alert ownership', async () => {
+            initKeaTests()
+            mockCommittedDashboard = dashboardWithInsight(41, 101, 'alpha', ['alert-cold'])
+            mockLoadDashboard.mockReset()
+            const alertListSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
+            const insightLogicProps = insightLogicPropsForDashboard(mockCommittedDashboard)!
+            const mountedAlerts = insightAlertsLogic({
+                insightId: 101,
+                insightLogicProps,
+                deferInitialAlertsLoad: true,
+            })
+            mountedAlerts.mount()
+            alertListSpy.mockClear()
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(eventFor('alert-delete', { id: 'alert-cold' }, ''), {
+                id: 'alert-cold',
+            })
+
+            await waitFor(() => expect(alertListSpy).toHaveBeenCalledWith(101))
+            expect(logic.values.knownOwnership.alertInsightById).toEqual({})
+
+            logic.unmount()
+            mountedAlerts.unmount()
+            alertListSpy.mockRestore()
+        })
+
+        it('routes an open-dashboard deletion to the dashboard list without reloading', () => {
+            initKeaTests()
+            router.actions.push(urls.dashboard(dashboardId))
+            mockCommittedDashboard = committedDashboard()
+            mockLoadDashboard.mockReset()
+            const routerPushSpy = jest.spyOn(router.actions, 'push')
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(
+                eventFor('dashboard-delete', { id: dashboardId }, { id: dashboardId, deleted: true }),
+                { id: dashboardId }
+            )
+
+            expect(routerPushSpy).toHaveBeenCalledWith(urls.dashboards())
+            expect(mockLoadDashboard).not.toHaveBeenCalled()
+            logic.unmount()
+            routerPushSpy.mockRestore()
+        })
+
+        it('continues with a queued successor after the active dashboard reload fails', async () => {
+            initKeaTests()
+            const committed = committedDashboard()
+            mockCommittedDashboard = committed
+            const firstReload = deferred<void>()
+            const successorReload = deferred<void>()
+            mockLoadDashboard
+                .mockReset()
+                .mockReturnValueOnce(firstReload.promise)
+                .mockReturnValueOnce(successorReload.promise)
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(eventFor('dashboard-update', { id: 7 }, { id: 7 }), { id: 7 })
+            logic.actions.applyToolCompletion(
+                eventFor('dashboard-update-text-tile', { id: 7, tile_id: 41 }, { id: 41, dashboard_id: 7 }),
+                { id: 7, tile_id: 41 }
+            )
+            firstReload.reject(new Error('reload failed'))
+
+            await waitFor(() => expect(mockLoadDashboard).toHaveBeenCalledTimes(2))
+            expect(mockCommittedDashboard).toBe(committed)
+            expect(logic.values.activeBatch?.tileIds).toEqual([41])
+            successorReload.resolve()
+            await waitFor(() => expect(logic.values.activeBatch).toBeNull())
+            expect(logic.values.queuedBatch).toBeNull()
+            logic.unmount()
+        })
+
+        it('ignores a direct third-party same-name event without any side effect', () => {
+            initKeaTests()
+            router.actions.push(urls.dashboard(dashboardId))
+            const startingPath = router.values.location.pathname
+            mockCommittedDashboard = committedDashboard()
+            mockLoadDashboard.mockReset()
+            jest.mocked(posthog.capture).mockClear()
+            const subscriptionFindMountedSpy = jest.spyOn(subscriptionsLogic, 'findMounted')
+            const alertFindMountedSpy = jest.spyOn(insightAlertsLogic, 'findMounted')
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+            const directInvocation = {
+                ...eventFor('dashboard-update', { id: 7 }, { id: 7 }).invocation,
+                rawServerName: 'third_party',
+                rawToolName: 'dashboard-update',
+                input: { id: 7 },
+            }
+
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update',
+                    { id: 7 },
+                    { id: 7 },
+                    {
+                        rawToolName: 'dashboard-update',
+                        invocation: directInvocation,
+                    }
+                ),
+                { id: 7 }
+            )
+
+            expect(mockLoadDashboard).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toBe(startingPath)
+            expect(logic.values.transientHighlightedTileIds).toEqual([])
+            expect(logic.values.knownOwnership).toEqual(emptyOwnership())
+            expect(subscriptionFindMountedSpy).not.toHaveBeenCalled()
+            expect(alertFindMountedSpy).not.toHaveBeenCalled()
+            expect(posthog.capture).not.toHaveBeenCalled()
+            logic.unmount()
+            subscriptionFindMountedSpy.mockRestore()
+            alertFindMountedSpy.mockRestore()
+        })
     })
 })
