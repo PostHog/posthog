@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { expect } from 'storybook/test'
-
 import { CitedMarkdown } from './CitedMarkdown'
 
 const meta: Meta<typeof CitedMarkdown> = {
@@ -61,12 +59,20 @@ export const HostileLinks: Story = {
         ].join('\n'),
         segments: [],
     },
-    play: async ({ canvasElement }) => {
-        await expect(canvasElement.querySelectorAll('a')).toHaveLength(0)
-        await expect(canvasElement.querySelectorAll('img')).toHaveLength(0)
+    // `storybook/test` is a dependency of the frontend workspace, which a file under `products/` cannot
+    // resolve, so the assertions are plain throws. A play function that throws is a failed story.
+    play: ({ canvasElement }) => {
+        const check = (ok: boolean, failure: string): void => {
+            if (!ok) {
+                throw new Error(failure)
+            }
+        }
+        const text = canvasElement.textContent ?? ''
+        check(canvasElement.querySelectorAll('a').length === 0, 'a clickable link reached the reader')
+        check(canvasElement.querySelectorAll('img').length === 0, 'an image fired a request')
         // The labels and the raw mention syntax survive as plain text, so the reader still sees what the
         // model wrote. A chip would show the member's name in its place.
-        await expect(canvasElement.textContent).toContain('click here')
-        await expect(canvasElement.textContent).toContain('@member:1 and @role:1')
+        check(text.includes('click here'), 'a link label was dropped instead of kept as text')
+        check(text.includes('@member:1 and @role:1'), 'a mention resolved into a chip')
     },
 }

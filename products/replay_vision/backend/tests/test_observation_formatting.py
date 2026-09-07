@@ -66,8 +66,8 @@ class TestPlainSnippet:
         ]
     )
     def test_never_emits_a_line_break_or_a_leading_block_marker(self, _label: str, text: str) -> None:
-        # Alert messages and the synthesis feed embed this inside markdown the reader trusts, so a newline
-        # or a leading marker would let recording-derived text forge a row or a header there.
+        # The search-result feed embeds this inside markdown that is read as structure, so a newline or a
+        # leading marker would let recording-derived text forge a row or a header there.
         snippet = plain_snippet(text)
         assert "\n" not in snippet
         assert not snippet.startswith(("-", "*", "#", ">"))

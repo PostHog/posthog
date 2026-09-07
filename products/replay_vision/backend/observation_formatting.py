@@ -13,7 +13,7 @@ SEARCH_SNIPPET_LIMIT = 600
 # Markdown a scanner can emit in its free-text fields. Block markers are matched per line, the way a
 # markdown parser reads them; inline markers are matched anywhere on the line. Kept identical to the
 # frontend's `flattenMarkdownToLine` (products/replay_vision/frontend/utils/markdown.ts): the two have to
-# agree on what is syntax, or a snippet flattens differently in a Slack message and in the seekbar.
+# agree on what is syntax, or a snippet flattens differently in a search result and on the seekbar.
 _FENCE_RE = re.compile(r"^ {0,3}(?:```|~~~)")
 _RULE_RE = re.compile(r"^ {0,3}(?:[-*_]\s*){3,}$")
 _HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s+")
@@ -67,11 +67,11 @@ def flatten_markdown(text: str) -> str:
 def plain_snippet(text: str, *, limit: int | None = SEARCH_SNIPPET_LIMIT) -> str:
     """One line of readable plain text from a model's free-text field.
 
-    The single line is a safety property, not tidiness. These snippets are embedded inside markdown the
-    reader trusts — a Slack alert's bullet list, the untrusted-data fence in the synthesis prompt — where a
-    newline lets recording-derived text forge a row or a header. Flattening runs first so a markdown bullet
-    cannot survive as a literal `-` at the start of the folded line either. Blocks are joined with a
-    sentence break so a flattened list still reads as prose rather than one run-on clause.
+    The single line is a safety property, not tidiness. These snippets go into markdown someone else reads
+    as structure — the search-result bullet list inside a Max tool's untrusted-data fence — where a newline
+    lets recording-derived text forge a row or a header. Flattening runs first so a markdown bullet cannot
+    survive as a literal `-` at the start of the folded line either. Blocks are joined with a sentence
+    break so a flattened list still reads as prose rather than one run-on clause.
     """
     flat = flatten_markdown(EVENT_ID_CITATION_RE.sub("", text))
     out = ""
