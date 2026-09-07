@@ -41,6 +41,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                     textOutputTokens={event.properties.$ai_text_output_tokens}
                     stopReason={event.properties.$ai_stop_reason}
                     traceId={event.properties.$ai_trace_id}
+                    eventId={event.uuid}
                 />
             ) : (
                 <LLMInputOutput
