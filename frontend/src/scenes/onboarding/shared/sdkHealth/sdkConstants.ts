@@ -1,6 +1,14 @@
 import type { SdkType } from './sdkHealthLogic'
 
-export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
+export type SdkDocsLinks = { releases: string; docs: string }
+
+export const SDK_LIBRARIES_DOCS_URL = 'https://posthog.com/docs/libraries'
+
+// Keyed by `string`, not by `SdkType`, so a lookup returns `undefined` for an SDK this bundle does
+// not know. The API is deployed before the frontend, so it can report an SDK that was added to
+// products/growth/backend/constants.py after this bundle was built. The `satisfies` clause keeps
+// every known SDK mandatory.
+export const SDK_TYPE_READABLE_NAME: Record<string, string | undefined> = {
     web: 'Web',
     'posthog-ios': 'iOS',
     'posthog-android': 'Android',
@@ -23,9 +31,9 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-convex': 'Convex',
     'posthog-rails': 'Ruby on Rails',
     'posthog-aspnetcore': 'ASP.NET Core',
-}
+} satisfies Record<SdkType, string>
 
-export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
+export const SDK_DOCS_LINKS: Record<string, SdkDocsLinks | undefined> = {
     web: {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/browser/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/js',
@@ -114,4 +122,4 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
         releases: 'https://github.com/PostHog/posthog-dotnet/releases',
         docs: 'https://posthog.com/docs/libraries/dotnet',
     },
-}
+} satisfies Record<SdkType, SdkDocsLinks>
