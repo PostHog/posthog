@@ -4,6 +4,8 @@ import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
+import { isTaskUnread } from "@posthog/core/sidebar/buildSidebarData";
+import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import { useService } from "@posthog/di/react";
 import {
   DropdownMenu,
@@ -24,6 +26,9 @@ import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/Sto
 import { startSessionSummary } from "@posthog/ui/features/sessions/sessionSummary";
 import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/useSession";
+import { TaskDotMark } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
+import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useState } from "react";
 import { shallow } from "zustand/shallow";
 
@@ -51,6 +56,9 @@ export function TaskOverflowMenu({ task }: { task: Task }) {
     (s) => s.byTaskId[task.id]?.status === "pending",
   );
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const { timestamps, markAsViewed, markAsUnread } = useTaskViewed();
+  const activityAt = taskActivityAt(task);
+  const isUnread = isTaskUnread(activityAt, timestamps[task.id]);
   const { requestArchive, dialog: archiveDialog } = useTaskArchive(task, {
     navigateUnscoped: !task.channel,
   });
@@ -96,6 +104,16 @@ export function TaskOverflowMenu({ task }: { task: Task }) {
                 Summarize for another agent
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem
+              onClick={() =>
+                isUnread
+                  ? markAsViewed(task.id, Date.parse(activityAt))
+                  : markAsUnread(task.id, Date.parse(activityAt))
+              }
+            >
+              <TaskDotMark dot={taskDot({ isUnread })} />
+              {isUnread ? "Mark as read" : "Mark as unread"}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={requestArchive}>
               Archive
               <DropdownMenuShortcut>

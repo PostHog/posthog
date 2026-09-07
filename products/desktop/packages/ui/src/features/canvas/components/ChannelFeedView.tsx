@@ -17,6 +17,7 @@ import type { PrCheck } from "@posthog/core/git/router-schemas";
 import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
+import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import {
   AvatarGroup,
   Badge,
@@ -86,6 +87,7 @@ import {
   type SidebarPrState,
   useTaskPrStatus,
 } from "@posthog/ui/features/sidebar/useTaskPrStatus";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
@@ -735,6 +737,7 @@ const FeedItem = memo(function FeedItem({
   const statusDisplay = useTaskStatusDisplay(task);
   const taskData = useChannelTaskData(task);
   const { togglePin } = usePinnedTasks();
+  const { markAsViewed, markAsUnread } = useTaskViewed();
   const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
@@ -852,6 +855,7 @@ const FeedItem = memo(function FeedItem({
       id: task.id,
       title: task.title,
       isPinned: taskData?.isPinned ?? false,
+      isUnread: taskData?.isUnread ?? false,
       task,
       channelId: task.channel ?? undefined,
       onAddToCommandCenter: commandCenterCells.includes(task.id)
@@ -864,6 +868,10 @@ const FeedItem = memo(function FeedItem({
           toast.error("Couldn't update pin", { description: "Try again." });
         });
       },
+      activityAtMs: Date.parse(taskActivityAt(task)),
+      onMarkAsRead: (activityAtMs) => markAsViewed(task.id, activityAtMs),
+      onMarkAsUnread: () =>
+        markAsUnread(task.id, Date.parse(taskActivityAt(task))),
       onArchive: archiveTaskFromFeed,
     }),
     [
@@ -876,7 +884,10 @@ const FeedItem = memo(function FeedItem({
       task.id,
       task.title,
       taskData?.isPinned,
+      taskData?.isUnread,
       togglePin,
+      markAsViewed,
+      markAsUnread,
     ],
   );
   // A chip opens its artifact directly: canvases navigate to the canvas, files

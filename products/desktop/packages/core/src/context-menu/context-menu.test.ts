@@ -86,6 +86,33 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     expect(await pinned).toEqual({ action: { type: "pin" } });
   });
 
+  it.each([
+    {
+      isUnread: false,
+      label: "Mark as unread",
+      otherLabel: "Mark as read",
+      action: "mark-unread" as const,
+    },
+    {
+      isUnread: true,
+      label: "Mark as read",
+      otherLabel: "Mark as unread",
+      action: "mark-read" as const,
+    },
+  ])("offers $label for the current read state", async (testCase) => {
+    const menu = new FakeContextMenu();
+    const result = makeService(menu).showTaskContextMenu({
+      ...baseTask,
+      isUnread: testCase.isUnread,
+    });
+    await menu.shown;
+
+    expect(labels(menu.lastItems)).toContain(testCase.label);
+    expect(labels(menu.lastItems)).not.toContain(testCase.otherLabel);
+    findItem(menu.lastItems, testCase.label).click();
+    expect(await result).toEqual({ action: { type: testCase.action } });
+  });
+
   it("only offers Suspend when the task has a worktree", async () => {
     const withWt = new FakeContextMenu();
     makeService(withWt).showTaskContextMenu({

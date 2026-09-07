@@ -41,6 +41,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
 vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
   usePinnedTasks: () => ({ togglePin: vi.fn() }),
 }));
+vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
+  useTaskViewed: () => ({
+    markAsViewed: vi.fn(),
+    markAsUnread: vi.fn(),
+  }),
+}));
 const { archiveTask } = vi.hoisted(() => ({ archiveTask: vi.fn() }));
 vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
   useArchiveTask: () => ({ archiveTask }),

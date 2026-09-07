@@ -30,6 +30,7 @@ import {
   useTaskFeedSelectionStore,
 } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useMemo } from "react";
@@ -49,6 +50,7 @@ export function TaskFeedPane({
   );
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
+  const { markAsViewed, markAsUnread } = useTaskViewed();
   const { archiveTask } = useArchiveTask();
   const sessionFacts = useChannelSessionFacts();
   const { openEdit, requestDelete, dialogs } = useSavedSearchActions(feed);
@@ -77,6 +79,8 @@ export function TaskFeedPane({
       togglePin: (item) => {
         togglePin(item.id).catch(() => toast.error("Couldn't update pin"));
       },
+      markAsRead: markAsViewed,
+      markAsUnread,
       setPinned: (pinItems, pinned) => {
         setPinnedMany(
           pinItems.map((item) => item.id),
@@ -87,7 +91,15 @@ export function TaskFeedPane({
         void archiveTask({ taskId: item.id });
       },
     }),
-    [feedId, select, togglePin, setPinnedMany, archiveTask],
+    [
+      feedId,
+      select,
+      togglePin,
+      markAsViewed,
+      markAsUnread,
+      setPinnedMany,
+      archiveTask,
+    ],
   );
 
   useEffect(() => {

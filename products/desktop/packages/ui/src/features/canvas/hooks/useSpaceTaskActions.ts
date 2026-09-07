@@ -2,6 +2,7 @@ import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToCommandCenter } from "@posthog/ui/router/navigationBridge";
 import { createContext, useContext, useEffect, useMemo, useRef } from "react";
@@ -14,6 +15,8 @@ import { createContext, useContext, useEffect, useMemo, useRef } from "react";
  */
 export interface SpaceTaskActions {
   togglePin: (item: ChannelItemModel) => void;
+  markAsRead: (taskId: string, activityAtMs: number) => void;
+  markAsUnread: (taskId: string, activityAtMs: number) => void;
   archive: (item: ChannelItemModel) => void;
   /**
    * The handler for "Add to Command Center", or nothing when every cell is
@@ -30,6 +33,7 @@ export interface SpaceTaskActions {
  */
 export function useSpaceTaskActions(): SpaceTaskActions {
   const { togglePin } = usePinnedTasks();
+  const { markAsViewed, markAsUnread } = useTaskViewed();
   const { archiveTask } = useArchiveTask();
   const cells = useCommandCenterStore((state) => state.cells);
   const assignTask = useCommandCenterStore((state) => state.assignTask);
@@ -50,6 +54,8 @@ export function useSpaceTaskActions(): SpaceTaskActions {
           toast.error("Couldn't update pin");
         });
       },
+      markAsRead: markAsViewed,
+      markAsUnread,
       archive: (item) => {
         void archiveRef.current({ taskId: item.id });
       },
@@ -63,7 +69,7 @@ export function useSpaceTaskActions(): SpaceTaskActions {
         };
       },
     }),
-    [togglePin, cells, assignTask],
+    [togglePin, markAsViewed, markAsUnread, cells, assignTask],
   );
 }
 

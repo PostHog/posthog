@@ -1,6 +1,7 @@
 import {
   buildChannelItems,
   type ChannelItemModel,
+  type ChannelSessionFacts,
 } from "@posthog/core/canvas/channelItems";
 import {
   type ChannelPresence,
@@ -56,6 +57,7 @@ export interface SpaceTaskPage {
 }
 
 const NO_PAGE: SpaceTaskPage = { tasks: [], count: 0 };
+const NO_WORKSPACE_FACTS: ChannelSessionFacts["workspaceByTaskId"] = new Map();
 
 /**
  * One space's page, as every caller has to ask for it: the tree's `useQueries`,
@@ -229,6 +231,11 @@ export function useRecentSpaceTasks(
         archivedTaskIds,
         pinnedTaskIds,
         ownedBy: null,
+        sessionFacts: {
+          needsInputTaskIds: blockedTaskIds,
+          viewedTimestamps: viewedAt,
+          workspaceByTaskId: NO_WORKSPACE_FACTS,
+        },
       });
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the

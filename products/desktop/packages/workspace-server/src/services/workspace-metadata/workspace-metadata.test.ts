@@ -91,14 +91,78 @@ describe("WorkspaceMetadataService.markViewed", () => {
     expect(metadataRepo.findByTaskId("t1")).toBeNull();
   });
 
+  it.each([
+    {
+      suppliedActivityAtMs: Date.parse("2026-01-01T00:02:00.000Z"),
+      storedActivityAt: "2026-01-01T00:01:00.000Z",
+      expected: "2026-01-01T00:02:00.000Z",
+    },
+    {
+      suppliedActivityAtMs: Date.parse("2026-01-01T00:01:00.000Z"),
+      storedActivityAt: "2026-01-01T00:02:00.000Z",
+      expected: "2026-01-01T00:02:00.000Z",
+    },
+  ])(
+    "clamps a view to $expected when activity is ahead of the device clock",
+    ({ suppliedActivityAtMs, storedActivityAt, expected }) => {
+      const { service, repo } = createService();
+      repo.findByTaskId.mockReturnValue({
+        taskId: "t1",
+        lastActivityAt: storedActivityAt,
+      });
+
+      service.markViewed("t1", suppliedActivityAtMs);
+
+      expect(repo.updateLastViewedAt).toHaveBeenCalledWith("t1", expected);
+    },
+  );
+
   it("records the view in task_metadata for a rowless task", () => {
     const { service, repo, metadataRepo } = createService();
     repo.findByTaskId.mockReturnValue(undefined);
+    metadataRepo.upsert("t1", {
+      lastActivityAt: "2026-01-01T00:02:00.000Z",
+    });
 
-    service.markViewed("t1");
+    service.markViewed("t1", Date.parse("2026-01-01T00:01:00.000Z"));
 
     expect(repo.updateLastViewedAt).not.toHaveBeenCalled();
-    expect(metadataRepo.findByTaskId("t1")?.lastViewedAt).toBe(NOW_ISO);
+    expect(metadataRepo.findByTaskId("t1")?.lastViewedAt).toBe(
+      "2026-01-01T00:02:00.000Z",
+    );
+  });
+});
+
+describe("WorkspaceMetadataService.markUnread", () => {
+  it("records an unread timestamp on a workspace row", () => {
+    const { service, repo, metadataRepo } = createService();
+    repo.findByTaskId.mockReturnValue({
+      taskId: "t1",
+      lastActivityAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    service.markUnread("t1", new Date(NOW_ISO).getTime());
+
+    expect(repo.updateLastViewedAt).toHaveBeenCalledWith(
+      "t1",
+      "2026-01-01T00:00:59.999Z",
+    );
+    expect(metadataRepo.findByTaskId("t1")).toBeNull();
+  });
+
+  it("records an unread timestamp for a rowless task", () => {
+    const { service, repo, metadataRepo } = createService();
+    repo.findByTaskId.mockReturnValue(undefined);
+    metadataRepo.upsert("t1", {
+      lastActivityAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    service.markUnread("t1", new Date(NOW_ISO).getTime());
+
+    expect(repo.updateLastViewedAt).not.toHaveBeenCalled();
+    expect(metadataRepo.findByTaskId("t1")?.lastViewedAt).toBe(
+      "2026-01-01T00:00:59.999Z",
+    );
   });
 });
 

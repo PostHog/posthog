@@ -46,9 +46,38 @@ export class WorkspaceMetadataService {
     return { isPinned: newPinnedAt !== null, pinnedAt: newPinnedAt };
   }
 
-  markViewed(taskId: string): void {
-    const lastViewedAt = new Date().toISOString();
-    if (this.workspaceRepo.findByTaskId(taskId)) {
+  markViewed(taskId: string, activityAtMs?: number): void {
+    const workspace = this.workspaceRepo.findByTaskId(taskId);
+    const metadata = workspace ?? this.taskMetadataRepo.findByTaskId(taskId);
+    const storedActivityAtMs = metadata?.lastActivityAt
+      ? Date.parse(metadata.lastActivityAt)
+      : 0;
+    const lastViewedAt = new Date(
+      Math.max(
+        Date.now(),
+        activityAtMs ?? 0,
+        Number.isFinite(storedActivityAtMs) ? storedActivityAtMs : 0,
+      ),
+    ).toISOString();
+    if (workspace) {
+      this.workspaceRepo.updateLastViewedAt(taskId, lastViewedAt);
+      return;
+    }
+    this.taskMetadataRepo.upsert(taskId, { lastViewedAt });
+  }
+
+  markUnread(taskId: string, activityAtMs: number): void {
+    const workspace = this.workspaceRepo.findByTaskId(taskId);
+    const metadata = workspace ?? this.taskMetadataRepo.findByTaskId(taskId);
+    const storedActivityAtMs = metadata?.lastActivityAt
+      ? new Date(metadata.lastActivityAt).getTime()
+      : 0;
+    const effectiveActivityAtMs = Math.max(
+      activityAtMs,
+      Number.isFinite(storedActivityAtMs) ? storedActivityAtMs : 0,
+    );
+    const lastViewedAt = new Date(effectiveActivityAtMs - 1).toISOString();
+    if (workspace) {
       this.workspaceRepo.updateLastViewedAt(taskId, lastViewedAt);
       return;
     }

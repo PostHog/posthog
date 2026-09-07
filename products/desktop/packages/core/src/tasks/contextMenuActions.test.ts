@@ -25,6 +25,12 @@ describe("resolveTaskContextMenuIntent", () => {
     expect(resolveTaskContextMenuIntent({ type: "stop" }, {})).toEqual({
       type: "stop",
     });
+    expect(resolveTaskContextMenuIntent({ type: "mark-read" }, {})).toEqual({
+      type: "mark-read",
+    });
+    expect(resolveTaskContextMenuIntent({ type: "mark-unread" }, {})).toEqual({
+      type: "mark-unread",
+    });
     expect(resolveTaskContextMenuIntent({ type: "handoff" }, {})).toEqual({
       type: "handoff",
     });

@@ -7,6 +7,8 @@ import type {
 export type TaskContextMenuIntent =
   | { type: "rename" }
   | { type: "pin" }
+  | { type: "mark-read" }
+  | { type: "mark-unread" }
   | { type: "suspend" }
   | { type: "stop" }
   | { type: "restore" }
@@ -27,6 +29,10 @@ export function resolveTaskContextMenuIntent(
       return { type: "rename" };
     case "pin":
       return { type: "pin" };
+    case "mark-read":
+      return { type: "mark-read" };
+    case "mark-unread":
+      return { type: "mark-unread" };
     case "suspend":
       return flags.isSuspended ? { type: "restore" } : { type: "suspend" };
     case "stop":

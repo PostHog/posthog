@@ -35,6 +35,8 @@ import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrow
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { TaskDotMark } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
+import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
@@ -62,12 +64,10 @@ import {
  * centre, pinned, filed, and deleted. `kind` decides which remaining actions
  * apply.
  */
-export interface TaskRowMenuProps {
-  kind: "task" | "canvas";
+interface TaskRowMenuBase {
   id: string;
   title: string;
   isPinned: boolean;
-  task?: Task;
   /** The channel this item is already filed to, ticked in "File to…". */
   channelId?: string;
   /** Absent when the command centre is full, which disables the item. */
@@ -84,6 +84,21 @@ export interface TaskRowMenuProps {
   /** Owner-only: handing a task to a colleague needs a confirm dialog. */
   onHandoff?: () => void;
 }
+
+export type TaskRowMenuProps = TaskRowMenuBase &
+  (
+    | {
+        kind: "task";
+        isUnread: boolean;
+        activityAtMs: number;
+        task?: Task;
+        onMarkAsRead: (activityAtMs: number) => void;
+        onMarkAsUnread: () => void;
+      }
+    | {
+        kind: "canvas";
+      }
+  );
 
 // The two menus differ only in which primitives draw them, so the item list is
 // written once against this shape. Base UI builds context menus on the same Menu
@@ -190,6 +205,18 @@ function TaskRowMenuItems({
         )}
         {menu.isPinned ? "Unpin" : "Pin"}
       </Item>
+      {isTask && (
+        <Item
+          onClick={
+            menu.isUnread
+              ? () => menu.onMarkAsRead(menu.activityAtMs)
+              : menu.onMarkAsUnread
+          }
+        >
+          <TaskDotMark dot={taskDot({ isUnread: menu.isUnread })} />
+          {menu.isUnread ? "Mark as read" : "Mark as unread"}
+        </Item>
+      )}
       {menu.onRename && (
         <Item onClick={menu.onRename}>
           <PencilSimpleIcon size={14} />
