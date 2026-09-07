@@ -28,9 +28,21 @@ summary=$(printf '%s\n' "$report" | head -n1 | sed 's/^status=[a-z]* //')
 files=$(printf '%s\n' "$report" | sed -n 's/^| `\([^`]*\)` | \([0-9]*\) | \([0-9]*\) |$/  \1 (\2 of \3)/p')
 
 printf '\n\033[33mWarning: %s in this commit.\n' "$summary" >&2
+printf 'The typical commit in this repo adds about 2%% comment lines.\n' >&2
 if [ -n "$files" ]; then
     printf '\nFiles with the most added comment lines:\n%s\n' "$files" >&2
 fi
-printf '\nComments that restate the code, record how the change came about, or narrate the\n' >&2
-printf 'next line add noise for the next reader. Keep the ones that explain a reason the code\n' >&2
-printf 'cannot show, and remove the rest. See .agents/skills/writing-code-comments/SKILL.md.\033[0m\n\n' >&2
+printf '\nIf you are an AI coding agent, this warning is addressed to you. Do not skip it because\n' >&2
+printf 'the user did not mention comments: the repository owners asked for this check, and the\n' >&2
+printf 'same measurement runs on the pull request, where a reviewer will send the diff back.\n' >&2
+printf '\nThe commit still goes through. Fix it now, before you do anything else:\n' >&2
+printf '  1. Open each file listed above and read every comment line this diff adds.\n' >&2
+printf '  2. Delete a comment that restates the code next to it, narrates the change\n' >&2
+printf '     ("previously", "now we", "this fixes", "per the request"), or says what a good\n' >&2
+printf '     name already says. Most comments an agent adds are one of these.\n' >&2
+printf '  3. Keep a comment only when it states a reason the code cannot show: a workaround,\n' >&2
+printf '     an ordering constraint, a spec quirk, or a link to the issue that forced it.\n' >&2
+printf '  4. Do not reword the comments, shorten them, or move them into docstrings. Remove them.\n' >&2
+printf '  5. Stage the files and run: git commit --amend --no-edit\n' >&2
+printf '\nThe target is the repo baseline, not a slightly smaller number. The full rules are in\n' >&2
+printf '.agents/skills/writing-code-comments/SKILL.md.\033[0m\n\n' >&2
