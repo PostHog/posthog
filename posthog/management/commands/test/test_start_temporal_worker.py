@@ -1,11 +1,14 @@
 import pytest
 
+from django.core.management.base import CommandError
+
 from posthog.management.commands.start_temporal_worker import (
     DATA_SYNC_WORKFLOWS,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
     _task_queue_specs,
+    resolve_task_queue_registrations,
     workflows_include_data_import_syncs,
 )
 
@@ -38,6 +41,21 @@ def test_only_data_import_queues_warm_sources(workflows: list[type], expected: b
 # a workflow registered without its activities fails at runtime the moment it dispatches one, so both
 # are asserted. Queue settings collapse to a single dev queue under DEBUG, so match on the spec entry
 # that carries the weekly digest rather than on a queue name.
+# WORKFLOWS_DICT/ACTIVITIES_DICT are defaultdict(set), so a lookup for a queue with no spec entry
+# used to return an empty set. The worker then started with zero workflows and zero activities, and
+# Temporal failed with the opaque "At least one activity ... must be specified" and crash-looped.
+# Fail fast with a clear message that names the queue instead.
+def test_unknown_task_queue_fails_fast() -> None:
+    with pytest.raises(CommandError, match="no registered workflows or activities"):
+        resolve_task_queue_registrations("this-queue-has-no-spec")
+
+
+def test_known_task_queue_resolves_to_registered_work() -> None:
+    known_queue = _task_queue_specs[0][0]
+    workflows, activities = resolve_task_queue_registrations(known_queue)
+    assert workflows or activities
+
+
 def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
     entries = [
         (workflows, activities)
