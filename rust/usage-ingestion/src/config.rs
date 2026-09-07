@@ -7,6 +7,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
 use crate::counters::CounterConfig;
+use crate::kafka::KafkaBatchConfig;
 
 /// WarpStream's recommended librdkafka producer settings.
 /// <https://docs.warpstream.com/warpstream/kafka/configure-kafka-client/tuning-for-performance>
@@ -67,6 +68,11 @@ pub struct Config {
     )]
     pub kafka_input_topic: String,
     #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_DEAD_LETTER_TOPIC",
+        default = "usage_ingestion_dlq"
+    )]
+    pub kafka_dead_letter_topic: String,
+    #[envconfig(
         from = "USAGE_INGESTION_KAFKA_CONSUMER_GROUP",
         default = "usage-ingestion"
     )]
@@ -111,6 +117,15 @@ pub struct Config {
         default = "60000"
     )]
     pub kafka_consumer_retry_backoff_max_ms: u32,
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_CONSUMER_BATCH_SIZE", default = "100")]
+    pub kafka_consumer_batch_size: usize,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_BATCH_TIMEOUT_MS",
+        default = "10"
+    )]
+    pub kafka_consumer_batch_timeout_ms: u64,
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_CONSUMER_CONCURRENCY", default = "16")]
+    pub kafka_consumer_concurrency: usize,
     /// Only "none", "gzip", "snappy" and "lz4" work. "zstd" needs an rdkafka feature the
     /// workspace does not enable, so librdkafka refuses it when it builds the producer.
     #[envconfig(from = "KAFKA_COMPRESSION_CODEC", default = "lz4")]
@@ -160,6 +175,22 @@ impl Config {
         }
         if self.redis_flush_concurrency == 0 {
             return Err("USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY must be positive".to_string());
+        }
+        if self.kafka_consumer_batch_size == 0 {
+            return Err("USAGE_INGESTION_KAFKA_CONSUMER_BATCH_SIZE must be positive".to_string());
+        }
+        if self.kafka_consumer_batch_timeout_ms == 0 {
+            return Err(
+                "USAGE_INGESTION_KAFKA_CONSUMER_BATCH_TIMEOUT_MS must be positive".to_string(),
+            );
+        }
+        if self.kafka_consumer_concurrency == 0 {
+            return Err("USAGE_INGESTION_KAFKA_CONSUMER_CONCURRENCY must be positive".to_string());
+        }
+        if self.kafka_consumer_retry_backoff_max_ms == 0 {
+            return Err(
+                "USAGE_INGESTION_KAFKA_CONSUMER_RETRY_BACKOFF_MAX_MS must be positive".to_string(),
+            );
         }
         // A few seconds would make every producer spend its time reconnecting.
         if self.grpc_max_connection_age_secs > 0 && self.grpc_max_connection_age_secs < 10 {
@@ -240,6 +271,14 @@ impl Config {
             )
             .build()
     }
+
+    pub fn kafka_batch_config(&self) -> KafkaBatchConfig {
+        KafkaBatchConfig {
+            max_messages: self.kafka_consumer_batch_size,
+            max_wait: Duration::from_millis(self.kafka_consumer_batch_timeout_ms),
+            concurrency: self.kafka_consumer_concurrency,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -257,6 +296,7 @@ mod tests {
             kafka_input_hosts: String::new(),
             kafka_input_tls: None,
             kafka_input_topic: "usage_ingestion".to_string(),
+            kafka_dead_letter_topic: "usage_ingestion_dlq".to_string(),
             kafka_consumer_group: "usage-ingestion".to_string(),
             kafka_consumer_client_id: "usage-ingestion-consumer".to_string(),
             kafka_consumer_topic_metadata_refresh_interval_ms: 60_000,
@@ -266,6 +306,9 @@ mod tests {
             kafka_consumer_socket_send_buffer_bytes: 0,
             kafka_consumer_socket_receive_buffer_bytes: 0,
             kafka_consumer_retry_backoff_max_ms: 60_000,
+            kafka_consumer_batch_size: 100,
+            kafka_consumer_batch_timeout_ms: 10,
+            kafka_consumer_concurrency: 16,
             kafka_compression_codec: "lz4".to_string(),
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
@@ -351,6 +394,11 @@ mod tests {
         assert_eq!(kafka.get("socket.send.buffer.bytes"), Some("0"));
         assert_eq!(kafka.get("socket.receive.buffer.bytes"), Some("0"));
         assert_eq!(kafka.get("retry.backoff.max.ms"), Some("60000"));
+
+        let batch = config.kafka_batch_config();
+        assert_eq!(batch.max_messages, 100);
+        assert_eq!(batch.max_wait, Duration::from_millis(10));
+        assert_eq!(batch.concurrency, 16);
     }
 
     #[test]

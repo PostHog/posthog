@@ -5,6 +5,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
@@ -12,7 +13,10 @@ use common_kafka::kafka_producer::create_kafka_producer;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 use common_liveness::SyncLivenessReporter;
 use prost::Message;
+use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
+use rdkafka::client::DefaultClientContext;
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::ClientConfig;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -21,7 +25,7 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::{Channel, Server};
 use usage_ingestion::counters::CounterAccumulator;
 use usage_ingestion::grpc::GrpcUsageIngestion;
-use usage_ingestion::kafka::KafkaUsageIngestion;
+use usage_ingestion::kafka::{KafkaBatchConfig, KafkaUsageIngestion};
 use usage_ingestion::resolver::{OrganizationResolver, ResolveError};
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_client::UsageIngestionClient;
@@ -81,6 +85,21 @@ pub fn env_usize(key: &str, default: usize) -> usize {
 
 pub fn kafka_hosts() -> String {
     env_or("USAGE_INGESTION_E2E_KAFKA_HOSTS", "localhost:9092")
+}
+
+pub async fn create_topic(name: &str, partitions: i32) {
+    let admin: AdminClient<DefaultClientContext> = ClientConfig::new()
+        .set("bootstrap.servers", kafka_hosts())
+        .create()
+        .expect("failed to create the Kafka admin client");
+    let topic = NewTopic::new(name, partitions, TopicReplication::Fixed(1));
+    let options = AdminOptions::new().operation_timeout(Some(Duration::from_secs(10)));
+    for result in admin.create_topics(&[topic], &options).await.unwrap() {
+        match result {
+            Ok(_) | Err((_, RDKafkaErrorCode::TopicAlreadyExists)) => {}
+            Err((name, error)) => panic!("failed to create topic {name}: {error:?}"),
+        }
+    }
 }
 
 pub fn clickhouse_url() -> String {
@@ -163,8 +182,18 @@ impl KafkaService {
         let consumer_config = ConsumerConfigBuilder::for_batch_consumer(&kafka_hosts(), &group)
             .with_offset_reset("earliest")
             .build();
-        let transport = KafkaUsageIngestion::new(&consumer_config, &input_topic, service)
-            .expect("failed to create the Kafka transport");
+        let transport = KafkaUsageIngestion::new(
+            &consumer_config,
+            &input_topic,
+            format!("{input_topic}_dlq"),
+            service,
+            KafkaBatchConfig {
+                max_messages: 100,
+                max_wait: Duration::from_millis(10),
+                concurrency: 16,
+            },
+        )
+        .expect("failed to create the Kafka transport");
         let handle = tokio::spawn(async move {
             transport.run().await.expect("Kafka transport failed");
         });
@@ -205,6 +234,19 @@ async fn service(
     organization_id: Uuid,
     counters: Option<Arc<CounterAccumulator>>,
 ) -> Arc<UsageIngestionService> {
+    service_with_resolver(
+        max_batch_size,
+        Arc::new(FixedResolver(organization_id)),
+        counters,
+    )
+    .await
+}
+
+pub async fn service_with_resolver(
+    max_batch_size: usize,
+    resolver: Arc<dyn OrganizationResolver>,
+    counters: Option<Arc<CounterAccumulator>>,
+) -> Arc<UsageIngestionService> {
     let producer = create_kafka_producer(
         &KafkaConfig {
             kafka_hosts: kafka_hosts(),
@@ -218,7 +260,7 @@ async fn service(
     .expect("failed to create the Kafka producer");
     Arc::new(UsageIngestionService::new(
         producer,
-        Arc::new(FixedResolver(organization_id)),
+        resolver,
         max_batch_size,
         topic(),
         counters,

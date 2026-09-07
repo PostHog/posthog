@@ -17,7 +17,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 use usage_ingestion::config::{Config, TransportMode};
 use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator};
 use usage_ingestion::grpc::GrpcUsageIngestion;
-use usage_ingestion::kafka::KafkaUsageIngestion;
+use usage_ingestion::kafka::run_supervised;
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
@@ -158,23 +158,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok::<(), Box<dyn std::error::Error>>(())
     };
+    let kafka_config = config.kafka_consumer_config();
+    let kafka_batch_config = config.kafka_batch_config();
     let kafka = async {
-        if config.transport_mode != TransportMode::Grpc {
-            tracing::info!(
-                topic = %config.kafka_input_topic,
-                group = %config.kafka_consumer_group,
-                "Starting usage-ingestion Kafka consumer"
-            );
-            KafkaUsageIngestion::new(
-                &config.kafka_consumer_config(),
-                &config.kafka_input_topic,
-                service,
-            )?
-            .run()
-            .await?;
-        }
-        Ok::<(), Box<dyn std::error::Error>>(())
+        tracing::info!(
+            topic = %config.kafka_input_topic,
+            group = %config.kafka_consumer_group,
+            "Starting usage-ingestion Kafka consumer"
+        );
+        run_supervised(
+            &kafka_config,
+            &config.kafka_input_topic,
+            &config.kafka_dead_letter_topic,
+            service,
+            kafka_batch_config,
+            Duration::from_millis(config.kafka_consumer_retry_backoff_max_ms.into()),
+        )
+        .await;
     };
-    tokio::try_join!(grpc, kafka)?;
+
+    match config.transport_mode {
+        TransportMode::Grpc => grpc.await?,
+        TransportMode::Kafka => kafka.await,
+        TransportMode::Both => tokio::select! {
+            result = grpc => result?,
+            _ = kafka => unreachable!("the supervised Kafka consumer does not exit"),
+        },
+    }
     Ok(())
 }
