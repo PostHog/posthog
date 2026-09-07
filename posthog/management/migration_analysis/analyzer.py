@@ -34,7 +34,7 @@ from posthog.management.migration_analysis.operations import (
 from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
 from posthog.management.migration_analysis.utils import OperationCategorizer
 
-# Generated squash tail files (tools/nextgensquash): NNNN_squash_YYYY_MM_DD_*.
+# Generated squash tail files (django-nextgensquash): NNNN_squash_YYYY_MM_DD_*.
 # The name alone proves nothing — a file claiming it must still pass the
 # all-operations-guarded check below.
 _SQUASH_TAIL_NAME_RE = re.compile(r"^\d{4}_squash_\d{4}_\d{2}_\d{2}_")
