@@ -30,6 +30,218 @@ function asString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined
 }
 
+function asPositiveSafeInteger(value: unknown): number | null {
+    const parsed =
+        typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
+    return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] | null {
+    if (!Array.isArray(value)) {
+        return null
+    }
+    const records = value.map(asRecord)
+    return records.every((record): record is Record<string, unknown> => record !== null) ? records : null
+}
+
+function getAgreedPositiveSafeInteger(
+    record: Record<string, unknown>,
+    keys: readonly string[]
+): number | null | undefined {
+    const values = keys.filter((key) => key in record).map((key) => asPositiveSafeInteger(record[key]))
+    if (values.length === 0) {
+        return undefined
+    }
+    if (values.some((value) => value === null)) {
+        return null
+    }
+    return values.every((value) => value === values[0]) ? values[0]! : null
+}
+
+function getRequestDashboardId(input: Record<string, unknown>): number | null {
+    return getAgreedPositiveSafeInteger(input, ['id', 'dashboard_id', 'dashboardId']) ?? null
+}
+
+function responseAgreesWithDashboard(output: Record<string, unknown>, dashboardId: number): boolean {
+    const directDashboardId = getAgreedPositiveSafeInteger(output, ['dashboard_id', 'dashboardId'])
+    if (directDashboardId === null || (directDashboardId !== undefined && directDashboardId !== dashboardId)) {
+        return false
+    }
+
+    const nestedDashboard = asRecord(output.dashboard)
+    if (!nestedDashboard) {
+        return true
+    }
+    return getAgreedPositiveSafeInteger(nestedDashboard, ['id']) === dashboardId
+}
+
+function getResponseTileId(output: Record<string, unknown>, dashboardId: number): number | null {
+    if (!responseAgreesWithDashboard(output, dashboardId)) {
+        return null
+    }
+    return getAgreedPositiveSafeInteger(output, ['id', 'tile_id']) ?? null
+}
+
+function getDashboardIdFromPostHogUrl(value: unknown): number | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    try {
+        const url = new URL(value)
+        if (url.protocol !== 'https:' || (url.hostname !== 'posthog.com' && !url.hostname.endsWith('.posthog.com'))) {
+            return null
+        }
+        const match = /^\/project\/[^/]+\/dashboard\/(\d+)\/?$/.exec(url.pathname)
+        return match ? asPositiveSafeInteger(match[1]) : null
+    } catch {
+        return null
+    }
+}
+
+export interface DashboardRevealTarget {
+    dashboardId: number
+    tileId?: number
+    insightShortId?: string
+}
+
+const DASHBOARD_TILE_CREATE_KEYS = new Set(['dashboard-create-tile', 'dashboard-create-text-tile'])
+const DASHBOARD_TILE_UPDATE_KEYS = new Set(['dashboard-update-text-tile'])
+const DASHBOARD_BATCH_ADD_KEYS = new Set(['dashboard-widgets-batch-add', 'dashboards-widgets-batch-create'])
+const DASHBOARD_BATCH_UPDATE_KEYS = new Set(['dashboard-widgets-batch-update'])
+const DASHBOARD_RESPONSE_KEYS = new Set([
+    'dashboard-update',
+    'dashboard-reorder-tiles',
+    'dashboard-tile-copy',
+    'dashboards-copy-tile-create',
+    'dashboards-move-tile-create',
+    'dashboards-move-tile-partial-update',
+])
+
+function extractDashboardBatchRevealTarget(
+    input: Record<string, unknown>,
+    output: Record<string, unknown>,
+    dashboardId: number,
+    requireExistingTileIds: boolean
+): DashboardRevealTarget | null {
+    const requestedWidgets = asRecordArray(input.widgets)
+    const returnedTiles = asRecordArray(output.tiles)
+    if (
+        !requestedWidgets ||
+        !returnedTiles ||
+        requestedWidgets.length === 0 ||
+        requestedWidgets.length !== returnedTiles.length
+    ) {
+        return null
+    }
+
+    const tileIds = returnedTiles.map((tile) => getResponseTileId(tile, dashboardId))
+    if (tileIds.some((tileId) => tileId === null)) {
+        return null
+    }
+
+    if (requireExistingTileIds) {
+        const requestedTileIds = requestedWidgets.map((widget) => getAgreedPositiveSafeInteger(widget, ['tile_id']))
+        if (
+            requestedTileIds.some((tileId) => tileId === null || tileId === undefined) ||
+            requestedTileIds.some((tileId, index) => tileId !== tileIds[index])
+        ) {
+            return null
+        }
+    }
+
+    return tileIds.length === 1 ? { dashboardId, tileId: tileIds[0]! } : { dashboardId }
+}
+
+/**
+ * Produces a navigation target only when the completed mutation response corroborates the request.
+ * Ambiguous batches and response/request disagreements intentionally fall back to the generic card.
+ */
+export function extractDashboardMutationRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    if (message.status !== 'completed') {
+        return null
+    }
+    const input = asRecord(message.innerInput)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
+    if (!input || !output) {
+        return null
+    }
+    const dashboardId = getRequestDashboardId(input)
+    if (dashboardId === null) {
+        return null
+    }
+
+    if (DASHBOARD_TILE_CREATE_KEYS.has(message.resolvedKey)) {
+        const tileId = getResponseTileId(output, dashboardId)
+        return tileId === null ? null : { dashboardId, tileId }
+    }
+
+    if (DASHBOARD_TILE_UPDATE_KEYS.has(message.resolvedKey)) {
+        const requestedTileId = getAgreedPositiveSafeInteger(input, ['tile_id'])
+        const responseTileId = getResponseTileId(output, dashboardId)
+        return requestedTileId === null || requestedTileId === undefined || requestedTileId !== responseTileId
+            ? null
+            : { dashboardId, tileId: responseTileId }
+    }
+
+    if (DASHBOARD_BATCH_ADD_KEYS.has(message.resolvedKey)) {
+        return extractDashboardBatchRevealTarget(input, output, dashboardId, false)
+    }
+
+    if (DASHBOARD_BATCH_UPDATE_KEYS.has(message.resolvedKey)) {
+        return extractDashboardBatchRevealTarget(input, output, dashboardId, true)
+    }
+
+    if (message.resolvedKey === 'dashboard-delete-tile') {
+        return getDashboardIdFromPostHogUrl(output._posthogUrl) === dashboardId ? { dashboardId } : null
+    }
+
+    if (DASHBOARD_RESPONSE_KEYS.has(message.resolvedKey)) {
+        return getAgreedPositiveSafeInteger(output, ['id']) === dashboardId ? { dashboardId } : null
+    }
+
+    return null
+}
+
+/**
+ * Intersects a requested dashboard with the saved insight's authoritative, non-deleted tile response.
+ * Request-side dashboard IDs alone never establish a reveal target.
+ */
+export function extractInsightDashboardRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    if (
+        message.status !== 'completed' ||
+        (message.resolvedKey !== 'insight-create' && message.resolvedKey !== 'insight-update')
+    ) {
+        return null
+    }
+    const input = asRecord(message.innerInput)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
+    const requestedDashboards = input && Array.isArray(input.dashboards) ? input.dashboards : null
+    const shortId = asString(output?.short_id)
+    const dashboardTiles = asRecordArray(output?.dashboard_tiles)
+    if (
+        !requestedDashboards ||
+        requestedDashboards.length !== 1 ||
+        !shortId?.trim() ||
+        !dashboardTiles ||
+        dashboardTiles.length === 0
+    ) {
+        return null
+    }
+
+    const dashboardId = asPositiveSafeInteger(requestedDashboards[0])
+    if (dashboardId === null) {
+        return null
+    }
+    const matchingTiles = dashboardTiles.filter(
+        (tile) => asPositiveSafeInteger(tile.dashboard_id) === dashboardId && tile.deleted === false
+    )
+    if (matchingTiles.length !== 1) {
+        return null
+    }
+    const tileId = asPositiveSafeInteger(matchingTiles[0].id)
+    return tileId === null ? null : { dashboardId, tileId, insightShortId: shortId }
+}
+
 const QUERY_WRAPPER_KIND_BY_TOOL_KEY: Record<string, NodeKind> = {
     'query-trends': NodeKind.TrendsQuery,
     'query-funnel': NodeKind.FunnelsQuery,

@@ -4,7 +4,9 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 
 import {
     extractDashboard,
+    extractDashboardMutationRevealTarget,
     extractErrorTrackingResponse,
+    extractInsightDashboardRevealTarget,
     extractQueryResult,
     extractRecordingFilters,
     extractVisualizationArtifact,
@@ -208,6 +210,234 @@ describe('mcp tool adapter extractors', () => {
             expect(extractQueryResult(toolMessage({ results: [] }))).toBeNull()
             expect(extractQueryResult(toolMessage({ query: 'not-an-object' }))).toBeNull()
             expect(extractQueryResult(toolMessage(undefined))).toBeNull()
+        })
+    })
+
+    describe('extractDashboardMutationRevealTarget', () => {
+        const dashboardUrl = 'https://us.posthog.com/project/1/dashboard/7'
+
+        it.each([
+            [
+                'creates a text tile',
+                'dashboard-create-tile',
+                { id: 7, body: '## Launch' },
+                { id: 41 },
+                { dashboardId: 7, tileId: 41 },
+            ],
+            [
+                'keeps the replay alias for text-tile creation',
+                'dashboard-create-text-tile',
+                { id: '7', body: '## Launch' },
+                { id: '41' },
+                { dashboardId: 7, tileId: 41 },
+            ],
+            [
+                'updates one text tile',
+                'dashboard-update-text-tile',
+                { id: 7, tile_id: 41, body: 'Updated' },
+                { id: 41 },
+                { dashboardId: 7, tileId: 41 },
+            ],
+            [
+                'deletes a tile after the 204 response is enriched with a dashboard URL',
+                'dashboard-delete-tile',
+                { id: 7, tile_id: 41 },
+                { _posthogUrl: dashboardUrl },
+                { dashboardId: 7 },
+            ],
+            [
+                'reorders tiles from an authoritative dashboard response',
+                'dashboard-reorder-tiles',
+                { id: 7, tile_order: [41, 42] },
+                { id: 7, tiles: [{ id: 41 }, { id: 42 }] },
+                { dashboardId: 7 },
+            ],
+            [
+                'copies a tile without selecting one from the returned dashboard',
+                'dashboard-tile-copy',
+                { id: 7, fromDashboardId: 6, tileId: 41 },
+                { id: 7, tiles: [{ id: 88 }] },
+                { dashboardId: 7 },
+            ],
+            [
+                'keeps the copy replay alias',
+                'dashboards-copy-tile-create',
+                { id: 7, fromDashboardId: 6, tileId: 41 },
+                { id: 7, tiles: [{ id: 88 }] },
+                { dashboardId: 7 },
+            ],
+            [
+                'reveals one newly added widget',
+                'dashboard-widgets-batch-add',
+                { id: 7, widgets: [{ widget_type: 'session_replay_list' }] },
+                { tiles: [{ id: 41 }] },
+                { dashboardId: 7, tileId: 41 },
+            ],
+            [
+                'returns dashboard-only for multiple added widgets',
+                'dashboard-widgets-batch-add',
+                { id: 7, widgets: [{ widget_type: 'session_replay_list' }, { widget_type: 'error_tracking_list' }] },
+                { tiles: [{ id: 41 }, { id: 42 }] },
+                { dashboardId: 7 },
+            ],
+            [
+                'reveals one updated widget after its returned ID matches the request',
+                'dashboard-widgets-batch-update',
+                { id: 7, widgets: [{ tile_id: 41, name: 'New name' }] },
+                { tiles: [{ id: 41 }] },
+                { dashboardId: 7, tileId: 41 },
+            ],
+            [
+                'keeps the batch-create replay alias',
+                'dashboards-widgets-batch-create',
+                { id: 7, widgets: [{ widget_type: 'session_replay_list' }] },
+                { tiles: [{ id: 41 }] },
+                { dashboardId: 7, tileId: 41 },
+            ],
+            [
+                'moves a tile while retaining the authoritative source dashboard response',
+                'dashboards-move-tile-create',
+                { id: 7, to_dashboard: 8, tile: { id: 41 } },
+                { id: 7 },
+                { dashboardId: 7 },
+            ],
+            [
+                'moves a tile through the live partial-update key',
+                'dashboards-move-tile-partial-update',
+                { id: 7, to_dashboard: 8, tile: { id: 41 } },
+                { id: 7 },
+                { dashboardId: 7 },
+            ],
+        ])('strictly extracts a target when it %s', (_case, resolvedKey, innerInput, rawOutput, expected) => {
+            expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toEqual(
+                expected
+            )
+        })
+
+        it('accepts dashboard-update only when its response confirms the requested dashboard', () => {
+            expect(
+                extractDashboardMutationRevealTarget(
+                    toolMessage({ id: 7, name: 'Growth' }, { id: 7 }, 'dashboard-update')
+                )
+            ).toEqual({ dashboardId: 7 })
+            expect(
+                extractDashboardMutationRevealTarget(
+                    toolMessage({ id: 8, name: 'Growth' }, { id: 7 }, 'dashboard-update')
+                )
+            ).toBeNull()
+        })
+
+        it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1.2', 'not-an-id'])(
+            'rejects unsafe dashboard id %p',
+            (id) => {
+                expect(extractDashboardMutationRevealTarget(toolMessage({ id }, { id }, 'dashboard-update'))).toBeNull()
+            }
+        )
+
+        it.each([
+            [
+                'a response tile with a conflicting dashboard_id',
+                'dashboard-create-tile',
+                { id: 41, dashboard_id: 8 },
+                { id: 7 },
+            ],
+            [
+                'a text update whose response tile disagrees with tile_id',
+                'dashboard-update-text-tile',
+                { id: 42 },
+                { id: 7, tile_id: 41 },
+            ],
+            ['an empty widget batch', 'dashboard-widgets-batch-update', { tiles: [] }, { id: 7, widgets: [] }],
+            [
+                'a widget batch with mismatched cardinality',
+                'dashboard-widgets-batch-update',
+                { tiles: [{ id: 41 }] },
+                { id: 7, widgets: [{ widget_type: 'session_replay_list' }, { widget_type: 'error_tracking_list' }] },
+            ],
+            [
+                'a widget-update batch whose returned IDs do not match in order',
+                'dashboard-widgets-batch-update',
+                { tiles: [{ id: 42 }, { id: 41 }] },
+                { id: 7, widgets: [{ tile_id: 41 }, { tile_id: 42 }] },
+            ],
+            [
+                'malformed output',
+                'dashboard-widgets-batch-update',
+                'not a structured response',
+                { id: 7, widgets: [{ tile_id: 41 }] },
+            ],
+        ])('rejects %s', (_case, resolvedKey, rawOutput, innerInput) => {
+            expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toBeNull()
+        })
+
+        it.each([
+            [undefined, 'missing enrichment'],
+            [{ _posthogUrl: 'https://example.com/project/1/dashboard/7' }, 'a third-party URL'],
+            [{ _posthogUrl: 'https://us.posthog.com/project/1/dashboard/8' }, 'a URL for a different dashboard'],
+            [{ _posthogUrl: '/dashboard/7' }, 'a relative URL'],
+        ])('rejects a 204 tile delete with %s', (rawOutput, _case) => {
+            expect(
+                extractDashboardMutationRevealTarget(
+                    toolMessage(rawOutput, { id: 7, tile_id: 41 }, 'dashboard-delete-tile')
+                )
+            ).toBeNull()
+        })
+    })
+
+    describe('extractInsightDashboardRevealTarget', () => {
+        const matchingOutput = {
+            short_id: 'abc12345',
+            dashboard_tiles: [{ id: 41, dashboard_id: 7, deleted: false }],
+        }
+
+        it.each(['insight-create', 'insight-update'])('extracts an authoritative tile after %s', (resolvedKey) => {
+            expect(
+                extractInsightDashboardRevealTarget(toolMessage(matchingOutput, { dashboards: [7] }, resolvedKey))
+            ).toEqual({
+                dashboardId: 7,
+                tileId: 41,
+                insightShortId: 'abc12345',
+            })
+        })
+
+        it.each([
+            ['missing requested dashboards', matchingOutput, {}],
+            ['multiple requested dashboards', matchingOutput, { dashboards: [7, 8] }],
+            ['an unsafe requested dashboard', matchingOutput, { dashboards: [0] }],
+            ['a blank response short ID', { ...matchingOutput, short_id: ' ' }, { dashboards: [7] }],
+            ['no response membership', { short_id: 'abc12345', dashboard_tiles: [] }, { dashboards: [7] }],
+            [
+                'a response membership for another dashboard',
+                { ...matchingOutput, dashboard_tiles: [{ id: 41, dashboard_id: 8, deleted: false }] },
+                { dashboards: [7] },
+            ],
+            [
+                'multiple matching response tiles',
+                {
+                    ...matchingOutput,
+                    dashboard_tiles: [
+                        { id: 41, dashboard_id: 7, deleted: false },
+                        { id: 42, dashboard_id: 7, deleted: false },
+                    ],
+                },
+                { dashboards: [7] },
+            ],
+            [
+                'a deleted matching response tile',
+                { ...matchingOutput, dashboard_tiles: [{ id: 41, dashboard_id: 7, deleted: true }] },
+                { dashboards: [7] },
+            ],
+            [
+                'an unsafe returned tile ID',
+                {
+                    ...matchingOutput,
+                    dashboard_tiles: [{ id: Number.MAX_SAFE_INTEGER + 1, dashboard_id: 7, deleted: false }],
+                },
+                { dashboards: [7] },
+            ],
+            ['malformed output', 'not a structured response', { dashboards: [7] }],
+        ])('rejects %s', (_case, rawOutput, innerInput) => {
+            expect(extractInsightDashboardRevealTarget(toolMessage(rawOutput, innerInput, 'insight-create'))).toBeNull()
         })
     })
 })
