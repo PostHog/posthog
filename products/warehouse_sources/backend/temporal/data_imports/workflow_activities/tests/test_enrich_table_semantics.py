@@ -430,7 +430,7 @@ class TestGenerateDescriptions:
             columns=columns,
             foreign_keys=[],
             known_descriptions={},
-            columns_needing_description=[column["name"] for column in columns],
+            columns_needing_description=[str(column["name"]) for column in columns],
             business_context="",
         )
 
