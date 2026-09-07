@@ -20,7 +20,7 @@ from django.db.models import Q
 
 import structlog
 import posthoganalytics
-from google.genai.types import GenerateContentConfig, GenerateContentResponse
+from google.genai.types import FinishReason, GenerateContentConfig, GenerateContentResponse
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
@@ -40,6 +40,7 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerModel, ScannerType
+from products.replay_vision.backend.queries.action_volume import recent_action_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
@@ -72,8 +73,11 @@ _SCALE_MAX_ALLOWED = 100
 _SCALE_SPAN_ALLOWED = 100
 # CoreMemory.text is model-capped at 10k chars; cap lower to keep the one-shot draft prompt lean.
 _MAX_BUSINESS_CONTEXT_CHARS = 5_000
-# Well above the largest plausible draft (a full config is a few hundred tokens); only caps runaway output.
-_MAX_OUTPUT_TOKENS = 4096
+# Thinking tokens are drawn from this same budget, and a vague goal makes the model deliberate far
+# longer than it writes: at 4096 the JSON was being cut off mid-object after only ~150 tokens of
+# answer. Doubling it clears that while staying well inside `_MODEL_CALL_TIMEOUT_MS` — a budget the
+# model cannot exhaust before the request times out just trades a quick failure for a slow one.
+_MAX_OUTPUT_TOKENS = 8192
 # Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
 _MAX_EXISTING_SCANNERS = 15
 _SCANNER_GIST_CHARS = 200
@@ -205,7 +209,16 @@ _GOAL_STOPWORDS = frozenset(
 
 
 class DraftError(Exception):
-    """Raised when the model call fails or returns nothing usable."""
+    """Raised when the model call fails or returns nothing usable.
+
+    `reason` is a stable slug carried into telemetry. The user-facing 503 is deliberately generic,
+    so it is the only thing that tells a provider outage apart from a draft the model got wrong.
+    """
+
+    def __init__(self, reason: str = "unknown", detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
 
 
 class _LlmDraft(BaseModel):
@@ -288,6 +301,9 @@ class _MatchedAction:
 
     name: str
     action_id: int
+    # Sessions the action fired in over the volume query's window. Shown in the briefing so the model
+    # can prefer a busy action when several match the goal.
+    recent_sessions: int = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -512,6 +528,14 @@ def draft_scanner_from_goal(
     return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=taxonomy.events, team_id=team.id)
 
 
+def _hit_output_cap(response: GenerateContentResponse) -> bool:
+    """Whether the model stopped because it ran out of output budget, leaving the JSON unfinished."""
+    for candidate in response.candidates or []:
+        if candidate.finish_reason == FinishReason.MAX_TOKENS:
+            return True
+    return False
+
+
 def _generate(
     *,
     user_content: str,
@@ -532,7 +556,7 @@ def _generate(
     except Exception as e:
         # A missing or malformed API key raises at construction. Wrap it so the API returns
         # the friendly 503 instead of a 500.
-        raise DraftError("model client unavailable") from e
+        raise DraftError("model_client_unavailable") from e
     config = GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
@@ -567,14 +591,19 @@ def _generate(
             response = call_model()
         except Exception as e:
             logger.exception("replay_vision.scanner_draft.generate_failed", team_id=team_id)
-            raise DraftError("model call failed") from e
+            raise DraftError("model_call_failed") from e
 
+    if _hit_output_cap(response):
+        # Truncated JSON parses as invalid, but the cause is our budget rather than the model
+        # writing nonsense — keep the two apart so a recurrence is recognizable.
+        logger.warning("replay_vision.scanner_draft.output_truncated", team_id=team_id, feature=feature)
+        raise DraftError("output_truncated")
     if not response.text:
-        raise DraftError("empty response")
+        raise DraftError("empty_response")
     try:
         return response_model.model_validate_json(response.text)
     except Exception as e:
-        raise DraftError("invalid response") from e
+        raise DraftError("invalid_response") from e
 
 
 def _grounded(proposed: list[str], allowed: Sequence[str], cap: int) -> list[str]:
@@ -638,7 +667,7 @@ def _normalized_config(parsed: _LlmDraft) -> dict[str, Any]:
     # (e.g. a classifier whose tags all slugified away).
     error = scanner_config_error(ScannerType(parsed.scanner_type), scanner_config)
     if error:
-        raise DraftError(f"draft config invalid: {error}")
+        raise DraftError("config_invalid", str(error))
     return scanner_config
 
 
@@ -652,7 +681,7 @@ def _finalize(
     """Normalize the model output into a draft the wizard form (and later the create endpoint) will accept."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
-        raise DraftError("draft missing name or prompt")
+        raise DraftError("missing_name_or_prompt")
     scanner_config = _normalized_config(parsed)
 
     screens = _grounded(
@@ -791,6 +820,10 @@ recordings of the user's product and produces one observation per recording. The
 - summarizer: writes a free-text summary of the session. Best when the goal is broad ("what are users
   doing?", "give me an overview") and doesn't fit one question, dimension, or vocabulary.
 
+A short or vague goal ("test", "help", "what's going on") is not a puzzle to work out. Draft a summarizer over
+the whole product with no filters and move on. The user reviews the draft in the wizard and narrows it
+there, so a broad draft is the right answer, not a guess at what they meant.
+
 Pick the single type that best fits the goal, then draft the scanner:
 - name: short and specific, under 8 words.
 - description: one sentence saying what the scanner looks for.
@@ -837,7 +870,9 @@ Pick the single type that best fits the goal, then draft the scanner:
 - filter_actions: the briefing may list the team's saved actions matching the goal. An action is the
   team's own curated definition of a behavior, so when one covers the goal, prefer it over hand-picking
   events or pages. Copy the name exactly; anything not in the list is discarded. Actions AND with every
-  other filter, so the one strongest action usually stands alone.
+  other filter, so the one strongest action usually stands alone. Each action shows the sessions it
+  fired in recently: when several fit the goal, pick the busier one, and prefer an event or a page over
+  an action that barely fires.
 - filter_cohorts: the briefing may list the team's cohorts matching the goal. A cohort is a saved
   audience, so use one when the goal is about WHO the user is ('what do power users struggle with')
   rather than what they did. Copy the name exactly; anything not in the list is discarded. Usually
@@ -949,10 +984,11 @@ def _build_user_content_v2(
             "\n"
             + as_untrusted_data(
                 "matching-actions",
-                [f'"{a.name}"' for a in actions],
+                [f'"{a.name}" ({a.recent_sessions} sessions last 7 days)' for a in actions],
                 source=(
-                    "the team's saved actions whose names match the goal. Each is a curated definition "
-                    "of a behavior; copy a name into filter_actions to scan only sessions containing it"
+                    "the team's saved actions whose names match the goal, each with the sessions it "
+                    "fired in recently. Each is a curated definition of a behavior; copy a name into "
+                    "filter_actions to scan only sessions containing it"
                 ),
             )
         )
@@ -1116,6 +1152,34 @@ def _goal_entity_matches(
     return _GoalEntityMatches(
         surveys=list(surveys.values()), actions=list(actions.values()), cohorts=list(cohorts.values())
     )
+
+
+def _live_actions(team: Team, actions: list[_MatchedAction]) -> list[_MatchedAction]:
+    """The matched actions that still fire, each carrying its recent session count.
+
+    A name match cannot tell a current action from one whose definition stopped matching years ago.
+    An autocapture action keyed to a button's text dies when the copy changes, while its name keeps
+    matching a goal about that feature. Offering a dead action costs the whole scanner, because an
+    action ANDs with every other filter and takes the session count to zero.
+
+    Fails open, because name matches without their counts still beat no matches at all.
+    """
+    if not actions:
+        return []
+    try:
+        sessions = recent_action_sessions(team=team, action_ids=[action.action_id for action in actions])
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.action_volume_failed", team_id=team.id, exc_info=True)
+        return actions
+    live = [replace(a, recent_sessions=count) for a in actions if (count := sessions.get(a.action_id, 0)) > 0]
+    if len(live) < len(actions):
+        logger.info(
+            "replay_vision.scanner_draft.dead_actions_dropped",
+            team_id=team.id,
+            matched=len(actions),
+            dropped=len(actions) - len(live),
+        )
+    return live
 
 
 def _page_filter_regex(pathname: str) -> str | None:
@@ -1309,7 +1373,7 @@ def _finalize_v2(
     """Normalize the v2 model output; costing is applied by the caller."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
-        raise DraftError("draft missing name or prompt")
+        raise DraftError("missing_name_or_prompt")
     scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
     # The briefing shows each page as "/billing (10)" for ranking, but the prompt tells the model to
@@ -1411,6 +1475,9 @@ def draft_scanner_from_goal_v2(
         else ""
     )
     matches = _goal_entity_matches(team, goal, user_access_control, allowed_scopes)
+    # Measured here rather than inside the match, so the access-control helper stays free of a
+    # ClickHouse query its other callers do not need.
+    matches = replace(matches, actions=_live_actions(team, matches.actions))
     if matches.surveys:
         # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
         # the survey events may not have matched on their own. A property filter is useless without
@@ -1461,9 +1528,107 @@ def draft_scanner_from_goal_v2(
         # A slow count must not throw away a good draft; the wizard falls back to its defaults.
         logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team.id, exc_info=True)
         return replace(draft, sampling_mode=None, sampling_rate=None, estimated_monthly_observations=None)
+    if solution.estimated_monthly_observations == 0:
+        draft, solution = _fall_back_to_pages(
+            team=team,
+            user=user,
+            draft=draft,
+            solution=solution,
+            monthly_credit_budget=monthly_credit_budget,
+        )
     return replace(
         draft,
         sampling_mode=solution.sampling_mode,
         sampling_rate=solution.sampling_rate,
         estimated_monthly_observations=solution.estimated_monthly_observations,
     )
+
+
+def _pages_only(query: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The draft's page and cohort filters, without its events and actions. None when the draft has
+    no page filter to fall back to.
+
+    Cohorts stay because a cohort says who the goal is about, not what the product still emits.
+    Dropping one would scan those pages for everybody, spending credits on sessions the goal never
+    asked about. When the cohort is itself what matched nothing, the caller's re-estimate comes back
+    zero again and the original draft is kept.
+
+    Keeps `filter_test_accounts`, because dropping it would widen the scan to internal traffic while
+    trying to make the filter match.
+    """
+    if not query:
+        return None
+    properties = query.get("properties") or []
+    pages = [p for p in properties if p.get("key") == "visited_page"]
+    if not pages:
+        return None
+    cohorts = [p for p in properties if p.get("type") == "cohort"]
+    return {
+        "kind": "RecordingsQuery",
+        "properties": [*pages, *cohorts],
+        "filter_test_accounts": query.get("filter_test_accounts", True),
+    }
+
+
+def _fall_back_to_pages(
+    *,
+    team: Team,
+    user: User,
+    draft: ScannerDraft,
+    solution: _BudgetSolution,
+    monthly_credit_budget: int,
+) -> tuple[ScannerDraft, _BudgetSolution]:
+    """Replace a filter that matches no sessions with the draft's page filter.
+
+    Events and actions AND with everything else, so one that the product stopped emitting takes the
+    whole filter to zero and the scanner never runs. The pages come from measured traffic, which
+    makes them the one part of the filter that cannot be dead.
+
+    Returns the draft and solution unchanged when the draft has no page filter, when the estimate
+    fails, or when the pages match nothing either, because widening to every session would scan a
+    product the goal never asked about.
+    """
+    fallback = _pages_only(draft.query)
+    if fallback is None:
+        return draft, solution
+    try:
+        relaxed = _solve_budget(
+            team=team,
+            user=user,
+            query=fallback,
+            monthly_credit_budget=monthly_credit_budget,
+            credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
+            model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
+        )
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.fallback_solve_failed", team_id=team.id, exc_info=True)
+        return draft, solution
+    if relaxed.estimated_monthly_observations == 0:
+        return draft, solution
+
+    dropped_events = len(draft.query.get("events") or []) if draft.query else 0
+    dropped_actions = len(draft.query.get("actions") or []) if draft.query else 0
+    logger.warning(
+        "replay_vision.scanner_draft.filters_matched_nothing",
+        team_id=team.id,
+        dropped_events=dropped_events,
+        dropped_actions=dropped_actions,
+    )
+    rationale = _fallback_rationale(draft.rationale, dropped_events=dropped_events, dropped_actions=dropped_actions)
+    return replace(draft, query=fallback, rationale=rationale), relaxed
+
+
+def _fallback_rationale(rationale: str, *, dropped_events: int, dropped_actions: int) -> str:
+    """The draft's rationale plus a note that the filter it describes was replaced.
+
+    The rationale still describes the filter the model picked, so leaving it alone would tell the
+    user this scanner watches something it no longer watches.
+
+    Trims the model's own text rather than the note, so the note cannot be cut in half by the cap.
+    """
+    if dropped_events and dropped_actions:
+        filters = "event and action filters"
+    else:
+        filters = "event filter" if dropped_events else "action filter"
+    note = f"The {filters} matched no recent recordings, so this scans the pages instead."
+    return f"{rationale[: _MAX_RATIONALE_LENGTH - len(note) - 1].strip()} {note}".strip()

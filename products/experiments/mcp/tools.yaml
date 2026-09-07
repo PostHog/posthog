@@ -1408,6 +1408,9 @@ tools:
     experiments-flag-cleanup-target-retrieve:
         operation: experiments_flag_cleanup_target_retrieve
         enabled: false
+    experiments-in-session-exposure-retrieve:
+        operation: experiments_in_session_exposure_retrieve
+        enabled: false
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
         enabled: false

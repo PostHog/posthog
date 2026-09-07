@@ -9,8 +9,8 @@ import { Link } from "@tanstack/react-router";
 // they open in the in-app Skills view rather than linking out to GitHub. `name`
 // is the skill's frontmatter name, used to select it once Skills loads.
 const HELPER_SKILLS = [
-  { label: "authoring scouts", name: "authoring-signals-scouts" },
-  { label: "exploring scouts", name: "exploring-signals-scouts" },
+  { label: "writing agents", name: "authoring-scouts" },
+  { label: "exploring agents", name: "exploring-scouts" },
 ];
 
 /** One-line pointer to the two official scout helper skills, opened in-app. */
@@ -18,7 +18,7 @@ export function ScoutHelperSkillLinks({ surface }: { surface: ScoutSurface }) {
   const { requestSkill } = useSkillsSelectionActions();
   return (
     <Text className="text-[12px] text-gray-10">
-      Helper skills:{" "}
+      Skills:{" "}
       {HELPER_SKILLS.map((skill, index) => (
         <span key={skill.name}>
           {index > 0 ? " · " : null}

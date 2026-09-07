@@ -1,14 +1,18 @@
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
-import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 
-import { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
-import { RateLimitToOverflowStepInput } from './rate-limit-to-overflow-step'
+import { OverflowLaneTTLRefreshStepInput, createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
 
-const createMockEvent = (token: string, distinctId: string, now?: Date): RateLimitToOverflowStepInput => ({
-    headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
-    event: createTestPipelineEvent({ distinct_id: distinctId }),
+const createMockEvent = (
+    token: string,
+    distinctId: string,
+    options: { kafkaKey?: string | null; now?: Date } = {}
+): OverflowLaneTTLRefreshStepInput => ({
+    message: {
+        key: options.kafkaKey === null || options.kafkaKey === undefined ? null : Buffer.from(options.kafkaKey),
+    },
+    headers: createTestEventHeaders({ token, distinct_id: distinctId, now: options.now ?? new Date() }),
 })
 
 const createMockService = (): jest.Mocked<OverflowRedirectService> => ({
@@ -33,28 +37,45 @@ describe('createOverflowLaneTTLRefreshStep', () => {
         })
     })
 
-    it('calls service with deduplicated keys', async () => {
+    it('refreshes the message key, the redirect-original-key header, or the headers fallback', async () => {
         const service = createMockService()
         const step = createOverflowLaneTTLRefreshStep(service)
 
         const baseTime = new Date()
         const events = [
-            createMockEvent('token1', 'user1', baseTime),
-            createMockEvent('token1', 'user1', baseTime), // Duplicate key
-            createMockEvent('token1', 'user2', baseTime),
+            // Redirect with partition locality: the cookieless IP key survives.
+            createMockEvent('token1', '$posthog_cookieless', { kafkaKey: 'token1:1.2.3.4', now: baseTime }),
+            // Redirect without locality nulls the key but stamps the original into a header.
+            {
+                message: { key: null },
+                headers: createTestEventHeaders({
+                    token: 'token1',
+                    distinct_id: '$posthog_cookieless',
+                    redirect_original_key: 'token1:5.6.7.8',
+                    now: baseTime,
+                }),
+            },
+            // Routed to overflow at capture (no redirect): fall back to token:headers.distinct_id.
+            createMockEvent('token1', 'user1', { kafkaKey: null, now: baseTime }),
+            createMockEvent('token1', 'user1', { kafkaKey: null, now: baseTime }), // Duplicate key
         ]
 
         await step(events)
 
         expect(service.handleEventBatch).toHaveBeenCalledWith([
             {
-                key: { token: 'token1', distinctId: 'user1' },
-                headersPerEvent: [events[0].headers, events[1].headers],
+                key: 'token1:1.2.3.4',
+                headersPerEvent: [events[0].headers],
                 firstTimestamp: baseTime.getTime(),
             },
             {
-                key: { token: 'token1', distinctId: 'user2' },
-                headersPerEvent: [events[2].headers],
+                key: 'token1:5.6.7.8',
+                headersPerEvent: [events[1].headers],
+                firstTimestamp: baseTime.getTime(),
+            },
+            {
+                key: 'token1:user1',
+                headersPerEvent: [events[2].headers, events[3].headers],
                 firstTimestamp: baseTime.getTime(),
             },
         ])

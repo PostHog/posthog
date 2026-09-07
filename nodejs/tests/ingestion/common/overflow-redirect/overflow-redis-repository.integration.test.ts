@@ -8,8 +8,7 @@ describe('RedisOverflowRepository (integration)', () => {
     let repository: RedisOverflowRepository
     let testToken: string
 
-    const key = (distinctId: string) => ({ token: testToken, distinctId })
-    const memberKey = (distinctId: string) => `${testToken}:${distinctId}`
+    const key = (distinctId: string) => `${testToken}:${distinctId}`
 
     beforeEach(async () => {
         infra = await createIngestionTestInfra()
@@ -23,7 +22,7 @@ describe('RedisOverflowRepository (integration)', () => {
 
     afterEach(async () => {
         const redis = await infra.redisPool.acquire()
-        const prefix = redisKey('events', testToken, '').replace('events:', '')
+        const prefix = redisKey('events', `${testToken}:`).replace('events:', '')
         const keys = await redis.keys(`${prefix}*`)
         if (keys.length) {
             await redis.del(...keys)
@@ -36,29 +35,29 @@ describe('RedisOverflowRepository (integration)', () => {
         it('returns false for keys that do not exist', async () => {
             const result = await repository.batchCheck('events', [key('user1')])
 
-            expect(result.get(memberKey('user1'))).toBe(false)
+            expect(result.get(key('user1'))).toBe(false)
         })
 
         it('returns true for keys that exist', async () => {
             const redis = await infra.redisPool.acquire()
-            await redis.set(redisKey('events', testToken, 'user1'), '1')
+            await redis.set(redisKey('events', key('user1')), '1')
             await infra.redisPool.release(redis)
 
             const result = await repository.batchCheck('events', [key('user1')])
 
-            expect(result.get(memberKey('user1'))).toBe(true)
+            expect(result.get(key('user1'))).toBe(true)
         })
 
         it('handles mixed existing and non-existing keys', async () => {
             const redis = await infra.redisPool.acquire()
-            await redis.set(redisKey('events', testToken, 'user2'), '1')
+            await redis.set(redisKey('events', key('user2')), '1')
             await infra.redisPool.release(redis)
 
             const result = await repository.batchCheck('events', [key('user1'), key('user2'), key('user3')])
 
-            expect(result.get(memberKey('user1'))).toBe(false)
-            expect(result.get(memberKey('user2'))).toBe(true)
-            expect(result.get(memberKey('user3'))).toBe(false)
+            expect(result.get(key('user1'))).toBe(false)
+            expect(result.get(key('user2'))).toBe(true)
+            expect(result.get(key('user3'))).toBe(false)
         })
 
         it('returns empty map for empty input', async () => {
@@ -73,8 +72,8 @@ describe('RedisOverflowRepository (integration)', () => {
             await repository.batchFlag('events', [key('user1')])
 
             const redis = await infra.redisPool.acquire()
-            const value = await redis.get(redisKey('events', testToken, 'user1'))
-            const ttl = await redis.ttl(redisKey('events', testToken, 'user1'))
+            const value = await redis.get(redisKey('events', key('user1')))
+            const ttl = await redis.ttl(redisKey('events', key('user1')))
             await infra.redisPool.release(redis)
 
             expect(value).toBe('1')
@@ -86,8 +85,8 @@ describe('RedisOverflowRepository (integration)', () => {
             await repository.batchFlag('events', [key('user1'), key('user2')])
 
             const redis = await infra.redisPool.acquire()
-            const val1 = await redis.get(redisKey('events', testToken, 'user1'))
-            const val2 = await redis.get(redisKey('events', testToken, 'user2'))
+            const val1 = await redis.get(redisKey('events', key('user1')))
+            const val2 = await redis.get(redisKey('events', key('user2')))
             await infra.redisPool.release(redis)
 
             expect(val1).toBe('1')
@@ -104,14 +103,14 @@ describe('RedisOverflowRepository (integration)', () => {
         it('refreshes TTL for existing keys', async () => {
             const redis = await infra.redisPool.acquire()
             // Set key with short TTL
-            await redis.set(redisKey('events', testToken, 'user1'), '1', 'EX', 10)
+            await redis.set(redisKey('events', key('user1')), '1', 'EX', 10)
             await infra.redisPool.release(redis)
 
             // Refresh TTL to 300
             await repository.batchRefreshTTL('events', [key('user1')])
 
             const redis2 = await infra.redisPool.acquire()
-            const ttl = await redis2.ttl(redisKey('events', testToken, 'user1'))
+            const ttl = await redis2.ttl(redisKey('events', key('user1')))
             await infra.redisPool.release(redis2)
 
             // TTL should now be close to 300 (the configured value)
@@ -123,7 +122,7 @@ describe('RedisOverflowRepository (integration)', () => {
             await repository.batchRefreshTTL('events', [key('nonexistent')])
 
             const redis = await infra.redisPool.acquire()
-            const exists = await redis.exists(redisKey('events', testToken, 'nonexistent'))
+            const exists = await redis.exists(redisKey('events', key('nonexistent')))
             await infra.redisPool.release(redis)
 
             expect(exists).toBe(0)
@@ -131,14 +130,14 @@ describe('RedisOverflowRepository (integration)', () => {
 
         it('handles mixed existing and non-existing keys', async () => {
             const redis = await infra.redisPool.acquire()
-            await redis.set(redisKey('events', testToken, 'existing'), '1', 'EX', 10)
+            await redis.set(redisKey('events', key('existing')), '1', 'EX', 10)
             await infra.redisPool.release(redis)
 
             await repository.batchRefreshTTL('events', [key('existing'), key('nonexistent')])
 
             const redis2 = await infra.redisPool.acquire()
-            const existingTTL = await redis2.ttl(redisKey('events', testToken, 'existing'))
-            const nonexistentExists = await redis2.exists(redisKey('events', testToken, 'nonexistent'))
+            const existingTTL = await redis2.ttl(redisKey('events', key('existing')))
+            const nonexistentExists = await redis2.exists(redisKey('events', key('nonexistent')))
             await infra.redisPool.release(redis2)
 
             expect(existingTTL).toBeGreaterThan(200)
@@ -157,9 +156,9 @@ describe('RedisOverflowRepository (integration)', () => {
 
             const result = await repository.batchCheck('events', [key('user1'), key('user2'), key('user3')])
 
-            expect(result.get(memberKey('user1'))).toBe(true)
-            expect(result.get(memberKey('user2'))).toBe(true)
-            expect(result.get(memberKey('user3'))).toBe(false)
+            expect(result.get(key('user1'))).toBe(true)
+            expect(result.get(key('user2'))).toBe(true)
+            expect(result.get(key('user3'))).toBe(false)
         })
     })
 
@@ -170,8 +169,8 @@ describe('RedisOverflowRepository (integration)', () => {
             const eventsResult = await repository.batchCheck('events', [key('user1')])
             const recordingsResult = await repository.batchCheck('recordings', [key('user1')])
 
-            expect(eventsResult.get(memberKey('user1'))).toBe(true)
-            expect(recordingsResult.get(memberKey('user1'))).toBe(false)
+            expect(eventsResult.get(key('user1'))).toBe(true)
+            expect(recordingsResult.get(key('user1'))).toBe(false)
         })
     })
 

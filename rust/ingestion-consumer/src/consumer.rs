@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    Charge, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
+    Charge, GroupCompletion, Offset, Partition, Rejection, TopicOffsetLedger, TopicPartition,
 };
 use futures::StreamExt;
 use lifecycle::Handle;
@@ -21,7 +21,7 @@ use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionO
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
-use crate::ledger_shadow::LedgerShadow;
+use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -54,10 +54,10 @@ struct Delivery {
 }
 
 /// What a batch saw delivered from one partition, folded in one map entry
-/// per message. The span feeds the commit; the stamped charges feed the
-/// shadow ledger.
+/// per message. The span bounds what the batch delivered; the stamped
+/// charges feed the ledger.
 struct PartitionDeliveries {
-    /// The offsets the commit path commits, as `last + 1`.
+    /// The offsets the batch delivered, first to last.
     span: OffsetSpan,
     /// Ledger generation the charges are stamped with.
     generation: u64,
@@ -88,8 +88,8 @@ impl PartitionDeliveries {
     /// `generations_version` moved since the last stamp. A moved generation
     /// means the partition was revoked and regained inside this batch: the
     /// offsets buffered so far belong to the old assignment and Kafka
-    /// redelivers them, so the ledger slice restarts. The commit span keeps
-    /// them, as the commit path does today.
+    /// redelivers them, so the ledger slice restarts. The span keeps them,
+    /// so the commit sentinel still sees the whole delivered range.
     fn record(
         &mut self,
         generations_version: u64,
@@ -223,7 +223,10 @@ pub struct IngestionConsumer {
     commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    ledger_shadow: LedgerShadow,
+    /// The per-partition offset ledger the commit path reads its frontiers
+    /// from. Shared with the consumer's [`SentinelContext`], which forgets
+    /// partitions on rebalance.
+    topic_offset_ledger: Arc<TopicOffsetLedger>,
 }
 
 impl IngestionConsumer {
@@ -241,8 +244,6 @@ impl IngestionConsumer {
     ) -> Self {
         // Share the context's commit sentinel and ledger so rebalance
         // callbacks reset the same baselines the commit path checks against.
-        // The shadow runs whenever the context carries a ledger: `new` reads
-        // the kill switch, and a detached context always carries one.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let (batcher, outputs) = Batcher::new(
@@ -254,7 +255,7 @@ impl IngestionConsumer {
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
-            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
+            topic_offset_ledger,
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -300,15 +301,11 @@ impl IngestionConsumer {
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = batcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
-        // Off, the consumer has no ledger at all: the rebalance callbacks
-        // have nothing to forget and the shadow nothing to charge.
-        let topic_offset_ledger = config
-            .consumer_offset_ledger_shadow_enabled
-            .then(|| Arc::new(TopicOffsetLedger::new()));
+        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
         let mut context = SentinelContext::new(
             Arc::clone(&commit_sentinel),
             key_sentinel,
-            topic_offset_ledger.clone(),
+            Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
@@ -328,7 +325,7 @@ impl IngestionConsumer {
             consumer: Arc::new(consumer),
             commit_sentinel,
             debug_recorder,
-            ledger_shadow: LedgerShadow::new(topic_offset_ledger),
+            topic_offset_ledger,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -616,15 +613,15 @@ impl IngestionConsumer {
                         lag_ms,
                     };
                     let key = TopicPartition::new(topic.clone(), partition);
-                    let generations_version = self.ledger_shadow.generations_version();
+                    let generations_version = self.topic_offset_ledger.generations_version();
                     match partitions.get_mut(&key) {
                         Some(deliveries) => deliveries.record(
                             generations_version,
-                            || self.ledger_shadow.generation(&key),
+                            || self.topic_offset_ledger.generation(&key),
                             &delivery,
                         ),
                         None => {
-                            let generation = self.ledger_shadow.generation(&key);
+                            let generation = self.topic_offset_ledger.generation(&key);
                             partitions.insert(
                                 key,
                                 PartitionDeliveries::new(
@@ -680,8 +677,21 @@ impl IngestionConsumer {
         // One ledger call per partition keeps the lock and the gauge labels
         // off the per-message path.
         for (topic_partition, partition) in &partitions {
-            self.ledger_shadow
-                .charge(topic_partition, partition.generation, &partition.charges);
+            // The ledger counts both outcomes and publishes what the window
+            // holds; a rejection is logged here, where the slice is still
+            // known.
+            if let Err(rejection) = self.topic_offset_ledger.charge(
+                topic_partition,
+                partition.generation,
+                partition.charges.iter().copied(),
+            ) {
+                warn_rejection(
+                    "charge",
+                    topic_partition,
+                    rejection,
+                    RejectedSlice::charged(&partition.charges),
+                );
+            }
         }
 
         Ok(CollectedBatch {
@@ -691,7 +701,9 @@ impl IngestionConsumer {
         })
     }
 
-    /// Commit the max offset for each topic-partition.
+    /// Settle the batch against the ledger and commit each partition's
+    /// frontier. A partition without a frontier is not committed and stays on
+    /// its last committed offset.
     fn commit_offsets(
         &self,
         partitions: &HashMap<TopicPartition, PartitionDeliveries>,
@@ -704,37 +716,113 @@ impl IngestionConsumer {
             return Ok(());
         }
 
+        let mut settled = Vec::with_capacity(partitions.len());
+        let mut frontier_spans = Vec::with_capacity(partitions.len());
+        for (topic_partition, partition) in partitions {
+            // A rejected slice is not committed, and the commit sentinel
+            // keeps its baseline. A stale slice belongs to an assignment the
+            // revoke callback already forgot on the sentinel, so the
+            // partition's next commit rebaselines. A violation reset the
+            // ledger and dropped what it held, so the partition's next commit
+            // can pass work still in flight; the sentinel reports that as the
+            // gap it is.
+            let Ok(frontier) = self.settle(topic_partition, partition) else {
+                continue;
+            };
+            settled.push(topic_partition);
+            if let Some(span) = frontier_span(&partition.span, frontier) {
+                frontier_spans.push((topic_partition, span));
+            }
+        }
+
+        if frontier_spans.is_empty() {
+            // `rejected`: the ledger dropped every slice, expected around a
+            // rebalance. `no_frontier`: a slice landed, but an earlier batch
+            // is still incomplete at the front of every window it settled.
+            let reason = if settled.is_empty() {
+                "rejected"
+            } else {
+                "no_frontier"
+            };
+            counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
+            warn!(
+                reason,
+                "No ledger frontier available for completed offsets; skipping commit"
+            );
+            return Ok(());
+        }
+
+        self.submit_commit(
+            frontier_spans
+                .iter()
+                .map(|(topic_partition, span)| (*topic_partition, span)),
+        )?;
+        for topic_partition in settled {
+            self.topic_offset_ledger.take_frontier(topic_partition);
+        }
+        Ok(())
+    }
+
+    /// Settle one partition's slice of a batch against the ledger and report
+    /// the frontier it reached. `Err` when the ledger rejected the slice,
+    /// which it has already counted and this logs.
+    fn settle(
+        &self,
+        topic_partition: &TopicPartition,
+        partition: &PartitionDeliveries,
+    ) -> Result<Option<Offset>, Rejection> {
+        self.topic_offset_ledger
+            .settle(
+                topic_partition,
+                partition.generation,
+                partition.charges.iter().map(|(offset, _)| *offset),
+            )
+            .inspect_err(|rejection| {
+                warn_rejection(
+                    "settle",
+                    topic_partition,
+                    *rejection,
+                    RejectedSlice::settled(&partition.span),
+                )
+            })
+    }
+
+    /// Validate and submit one commit to Kafka.
+    fn submit_commit<'a>(
+        &self,
+        spans: impl IntoIterator<Item = (&'a TopicPartition, &'a OffsetSpan)>,
+    ) -> anyhow::Result<()> {
+        let spans: Vec<_> = spans.into_iter().collect();
         // Validate contiguity/monotonicity per partition before committing, so
         // a violation is attributed to the batch that caused it.
-        self.commit_sentinel.check_commit(
-            partitions
-                .iter()
-                .map(|(topic_partition, partition)| (topic_partition, &partition.span)),
-        );
+        self.commit_sentinel.check_commit(spans.iter().copied());
 
         let mut tpl = TopicPartitionList::new();
-        for (topic_partition, partition) in partitions {
+        for (topic_partition, span) in &spans {
             // Commit offset + 1 (Kafka convention: committed offset = next to read)
             tpl.add_partition_offset(
                 &topic_partition.topic,
                 topic_partition.partition,
-                rdkafka::Offset::Offset(partition.span.last + 1),
+                rdkafka::Offset::Offset(span.last + 1),
             )?;
         }
 
         self.consumer.commit(&tpl, CommitMode::Async)?;
-        for (topic_partition, partition) in partitions {
-            self.ledger_shadow.settle(
-                topic_partition,
-                partition.generation,
-                partition.charges.iter().map(|(offset, _)| *offset),
-                &partition.span,
-            );
-        }
         counter!("ingestion_consumer_offset_commits_total").increment(1);
 
         Ok(())
     }
+}
+
+/// Map a settled frontier back to the span the commit path submits: the
+/// frontier is next-to-read and the span is last-processed, so the commit
+/// adds the 1 back and submits the frontier verbatim. `None` for a partition
+/// that settled without a frontier; it stays on its last commit.
+fn frontier_span(span: &OffsetSpan, frontier: Option<Offset>) -> Option<OffsetSpan> {
+    frontier.map(|frontier| OffsetSpan {
+        first: span.first,
+        last: frontier.0 - 1,
+    })
 }
 
 /// Emit the per-poll parity metrics (received counts, batch sizes,
@@ -1010,5 +1098,37 @@ mod tests {
 
         assert_eq!(in_flight[0].covered, 0);
         assert_eq!(in_flight[0].accepted, 0);
+    }
+
+    #[test]
+    fn frontier_span_submits_the_frontier_verbatim() {
+        let span = OffsetSpan {
+            first: 10,
+            last: 11,
+        };
+        assert_eq!(
+            frontier_span(&span, Some(Offset(12))),
+            Some(OffsetSpan {
+                first: 10,
+                last: 11
+            })
+        );
+        assert_eq!(
+            frontier_span(&span, Some(Offset(11))),
+            Some(OffsetSpan {
+                first: 10,
+                last: 10
+            }),
+            "a frontier trailing the span wins"
+        );
+    }
+
+    #[test]
+    fn a_partition_without_a_frontier_is_not_committed() {
+        let span = OffsetSpan {
+            first: 20,
+            last: 21,
+        };
+        assert_eq!(frontier_span(&span, None), None);
     }
 }

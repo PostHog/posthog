@@ -32,7 +32,8 @@ export interface BillingChartProps {
     hiddenSeries: number[]
     valueFormatter?: (value: number) => string
     showLegend?: boolean
-    interval?: 'day' | 'week' | 'month'
+    legendInteractive?: boolean
+    interval?: 'hour' | 'day' | 'week' | 'month'
     billingPeriodMarkers?: BillingPeriodMarker[]
     /** Most series to draw. Beyond this the chart draws the largest and says what it left out. */
     maxSeries?: number
@@ -96,6 +97,7 @@ export function BillingChart({
     hiddenSeries,
     valueFormatter = defaultFormatter,
     showLegend = true,
+    legendInteractive = false,
     interval = 'day',
     billingPeriodMarkers = NO_MARKERS,
     maxSeries = MAX_CHARTED_BILLING_SERIES,
@@ -150,17 +152,20 @@ export function BillingChart({
     const shared = {
         xAxis: { timezone: 'UTC' as const, interval },
         yAxis: { tickFormatter: valueFormatter },
-        legend: { show: showLegend, position: 'bottom' as const, interactive: false },
+        legend: { show: showLegend, position: 'bottom' as const, interactive: legendInteractive },
         tooltip: { sortedByValue: true, valueFormatter, placement: 'cursor' as const },
     }
 
-    const lineConfig = useChartConfig<TimeSeriesLineChartConfig>(() => shared, [interval, valueFormatter, showLegend])
+    const lineConfig = useChartConfig<TimeSeriesLineChartConfig>(
+        () => shared,
+        [interval, valueFormatter, showLegend, legendInteractive]
+    )
 
     const barConfig = useChartConfig<TimeSeriesBarChartConfig>(
         // Stacked, which is the point of offering bars: the height is the total and the segments
         // are its parts. It is quill's default too, set explicitly here.
         () => ({ ...shared, barLayout: 'stacked' as const }),
-        [interval, valueFormatter, showLegend]
+        [interval, valueFormatter, showLegend, legendInteractive]
     )
 
     const comboConfig = useChartConfig<TimeSeriesComboChartConfig>(
@@ -175,7 +180,7 @@ export function BillingChart({
             defaultSeriesType: chartType,
             barLayout: 'stacked' as const,
         }),
-        [interval, valueFormatter, showLegend, chartType]
+        [interval, valueFormatter, showLegend, legendInteractive, chartType]
     )
 
     // The billing period label is anchored above the plot, so it sits outside the chart

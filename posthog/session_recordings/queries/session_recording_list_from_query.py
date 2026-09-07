@@ -20,6 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
@@ -238,7 +239,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._resolve_experiment_exposure()
         query = self.get_query()
 
-        settings_args: dict[str, int] = {}
+        settings_args: dict[str, int | str] = {}
         if self._max_execution_time is not None:
             settings_args["max_execution_time"] = self._max_execution_time
         linkage = self._experiment_exposure_linkage
@@ -249,17 +250,27 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # with its status, machine code, and narrow-your-filters guidance, is honest for
             # every cause.
             settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
+        in_session_narrowed = linkage is not None and linkage.session_exposure is not None
+        if in_session_narrowed:
+            # Under a "break" timeout profile a timed-out evidence subquery would return a partial
+            # session set, silently listing fewer in-session recordings. A partial result is worse
+            # than an error here, so the execution-time kill must throw.
+            settings_args["timeout_overflow_mode"] = "throw"
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
-            paginated_response = self._paginator.execute_hogql_query(
-                # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
-                query=cast(ast.SelectQuery, query),
-                team=self._team,
-                user=self._user,
-                query_type="SessionRecordingListQuery",
-                modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(**settings_args),
-            )
+            # Tagged around the listing execution only, so the tag marks exactly the queries that
+            # carry the evidence scan and its GLOBAL IN set: the precompute builds that run during
+            # linkage resolution and the blocklist probe below stay untagged.
+            with tags_context(**({"experiment_exposures_in_session": True} if in_session_narrowed else {})):
+                paginated_response = self._paginator.execute_hogql_query(
+                    # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
+                    query=cast(ast.SelectQuery, query),
+                    team=self._team,
+                    user=self._user,
+                    query_type="SessionRecordingListQuery",
+                    modifiers=self._hogql_query_modifiers,
+                    settings=HogQLGlobalSettings(**settings_args),
+                )
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,
         # because past the cap the query silently under-excludes. No-op without negated entities, and
@@ -354,6 +365,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             self._team,
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
+            in_session=bool(self._query.experiment_exposure.in_session),
         )
         if self._experiment_exposure_linkage.population_filters_test_accounts:
             # The exposure population already applies the team's test-account filters on the
@@ -708,6 +720,44 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             test_account_remaining = _strip_person_and_event_and_cohort_properties(self._test_account_filters)
             if test_account_remaining:
                 exprs.append(property_to_expr(test_account_remaining, team=self._team, scope="replay"))
+
+        # The in-session narrowing composes with the exposure join rather than replacing it: the
+        # join still decides who counts as exposed and bounds sessions to first exposure, this
+        # predicate additionally requires the exposure evidence inside the session. GLOBAL for
+        # the same reason as the join: the subquery scans events over the experiment window,
+        # and without it every shard would re-evaluate that scan independently.
+        if self._query.experiment_exposure is not None and self._query.experiment_exposure.in_session:
+            # Deferred: the experiments facade package imports posthog.api on init, which
+            # circles back into this module through the replay-deletion temporal activities.
+            from products.experiments.backend.facade.replay import exposed_session_ids_select  # noqa: PLC0415
+
+            self._resolve_experiment_exposure()
+            assert self._experiment_exposure_linkage is not None
+            # Evidence lives inside the sessions being listed, so scanning outside the query's own
+            # range (with the ±1 day session buffer the console-logs subquery also uses) could only
+            # nominate sessions the date predicates already exclude. Skipped when pinned session_ids
+            # bypass the date window above: the listing then admits sessions from outside the range,
+            # so their evidence must stay in scope too.
+            clamp = not bypass_date_window
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalIn,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=exposed_session_ids_select(
+                        self._experiment_exposure_linkage,
+                        clamp_date_from=(
+                            self.query_date_range.date_from() - timedelta(days=1)
+                            if clamp and self._query.date_from
+                            else None
+                        ),
+                        clamp_date_to=(
+                            self.query_date_range.date_to() + timedelta(days=1)
+                            if clamp and self._query.date_to
+                            else None
+                        ),
+                    ),
+                )
+            )
 
         return ast.And(exprs=exprs)
 
