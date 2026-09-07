@@ -107,6 +107,16 @@ class MCPRegistryServer(UUIDModel):
             models.Index(fields=["liveness"]),
             models.Index(fields=["last_probed_at"]),
             models.Index(fields=["canonical_url"]),
+            # Non-partial, even though `unique_registry_name_when_set` already indexes this
+            # column. A parameterized equality cannot be proved to exclude the empty string,
+            # so a generic plan cannot use the partial index and falls back to a sequential scan.
+            models.Index(fields=["registry_name"], name="mcp_registry_name_idx"),
+            # Serves the standalone-row lookup in linking.resolve_measured_server, which the
+            # aggregation loop runs once per measured (team, server_name) pair.
+            models.Index(
+                fields=["display_name", "listed_in_registry", "is_measured"],
+                name="mcp_registry_srv_name_idx",
+            ),
         ]
 
     def __str__(self) -> str:
