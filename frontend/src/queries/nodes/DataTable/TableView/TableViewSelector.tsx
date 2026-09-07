@@ -61,7 +61,7 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                                                     title: 'Rename view',
                                                     initialValues: { name: view.name },
                                                     content: (
-                                                        <LemonField name="name">
+                                                        <LemonField name="name" label="View name">
                                                             <LemonInput autoFocus />
                                                         </LemonField>
                                                     ),
