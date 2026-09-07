@@ -3387,6 +3387,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             ("reserved_scratchpad", "scratchpad", True),
             ("reserved_findings", "findings", True),
             ("reserved_runs", "runs", True),
+            # `create_skill` and the `skill-create` MCP tool never check the name pattern, so a
+            # colon-bearing row can exist. Registering one as a scout would put its notes under a
+            # `pipeline:` audience the report-research stage reads, crossing the two families
+            # `note_targets` keeps apart.
+            ("pipeline_audience", "pipeline:report-research", True),
         ]
     )
     def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str, make_skill: bool) -> None:

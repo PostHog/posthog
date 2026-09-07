@@ -3068,6 +3068,11 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     )
 
     def validate_skill_name(self, value: str) -> str:
+        # The generic skill-name contract first, like the sibling create serializer. Nothing
+        # downstream re-checks it: the model column carries no validator, `create_skill` skips the
+        # pattern, and the view's existence check only proves a row exists. It is also what keeps
+        # scout names and the `pipeline:` note audiences disjoint (see `note_targets`).
+        value = validate_skill_name_value(value)
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
         return value
