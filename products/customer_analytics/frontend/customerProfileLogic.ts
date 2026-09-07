@@ -271,6 +271,11 @@ export type customerProfileLogicType = MakeLogicType<
     customerProfileLogicMeta
 >
 
+// Sharing pinned properties writes the same config row through the same actions as a layout
+// save, so the response has to be matched to the request that asked for it.
+const isLayoutSave = (config?: Partial<CustomerProfileConfigType>): boolean =>
+    !!config && ('content' in config || 'sidebar' in config)
+
 export const customerProfileLogic = kea<customerProfileLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'customerProfileLogic']),
     props({} as PersonProfileLogicProps),
@@ -423,21 +428,31 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                     return null
                 }
 
+                // `content` and `sidebar` are declared as Record<string, any> on the config type but
+                // are stored as node arrays; cast to their real shape for the shared filter. A config
+                // saved for its pinned properties alone carries the `{}` the serializer defaults to,
+                // which holds no layout, so fall back to the default layout rather than render an
+                // empty profile. A stored `[]` is a layout somebody saved with every tile turned off,
+                // so keep it.
+                if (!Array.isArray(customerProfileConfig.content)) {
+                    return null
+                }
+                const storedNodes = customerProfileConfig.content as JSONContent[]
+
                 // Saved configs bypass defaultContent, so apply the same availability filter here —
                 // otherwise a previously-saved Zendesk/support panel would render against a product
                 // or source that is no longer set up.
-                // `content` is declared as Record<string, any> on the config type but is stored as a
-                // node array; cast to its real shape for the shared filter.
-                const availableContent = filterAvailablePanels(customerProfileConfig.content as JSONContent[], {
+                const availableContent = filterAvailablePanels(storedNodes, {
                     isJourneysEnabled: !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS],
                     isSupportEnabled: !!currentTeam?.conversations_enabled,
                     hasZendeskSource,
                     dataWarehouseSourcesLoading,
                 })
 
-                const sidebar = customerProfileConfig.sidebar.map((node: JSONContent) =>
-                    scopedAddAttrFunction({ attrs, node })
-                )
+                const storedSidebar = Array.isArray(customerProfileConfig.sidebar)
+                    ? (customerProfileConfig.sidebar as JSONContent[])
+                    : []
+                const sidebar = storedSidebar.map((node: JSONContent) => scopedAddAttrFunction({ attrs, node }))
                 return availableContent.map((node: JSONContent, index: number) => {
                     if (index === 0) {
                         return scopedAddAttrFunction({ attrs, node, children: sidebar })
@@ -515,11 +530,17 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                 actions.createConfig(config)
             }
         },
-        createConfigSuccess: () => {
+        createConfigSuccess: ({ payload }) => {
+            if (!isLayoutSave(payload?.config)) {
+                return
+            }
             actions.setLocalContent(values.content)
             actions.resetToDefaults()
         },
-        updateConfigSuccess: () => {
+        updateConfigSuccess: ({ payload }) => {
+            if (!isLayoutSave(payload?.config)) {
+                return
+            }
             actions.setLocalContent(values.content)
             actions.resetToDefaults()
         },

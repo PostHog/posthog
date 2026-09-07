@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -16,6 +16,7 @@ export interface customerProfileConfigLogicValues {
     currentTeamId: number | null // teamLogic
     configs: CustomerProfileConfigType[]
     configsLoading: boolean
+    configsResolved: boolean
     customerProfileConfig: CustomerProfileConfigType | undefined
 }
 
@@ -198,6 +199,19 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
             },
         ],
     })),
+
+    reducers({
+        // `customerProfileConfig` is undefined both while the list request runs and when the team
+        // saved nothing, so callers that write need to know which. A failed request counts as
+        // resolved: it is all we are going to learn, and blocking writes for good would be worse.
+        configsResolved: [
+            false,
+            {
+                loadConfigsSuccess: () => true,
+                loadConfigsFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         customerProfileConfig: [

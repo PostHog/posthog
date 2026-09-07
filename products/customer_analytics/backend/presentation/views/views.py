@@ -814,6 +814,7 @@ class CustomerProfileConfigViewSet(
             scope=data.scope,
             content=data.content,
             sidebar=data.sidebar,
+            pinned_properties=data.pinned_properties,
             organization_id=self.organization.id,
             user=cast(User, request.user),
             was_impersonated=is_impersonated(request),
@@ -854,9 +855,9 @@ class CustomerProfileConfigViewSet(
 
 
 def _profile_config_write_fields(validated, raw_data: dict) -> dict:
-    """The profile-config columns the caller actually sent (scope/content/sidebar). ``content``
-    and ``sidebar`` default to ``{}`` in the serializer, so only forward them when present in
-    the raw body — matching the model serializer's partial-update behavior."""
+    """The profile-config columns the caller actually sent (scope/content/sidebar/pinned_properties).
+    ``content``, ``sidebar`` and ``pinned_properties`` carry serializer defaults, so only forward them
+    when present in the raw body — matching the model serializer's partial-update behavior."""
     fields: dict = {}
     if "scope" in raw_data:
         fields["scope"] = validated.scope
@@ -864,6 +865,8 @@ def _profile_config_write_fields(validated, raw_data: dict) -> dict:
         fields["content"] = validated.content
     if "sidebar" in raw_data:
         fields["sidebar"] = validated.sidebar
+    if "pinned_properties" in raw_data:
+        fields["pinned_properties"] = validated.pinned_properties
     return fields
 
 

@@ -585,6 +585,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             scope="person",
             content={"a": 1},
             sidebar={},
+            pinned_properties=["email"],
             organization_id=self.organization.id,
             user=self.user,
             was_impersonated=False,

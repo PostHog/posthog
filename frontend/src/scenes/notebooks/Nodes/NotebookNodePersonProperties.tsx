@@ -3,11 +3,13 @@ import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { personLogic } from 'scenes/persons/personLogic'
 
-import { PropertyDefinitionType } from '~/types'
+import { CustomerProfileScope, PropertyDefinitionType } from '~/types'
+
+import { PinnedPropertiesMenu } from 'products/customer_analytics/frontend/components/PinnedProperties/PinnedPropertiesMenu'
+import { pinnedProfilePropertiesLogic } from 'products/customer_analytics/frontend/pinnedProfilePropertiesLogic'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { Properties } from './components/Properties'
@@ -20,8 +22,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonPropertie
 
     const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
-    const { pinnedPersonProperties } = useValues(userPreferencesLogic)
-    const { pinPersonProperty, unpinPersonProperty } = useActions(userPreferencesLogic)
+    const pinsLogic = pinnedProfilePropertiesLogic({ scope: CustomerProfileScope.PERSON })
+    const { pinnedProperties } = useValues(pinsLogic)
+    const { pinProperty, unpinProperty } = useActions(pinsLogic)
 
     if (personLoading) {
         return <LemonSkeleton className="h-6" />
@@ -37,10 +40,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonPropertie
         <Properties
             key={id}
             properties={person.properties || {}}
-            pinnedProperties={pinnedPersonProperties}
-            onPin={pinPersonProperty}
-            onUnpin={unpinPersonProperty}
+            pinnedProperties={pinnedProperties}
+            onPin={pinProperty}
+            onUnpin={unpinProperty}
             type={PropertyDefinitionType.Person}
+            actions={<PinnedPropertiesMenu scope={CustomerProfileScope.PERSON} />}
         />
     )
 }

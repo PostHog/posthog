@@ -20853,6 +20853,8 @@ export namespace Schemas {
       scope: CustomerProfileConfigScopeEnum;
       content?: unknown;
       sidebar?: unknown;
+      /** Property keys the whole team sees pinned on this profile scope, in pin order. Each person can still pin and unpin on top of this list in their own browser. An empty list means the team has set no shared default. */
+      pinned_properties?: string[];
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -62049,6 +62051,8 @@ export namespace Schemas {
       scope?: CustomerProfileConfigScopeEnum;
       content?: unknown;
       sidebar?: unknown;
+      /** Property keys the whole team sees pinned on this profile scope, in pin order. Each person can still pin and unpin on top of this list in their own browser. An empty list means the team has set no shared default. */
+      pinned_properties?: string[];
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;

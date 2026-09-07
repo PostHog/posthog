@@ -66,6 +66,7 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
             "scope": "person",
             "content": [{"type": "ph-node-foo", "index": 0}],
             "sidebar": [{"type": "ph-node-bar"}],
+            "pinned_properties": ["email", "$browser"],
         }
 
     def assertActivityLog(self, config_id, activity):
@@ -84,6 +85,7 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         self.assertEqual("person", response_data["scope"])
         self.assertEqual(self.valid_data["content"], response_data["content"])
         self.assertEqual(self.valid_data["sidebar"], response_data["sidebar"])
+        self.assertEqual(self.valid_data["pinned_properties"], response_data["pinned_properties"])
         self.assertIn("created_at", response_data)
         self.assertIn("updated_at", response_data)
 
@@ -93,6 +95,7 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         self.assertEqual(config.team, self.team)
         self.assertEqual(config.content, self.valid_data["content"])
         self.assertEqual(config.sidebar, self.valid_data["sidebar"])
+        self.assertEqual(config.pinned_properties, self.valid_data["pinned_properties"])
         self.assertEqual(config.created_by, self.user)
         self.assertActivityLog(config.id, "created")
 
@@ -142,6 +145,20 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         self.assertEqual("group_0", config.scope)
         self.assertEqual(update_data["content"], config.content, "Should update database")
         self.assertActivityLog(config.id, "updated")
+
+    def test_update_pinned_properties_alone_keeps_layout(self):
+        config = CustomerProfileConfig.objects.create(
+            team=self.team, scope="person", content=self.valid_data["content"], pinned_properties=["email"]
+        )
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{config.id}/", {"pinned_properties": ["plan", "arr"]}, format="json"
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        config.refresh_from_db()
+        self.assertEqual(["plan", "arr"], config.pinned_properties)
+        self.assertEqual(self.valid_data["content"], config.content, "Should leave the saved layout alone")
 
     def test_delete_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(team=self.team, scope="person", content={"test": "data"})

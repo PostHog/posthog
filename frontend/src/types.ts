@@ -8172,6 +8172,8 @@ export interface CustomerProfileConfigType {
     team: number
     content: Record<string, any>
     sidebar: Record<string, any>
+    /** Property keys the whole team sees pinned on this profile scope. Empty means no team default. */
+    pinned_properties: string[]
     scope: CustomerProfileScope
     created_at: string
     updated_at: string

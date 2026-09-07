@@ -840,6 +840,12 @@ export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
         ),
     content: zod.unknown().optional(),
     sidebar: zod.unknown().optional(),
+    pinned_properties: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Property keys the whole team sees pinned on this profile scope, in pin order. Each person can still pin and unpin on top of this list in their own browser. An empty list means the team has set no shared default.'
+        ),
 })
 
 export const CustomerProfileConfigsUpdateBody = /* @__PURE__ */ zod.object({
@@ -850,6 +856,12 @@ export const CustomerProfileConfigsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     content: zod.unknown().optional(),
     sidebar: zod.unknown().optional(),
+    pinned_properties: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Property keys the whole team sees pinned on this profile scope, in pin order. Each person can still pin and unpin on top of this list in their own browser. An empty list means the team has set no shared default.'
+        ),
 })
 
 export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -861,6 +873,12 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
         ),
     content: zod.unknown().optional(),
     sidebar: zod.unknown().optional(),
+    pinned_properties: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Property keys the whole team sees pinned on this profile scope, in pin order. Each person can still pin and unpin on top of this list in their own browser. An empty list means the team has set no shared default.'
+        ),
 })
 
 export const customerTasksCreateBodyNameMax = 400
