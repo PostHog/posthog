@@ -53,7 +53,7 @@ from posthog.models.activity_logging.utils import (
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
-from posthog.organization_access import OrganizationAccessRevocation, organization_access_revocation_by_id
+from posthog.organization_access import OrganizationAccessRevocation, organization_access_revocation
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -1361,9 +1361,15 @@ class ActiveOrganizationMiddleware:
         if is_impersonated(request):
             return self.get_response(request)
 
-        # Read the id, not the foreign key, so the check is served from the organization access
-        # cache instead of a query on every page load.
-        revocation = organization_access_revocation_by_id(user.current_organization_id)
+        # The foreign key on purpose, rather than a read by id through the organization access
+        # cache. Reading it here fills Django's field cache, so the later reads of this
+        # organization in the same request are free. Going through the access cache instead left
+        # that field cache empty and put the query back on whichever middleware read it next.
+        organization = user.current_organization
+        if organization is None:
+            return self.get_response(request)
+
+        revocation = organization_access_revocation(organization)
 
         if revocation is None:
             if request.path in self._REVOCATION_PATHS.values():

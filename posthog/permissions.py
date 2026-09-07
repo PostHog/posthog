@@ -108,7 +108,7 @@ def get_organization_from_view(view) -> Organization:
     raise ValueError("View not compatible with organization-based permissions!")
 
 
-def exclude_organizations_with_revoked_access(request, queryset: QuerySet, path: str = "organization") -> QuerySet:
+def exclude_organizations_with_revoked_access(request, queryset: QuerySet) -> QuerySet:
     """Apply the revocation to a root list, which `ActiveOrganizationPermission` cannot reach.
 
     That permission gates every other action through `has_object_permission`, which DRF does not
@@ -121,7 +121,7 @@ def exclude_organizations_with_revoked_access(request, queryset: QuerySet, path:
     """
     if is_impersonated(request):
         return queryset
-    return exclude_revoked_organizations(queryset, path)
+    return exclude_revoked_organizations(queryset)
 
 
 def get_target_organization_from_view(view) -> Optional[Organization]:

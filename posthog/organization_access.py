@@ -124,7 +124,7 @@ REACHABLE_METHODS: dict[RevokedOrganizationAccess, frozenset[str]] = {
 }
 
 
-def exclude_revoked_organizations(queryset: QuerySet, path: str = "organization") -> QuerySet:
+def exclude_revoked_organizations(queryset: QuerySet) -> QuerySet:
     """Drop the rows whose organization had its access revoked.
 
     The queryset twin of `organization_access_revocation`, for a list. DRF runs no object
@@ -135,7 +135,11 @@ def exclude_revoked_organizations(queryset: QuerySet, path: str = "organization"
     Null means active in both columns, exactly as the scalar check reads them, so a row whose
     organization predates either column stays visible. `test_the_queryset_filter_agrees_with_the
     _scalar_check` pins the two together.
+
+    The field names are literals rather than a caller-supplied path. Every model this gates reaches
+    its organization through an `organization` foreign key, so building the lookup from a string
+    would put field names on an argument that no caller needs.
     """
-    active = Q(**{f"{path}__is_active": True}) | Q(**{f"{path}__is_active__isnull": True})
-    not_deleting = Q(**{f"{path}__is_pending_deletion": False}) | Q(**{f"{path}__is_pending_deletion__isnull": True})
+    active = Q(organization__is_active=True) | Q(organization__is_active__isnull=True)
+    not_deleting = Q(organization__is_pending_deletion=False) | Q(organization__is_pending_deletion__isnull=True)
     return queryset.filter(active & not_deleting)
