@@ -61,8 +61,8 @@ For each finding, include:
 Example:
 
 > 🟡 **WARNING** — Flag integration · [Experiment: checkout-redesign](/experiments/42)
-> The linked feature flag is inactive (paused). Traffic is not being split.
-> **Action**: Re-enable the flag or end the experiment.
+> This experiment is running but its linked feature flag is inactive, so traffic is not being split.
+> **Action**: Re-enable the flag to resume, or end the experiment.
 
 ## Handling unavailable data
 

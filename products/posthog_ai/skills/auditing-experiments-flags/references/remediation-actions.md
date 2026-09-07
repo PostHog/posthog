@@ -10,7 +10,7 @@ Phase 1 is read-only — all actions require the user to make changes manually.
 | No metrics configured              | Add at least one primary metric before launching. Link to the experiment's metrics tab.                                    |
 | Secondary metrics only             | Promote one metric to primary or add a new primary metric.                                                                 |
 | Missing feature flag               | Create and link a feature flag to this experiment.                                                                         |
-| Inactive (paused) flag             | Re-enable the linked feature flag, or end the experiment if it's no longer needed.                                         |
+| Paused mid-run                     | Re-enable the linked feature flag to resume, or end the experiment if it's no longer needed.                               |
 | Deleted flag                       | The experiment's flag was deleted. Create a new flag and re-link, or archive the experiment.                               |
 | Concluded but still splitting      | The experiment has a conclusion but the flag is still splitting traffic. Roll out the winning variant or disable the flag. |
 | Stale draft                        | This experiment has been in draft for over 7 days. Either launch it or delete it.                                          |

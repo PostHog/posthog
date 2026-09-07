@@ -36,7 +36,8 @@ Count these alongside the inline metrics.
 
 Verifies the experiment's linked feature flag is valid and correctly configured.
 
-**Look at**: `feature_flag` (the linked flag object or ID), and fetch the flag via `feature-flag-get-definition` if only an ID is available.
+**Look at**: `feature_flag` (the linked flag object or ID), `start_date`, `end_date`, `status`.
+Fetch the flag via `feature-flag-get-definition` if only an ID is available.
 
 **Findings**:
 
@@ -45,15 +46,20 @@ Verifies the experiment's linked feature flag is valid and correctly configured.
   - Report: "This experiment has no linked feature flag. Traffic cannot be split."
   - Action: Create and link a feature flag.
 
-- **Inactive flag**: The linked flag exists but `active` is false.
+- **Paused mid-run**: The experiment is running (`start_date` is set and `end_date` is null) but the linked flag has `active` false.
+  Prefer the experiment's own `status` field when the payload carries it: this is the `paused` value.
   - Severity: WARNING · Category: Correctness
-  - Report: "The linked feature flag is inactive (paused). Traffic is not being split."
-  - Action: Re-enable the flag or end the experiment.
+  - Report: "This experiment is running but its linked feature flag is inactive, so traffic is not being split."
+  - Action: Re-enable the flag to resume, or end the experiment.
 
 - **Deleted flag**: The linked flag has `deleted` set to true.
   - Severity: CRITICAL · Category: Correctness
   - Report: "The linked feature flag has been deleted."
   - Action: Create a new flag and re-link it, or archive the experiment.
+
+Note: An inactive flag on its own is not a finding, so do not report one without the running check above.
+The product creates the linked flag inactive for every draft and activates it at launch, and archiving an experiment can disable its flag on purpose.
+Both states are correct, and a stale draft is already reported by check 4.
 
 Note: Do not compare the experiment's `parameters.feature_flag_variants` with the flag's `filters.multivariate.variants`.
 The API builds the first from the second on every read, so the two always agree and the comparison reports nothing.
