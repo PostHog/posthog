@@ -55,6 +55,7 @@ describe('log-pattern-mask', () => {
             ['ip octets are not eaten by num', 'peer 192.168.0.1:8080 up', 'peer <IP>:<N> up'],
             ['email starting with digits is not mangled by num', '99bottles@example.com sent', '<EMAIL> sent'],
             ['email domain is not claimed by host', 'user@example.com sent', '<EMAIL> sent'],
+            ['email with an id-shaped local part is not split by id', 'john_D2oe@example.com sent', '<EMAIL> sent'],
             ['hex-looking labels are claimed by host, not hex', 'from deadbeefdeadbeef.com now', 'from <HOST> now'],
             [
                 'a lowercase uuid behind a prefix stays a uuid, because the id rule needs an uppercase letter',
@@ -140,6 +141,12 @@ describe('log-pattern-mask', () => {
                 'an id inside a url path',
                 'GET /v1/customers/cus_Vn8QjTz3Rw6Kp2/payment_methods',
                 'GET /v1/customers/<ID>/payment_methods',
+            ],
+            ['a hyphenated id whole', 'span sess_3Ih3uQk-9Xz2 closed', 'span <ID> closed'],
+            [
+                'an uppercase uuid behind a prefix whole, tail included',
+                'trace_0A1B2C3D-4E5F-6789-ABCD-EF0123456789 started',
+                '<ID> started',
             ],
         ])('id masks %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
@@ -395,7 +402,7 @@ describe('log-pattern-mask', () => {
         const SHAPE_DIGESTS: Record<number, string> = {
             3: 'd7b045b1054244d1',
             4: '357baaab19f622df',
-            5: 'c505078a36e3406f',
+            5: '130ce70d5eeff09e',
         }
 
         /**
@@ -497,6 +504,8 @@ describe('log-pattern-mask', () => {
             'charging cus_Qz4WmTb7Kx9pLr for user_2KpXr8ZmTq5NvBw7Ld3Cjs',
             // An uppercase UUID behind a prefix: `id` and `uuid` both match, so the chain must run `id` first.
             'trace_0A1B2C3D-4E5F-6789-ABCD-EF0123456789 started',
+            // An id-shaped local part: `id` and `email` match at one offset, so the chain must run `email` first.
+            'john_D2oe@example.com sent',
         ]
 
         it.each(corpus.map((line) => [line] as const))('%s', (line) => {
