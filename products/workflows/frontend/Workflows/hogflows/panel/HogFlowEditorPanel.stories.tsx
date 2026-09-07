@@ -1,4 +1,5 @@
 import type { Meta, StoryFn } from '@storybook/react'
+import { ReactFlowProvider } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -41,6 +42,20 @@ const PANEL_WORKFLOW: HogFlow = {
             config: { delay_duration: '1d' },
         },
         {
+            id: 'webhook',
+            type: 'function',
+            name: 'Send activation webhook',
+            description: 'Send the activation event to an example endpoint.',
+            config: {
+                template_id: 'template-webhook',
+                inputs: {
+                    url: { value: 'https://example.com/hooks/activation' },
+                    method: { value: 'POST' },
+                    body: { value: { account_id: '{person.id}', event: '{event.event}' }, templating: 'hog' },
+                },
+            },
+        },
+        {
             id: 'conditional',
             type: 'conditional_branch',
             name: 'Route by account stage',
@@ -79,7 +94,8 @@ const PANEL_WORKFLOW: HogFlow = {
     ] as HogFlowAction[],
     edges: [
         { from: 'trigger', to: 'delay', type: 'continue' },
-        { from: 'delay', to: 'conditional', type: 'continue' },
+        { from: 'delay', to: 'webhook', type: 'continue' },
+        { from: 'webhook', to: 'conditional', type: 'continue' },
         { from: 'conditional', to: 'cohort', type: 'branch', index: 0 },
         { from: 'conditional', to: 'exit', type: 'branch', index: 1 },
         { from: 'conditional', to: 'exit', type: 'continue' },
@@ -146,13 +162,15 @@ function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
     }, [nodes, selectedNodeId, setSelectedNodeId])
 
     return (
-        <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
-            <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
-                <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
-                    <HogFlowEditorPanel />
-                </div>
+        <ReactFlowProvider>
+            <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
+                <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
+                    <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
+                        <HogFlowEditorPanel />
+                    </div>
+                </BindLogic>
             </BindLogic>
-        </BindLogic>
+        </ReactFlowProvider>
     )
 }
 
@@ -160,6 +178,12 @@ const Template: StoryFn<PanelStoryProps> = (args) => <PanelStory {...args} />
 
 export const Build: StoryFn<PanelStoryProps> = Template.bind({})
 Build.args = { mode: 'build', selectedNodeId: 'delay' }
+
+export const BuildPalette: StoryFn<PanelStoryProps> = Template.bind({})
+BuildPalette.args = { mode: 'build', selectedNodeId: null }
+
+export const Webhook: StoryFn<PanelStoryProps> = Template.bind({})
+Webhook.args = { mode: 'build', selectedNodeId: 'webhook' }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }

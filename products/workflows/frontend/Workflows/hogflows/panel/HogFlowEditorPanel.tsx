@@ -6,19 +6,25 @@ import { LemonBadge, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { HOG_FLOW_EDITOR_MODES, HogFlowEditorMode, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import {
+    HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH,
+    HOG_FLOW_EDITOR_MODES,
+    HogFlowEditorMode,
+    hogFlowEditorLogic,
+} from '../hogFlowEditorLogic'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
 import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
+import { HogFlowEditorPanelResizeHandle } from './HogFlowEditorPanelResizeHandle'
 import { HogFlowEditorPanelSelectedStep } from './HogFlowEditorPanelSelectedStep'
 import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
-    const { selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
-    const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
+    const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
 
     const variablesCount = workflow?.variables?.length || 0
 
@@ -40,13 +46,16 @@ export function HogFlowEditorPanel(): JSX.Element | null {
         key: mode,
     }))
 
-    const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '25rem'
-
     return (
         <div
-            className="absolute flex flex-col m-0 p-2 overflow-hidden transition-[width] max-h-full right-0 justify-end"
-            style={{ width }}
+            className="absolute right-0 flex max-h-full flex-col justify-end overflow-hidden p-2"
+            style={{ width: panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH, maxWidth: '100%' }}
         >
+            <HogFlowEditorPanelResizeHandle
+                width={panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH}
+                onResize={setPanelWidth}
+                onReset={clearPanelWidth}
+            />
             <div
                 className="relative flex flex-col rounded-md overflow-hidden bg-surface-primary max-h-full z-10"
                 style={{
