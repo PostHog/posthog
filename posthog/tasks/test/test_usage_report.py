@@ -3215,6 +3215,14 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
                 last_run_at=None,
             )
 
+        # A soft-deleted view whose backing table has not been cleaned up yet must not count.
+        DataWarehouseSavedQuery.objects.create(
+            team_id=3,
+            name="half_deleted_view",
+            table=DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=1),
+            deleted=True,
+        )
+
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
 
@@ -3232,7 +3240,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         assert org_1_report["dwh_mat_views_storage_in_s3_in_mib"] == 8.0
 
         assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 8.0
-        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 8.0
+        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 9.0
         assert org_1_report["teams"]["4"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
         assert org_1_report["teams"]["4"]["dwh_total_storage_in_s3_in_mib"] == 0
 
