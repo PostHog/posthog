@@ -166,6 +166,11 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
     def _fn() -> None:
         # Carrying the cursor keeps each batch scanning forward, instead of walking
         # the index entries of the rows that earlier batches already deleted.
+        #
+        # The drain is forward-only, so it misses an override written behind the cursor
+        # by flag evaluation or a person merge while it runs. That row is orphaned
+        # anyway: this drain runs in the first bulky delete activity and the persons it
+        # points at go in the last, so anything written in between outlives the team.
         cursor = None
         while True:
             request = DeleteHashKeyOverridesByTeamsRequest(
