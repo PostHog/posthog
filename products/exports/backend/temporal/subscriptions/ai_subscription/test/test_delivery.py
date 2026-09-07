@@ -295,6 +295,30 @@ class TestChartsOnSlackMessages:
         assert all(block["type"] != "image" for block in sent[1])
         assert any("A short report." in block.get("text", {}).get("text", "") for block in sent[1])
 
+    async def test_a_hidden_chart_does_not_trigger_the_resend(self) -> None:
+        # A report that hides its charts already sends a payload with no image block, so the
+        # retry would repeat an identical message and double the posts Slack rate-limits.
+        subscription = _mock_subscription()
+        subscription.delivery_config = {"include_images": False}
+        sent: list[list[dict]] = []
+
+        async def _deliver(_integration, _subscription, message_data):
+            sent.append(message_data.blocks)
+            raise SlackApiError("bad blocks", response={"error": "invalid_blocks"})
+
+        with patch(f"{_DELIVERY}.deliver_slack_message_data", side_effect=_deliver):
+            with pytest.raises(SlackApiError):
+                await send_slack_ai_subscription_report(
+                    subscription=subscription,
+                    markdown="A short report.",
+                    integration=MagicMock(),
+                    delivery_id=_DELIVERY_ID,
+                    charts=[_CHART],
+                )
+
+        assert len(sent) == 1
+        assert all(block["type"] != "image" for block in sent[0])
+
     async def test_a_slack_error_that_is_not_about_blocks_still_raises(self) -> None:
         with patch(
             f"{_DELIVERY}.deliver_slack_message_data",

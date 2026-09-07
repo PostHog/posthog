@@ -444,20 +444,25 @@ async def send_slack_ai_subscription_report(
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
 ) -> SlackDeliveryResult:
+    # Resolve the charts the message will really carry, so the retry-without-charts decision
+    # cannot promise a different payload than the first send: a report that hides its charts
+    # would otherwise resend an identical message and double the posts Slack rate-limits.
+    effective_charts = charts if _include_delivery_part(subscription, "include_images") else None
+
     def build(with_charts: list[dict] | None) -> SlackMessage:
         return _build_ai_slack_message(
             subscription, markdown, delivery_id=delivery_id, integration=integration, charts=with_charts
         )
 
     try:
-        return await deliver_slack_message_data(integration, subscription, build(charts))
+        return await deliver_slack_message_data(integration, subscription, build(effective_charts))
     except SlackApiError as exc:
-        if not charts or exc.response.get("error") != "invalid_blocks":
+        if not effective_charts or exc.response.get("error") != "invalid_blocks":
             raise
         logger.warning(
             "ai_report.slack_charts_rejected_resending_without_them",
             subscription_id=subscription.id,
-            chart_count=len(charts),
+            chart_count=len(effective_charts),
         )
         return await deliver_slack_message_data(integration, subscription, build(None))
 
