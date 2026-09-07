@@ -42,6 +42,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
+from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
 from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -584,13 +585,6 @@ class TaskSerializer(DataclassSerializer):
 
 
 class TaskWriteSerializer(serializers.Serializer):
-    """Request body for creating or updating a task.
-
-    Field required/default semantics match the ``Task`` model. The view passes
-    ``validated_data`` (integration/report PK fields already resolved to instances) to the
-    facade ``create_task`` / ``update_task`` functions.
-    """
-
     title = serializers.CharField(
         max_length=255,
         required=False,
@@ -792,10 +786,18 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate_channel(self, value):
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if value is not None and (value.deleted or value.channel_type not in {"public", "personal"}):
+        user_id = getattr(user, "id", None)
+        if value is None:
+            return value
+        if value.deleted or value.channel_type not in {"public", "personal", "private"}:
             raise serializers.ValidationError("Space not found")
-        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
+        if value.channel_type == "personal" and value.created_by_id != user_id:
             raise serializers.ValidationError("Private spaces can only be used by their owner")
+
+        if value.channel_type == "private" and not tasks_facade.channel_exists(
+            self.context["team"].id, value.id, user_id
+        ):
+            raise serializers.ValidationError("Space not found")
         return value
 
     def validate_github_integration(self, value):
@@ -2173,27 +2175,54 @@ class ChannelDeleteConflictSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the space cannot be deleted.")
 
 
-class ChannelWriteSerializer(serializers.Serializer):
-    """Request body for creating (resolve-or-create) or renaming a public channel."""
+CHANNEL_MEMBERS_MAX = 100
 
+
+class ChannelWriteSerializer(serializers.Serializer):
     name = serializers.CharField(
-        max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+        max_length=128, help_text="Channel name, shown as #<name>. Uses lowercase letters and hyphens."
+    )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        default="public",
+        help_text=(
+            "Use 'public' for access by all project members. Use 'private' for access by channel members only. "
+            "Defaults to 'public'. This endpoint cannot create personal #me spaces."
+        ),
+    )
+    member_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "User IDs to add to a private channel. The requester is always a member. "
+            "The endpoint ignores this field for public channels and skips users without project access."
+        ),
     )
     star = serializers.BooleanField(
         required=False,
         default=True,
-        help_text=(
-            "Star the channel for the requester when this call creates it. "
-            "Ignored when the channel already exists, which leaves existing stars untouched."
-        ),
+        help_text=("Star a new channel for the requester. This field does not change stars on an existing channel."),
     )
 
     def validate_name(self, value: str) -> str:
-        # "general" resolves the team's general space here, so only the personal names are
-        # refused.
         if tasks_facade.is_personal_space_name(value):
             raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
         return value
+
+
+class ChannelMembersWriteSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=True,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "Required list of member user IDs. This list replaces the current members. "
+            "The creator remains a member. Send an empty list to remove all other members. "
+            "Each submitted user must have project access."
+        ),
+    )
 
 
 class ChannelUpdateSerializer(serializers.Serializer):
@@ -2220,6 +2249,14 @@ class ChannelUpdateSerializer(serializers.Serializer):
         min_value=1,
         max_value=365,
         help_text="Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.",
+    )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        required=False,
+        help_text=(
+            "Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator "
+            "and the requester as members. Making it public removes its member list. Personal #me spaces cannot change."
+        ),
     )
 
     def validate_name(self, value: str) -> str:

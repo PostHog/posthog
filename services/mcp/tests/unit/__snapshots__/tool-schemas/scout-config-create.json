@@ -136,7 +136,7 @@
             "type": "number"
         },
         "skill_name": {
-            "description": "The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.",
+            "description": "The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.",
             "maxLength": 200,
             "type": "string"
         },
