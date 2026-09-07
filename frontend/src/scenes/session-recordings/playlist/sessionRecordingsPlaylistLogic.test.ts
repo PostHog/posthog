@@ -1440,7 +1440,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('reads once for two loads dispatched in the same tick', async () => {
+        // Two loads in one tick are collapsed by the 400ms `breakpoint` debounce, not by the
+        // in-flight guard, which cannot match a request that no call has issued yet. This case
+        // guards the debounce: shorten or drop it and same-tick duplicates come back.
+        it('leaves the debounce to collapse two loads dispatched in the same tick', async () => {
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
                 .mockImplementation(
@@ -1495,6 +1498,36 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(inFlightLogic.values.sessionRecordings).toEqual([aRecording])
 
             inFlightLogic.unmount()
+        })
+
+        it('reads again when the refresh button repeats a request already in flight', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            let markIssued: () => void = () => {}
+            const requestIssued = new Promise<void>((resolve) => {
+                markIssued = resolve
+            })
+            const listSpy = jest.spyOn(api.recordings, 'list').mockImplementation(() => {
+                markIssued()
+                return pendingList as ReturnType<typeof api.recordings.list>
+            })
+
+            const refreshLogic = sessionRecordingsPlaylistLogic({ logicKey: 'force-refresh' })
+            refreshLogic.mount()
+
+            // the load afterMount kicks off is now past the debounce and awaiting the response
+            await requestIssued
+
+            refreshLogic.actions.loadAllRecordings()
+            resolveList(listResponse)
+
+            await expectLogic(refreshLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(2)
+
+            refreshLogic.unmount()
         })
 
         it('reads once for a selected recording the list does not hold', async () => {
