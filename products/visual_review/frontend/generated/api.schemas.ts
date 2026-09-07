@@ -361,8 +361,37 @@ export interface ArtifactApi {
     download_url: string | null
 }
 
+export interface ShiftBandApi {
+    /** First row of the band, in current-image coordinates. */
+    y: number
+    /** How many rows the band covers. */
+    rows: number
+    /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind. */
+    kind: string
+}
+
+export interface RowShiftApi {
+    /** Where the shift happened, in current-image coordinates. */
+    bands: ShiftBandApi[]
+    /** Rows the current image gained. */
+    inserted_rows: number
+    /** Rows the current image lost. */
+    deleted_rows: number
+    /** Rows present in both images whose content differs. */
+    changed_rows: number
+    /** Differing pixels inside the changed rows, excluding the shift itself. */
+    residual_pixel_count: number
+    /** residual_pixel_count as a percentage of the image, 0 to 100. The classifier thresholds on this. */
+    residual_percentage: number
+    /** Percentage of pixels that differ without alignment, which is what the shift would have cost. */
+    raw_diff_percentage: number
+    /** Structural similarity without alignment, 0 to 1, where 1 is identical. */
+    raw_ssim_score: number
+}
+
 export interface SnapshotHistoryEntryApi {
     current_artifact?: ArtifactApi | null
+    row_shift?: RowShiftApi | null
     run_id: string
     snapshot_id: string
     result: string
@@ -505,6 +534,7 @@ export interface SnapshotApi {
     diff_artifact?: ArtifactApi | null
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
+    row_shift?: RowShiftApi | null
     id: string
     run_id: string
     identifier: string
