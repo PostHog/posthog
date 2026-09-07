@@ -185,7 +185,7 @@ describe('reportListLogic', () => {
 
     // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed
     // or dropped pull request has no CI worth reading, and asking about it spends a GitHub call.
-    describe('open pull requests on the page', () => {
+    describe('pull requests still in flight on the page', () => {
         let logic: ReturnType<typeof reportListLogic.build>
 
         const withPr = (id: string, overrides: Partial<SignalReport>): SignalReport => ({
@@ -202,13 +202,14 @@ describe('reportListLogic', () => {
                     [REPORTS_URL]: () => [
                         200,
                         {
-                            count: 4,
+                            count: 5,
                             next: null,
                             previous: null,
                             results: [
                                 withPr('1', {}),
                                 withPr('2', { implementation_pr_merged: true }),
                                 withPr('3', { status: SignalReportStatus.SUPPRESSED }),
+                                withPr('5', { implementation_pr_state: 'draft' }),
                                 makeReport('4'),
                             ],
                         },
@@ -227,8 +228,8 @@ describe('reportListLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('counts only the rows whose pull request is still open', () => {
-            expect(logic.values.openPrReportIds).toEqual(['1'])
+        it('counts the rows whose pull request is still in flight, drafts included', () => {
+            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
         })
     })
 })

@@ -753,7 +753,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
         assert response.json()["implementation_pr_state"] == SignalReportAssignment.PrState.OPEN
 
-    def test_task_run_pr_is_used_as_fallback_when_assignment_has_no_pr(self):
+    @parameterized.expand([("missing",), ("empty",), ("task_only",)])
+    def test_task_run_pr_is_used_as_fallback_when_assignment_has_no_pr(self, source: str):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -775,12 +776,29 @@ class TestSignalReportListAPI(APIBaseTest):
             task_id=str(task.id),
             relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         )
+        if source == "missing":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+        elif source == "empty":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).update(pr_url="")
+        else:
+            SignalReportTask.objects.filter(report=report).delete()
+            SignalReportArtefact.objects.filter(report=report, type="task_run").delete()
+
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            state={"ai_stage": "research"},
+            output={"pr_url": "https://github.com/org/repo/pull/99", "pr_merged": True},
+        )
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/7"
         assert row["implementation_pr_state"] == SignalReportAssignment.PrState.UNKNOWN
         assert row["work_state"] == "in_review"
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+        assert detail["implementation_pr_url"] == row["implementation_pr_url"]
+        assert detail["implementation_pr_merged"] is False
 
         with_pr = self.client.get(self._list_url(has_implementation_pr="true"))
         assert str(report.id) in {item["id"] for item in with_pr.json()["results"]}
@@ -2888,8 +2906,20 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
-    def test_pr_checks_success_returns_checks(self):
+    @parameterized.expand([("assignment",), ("legacy",), ("claim",)])
+    def test_pr_checks_success_returns_checks(self, source: str):
         report = self._create_report()
+        if source != "assignment":
+            SignalReportAssignment.objects.for_team(self.team.id).filter(report=report).delete()
+            Task = apps.get_model("tasks", "Task")
+            TaskRun = apps.get_model("tasks", "TaskRun")
+            task = Task.objects.create(team=self.team, title="Implementation", description="Fix a bug")
+            TaskRun.objects.create(
+                team=self.team, task=task, output={"pr_url": "https://github.com/PostHog/posthog/pull/7"}
+            )
+            SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+            if source == "claim":
+                SignalReportAssignment.objects.for_team(self.team.id).create(team=self.team, report=report)
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]

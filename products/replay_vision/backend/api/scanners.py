@@ -2307,12 +2307,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
                 )
-        except DraftError:
+        except DraftError as e:
+            # The 503 below is deliberately uniform, so the reason only survives here.
+            logger.warning(
+                "replay_vision.scanner_draft.failed",
+                team_id=self.team_id,
+                reason=e.reason,
+                goal_flow=goal_flow,
+            )
             # Report failures too, so model errors don't read as user abandonment.
             report_user_action(
                 cast(User, request.user),
                 "replay_vision_scanner_drafted",
-                {**draft_properties, "success": False},
+                {**draft_properties, "success": False, "failure_reason": e.reason},
                 team=self.team,
                 request=request,
             )

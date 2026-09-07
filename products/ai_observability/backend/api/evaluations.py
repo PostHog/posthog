@@ -131,6 +131,8 @@ class _EvaluationConfigField(serializers.JSONField):
     pass
 
 
+# Keep defaults in BooleanOutputConfig: nested schema defaults become explicit MCP PATCH values
+# and overwrite stored settings even when the caller omits them.
 @extend_schema_field(
     {
         "type": "object",
@@ -138,7 +140,6 @@ class _EvaluationConfigField(serializers.JSONField):
             "allows_na": {
                 "type": "boolean",
                 "description": "Whether the evaluation can return N/A for non-applicable generations.",
-                "default": False,
             },
             "true_is_failure": {
                 "type": "boolean",
@@ -147,7 +148,6 @@ class _EvaluationConfigField(serializers.JSONField):
                     "pass/fail evaluations, where a true result satisfied the criteria. Set it to true for "
                     "detector-style evaluations, so a true result is counted and labeled as a fail."
                 ),
-                "default": False,
             },
         },
         "additionalProperties": False,

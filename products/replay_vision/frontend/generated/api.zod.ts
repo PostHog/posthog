@@ -969,6 +969,8 @@ export const visionScannersScoutsCreateBodyConfigOneTagsMax = 10
 
 export const visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax = 100
 
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 4
+
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -1122,6 +1124,13 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+                    ),
+                write_scopes: zod
+                    .array(zod.string())
+                    .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
+                    .optional()
+                    .describe(
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')

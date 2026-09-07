@@ -493,6 +493,8 @@ tools:
             typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the
             same definition is safe and applies any supplied config fields. Reusing the name for a different definition
             returns a conflict.
+        exclude_params:
+            - suggestion_id
         confirmed_action:
             message: >
                 About to create scout '{name}', a persistent automation that can run unattended on its configured

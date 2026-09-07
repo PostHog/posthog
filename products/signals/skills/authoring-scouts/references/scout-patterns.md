@@ -391,7 +391,7 @@ So the trigger for this pattern is any of: **a judgment with more than one axis*
   Persist a **state transition** (an item that changed axis since last run) or a capped set of near-misses, and roll the rest into one aggregate backlog entry.
 - **Close the loop on what you filed — and know what closing it can and cannot do.** A "ready to pick up" report is wrong the moment someone picks it up, and it costs a person duplicating work already underway.
   Re-check each `report:` entry every run and `edit_report` once the item is assigned, PR-linked, or closed — but note that `edit_report` mutates `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `charts`, and `suggested_prompts` **only**.
-  It cannot change status or actionability, so an appended note does not retire the report.
+  It cannot change status or actionability, so an appended note or evidence row does not retire the report.
   Rewrite the **title and summary** so the stale framing is gone from the surface a human scans, and leave the status change to a person.
 - **Routing the outcome is part of the design.** On the report channel a queue scout can hand work straight to a draft PR: `actionability: immediately_actionable` + `repository` + a `priority` makes the report **eligible** to autostart one.
   Eligible is not automatic — the team's autostart toggle, its priority threshold, the org's self-driving quota, and resolving a runner identity each gate it independently, so a correctly-filed report can sit still for reasons that have nothing to do with the scout.

@@ -27410,7 +27410,10 @@
                 "Strato",
                 "Medusa",
                 "Membrain",
-                "RecallAI"
+                "RecallAI",
+                "Tenjin",
+                "Folk",
+                "Cybersource"
             ],
             "type": "string"
         },

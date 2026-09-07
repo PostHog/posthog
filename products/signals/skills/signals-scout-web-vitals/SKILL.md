@@ -431,7 +431,9 @@ For each candidate, the call is **edit an existing report, author a new one, rem
 - **Edit** (`scout-edit-report`) when a still-live report already covers the same
   page+metric problem — the page still standing in `poor`, the regression still holding,
   the p75 deepening or recovering. Add the fresh window's numbers with `append_evidence` (p75, band,
-  sample count), or rewrite the title/summary on a report you authored. This is the
+  sample count) while the page stays slow. Add a recovery with `append_note`, because the evidence
+  counters only grow and would rank a recovered report as stronger. Rewrite the title/summary on a
+  report you authored. This is the
   default when a match exists — a chronically slow page is one report across weeks, not
   one per run. `edit-report` can't change status, so if the matched report is `resolved` /
   `suppressed` / `failed`, don't append (it won't resurface) — and a `ready` report whose
