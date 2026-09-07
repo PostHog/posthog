@@ -1,6 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 
-import api from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { isEmptyObject } from 'lib/utils/guards'
 import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodeType, NotebookType } from 'scenes/notebooks/types'
@@ -36,7 +37,7 @@ import {
     TrendsFilter,
     TrendsFilterLegacy,
 } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
+import { upgradeQueryToLatestVersion } from '~/queries/upgradeQuery'
 import { FunnelExclusionLegacy, LegacyRecordingFilters } from '~/types'
 
 import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent'
@@ -258,7 +259,9 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 }
 
 async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> {
-    return Promise.all(
+    let anyUpgradeFailed = false
+
+    const upgraded = await Promise.all(
         content.map(async (node) => {
             if (
                 node.type !== NotebookNodeType.Query ||
@@ -269,20 +272,26 @@ async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> 
                 return node
             }
 
-            const query = node.attrs.query
+            const query = await upgradeQueryToLatestVersion(node.attrs.query)
 
-            if (checkLatestVersionsOnQuery(query)) {
+            if (!query) {
+                anyUpgradeFailed = true
                 return node
             }
 
-            const response = await api.schema.queryUpgrade({ query })
             return {
                 ...node,
                 attrs: {
                     ...node.attrs,
-                    query: response.query,
+                    query,
                 },
             }
         })
     )
+
+    if (anyUpgradeFailed) {
+        lemonToast.warning('Could not update some queries to the latest version. They show as they were saved.')
+    }
+
+    return upgraded
 }

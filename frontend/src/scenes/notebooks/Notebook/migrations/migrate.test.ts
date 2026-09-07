@@ -1056,6 +1056,25 @@ describe('migrate()', () => {
         ],
     ]
 
+    it('keeps a query node as saved when the upgrade request fails', async () => {
+        // One failed upgrade must not reject the whole `Promise.all`, which would blank the notebook.
+        const content: JSONContent[] = [
+            {
+                type: 'ph-query',
+                attrs: {
+                    query: { kind: 'InsightVizNode', source: { kind: 'PathsQuery', version: 1 } },
+                },
+            },
+        ]
+        const notebook: NotebookType = {
+            ...mockNotebook,
+            user_access_level: AccessControlLevel.Editor,
+            content: { type: 'doc', content },
+        }
+
+        await expect(migrate(notebook)).resolves.toEqual(notebook)
+    })
+
     it.each(contentToExpected)('migrates %s', async (_name, prevContent, nextContent) => {
         const prevNotebook: NotebookType = {
             ...mockNotebook,
