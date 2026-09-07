@@ -11,12 +11,7 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import {
-  type AcpMessage,
-  FAST_MODE_FLAG,
-  sessionSupportsSideQuestion,
-} from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
