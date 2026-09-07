@@ -197,7 +197,7 @@ def _canonicalize_host(host: str) -> str:
     """
     try:
         host = host.encode("idna").decode("ascii")
-    except (ValueError, UnicodeError):
+    except ValueError:  # UnicodeError, which the codec raises, subclasses this
         pass
     return host.lower().rstrip(".")
 
@@ -211,22 +211,15 @@ def _host_shape_error(host: str) -> str | None:
 
     An IP address is accepted first because an IPv6 literal carries colons and so can never
     match the hostname pattern. An IPv4 literal matches it either way.
+
+    Everything else is judged in canonical form, which is the form the checks below and the
+    resolver use. Judging a different form from theirs is what let a fullwidth name through.
     """
     if not host.strip():
         return "Host is empty"
     if _parse_ip_literal(host) is not None:
         return None
-    if _matches_hostname_pattern(host):
-        return None
-
-    # An internationalized name is a hostname, and the pattern is ASCII, so judge its punycode
-    # form. A connection string does not slip through: the codec returns it unchanged, and the
-    # pattern rejects it either way.
-    try:
-        encoded = host.encode("idna").decode("ascii")
-    except ValueError:
-        return "Host must be a hostname or IP address"
-    if not _matches_hostname_pattern(encoded):
+    if not _matches_hostname_pattern(_canonicalize_host(host)):
         return "Host must be a hostname or IP address"
     return None
 
