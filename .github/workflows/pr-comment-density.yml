@@ -48,9 +48,9 @@ jobs:
               run: python3 .github/scripts/check_comment_density.py < pr.diff
 
             - name: Post to the CI report
-              if: steps.diff.outputs.available == 'true'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  AVAILABLE: ${{ steps.diff.outputs.available }}
                   STATUS: ${{ steps.measure.outputs.status }}
                   SUMMARY: ${{ steps.measure.outputs.summary }}
                   BODY: ${{ steps.measure.outputs.body }}

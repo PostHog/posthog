@@ -52,11 +52,29 @@ def diff_for(path: str, body: str) -> str:
                 +// full line
                 +{/* jsx style */}
                 +const b = 2
+                +/* note */ doWork()
+                +*ptr = 1
                 """,
             ),
-            7,
+            9,
             5,
             id="typescript-block-and-line-comments",
+        ),
+        pytest.param(
+            diff_for(
+                "frontend/src/lib/other.ts",
+                """
+                 /**
+                + * doc line added inside a block that opened in context
+                + */
+                +const c = 3
+                -/*
+                +const d = 4
+                """,
+            ),
+            4,
+            2,
+            id="block-state-follows-context-lines-not-removed-lines",
         ),
         pytest.param(
             diff_for("frontend/src/generated/api.ts", "+// generated\n+// generated\n")

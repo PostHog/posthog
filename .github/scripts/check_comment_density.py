@@ -69,6 +69,31 @@ def _extension(path: str) -> str:
     return name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
 
+def _classify_slash(line: str, in_block: bool) -> tuple[bool, bool]:
+    """Return (is_comment, in_block after this line) for a `//` and `/* */` language."""
+    if in_block:
+        return True, "*/" not in line
+    if line.startswith("//"):
+        return True, False
+    if line.startswith(("/*", "{/*")):
+        end = line.find("*/")
+        if end == -1:
+            return True, True
+        # `/* note */ doWork()` is code with a leading comment, not a comment line.
+        return line[end + 2 :].strip(" }") == "", False
+    # A `*` continuation line of a block whose opener sits outside the hunk. Rust
+    # dereferences (`*x = 1`) have no space after the star.
+    return line == "*" or line.startswith(("* ", "*/")), False
+
+
+def _is_comment(lang: str, line: str) -> bool:
+    if lang in HASH_LANGS:
+        return line.startswith("#") and not line.startswith("#!")
+    if lang in SQL_LANGS:
+        return line.startswith("--")
+    return False
+
+
 def analyze(diff_text: str) -> Report:
     report = Report()
     lang = ""
@@ -84,28 +109,29 @@ def analyze(diff_text: str) -> Report:
             if lang in CODE_LANGS and not EXCLUDED_PATHS.search(path):
                 stats = report.files.setdefault(path, FileStats(path))
             continue
-        if stats is None or raw.startswith(DIFF_SKIP_PREFIXES) or not raw.startswith("+"):
+        if stats is None or raw.startswith(DIFF_SKIP_PREFIXES):
+            continue
+        if raw.startswith("@@"):
+            in_block = False
+            continue
+        # Context lines are part of the new file too, so they move the block state;
+        # removed lines are not and are skipped entirely.
+        added = raw.startswith("+")
+        if not added and not raw.startswith(" "):
             continue
         line = raw[1:].strip()
         if not line:
             continue
 
+        if lang in SLASH_LANGS:
+            is_comment, in_block = _classify_slash(line, in_block)
+        else:
+            is_comment = _is_comment(lang, line)
+        if not added:
+            continue
+
         stats.added += 1
         report.added += 1
-        is_comment = False
-        if lang in HASH_LANGS:
-            is_comment = line.startswith("#") and not line.startswith("#!")
-        elif lang in SLASH_LANGS:
-            if in_block:
-                is_comment = True
-                in_block = "*/" not in line
-            elif line.startswith(("/*", "{/*")):
-                is_comment = True
-                in_block = "*/" not in line
-            else:
-                is_comment = line.startswith(("//", "*"))
-        elif lang in SQL_LANGS:
-            is_comment = line.startswith("--")
         if is_comment:
             stats.comments += 1
             report.comments += 1
