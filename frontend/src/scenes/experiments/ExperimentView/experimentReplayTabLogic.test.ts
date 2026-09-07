@@ -186,6 +186,8 @@ interface EmptyReasonCase {
     experiment: Partial<Experiment>
     team?: Partial<TeamType>
     setup?: (logic: ReturnType<typeof experimentReplayTabLogic.build>) => void
+    /** What the run-window probe answers, left unset for the reasons that never ask it. */
+    probe?: 'rows' | 'none' | 'failed'
 }
 
 // The team's retention period is the mock default of 30 days, which the run windows are set against.
@@ -221,22 +223,32 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experiment: { start_date: daysAgo(1), end_date: null },
     },
     {
-        reason: ExperimentReplayListEmptyReason.UnknownInWindow,
+        reason: ExperimentReplayListEmptyReason.NoRecordingsInWindow,
         experimentId: 127,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        probe: 'none',
     },
     {
-        // Still running past the retention period: its retained days are inside retention, so this
-        // is unexplained rather than a retention loss.
-        reason: ExperimentReplayListEmptyReason.UnknownInWindow,
+        // Still running past the retention period, so this is not a retention loss: its retained
+        // days are inside retention, and the probe found sessions in them.
+        reason: ExperimentReplayListEmptyReason.ExposedNotRecorded,
         experimentId: 128,
         experiment: { start_date: daysAgo(60), end_date: null },
+        probe: 'rows',
+    },
+    {
+        // A refused probe establishes nothing, so the reason stays at the placeholder.
+        reason: ExperimentReplayListEmptyReason.UnknownInWindow,
+        experimentId: 129,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        probe: 'failed',
     },
 ]
 
 describe('experimentReplayTabLogic', () => {
     let logic: ReturnType<typeof experimentReplayTabLogic.build>
     let seenTogetherSpy: jest.SpyInstance
+    let recordingsListSpy: jest.SpyInstance
 
     beforeEach(() => {
         // The facet reducer is persisted; clear so no test inherits another's selection.
@@ -253,6 +265,8 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue(IN_SESSION_AVAILABLE)
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
+        recordingsListSpy = jest.spyOn(api.recordings, 'list')
+        recordingsListSpy.mockResolvedValue({ results: [] } as any)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
         logic.mount()
     })
@@ -770,8 +784,13 @@ describe('experimentReplayTabLogic', () => {
 
     it.each(EMPTY_REASON_CASES)(
         'reports $reason for a list that came back empty',
-        async ({ reason, experimentId, experiment, team, setup }) => {
+        async ({ reason, experimentId, experiment, team, setup, probe }) => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            if (probe === 'rows') {
+                recordingsListSpy.mockResolvedValue({ results: [{ id: 'any-session' }] } as any)
+            } else if (probe === 'failed') {
+                recordingsListSpy.mockRejectedValue(new Error('refused'))
+            }
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ...team })
             const empty = experimentReplayTabLogic({
                 experiment: { ...EXPERIMENT, id: experimentId, ...experiment } as Experiment,
@@ -787,10 +806,74 @@ describe('experimentReplayTabLogic', () => {
             expect(listsRendered(captureSpy, experimentId)[0][1]).toMatchObject({
                 result_count: 0,
                 empty_reason: reason,
+                probe_result: probe ?? null,
             })
+            // Only the residue asks; every other reason is decided from what the client holds.
+            expect(recordingsListSpy).toHaveBeenCalledTimes(probe ? 1 : 0)
             empty.unmount()
         }
     )
+
+    it('asks the run-window probe once per visit, and holds the report until it answers', async () => {
+        // Re-asking on every facet change would put one ClickHouse read behind every click, and the
+        // answer cannot change within a visit. Reporting before it lands would stamp the
+        // placeholder reason on a list that resolves a moment later.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        let answerProbe: (response: unknown) => void = () => {}
+        recordingsListSpy.mockReturnValue(new Promise((resolve) => (answerProbe = resolve)))
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const residue = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 130, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        residue.mount()
+        await expectLogic(residue).toFinishAllListeners()
+
+        // Waited on by action rather than by listener, since the probe is held in flight on purpose.
+        residue.actions.recordingsLoaded([])
+        await expectLogic(residue).toDispatchActions(['loadWindowRecordingProbe'])
+        expect(listsRendered(captureSpy, 130)).toHaveLength(0)
+
+        // A facet change reloads the list, and must not put a second read behind it.
+        residue.actions.setSelectedVariantKey('test')
+        residue.actions.recordingsLoaded([])
+        await expectLogic(residue).toDispatchActions(['recordingsLoaded'])
+        expect(recordingsListSpy).toHaveBeenCalledTimes(1)
+        expect(listsRendered(captureSpy, 130)).toHaveLength(0)
+
+        answerProbe({ results: [{ id: 'any-session' }] })
+        await expectLogic(residue).toDispatchActions(['loadWindowRecordingProbeSuccess', 'listRenderResolved'])
+
+        expect(listsRendered(captureSpy, 130)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 130)[0][1]).toMatchObject({
+            empty_reason: 'exposed_not_recorded',
+            probe_result: 'rows',
+        })
+        residue.unmount()
+    })
+
+    it('probes the experiment run window rather than the default range', async () => {
+        // A project can record heavily today and hold nothing over the window, so an unwindowed
+        // probe would call capture healthy for a period it never looked at.
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const started = daysAgo(10)
+        const ended = daysAgo(2)
+        const windowed = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 131, start_date: started, end_date: ended } as Experiment,
+        })
+        windowed.mount()
+        await expectLogic(windowed).toFinishAllListeners()
+
+        windowed.actions.recordingsLoaded([])
+        await expectLogic(windowed).toFinishAllListeners()
+
+        expect(recordingsListSpy).toHaveBeenCalledWith({
+            kind: NodeKind.RecordingsQuery,
+            date_from: started,
+            date_to: ended,
+            limit: 1,
+        })
+        windowed.unmount()
+    })
 
     it('reports a list with rows, with no reason and the facets it was narrowed by', async () => {
         // The empty reason names a plausible cause of emptiness, so on a list with rows it would
@@ -813,6 +896,7 @@ describe('experimentReplayTabLogic', () => {
             experiment_id: 111,
             result_count: 2,
             empty_reason: null,
+            probe_result: null,
             days_since_start: 10,
             days_since_end: 2,
             retention_period: '90d',
@@ -953,8 +1037,8 @@ describe('experimentReplayTabLogic', () => {
     })
 
     it('reports the exposure event as unlinkable when it is never seen with a session id', async () => {
-        // The residual "in window, replay on, still empty" bucket is the one the tab can't explain,
-        // and an exposure event captured without a session id is the likeliest cause in it.
+        // Exposure linkage rides alongside the reason rather than deciding it: an exposure event
+        // captured without a session id is a likely cause behind either probe answer.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, $feature_flag_called: false })
         const unlinkable = experimentReplayTabLogic({
@@ -967,7 +1051,7 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(unlinkable).toFinishAllListeners()
 
         expect(listsRendered(captureSpy, 112)[0][1]).toMatchObject({
-            empty_reason: 'unknown_in_window',
+            empty_reason: 'no_recordings_in_window',
             exposure_linkable: false,
             days_since_end: null,
         })

@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -164,6 +165,7 @@ export type ExperimentRecordingsEmptyAction =
     | 'ad_blocker_docs'
     | 'retry_metric_filter'
     | 'show_hidden'
+    | 'exposure_docs'
 
 /**
  * The dates and settings the empty-state copy names. The component reads them from here so that it
@@ -172,6 +174,8 @@ export type ExperimentRecordingsEmptyAction =
 export interface ExperimentRecordingsListEmptyContext {
     /** Days since the experiment launched, null when it has not launched. */
     daysSinceStart: number | null
+    /** When the experiment launched, null when it has not launched. */
+    startDate: string | null
     /** When the experiment stopped, null while it runs. */
     endDate: string | null
     /** The project's replay retention window, which `ended_past_retention` is decided against. */
@@ -183,10 +187,12 @@ export interface ExperimentRecordingsListEmptyContext {
  * shown: the tab has no way today to tell a project with replay switched off from an experiment
  * launched an hour ago, and both look like "this feature is broken" to whoever opened the tab.
  *
- * `unknown_in_window` is the residue — replay is on, the run window is inside retention, and the
- * filters still matched nothing. Exposure linkage and the duration floor both live in there, which
- * is why the event carries `exposure_linkable` and the `duration_filter_*` properties alongside
- * the reason.
+ * Replay being on with the run window inside retention leaves a residue, which the
+ * `windowRecordingProbe` splits: a project that recorded nothing at all over the window
+ * (`no_recordings_in_window`) against one that recorded sessions no exposed person owns
+ * (`exposed_not_recorded`). `unknown_in_window` is what is left while the probe has not answered,
+ * or when it was refused. Exposure linkage and the duration floor still live in there, which is why
+ * the event carries `exposure_linkable` and the `duration_filter_*` properties alongside the reason.
  */
 export enum ExperimentReplayListEmptyReason {
     /** The project does not record sessions, so no experiment on it can have any. */
@@ -205,6 +211,17 @@ export enum ExperimentReplayListEmptyReason {
     EndedPastRetention = 'ended_past_retention',
     /** Launched within the last few days, so recordings may not have been captured yet. */
     TooEarly = 'too_early',
+    /**
+     * The probe found no recording anywhere on the project over the run window. Replay is on, so
+     * capture is the thing to look at rather than how the experiment links to it.
+     */
+    NoRecordingsInWindow = 'no_recordings_in_window',
+    /**
+     * The probe found recordings over the run window, and the list still matched none of them, so
+     * no recording belongs to a person this experiment exposed.
+     */
+    ExposedNotRecorded = 'exposed_not_recorded',
+    /** The probe has not answered yet, or it was refused. */
     UnknownInWindow = 'unknown_in_window',
 }
 
@@ -289,6 +306,8 @@ export interface experimentReplayTabLogicValues {
     inSessionExposureLoading: boolean
     linkedScanners: LinkedScanner[]
     linkedScannersLoading: boolean
+    windowRecordingProbe: boolean | null
+    windowRecordingProbeLoading: boolean
     listEmptyContext: ExperimentRecordingsListEmptyContext
     listEmptyReason: ExperimentReplayListEmptyReason
     loadedRecordings: ExperimentReplayRecording[]
@@ -418,6 +437,9 @@ export interface experimentReplayTabLogicActions {
     listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => {
         action: ExperimentRecordingsEmptyAction
     }
+    listRenderResolved: (resultCount: number) => {
+        resultCount: number
+    }
     loadInSessionExposure: (_?: unknown) => unknown
     loadInSessionExposureFailure: (
         error: string,
@@ -432,6 +454,21 @@ export interface experimentReplayTabLogicActions {
     ) => {
         inSessionExposure: ExperimentInSessionExposureApi | null
         payload?: unknown
+    }
+    loadWindowRecordingProbe: (_?: unknown) => unknown
+    loadWindowRecordingProbeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadWindowRecordingProbeSuccess: (
+        windowRecordingProbe: boolean | null,
+        payload?: any
+    ) => {
+        payload?: any
+        windowRecordingProbe: boolean | null
     }
     loadLinkedScanners: (_?: unknown) => unknown
     loadLinkedScannersFailure: (
@@ -590,6 +627,7 @@ export interface experimentReplayTabLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             bucketSessionIds: string[] | undefined,
             sessionBucketError: string | null,
+            windowRecordingProbe: boolean | null,
             arg: any
         ) => ExperimentReplayListEmptyReason
         listEmptyContext: (
@@ -713,11 +751,39 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         watchHighlightOpened: (card: ExperimentWatchCardApi, position: number) => ({ card, position }),
         watchEmptyActionClicked: (action: ExperimentWatchEmptyAction) => ({ action }),
         listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => ({ action }),
+        listRenderResolved: (resultCount: number) => ({ resultCount }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         reportTabViewed: true,
         scannerCrossSellClicked: true,
     }),
     loaders(({ values, props, actions }) => ({
+        /**
+         * Did this project record anything at all over the experiment's run window? Asked only for
+         * a list that would otherwise report `unknown_in_window`, where the answer splits the
+         * residue in two.
+         *
+         * Recordings only: no exposure narrowing, no event or property filters, no test-account
+         * filter. Those turn a sub-second read into one that can scan terabytes, and none of them
+         * is part of the question.
+         *
+         * Windowed to the run rather than left on the default range. A project can record heavily
+         * today and still hold nothing over the window, so an unwindowed probe would answer for the
+         * wrong period and call capture healthy.
+         */
+        windowRecordingProbe: [
+            null as boolean | null,
+            {
+                loadWindowRecordingProbe: async () => {
+                    const response = await api.recordings.list({
+                        kind: NodeKind.RecordingsQuery,
+                        date_from: props.experiment.start_date,
+                        date_to: props.experiment.end_date ?? null,
+                        limit: 1,
+                    })
+                    return (response.results?.length ?? 0) > 0
+                },
+            },
+        ],
         sessionBucket: [
             null as ExperimentSessionBucket | null,
             {
@@ -1111,11 +1177,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
          * tab, so on a list with rows it is meaningless rather than wrong.
          */
         listEmptyReason: [
-            (s) => [s.currentTeam, s.bucketSessionIds, s.sessionBucketError, (_, props) => props.experiment],
+            (s) => [
+                s.currentTeam,
+                s.bucketSessionIds,
+                s.sessionBucketError,
+                s.windowRecordingProbe,
+                (_, props) => props.experiment,
+            ],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 bucketSessionIds: string[] | undefined,
                 sessionBucketError: string | null,
+                windowRecordingProbe: boolean | null,
                 experiment: Experiment
             ): ExperimentReplayListEmptyReason => {
                 if (!currentTeam?.session_recording_opt_in) {
@@ -1145,7 +1218,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // A window that expired only in part gets no reason of its own, whether the
                 // experiment ended or still runs: its retained days are inside retention, so an
                 // empty list there is unexplained. `days_since_start` and `retention_period` ride
-                // along on the report, so that slice stays one filter away.
+                // along on the report, so that slice stays one filter away. A run that starts
+                // before retention reads as `no_recordings_in_window`, because its retained slice
+                // holds nothing either.
+                if (windowRecordingProbe !== null) {
+                    return windowRecordingProbe
+                        ? ExperimentReplayListEmptyReason.ExposedNotRecorded
+                        : ExperimentReplayListEmptyReason.NoRecordingsInWindow
+                }
                 return ExperimentReplayListEmptyReason.UnknownInWindow
             },
         ],
@@ -1156,6 +1236,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
+                startDate: experiment.start_date ?? null,
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
             }),
@@ -1573,10 +1654,36 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (recordings.length === 0 && values.sessionBucketLoading) {
                 return
             }
+            // `unknown_in_window` is the placeholder the probe replaces, so reporting it now would
+            // stamp it on a list that resolves to one of the two probe reasons a moment later. Hold
+            // the report until the probe settles, and ask the probe if nothing has asked it yet.
+            if (
+                recordings.length === 0 &&
+                values.listEmptyReason === ExperimentReplayListEmptyReason.UnknownInWindow &&
+                !cache.windowRecordingProbeSettled
+            ) {
+                cache.listRenderReportPending = true
+                if (!cache.windowRecordingProbeRequested) {
+                    cache.windowRecordingProbeRequested = true
+                    actions.loadWindowRecordingProbe()
+                }
+                return
+            }
+            actions.listRenderResolved(recordings.length)
+        },
+        // One report per list, from the point its reason is final.
+        listRenderResolved: ({ resultCount }) => {
             actions.reportExperimentRecordingsListRendered(props.experiment.id, {
                 ...values.filterContext,
-                result_count: recordings.length,
-                empty_reason: recordings.length === 0 ? values.listEmptyReason : null,
+                result_count: resultCount,
+                empty_reason: resultCount === 0 ? values.listEmptyReason : null,
+                probe_result: !cache.windowRecordingProbeRequested
+                    ? null
+                    : cache.windowRecordingProbeFailed
+                      ? 'failed'
+                      : values.windowRecordingProbe
+                        ? 'rows'
+                        : 'none',
                 days_since_start: daysSince(props.experiment.start_date),
                 days_since_end: daysSince(props.experiment.end_date),
                 retention_period: values.currentTeam?.session_recording_retention_period ?? null,
@@ -1589,6 +1696,24 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 duration_filter_customized: values.durationFilterCustomized,
                 exposure_linkable: values.exposureLinkable,
             })
+        },
+        loadWindowRecordingProbeSuccess: () => {
+            cache.windowRecordingProbeSettled = true
+            if (cache.listRenderReportPending) {
+                cache.listRenderReportPending = false
+                actions.listRenderResolved(0)
+            }
+        },
+        // A refused probe leaves the reason at `unknown_in_window` and reports it as refused, so the
+        // list never shows a cause the probe did not establish. Settled either way: the probe is
+        // asked once per tab mount, and a second ask would not answer any sooner.
+        loadWindowRecordingProbeFailure: () => {
+            cache.windowRecordingProbeSettled = true
+            cache.windowRecordingProbeFailed = true
+            if (cache.listRenderReportPending) {
+                cache.listRenderReportPending = false
+                actions.listRenderResolved(0)
+            }
         },
         // Re-warm the rest of the page whenever the user moves to another recording: the
         // server-side cache entries expire on a TTL that starts at prefetch time, so a page
