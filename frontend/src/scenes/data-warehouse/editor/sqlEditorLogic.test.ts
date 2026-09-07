@@ -24,6 +24,7 @@ import {
     DataTableNode,
     DataVisualizationNode,
     HogQLFilters,
+    HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -194,6 +195,10 @@ function createUndoTrackingModel(initialValue: string): any {
             endLineNumber: 1,
             endColumn: value.length + 1,
         }),
+        getPositionAt: (offset: number) => {
+            const before = value.slice(0, offset)
+            return { lineNumber: before.split('\n').length, column: offset - before.lastIndexOf('\n') }
+        },
         pushStackElement: jest.fn(),
         pushEditOperations: jest.fn((_before: any, ops: any[]) => {
             value = ops[0].text
@@ -680,6 +685,43 @@ describe('sqlEditorLogic', () => {
 
             expect(model.codeEditorLogic).toBeUndefined()
             expect(dispose).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('applyQueryFix', () => {
+        const STATEMENT = 'SELECT count() FROM events'
+
+        it.each([
+            {
+                name: 'applies the fix when the metadata describes the current statement',
+                currentText: STATEMENT,
+                expectEdit: true,
+            },
+            {
+                name: 'ignores a fix whose metadata describes text the editor has moved past',
+                currentText: 'SELECT count() FROM persons',
+                expectEdit: false,
+            },
+        ])('$name', async ({ currentText, expectEdit }) => {
+            const model = createUndoTrackingModel(currentText)
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMonacoWithModel(model),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab(currentText)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            model.pushEditOperations.mockClear()
+
+            // A failed reload leaves the previous response in place, so the analyzed text and the
+            // editor's text can disagree while metadataLoading is false.
+            logic.actions.setMetadata({ isValid: true } as HogQLMetadataResponse, STATEMENT)
+            logic.actions.setActiveQueryText(currentText, 0)
+
+            logic.actions.applyQueryFix([{ start: 0, end: 6, text: 'SELECT 1 --' }])
+
+            expect(model.pushEditOperations).toHaveBeenCalledTimes(expectEdit ? 1 : 0)
         })
     })
 

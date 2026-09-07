@@ -589,8 +589,16 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, metadata, metadataLoading } =
-        useValues(sqlEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        insightLoading,
+        hasQueryInput,
+        isEmbeddedMode,
+        metadata,
+        metadataLoading,
+        metadataIsStale,
+    } = useValues(sqlEditorLogic)
     const { setSourceQuery, applyQueryFix } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -898,7 +906,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
                 scans={metadata?.unpruned_scans ?? []}
-                refreshing={metadataLoading}
+                refreshing={metadataLoading || metadataIsStale}
                 onApplyFix={applyQueryFix}
             />
             {outputContent}

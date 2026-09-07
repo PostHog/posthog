@@ -622,6 +622,8 @@ export interface sqlEditorLogicValues {
     materializationModalOpen: boolean
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
+    metadataAnalyzedQuery: string | null
+    metadataIsStale: boolean
     metadataLoading: boolean
     metricPrefill: MetricFormPrefill | null
     metricUpdating: boolean
@@ -1113,7 +1115,11 @@ export interface sqlEditorLogicActions {
     setMaterializationModalView: (view: DataWarehouseSavedQuery | null) => {
         view: DataWarehouseSavedQuery | null
     }
-    setMetadata: (metadata: HogQLMetadataResponse | null) => {
+    setMetadata: (
+        metadata: HogQLMetadataResponse | null,
+        analyzedQuery: string | null
+    ) => {
+        analyzedQuery: string | null
         metadata: HogQLMetadataResponse | null
     }
     setMetadataLoading: (loading: boolean) => {
@@ -1187,6 +1193,11 @@ export interface sqlEditorLogicActions {
 export interface sqlEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        metadataIsStale: (
+            metadataAnalyzedQuery: any,
+            activeQueryText: string | null,
+            queryInput: string | null
+        ) => boolean
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
         ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
@@ -1412,7 +1423,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({
             sourceQuery,
         }),
-        setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
+        setMetadata: (metadata: HogQLMetadataResponse | null, analyzedQuery: string | null) => ({
+            metadata,
+            analyzedQuery,
+        }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
         setViewLoading: (loading: boolean) => ({ loading }),
@@ -1737,6 +1751,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 setMetadata: (_, { metadata }) => metadata,
             },
         ],
+        metadataAnalyzedQuery: [
+            null as string | null,
+            {
+                setMetadata: (_, { analyzedQuery }) => analyzedQuery,
+            },
+        ],
         editorKey: [`hogql-editor-${props.tabId}`, {}],
         suggestionPayload: [
             null as SuggestionPayload | null,
@@ -1921,6 +1941,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions._setSuggestionPayload(null)
             },
             applyQueryFix: ({ edits }) => {
+                if (values.metadataIsStale) {
+                    return
+                }
                 applyUndoableRangedEdits(
                     props.monaco,
                     values.activeTab?.uri,
@@ -3252,6 +3275,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
     })),
     selectors({
+        // A fix carries offsets into the statement the metadata described. A failed reload leaves the
+        // previous response in place while metadataLoading returns to false, so the text can move on
+        // without the response following it. Applying those offsets to changed text edits the wrong span.
+        metadataIsStale: [
+            (s) => [s.metadataAnalyzedQuery, s.activeQueryText, s.queryInput],
+            (metadataAnalyzedQuery: string | null, activeQueryText: string | null, queryInput: string | null) =>
+                metadataAnalyzedQuery === null || metadataAnalyzedQuery !== (activeQueryText ?? queryInput ?? ''),
+        ],
         suggestedSource: [
             (s) => [s.suggestionPayload],
             (suggestionPayload: SuggestionPayload | null) => {

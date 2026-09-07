@@ -126,7 +126,8 @@ export interface CodeEditorLogicProps {
     onError?: (error: string | null) => void
     /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
     indexUsage?: boolean
-    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    /** `analyzedQuery` is the exact text the response describes, so a caller can detect a stale response. */
+    onMetadata?: (metadata: HogQLMetadataResponse | null, analyzedQuery: string | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
 }
@@ -229,13 +230,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
                     if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
-                        props.onMetadata?.(null)
+                        props.onMetadata?.(null, null)
                         return null
                     }
                     await breakpoint(300)
                     const query = props.metadataQuery ?? props.query
                     if (query === '') {
-                        props.onMetadata?.(null)
+                        props.onMetadata?.(null, null)
                         return null
                     }
 
@@ -266,7 +267,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         )
                     )
                     breakpoint()
-                    props.onMetadata?.(response)
+                    props.onMetadata?.(response, query)
                     return [query, response]
                 },
             },

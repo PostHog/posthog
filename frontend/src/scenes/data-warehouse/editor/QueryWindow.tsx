@@ -401,8 +401,8 @@ export function QueryWindow({
                         onError: (error) => {
                             setError(error)
                         },
-                        onMetadata: (metadata) => {
-                            setMetadata(metadata)
+                        onMetadata: (metadata, analyzedQuery) => {
+                            setMetadata(metadata, analyzedQuery)
                         },
                         onMetadataLoading: (loading) => {
                             setMetadataLoading(loading)
