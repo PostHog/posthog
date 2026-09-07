@@ -229,7 +229,8 @@ class TestUrlValidation:
         [
             ("db.corp", "Internal domain pattern blocked"),  # the suffix loop
             ("metadata.google.internal", "Local/metadata host"),  # exact match, a separate branch
-            ("DB.CORP", "Internal domain pattern blocked"),  # matching is case sensitive
+            # The suffix match is case sensitive, and canonicalization lowercases first.
+            ("DB.CORP", "Internal domain pattern blocked"),
             ("db.corp.", "Internal domain pattern blocked"),  # a root dot must not hide a suffix
             ("localhost.", "Local/Loopback host not allowed"),  # nor an exact match
             # The whole of 127.0.0.0/8 is loopback, not just 127.0.0.1. Caught by parsing the

@@ -224,6 +224,20 @@ def _host_shape_error(host: str) -> str | None:
     return None
 
 
+def _url_log_fields(raw_url: str) -> dict[str, str]:
+    """Discrete fields for a blocked-URL log line, so a query can group by them.
+
+    The reason string carries no scheme, and an investigation starts from the scheme more
+    often than from anything else. Neither field can hold a credential: ``hostname`` excludes
+    the userinfo, and a scheme is a short token before the colon.
+    """
+    try:
+        parsed = urlparse.urlsplit(raw_url)
+    except ValueError:
+        return {}
+    return {"scheme": parsed.scheme, "host": parsed.hostname or ""}
+
+
 def _url_shape_error(raw_url: str) -> str | None:
     """Reason to reject a URL on its form alone, or None when the form is usable."""
     if has_authority_bypass_chars(raw_url):
@@ -455,7 +469,7 @@ def _validate_url_with_ips(
 
     shape_reason = _url_shape_error(raw_url)
     if shape_reason is not None:
-        return _blocked(shape_reason)
+        return _blocked(shape_reason, **_url_log_fields(raw_url))
     u = urlparse.urlparse(raw_url)
     host = _canonicalize_host(u.hostname or "")
     name_reason = _blocked_host_reason(host)
@@ -508,6 +522,21 @@ def validate_external_url(url: str) -> None:
         raise ValueError(reason or "URL is not allowed")
 
 
+class HostShapeError(ValueError):
+    """The value cannot be a host, judged from its form alone before any lookup.
+
+    Separate from the other reasons because it is safe to report in detail: nothing about our
+    network went into the decision, and the user has something they can fix.
+    """
+
+
+# Both destination forms show these, so they live here rather than in either one.
+INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
+UNREACHABLE_HOST_MESSAGE = (
+    "Could not reach this host. Check that the hostname is correct and reachable from the internet."
+)
+
+
 def validate_external_host(host: str) -> None:
     """Raise ``ValueError`` unless ``host`` is safe for our servers to reach.
 
@@ -519,10 +548,10 @@ def validate_external_host(host: str) -> None:
 
     # The host could come from untyped config, so check its type first
     if not isinstance(host, str):
-        raise ValueError("Host must be a string")
+        raise HostShapeError("Host must be a string")
     shape_reason = _host_shape_error(host)
     if shape_reason is not None:
-        raise ValueError(shape_reason)
+        raise HostShapeError(shape_reason)
     host = _canonicalize_host(host)
 
     if _dev_bypass_enabled() or _test_bypass_enabled():
