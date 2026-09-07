@@ -231,7 +231,7 @@ export const SubscriptionsCreateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images. Slack and email deliver these. Microsoft Teams reports are text only. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -459,7 +459,7 @@ export const SubscriptionsPartialUpdateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images. Slack and email deliver these. Microsoft Teams reports are text only. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()

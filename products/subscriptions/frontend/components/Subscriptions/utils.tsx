@@ -33,13 +33,17 @@ const AI_DISPLAY_CONFIG_FIELDS = [
 type AiSubscriptionDisplayConfig = Required<Pick<DeliveryConfigApi, (typeof AI_DISPLAY_CONFIG_FIELDS)[number]>>
 
 function resolveAiSubscriptionDisplayConfig(
-    deliveryConfig: DeliveryConfigApi | null | undefined
+    deliveryConfig: DeliveryConfigApi | null | undefined,
+    targetType?: SubscriptionType['target_type'] | null
 ): AiSubscriptionDisplayConfig {
     return {
         include_images: deliveryConfig?.include_images ?? true,
         include_feedback: deliveryConfig?.include_feedback ?? true,
         include_manage_link: deliveryConfig?.include_manage_link ?? true,
-        include_posthog_hint: deliveryConfig?.include_posthog_hint ?? true,
+        include_posthog_hint:
+            targetType && targetType !== SubscriptionTargetEnumApi.Slack
+                ? false
+                : (deliveryConfig?.include_posthog_hint ?? true),
     }
 }
 
@@ -93,9 +97,10 @@ function getAiSubscriptionDisplayReviewSummary(resolved: AiSubscriptionDisplayCo
 
 export function getAiSubscriptionDisplaySummary(
     deliveryConfig: DeliveryConfigApi | null | undefined,
-    mode: 'compact' | 'review' = 'compact'
+    mode: 'compact' | 'review' = 'compact',
+    targetType?: SubscriptionType['target_type'] | null
 ): string {
-    const resolved = resolveAiSubscriptionDisplayConfig(deliveryConfig)
+    const resolved = resolveAiSubscriptionDisplayConfig(deliveryConfig, targetType)
     return mode === 'review'
         ? getAiSubscriptionDisplayReviewSummary(resolved)
         : getAiSubscriptionDisplayCompactSummary(resolved)

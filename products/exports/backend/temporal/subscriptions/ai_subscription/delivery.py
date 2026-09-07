@@ -468,7 +468,13 @@ async def send_slack_ai_subscription_report(
         return await deliver_slack_message_data(integration, subscription, build(None))
 
 
-def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID) -> dict[str, Any]:
+def build_ai_teams_card(
+    subscription: Subscription,
+    markdown: str,
+    *,
+    delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
+) -> dict[str, Any]:
     """Adaptive Card for an AI report. Adaptive Cards render a restricted markdown subset in a
     TextBlock, so the report goes through mostly as written and a table degrades to plain text."""
     title = strip_external_links_markdown(subscription.title or "Your PostHog AI report")
@@ -517,6 +523,15 @@ def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_i
         body.extend(teams_text_block(section) for section in kept)
     else:
         body.append(teams_text_block("_No report content was generated._"))
+    for chart in (charts or []) if _include_delivery_part(subscription, "include_images") else []:
+        body.append(
+            {
+                "type": "Image",
+                "url": chart["image_url"],
+                "size": "Stretch",
+                "altText": chart.get("title") or "Chart",
+            }
+        )
     if over_budget or len(kept) < len(sections) or len(report) > _TEAMS_REPORT_CHUNKING_LIMIT:
         body.append(teams_text_block(shortened_notice, is_subtle=True))
     if include_feedback:

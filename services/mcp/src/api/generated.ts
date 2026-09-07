@@ -28322,7 +28322,7 @@ export namespace Schemas {
     export interface DeliveryConfig {
       /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
       post_all_insights_in_main_message?: boolean;
-      /** AI prompt subscriptions only: include generated chart images. Slack and email deliver these. Microsoft Teams reports are text only. Defaults to true when omitted. */
+      /** AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted. */
       include_images?: boolean;
       /** AI prompt subscriptions only: include report feedback links. Defaults to true when omitted. */
       include_feedback?: boolean;

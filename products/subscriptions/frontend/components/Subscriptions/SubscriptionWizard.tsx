@@ -473,6 +473,7 @@ function SubscriptionContentStep({
                 <AiPromptFields
                     compactAnalysisWindow
                     prompt={subscription.prompt}
+                    targetType={subscription.target_type}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
@@ -716,7 +717,11 @@ function SubscriptionReviewStep({
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
                   {
                       label: 'Report contents',
-                      value: getAiSubscriptionDisplaySummary(subscription.delivery_config, 'review'),
+                      value: getAiSubscriptionDisplaySummary(
+                          subscription.delivery_config,
+                          'review',
+                          subscription.target_type
+                      ),
                   },
               ]
             : []),

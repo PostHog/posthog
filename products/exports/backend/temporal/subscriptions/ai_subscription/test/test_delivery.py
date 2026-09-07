@@ -13,6 +13,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
@@ -31,12 +32,20 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
-from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
+from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
+    AI_REPORT_WINDOW_END_KEY,
+    DeliverSubscriptionInputs,
+    DeliverSubscriptionResult,
+    SubscriptionTriggerType,
+)
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
+_ACTIVITIES = "products.exports.backend.temporal.subscriptions.ai_subscription.activities"
 
 _PARA = "a" * (SLACK_MRKDWN_SECTION_LIMIT - 100)
 _DELIVERY_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -410,6 +419,71 @@ class TestBuildAITeamsCard:
     def _body(self, markdown: str) -> list[dict]:
         card = build_ai_teams_card(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
         return card["attachments"][0]["content"]["body"]
+
+    def test_charts_follow_the_report_text(self) -> None:
+        card = build_ai_teams_card(_mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART])
+        body = card["attachments"][0]["content"]["body"]
+
+        image_blocks = [block for block in body if block["type"] == "Image"]
+        assert image_blocks == [
+            {
+                "type": "Image",
+                "url": _CHART["image_url"],
+                "size": "Stretch",
+                "altText": _CHART["title"],
+            }
+        ]
+
+    def test_hidden_charts_do_not_appear(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {"include_images": False}
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART])
+        body = card["attachments"][0]["content"]["body"]
+
+        assert all(block["type"] != "Image" for block in body)
+
+    @pytest.mark.asyncio
+    async def test_delivery_includes_generated_chart_urls(self) -> None:
+        subscription = _mock_subscription()
+        subscription.target_type = Subscription.SubscriptionTarget.TEAMS
+
+        with (
+            patch(
+                f"{_ACTIVITIES}._load_snapshot",
+                new=AsyncMock(
+                    return_value={
+                        AI_REPORT_SNAPSHOT_KEY: "A short report.",
+                        AI_REPORT_CHARTS_KEY: [{"export_asset_id": 99, "title": "signups by day"}],
+                    }
+                ),
+            ),
+            patch(f"{_ACTIVITIES}.build_chart_image_urls", return_value=[_CHART]),
+            patch(
+                f"{_ACTIVITIES}.deliver_teams_webhook",
+                new=AsyncMock(return_value=DeliverSubscriptionResult()),
+            ) as deliver_teams,
+        ):
+            await _deliver_ai_subscription(
+                subscription,
+                DeliverSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    exported_asset_ids=[],
+                    total_insight_count=0,
+                    delivery_id=_DELIVERY_ID,
+                ),
+                [],
+            )
+
+        body = deliver_teams.await_args.kwargs["body"]["attachments"][0]["content"]["body"]
+        assert [block for block in body if block["type"] == "Image"] == [
+            {
+                "type": "Image",
+                "url": _CHART["image_url"],
+                "size": "Stretch",
+                "altText": _CHART["title"],
+            }
+        ]
 
     def test_long_report_is_split_across_text_blocks(self) -> None:
         body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(3)))

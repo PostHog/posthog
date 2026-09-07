@@ -275,8 +275,8 @@ class DeliveryConfigSerializer(serializers.Serializer):
     include_images = serializers.BooleanField(
         required=False,
         help_text=(
-            "AI prompt subscriptions only: include generated chart images. Slack and email deliver these. "
-            "Microsoft Teams reports are text only. Defaults to true when omitted."
+            "AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. "
+            "Defaults to true when omitted."
         ),
     )
     include_feedback = serializers.BooleanField(

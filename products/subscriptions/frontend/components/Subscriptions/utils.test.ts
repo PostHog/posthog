@@ -253,6 +253,26 @@ describe('AI subscription display options', () => {
     })
 
     it.each([
+        [
+            'Slack',
+            SubscriptionTargetEnumApi.Slack,
+            'AI-written report · Chart images · Feedback buttons · PostHog links and suggestions',
+        ],
+        [
+            'email',
+            SubscriptionTargetEnumApi.Email,
+            'AI-written report · Chart images · Feedback buttons · Manage subscription link',
+        ],
+        [
+            'Microsoft Teams',
+            SubscriptionTargetEnumApi.Teams,
+            'AI-written report · Chart images · Feedback buttons · Manage subscription link',
+        ],
+    ] as const)('lists the content that %s recipients receive', (_label, targetType, expected) => {
+        expect(getAiSubscriptionDisplaySummary(undefined, 'review', targetType)).toBe(expected)
+    })
+
+    it.each([
         ['insight', undefined],
         ['dashboard', undefined],
         ['ai_prompt', false],

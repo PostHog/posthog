@@ -12,6 +12,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
+import type { SubscriptionType } from '~/types'
 
 import type { AIWindowConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -102,13 +103,15 @@ const AI_DISPLAY_OPTIONS: { option: AiSubscriptionDisplayOption; label: string; 
     {
         option: 'posthog_actions',
         label: 'PostHog links and suggestions',
-        description: 'Include ways to manage the subscription and keep exploring in PostHog.',
+        description:
+            'Include a link to manage the subscription. Slack reports also suggest asking @PostHog a follow-up question.',
     },
 ]
 
 interface AiPromptFieldsProps {
     compactAnalysisWindow?: boolean
     prompt?: string | null
+    targetType?: SubscriptionType['target_type'] | null
     windowMode?: AIWindowConfigApi['mode']
     consentBanner?: ReactNode
     onSelectAnalysisWindow: (mode: AIWindowConfigApi['mode']) => void
@@ -122,6 +125,7 @@ function shouldShowAiPromptExamples(prompt?: string | null): boolean {
 export function AiPromptFields({
     compactAnalysisWindow = false,
     prompt,
+    targetType,
     windowMode,
     consentBanner,
     onSelectAnalysisWindow,
@@ -228,7 +232,7 @@ export function AiPromptFields({
             <LemonField name="delivery_config">
                 {({ value, onChange }) => {
                     const deliveryConfig = value as DeliveryConfigApi | undefined
-                    const displaySummary = getAiSubscriptionDisplaySummary(deliveryConfig)
+                    const displaySummary = getAiSubscriptionDisplaySummary(deliveryConfig, 'compact', targetType)
                     const posthogActionsState = getAiSubscriptionDisplayOptionState(deliveryConfig, 'posthog_actions')
 
                     return (

@@ -113,7 +113,7 @@
                     "type": "boolean"
                 },
                 "include_images": {
-                    "description": "AI prompt subscriptions only: include generated chart images. Slack and email deliver these. Microsoft Teams reports are text only. Defaults to true when omitted.",
+                    "description": "AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted.",
                     "type": "boolean"
                 },
                 "include_manage_link": {
