@@ -181,23 +181,24 @@ impl<F> Saving<F> {
         }
         // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
         // so delete them
-        let deleted_result = sqlx::query_scalar!(
-            r#"WITH deleted AS (DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1 RETURNING *) SELECT count(*) from deleted"#,
+        let deleted_result = sqlx::query!(
+            r#"DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1"#,
             record.id // The call to save() above ensures that this id is correct
         )
-        .fetch_one(&self.pool)
+        .execute(&self.pool)
         .await;
-        if deleted_result.is_err() {
-            record_symbol_set_write(
-                SymbolSetWritePurpose::Invalidation,
-                SymbolSetWriteOutcome::Error,
-                PostgresMutation::Delete,
-                0,
-            );
-        }
-        let deleted: u64 = deleted_result
-            .expect("Got at least one row back")
-            .map_or(0, |v| v.max(0) as u64);
+        let deleted = match deleted_result {
+            Ok(result) => result.rows_affected(),
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::Invalidation,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Delete,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
         record_symbol_set_write(
             SymbolSetWritePurpose::Invalidation,
             if deleted > 0 {
@@ -1357,6 +1358,93 @@ mod test {
             .await
             .map(|_| ())
             .expect("saved data must win over the previously-cached failure");
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_saving_data_deletes_the_stale_frames_for_that_symbol_set(db: PgPool) {
+        // Frames stored while a ref had no symbol data hold resolution results computed without
+        // it. Once real data arrives for that ref, `save_data` must delete those results so
+        // later lookups resolve against the new data, and it must leave every other symbol
+        // set's frames in place.
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+
+        let url = Url::parse("https://example.com/static/app.js").unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_put()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::str::starts_with(config.ss_prefix.clone()),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()))
+            .once();
+
+        let smp = SourcemapProvider::new(&config);
+        let saving = Saving::new(
+            smp,
+            db.clone(),
+            Arc::new(client),
+            config.object_storage_bucket.clone(),
+            config.ss_prefix.clone(),
+            std::time::Duration::from_secs(config.symbol_set_negative_cache_ttl_seconds),
+        );
+
+        // A failed lookup leaves a row with no storage_ptr. That is what lets the `save_data`
+        // below fill in the data, instead of skipping the row as already populated.
+        saving
+            .save_no_data(
+                0,
+                url.to_string(),
+                &crate::error::FrameError::JavaScript(crate::error::JsResolveErr::NoSourcemap(
+                    url.to_string(),
+                )),
+            )
+            .await
+            .unwrap();
+
+        let stale_set_id = SymbolSetRecord::load(&db, 0, url.as_ref())
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+
+        let other_set_id = Uuid::now_v7();
+        for (raw_id, symbol_set_id, resolved) in [
+            ("stale-resolved", stale_set_id, true),
+            ("stale-unresolved", stale_set_id, false),
+            ("other-symbol-set", other_set_id, true),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO posthog_errortrackingstackframe
+                    (id, raw_id, team_id, created_at, symbol_set_id, contents, resolved, part)
+                VALUES ($1, $2, 0, NOW(), $3, '{}'::jsonb, $4, 0)
+                "#,
+            )
+            .bind(Uuid::now_v7())
+            .bind(raw_id)
+            .bind(symbol_set_id)
+            .bind(resolved)
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+
+        saving
+            .save_data(0, url.to_string(), Bytes::from(get_symbol_data_bytes()))
+            .await
+            .unwrap();
+
+        let surviving: Vec<String> =
+            sqlx::query_scalar(r#"SELECT raw_id FROM posthog_errortrackingstackframe"#)
+                .fetch_all(&db)
+                .await
+                .unwrap();
+        assert_eq!(surviving, vec!["other-symbol-set".to_string()]);
     }
 
     // Negative-cache tests. These construct `Saving` over a *lazy* Postgres pool that never
