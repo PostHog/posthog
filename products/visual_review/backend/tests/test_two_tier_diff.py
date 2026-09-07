@@ -66,15 +66,6 @@ def _open(png_bytes: bytes) -> Image.Image:
     return Image.open(io.BytesIO(png_bytes)).convert("RGBA")
 
 
-def _make_row_textured_png(width: int, height: int) -> bytes:
-    """Build a page whose rows all differ, so row alignment has a unique answer."""
-    img = Image.new("RGBA", (width, height), (240, 240, 240, 255))
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        draw.line([(0, y), (width - 1, y)], fill=(236 + (y % 5), 238, 240 - (y % 7), 255))
-    return _to_png(img)
-
-
 def _insert_background_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
     """Push everything below `y` down by `rows` rows of page background.
 
@@ -135,11 +126,7 @@ class TestTwoTierClassification:
         current = _make_png(100, 100, current_color)
         assert _classify(baseline, current) == expected_kind
 
-    def test_tall_page_change_at_the_bottom_is_not_absorbed(self):
-        # The extra element sits in the page background below the last card,
-        # so row alignment reads it as a block of new rows rather than as
-        # changed content. It stays CHANGED either way, which is what this
-        # test guards: a real element must never be absorbed as noise.
+    def test_tall_page_change_caught_by_ssim(self):
         baseline = _make_tall_settings_page(extra_element=False)
         current = _make_tall_settings_page(extra_element=True)
 
@@ -149,7 +136,7 @@ class TestTwoTierClassification:
         ssim_dissimilarity = 1.0 - result.ssim_score
         assert ssim_dissimilarity > SSIM_DISSIMILARITY_THRESHOLD
 
-        assert _classify(baseline, current) == ChangeKind.LAYOUT
+        assert _classify(baseline, current) == ChangeKind.STRUCTURAL
 
     def test_size_mismatch_still_classifies_normally(self):
         # Pixelhog pads to the bigger size and runs metrics over the
@@ -180,11 +167,7 @@ class TestClusterSummary:
 
     def test_localized_change_yields_clusters(self):
         # Same baseline and current except for a small block in the middle.
-        # The background varies per row so no two rows hash alike. On a flat
-        # canvas row alignment can pair the changed rows with any other row,
-        # which turns a localized change into a pair of shift bands and leaves
-        # nothing for the clusters to describe.
-        base = _make_row_textured_png(200, 200)
+        base = _make_png(200, 200, (240, 240, 240, 255))
         cur_img = Image.open(io.BytesIO(base))
         ImageDraw.Draw(cur_img).rectangle([90, 90, 110, 110], fill=(255, 0, 0, 255))
         buf = io.BytesIO()

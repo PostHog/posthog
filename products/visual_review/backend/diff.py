@@ -49,6 +49,9 @@ class CompareResult:
     diff_percentage: float  # 0.0 to 100.0 — fraction of pixels that differ
     diff_pixel_count: int
     ssim_score: float  # 0.0 to 1.0 — 1.0 = identical, lower = more different
+    # Dimensions of `diff_image`, which is the padded size for a naive diff and
+    # the current image's own size for an aligned one. The percentages above
+    # are always measured over the padded size.
     width: int
     height: int
     thumbnail: bytes | None
@@ -130,6 +133,9 @@ def compare_images(
     aligned_diff_pixel_count = diff_pixel_count
     aligned_diff_percentage = diff_percentage
     aligned_ssim_score = ssim_score
+    # Dimensions of the diff image the result carries, which is what the diff
+    # artifact row records and what the frontend scales its overlays by.
+    diff_width, diff_height = width, height
     if alignment.aligned:
         aligned_diff_pixel_count = alignment.residual_count + _inserted_band_pixels(alignment, width)
         aligned_diff_percentage = (aligned_diff_pixel_count / total_pixels * 100) if total_pixels > 0 else 0.0
@@ -146,6 +152,11 @@ def compare_images(
             bands=[ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in alignment.bands],
         )
         diff_image = cmp.aligned_diff_image(alignment, threshold=threshold, alpha=0.1)
+        # The aligned diff image is drawn in current-image coordinates, so when
+        # the baseline was the taller of the two it is shorter than the padded
+        # buffers every metric above was measured against. The percentages stay
+        # over the padded total; only the image dimensions follow the image.
+        diff_width, diff_height = cmp.current_size
     else:
         diff_image = cmp.diff_image(threshold=threshold, alpha=0.1)
 
@@ -183,8 +194,8 @@ def compare_images(
         diff_percentage=round(diff_percentage, 4),
         diff_pixel_count=diff_pixel_count,
         ssim_score=ssim_score,
-        width=width,
-        height=height,
+        width=diff_width,
+        height=diff_height,
         thumbnail=thumbnail,
         thumbnail_hash=thumbnail_hash,
         size_mismatch=cmp.size_mismatch,

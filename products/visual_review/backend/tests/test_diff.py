@@ -136,3 +136,21 @@ class TestCompareImages:
         diff_img = Image.open(io.BytesIO(result.diff_image)).convert("RGBA")
         assert diff_img.size == (20, 21)  # the current image, one row taller than the baseline
         assert _red_row_indices(diff_img) == {8}
+
+    def test_deleted_row_result_dimensions_follow_the_diff_image(self):
+        # The baseline is the taller of the two, so the padded buffers the
+        # metrics run over are 20x20 while the aligned diff image is the
+        # current image at 20x19. The result has to report the image's own
+        # size, because it is what the diff artifact row records and what the
+        # frontend scales its cluster and band overlays by.
+        baseline_rows = [(10 * i % 250, 40, 200, 255) for i in range(20)]
+        current_rows = [*baseline_rows[:8], *baseline_rows[9:]]
+
+        result = compare_images(_make_striped_png(baseline_rows), _make_striped_png(current_rows))
+
+        assert result.row_shift is not None
+        assert [(b.y, b.rows, b.kind) for b in result.row_shift.bands] == [(8, 1, "deleted")]
+
+        assert result.diff_image is not None
+        diff_img = Image.open(io.BytesIO(result.diff_image))
+        assert (result.width, result.height) == diff_img.size == (20, 19)

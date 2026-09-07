@@ -132,16 +132,20 @@ export function SnapshotDiffViewer({
     )
     const rowShift = snapshot.row_shift ?? null
     // A band spans the full width of the image, so it reads as a rule across
-    // the diff rather than as a region of it.
+    // the diff rather than as a region of it. Without a width there is nothing
+    // to draw, so drop the bands rather than emit zero-width boxes.
+    const bandWidth = snapshot.diff_artifact?.width ?? width ?? 0
     const overlayBands = useMemo(
         () =>
-            rowShift?.bands.map((band) => ({
-                x: 0,
-                y: band.y,
-                width: snapshot.diff_artifact?.width ?? width ?? 0,
-                height: Math.max(band.rows, 1),
-            })),
-        [rowShift, snapshot.diff_artifact?.width, width]
+            bandWidth > 0
+                ? rowShift?.bands.map((band) => ({
+                      x: 0,
+                      y: band.y,
+                      width: bandWidth,
+                      height: Math.max(band.rows, 1),
+                  }))
+                : undefined,
+        [rowShift, bandWidth]
     )
     const diffPixelTotal =
         snapshot.diff_artifact?.width && snapshot.diff_artifact?.height

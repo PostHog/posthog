@@ -209,6 +209,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> bool:
 
     if result.row_shift is not None:
         snapshot.diff_metadata = DiffMetadata(
+            cluster_summary=result.cluster_summary,
             row_shift=result.row_shift,
             size_mismatch=result.size_mismatch,
         ).model_dump(mode="json")
