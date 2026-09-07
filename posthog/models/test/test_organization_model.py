@@ -17,7 +17,7 @@ from posthog.organization_caching import (
     get_cached_organization_membership,
     get_cached_organization_memberships,
 )
-from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
 
@@ -44,8 +44,9 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
+    @mock.patch("posthog.plugins.utils.github_request", side_effect=mocked_plugin_github_request)
     @mock.patch("posthog.plugins.utils.requests.get", side_effect=mocked_plugin_requests_get)
-    def test_plugins_are_preinstalled_on_self_hosted(self, mock_get):
+    def test_plugins_are_preinstalled_on_self_hosted(self, mock_get, mock_github_request):
         with self.is_cloud(False):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
@@ -58,14 +59,16 @@ class TestOrganization(BaseTest):
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name,
             "helloworldplugin",
         )
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_github_request.call_count, 1)
+        self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_any_call(
             f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip",
             headers={},
         )
 
+    @mock.patch("posthog.plugins.utils.github_request", side_effect=mocked_plugin_github_request)
     @mock.patch("posthog.plugins.utils.requests.get", side_effect=mocked_plugin_requests_get)
-    def test_plugins_are_not_preinstalled_on_cloud(self, mock_get):
+    def test_plugins_are_not_preinstalled_on_cloud(self, mock_get, mock_github_request):
         with self.is_cloud(True):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
@@ -74,6 +77,7 @@ class TestOrganization(BaseTest):
                 )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)
+        self.assertEqual(mock_github_request.call_count, 0)
         self.assertEqual(mock_get.call_count, 0)
 
     def test_plugins_access_level_is_determined_based_on_realm(self):
