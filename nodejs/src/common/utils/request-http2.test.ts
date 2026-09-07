@@ -166,7 +166,7 @@ describe('secure HTTP/2 requests', () => {
         await tlsIdentity?.cleanup()
     })
 
-    it('negotiates, reuses, runs concurrently, defaults, and falls back through a CONNECT proxy', async () => {
+    it('negotiates, multiplexes concurrent requests on one session, defaults, and falls back through a CONNECT proxy', async () => {
         const http2Authority = `origin.test:${serverPort(http2Origin)}`
         const http2Url = `https://${http2Authority}`
         const bufferedResponse = await requestModule.fetch(`${http2Url}/buffered`, { allowH2: true, timeoutMs: 2000 })
@@ -201,8 +201,8 @@ describe('secure HTTP/2 requests', () => {
 
         expect(http2OriginProtocols).toEqual(['2.0', '2.0', '2.0', '2.0', '1.1'])
         expect(http1OriginProtocols).toEqual(['1.1'])
-        expect(http2SessionCount).toBe(2)
-        expect(proxyAuthorities).toEqual([http2Authority, http2Authority, http2Authority, http1Authority])
+        expect(http2SessionCount).toBe(1)
+        expect(proxyAuthorities).toEqual([http2Authority, http2Authority, http1Authority])
     }, 10000)
 
     it('closes an idle HTTP/2 session after the keep-alive timeout but not one with a slow response in flight', async () => {

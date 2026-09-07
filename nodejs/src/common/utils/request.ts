@@ -276,21 +276,32 @@ class InsecureAgent extends Agent {
 }
 
 /**
- * undici retires an idle HTTP/1.1 socket after the keep-alive timeout, but leaves an idle HTTP/2 session
- * open until the origin closes it. undici 8 fixes this (nodejs/undici#5406); this gives the same idle
- * lifetime to a session on undici 7. Without it, a caller that fetches from many origins holds one open
- * socket per origin it ever reached.
+ * Node's HTTP/2 client multiplexes up to this many streams on one session. undici's own default for its
+ * initial peer setting is the same value.
  */
-function makeIdleReapingPoolFactory(idleTimeoutMs: number): (origin: string | URL, options: object) => Pool {
+const HTTP2_STREAMS_PER_SESSION = 100
+
+/**
+ * undici 7 gives an HTTP/2 client the same defaults as an HTTP/1.1 client, which costs one session per
+ * origin twice over. Its `pipelining` default of 1 marks the client busy after one in-flight request, so a
+ * pool opens a new connection for every concurrent request instead of a new stream. It also retires an
+ * idle HTTP/1.1 socket after the keep-alive timeout but leaves an idle HTTP/2 session open until the origin
+ * closes it (nodejs/undici#5406 fixes the latter in undici 8). A caller that fetches from many origins
+ * would otherwise hold one open socket per concurrent request per origin it ever reached.
+ *
+ * Both fixes wait for ALPN, so a fallback HTTP/1.1 connection keeps its defaults. HTTP/1.1 pipelining
+ * would be unsafe against arbitrary origins.
+ */
+function makeHttp2SessionPoolFactory(idleTimeoutMs: number): (origin: string | URL, options: object) => Pool {
     return (origin, options) =>
         new Pool(origin, {
             ...(options as Pool.Options),
             factory: (clientOrigin, clientOptions) =>
-                makeIdleReapingClient(clientOrigin, clientOptions as Client.Options, idleTimeoutMs),
+                makeHttp2SessionClient(clientOrigin, clientOptions as Client.Options, idleTimeoutMs),
         })
 }
 
-function makeIdleReapingClient(origin: URL, options: Client.Options, idleTimeoutMs: number): Client {
+function makeHttp2SessionClient(origin: URL, options: Client.Options, idleTimeoutMs: number): Client {
     const connect = options.connect
     if (typeof connect !== 'function') {
         return new Client(origin, options)
@@ -301,6 +312,7 @@ function makeIdleReapingClient(origin: URL, options: Client.Options, idleTimeout
             connect(connectOptions, (...result) => {
                 const socket = result[1]
                 if (socket instanceof tls.TLSSocket && socket.alpnProtocol === 'h2') {
+                    client.pipelining = HTTP2_STREAMS_PER_SESSION
                     closeSocketWhenIdle(client, socket, idleTimeoutMs)
                 }
                 callback(...result)
@@ -332,7 +344,7 @@ function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
     const keepAliveTimeoutMs = Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS)
-    const idleReaping = allowH2 ? { factory: makeIdleReapingPoolFactory(keepAliveTimeoutMs) } : {}
+    const http2Sessions = allowH2 ? { factory: makeHttp2SessionPoolFactory(keepAliveTimeoutMs) } : {}
 
     if (proxyUrl) {
         return new ProxyAgent({
@@ -341,14 +353,14 @@ function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             allowH2,
             requestTls: { allowH2 },
-            ...idleReaping,
+            ...http2Sessions,
         })
     }
     return new Agent({
         keepAliveTimeout: keepAliveTimeoutMs,
         connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
         allowH2,
-        ...idleReaping,
+        ...http2Sessions,
         connect: {
             lookup: httpStaticLookup,
             timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
