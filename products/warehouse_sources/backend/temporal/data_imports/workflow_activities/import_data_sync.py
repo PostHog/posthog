@@ -212,16 +212,33 @@ async def _warehouse_parent_reuse_available(
     return True
 
 
-def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
+def _reset_requested(inputs: ImportDataActivityInputs, schema: ExternalDataSchema | None) -> bool:
+    """Whether this run was asked to wipe the table and rebuild it from source.
+
+    The request arrives either on the activity input (an ad-hoc resync workflow) or as a marker on
+    the schema (a PATCH, the admin action, CDC repair, the column-widening recovery).
+    """
+    if inputs.reset_pipeline is not None:
+        return inputs.reset_pipeline
+    return schema is not None and schema.sync_type_config.get("reset_pipeline", False) is True
+
+
+def _import_held_for_repartition(
+    schema: ExternalDataSchema | None, reset_requested: bool, logger: FilteringBoundLogger
+) -> bool:
     """Whether an in-flight repartition should pause this schema's import for one run.
 
     Two situations hold the import. A staged swap holds it because the table's on-disk partition
     layout is mid-change, and merging across that is data corruption, not staleness. A rewrite
     checkpoint holds it because the resume is fenced on the live Delta version and this schema's own
     merge is what moves it, so an import here discards the checkpoint and the rewrite restarts from
-    row 0 on the next run. Both follow from a repartition this schema already opted into, so neither
-    is gated further: releasing a rewrite hold does not buy a faster table, it buys a rewrite that
-    cannot converge.
+    row 0 on the next run. Both follow from a repartition this schema already opted into, and no
+    rollout flag gates either one: releasing a rewrite hold does not buy a faster table, it buys a
+    rewrite that cannot converge.
+
+    The rewrite hold yields to work that makes the rewrite pointless — a pending corruption revive
+    or a requested reset, both of which rebuild the table from source. The swap hold yields to
+    nothing, because merging across a half-applied layout corrupts the table rather than dating it.
     """
     if schema is None:
         return False
@@ -266,6 +283,19 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
         return False
 
     rewrite = schema.repartition_rewrite or {}
+    if reset_requested:
+        # A reset throws the table away and rebuilds it from source, so the rewrite is re-bucketing
+        # data that is about to be deleted and its checkpoint dies with the live table it is fenced
+        # on. Waiting would defer a rebuild somebody asked for — a resync, a sync-method change, the
+        # column-widening recovery — with no error and no signal, for as long as the rewrite keeps
+        # renewing the hold. The rewrite loses this one: it restarts against the rebuilt table.
+        logger.info(
+            "Not holding import: a reset was requested, so the rewrite yields to the rebuild",
+            schema_id=str(schema.id),
+            rows_written=rewrite.get("rows_written"),
+        )
+        return False
+
     logger.info(
         "Holding import: a repartition rewrite is converging on this table",
         schema_id=str(schema.id),
@@ -387,7 +417,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         # finalizes as usual and the next sync picks the data up once the rewrite lands. The hold
         # lapses on its own if the rewrite stops advancing, so a stuck one costs freshness rather
         # than ingestion.
-        if await database_sync_to_async_pool(_import_held_for_repartition)(model.schema, logger):
+        if await database_sync_to_async_pool(_import_held_for_repartition)(
+            model.schema, _reset_requested(inputs, model.schema), logger
+        ):
             return PipelineResult(should_trigger_cdp_producer=False, consumer_manages_job_status=False)
 
         await logger.adebug("Running import_data_activity")
@@ -419,10 +451,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         schema: ExternalDataSchema | None = model.schema
         assert schema is not None
 
-        if inputs.reset_pipeline is not None:
-            reset_pipeline = inputs.reset_pipeline
-        else:
-            reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
+        reset_pipeline = _reset_requested(inputs, schema)
 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")

@@ -1134,16 +1134,19 @@ def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str
     )
 
 
+SWAP_STAGED = {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}
+
+
 @parameterized.expand(
     [
         # A staged swap: the table's data may already be re-bucketed under the new scheme while the
         # schema row still holds the old one. The merge derives each row's partition key from that
         # row and scopes its predicate to it, so merging across the gap matches nothing and inserts
         # every fetched row instead of upserting it.
-        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, False, None, True),
+        ("swap_staged", SWAP_STAGED, False, None, False, True),
         # A live rewrite checkpoint: the resume is fenced on the live Delta version, and this merge
         # is what moves it, so importing here restarts the rewrite from row 0 forever.
-        ("rewrite_checkpoint", None, True, None, True),
+        ("rewrite_checkpoint", None, True, None, False, True),
         # The same checkpoint on a table waiting for its corruption revive. The repair runs later in
         # this activity and rebuilds the table from source, so holding for a checkpoint the rebuild
         # invalidates would only leave a hollow table broken until the hold ages out.
@@ -1153,12 +1156,25 @@ def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str
             True,
             {"reason": "repartition_scan_missing_data_file", "missing_path": "part-0.parquet"},
             False,
+            False,
         ),
-        ("nothing_in_flight", None, False, None, False),
+        # A requested reset deletes the table and rebuilds it from source. Holding for the rewrite
+        # would swallow a resync somebody asked for, with no error, for as long as the rewrite keeps
+        # renewing the hold.
+        ("rewrite_checkpoint_with_reset_requested", None, True, None, True, False),
+        # The swap still wins: its temp table may already be the only copy of the data the reset
+        # would rebuild from, and merging across a half-applied layout corrupts rather than dates it.
+        ("swap_staged_with_reset_requested", SWAP_STAGED, False, None, True, True),
+        ("nothing_in_flight", None, False, None, False, False),
     ]
 )
 def test_an_in_flight_repartition_holds_the_import(
-    _name: str, swap: dict | None, holds_import: bool, revive: dict | None, expected: bool
+    _name: str,
+    swap: dict | None,
+    holds_import: bool,
+    revive: dict | None,
+    reset_requested: bool,
+    expected: bool,
 ) -> None:
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
@@ -1170,6 +1186,6 @@ def test_an_in_flight_repartition_holds_the_import(
     schema.delta_revive_required = revive
 
     with mock.patch.object(module, "capture_repartition_event"):
-        held = module._import_held_for_repartition(schema, mock.MagicMock())
+        held = module._import_held_for_repartition(schema, reset_requested, mock.MagicMock())
 
     assert held is expected
