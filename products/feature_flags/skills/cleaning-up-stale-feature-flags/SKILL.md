@@ -277,8 +277,9 @@ Agent steps:
    "Done. The draft PR removes both checks of old-checkout-flow and keeps the current
    checkout behavior. The checkout tests pass and no references to the key remain.
 
-   I have not changed the flag in PostHog. Once this PR is deployed (merged is not
-   enough), come back and I'll verify the scope and archive the flag with your approval.
+   I have not changed the flag in PostHog, and archiving is not automated yet. Once
+   this PR is deployed (merged is not enough), come back and I'll check whether any
+   other repository still references the flag. Then archive it in PostHog yourself.
 
    Want me to do beta-dashboard-v2 next?"
 ```
