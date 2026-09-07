@@ -3392,6 +3392,9 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             # `pipeline:` audience the report-research stage reads, crossing the two families
             # `note_targets` keeps apart.
             ("pipeline_audience", "pipeline:report-research", True),
+            # `review-hog-` is another product's registered prefix, and both products re-stamp the
+            # server-owned category on sync, so registering one as a scout would thrash its tab.
+            ("foreign_product_prefix", "review-hog-security", True),
         ]
     )
     def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str, make_skill: bool) -> None:

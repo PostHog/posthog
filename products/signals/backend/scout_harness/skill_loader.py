@@ -8,7 +8,7 @@ from django.db.models import Max, Min
 
 from posthog.models.team.team import Team
 
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.skills.backend.models.skills import CATEGORY_BY_NAME_PREFIX, LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig
@@ -33,6 +33,23 @@ def reserved_scout_name_error(name: str) -> str | None:
         return (
             f"'{name}' is reserved by the inbox and cannot be a scout name. "
             f"The reserved names are {', '.join(sorted(RESERVED_SCOUT_NAMES))}."
+        )
+    # `LLMSkill.category` is server-owned and derived from these prefixes, and each owning product
+    # re-stamps the column on its own sync. A scout taking another product's prefix would land on
+    # that product's Skills tab and then flip between tabs on every sync, so refuse the name
+    # instead. Ours is fine: it resolves to the scout category already.
+    foreign_prefix = next(
+        (
+            prefix
+            for prefix, _ in CATEGORY_BY_NAME_PREFIX
+            if prefix != SIGNALS_SCOUT_SKILL_PREFIX and name.startswith(prefix)
+        ),
+        None,
+    )
+    if foreign_prefix is not None:
+        return (
+            f"'{name}' starts with '{foreign_prefix}', a name prefix another product owns, so it "
+            "cannot be a scout name. Pick a name without that prefix."
         )
     return None
 

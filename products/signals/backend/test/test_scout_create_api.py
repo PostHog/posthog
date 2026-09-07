@@ -171,6 +171,14 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not LLMSkill.objects.filter(team=self.team, name=name, deleted=False).exists()
 
+    def test_create_rejects_a_name_another_product_owns(self) -> None:
+        # `review-hog-` names carry that product's category, which its own sync re-stamps. A scout
+        # under one would sit on the Code review tab and flip between tabs on every sync.
+        response = self.client.post(self._url(), data={**self._payload(), "name": "review-hog-security"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name="review-hog-security", deleted=False).exists()
+
     def test_invalid_slack_destination_does_not_create_skill(self) -> None:
         other_organization = Organization.objects.create(name="Other")
         other_team = Team.objects.create(organization=other_organization, name="Other")
