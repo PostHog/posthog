@@ -91,7 +91,6 @@ posthog.Integration slack_app.SlackUserProfileCache.integration reverse-accessor
 posthog.Organization access_control.OrganizationResourceAccess.organization reverse-accessor(resource_access) 1
 posthog.Organization access_control.Role.organization reverse-accessor(roles) 1
 posthog.Organization access_control.RoleExternalReference.organization reverse-accessor(role_external_references) 1
-posthog.Organization cdp.Plugin.has_private_access reverse-accessor(plugin_set) 1
 posthog.Organization growth.EnrichmentLabelResult.organization reverse-accessor(enrichment_label_results) 1
 posthog.Organization growth.EnrichmentSignupSnapshot.organization reverse-accessor(enrichment_signup_snapshot) 1
 posthog.Organization growth.OrganizationEnrichment.organization reverse-accessor(enrichment_record) 1
