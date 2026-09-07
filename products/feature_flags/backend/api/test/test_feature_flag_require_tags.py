@@ -38,7 +38,16 @@ class TestFeatureFlagRequireTags(APIBaseTest):
         response = self.client.post(self.url, {"key": "untagged-flag"}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Add at least one tag" in response.json()["detail"]
+        # The whole envelope, not just the message. An agent creating a flag through MCP
+        # cannot see this policy until the create is rejected, and the MCP server only
+        # forwards the message when the body says `validation_error` — otherwise the
+        # agent gets an opaque "HTTP 400" with no field and nothing to correct.
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Add at least one tag. This project requires new feature flags to be tagged.",
+            "attr": "tags",
+        }
         assert not FeatureFlag.objects.filter(key="untagged-flag", team=self.team).exists()
 
     def test_create_with_empty_tag_list_is_rejected_when_required(self) -> None:
