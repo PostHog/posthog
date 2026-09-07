@@ -27,12 +27,13 @@
 
 **Files:**
 
+- Modify: `products/exports/backend/models/subscription.py:90-105`
 - Modify: `products/exports/backend/temporal/subscriptions/ai_subscription/spec_generator.py:1-110,623-660`
 - Test: `products/exports/backend/temporal/subscriptions/ai_subscription/test/test_spec_generator.py:21-50,875-950`
 
 **Interfaces:**
 
-- Produces: `AIQueryPlanStatus(StrEnum)` with `FROZEN`, `NOT_FROZEN`, and `PLANNER_UPDATED` values.
+- Produces: module-level `AIQueryPlanStatus(models.TextChoices)` with `FROZEN`, `NOT_FROZEN`, and `PLANNER_UPDATED` values.
 - Produces: `validate_stored_query_plan(ai_query_plan: object) -> tuple[QueryPlan, list[str]]`.
 - Produces: `get_ai_query_plan_status(ai_query_plan: object | None) -> AIQueryPlanStatus`.
 - Changes: `build_frozen_prompt(...)` consumes `validate_stored_query_plan` and converts every invalid envelope into `StoredPlanInvalidError`.
@@ -72,10 +73,10 @@ Expected: FAIL because `AIQueryPlanStatus` and `get_ai_query_plan_status` do not
 Add the enum and helpers next to `StoredPlanInvalidError`:
 
 ```python
-class AIQueryPlanStatus(StrEnum):
-    FROZEN = "frozen"
-    NOT_FROZEN = "not_frozen"
-    PLANNER_UPDATED = "planner_updated"
+class AIQueryPlanStatus(models.TextChoices):
+    FROZEN = "frozen", "Frozen"
+    NOT_FROZEN = "not_frozen", "Not frozen"
+    PLANNER_UPDATED = "planner_updated", "Planner updated"
 
 
 def _stored_query_plan_envelope(ai_query_plan: object) -> dict[str, object]:
@@ -127,7 +128,7 @@ def get_ai_query_plan_status(ai_query_plan: object | None) -> AIQueryPlanStatus:
     return AIQueryPlanStatus.FROZEN
 ```
 
-Import `StrEnum` from `enum`. Change `build_frozen_prompt`'s `ai_query_plan` annotation to `object`, then replace its inline checks with:
+Define `AIQueryPlanStatus` next to the subscription model and import it into the planner. Change `build_frozen_prompt`'s `ai_query_plan` annotation to `object`, then replace its inline checks with:
 
 ```python
 plan, relevant_events = validate_stored_query_plan(ai_query_plan)
@@ -157,8 +158,8 @@ git commit -S -m "fix(subscriptions): centralize frozen plan validation"
 
 **Interfaces:**
 
-- Consumes: `AIQueryPlanStatus` and `get_ai_query_plan_status(ai_query_plan)` from Task 1.
-- Produces: `SubscriptionApi.ai_query_plan_status`, nullable for non-AI resources and generated as `AiQueryPlanStatusEnumApi | null`.
+- Consumes: model-level `AIQueryPlanStatus` and `get_ai_query_plan_status(ai_query_plan)` from Task 1.
+- Produces: `SubscriptionApi.ai_query_plan_status`, nullable for non-AI resources and generated as `AIQueryPlanStatusEnumApi | null`.
 
 - [ ] **Step 1: Add failing serializer/API contract tests**
 
@@ -222,7 +223,7 @@ Expected: FAIL because the response has no `ai_query_plan_status` field.
 
 - [ ] **Step 3: Add the serializer field**
 
-Import `AIQueryPlanStatus` and alias `get_ai_query_plan_status` to `derive_ai_query_plan_status` in `ee/api/subscription.py`. Add a documented `SerializerMethodField`, include it in `Meta.fields`, and declare its generated enum:
+Import the model-level `AIQueryPlanStatus` and alias `get_ai_query_plan_status` to `derive_ai_query_plan_status` in `ee/api/subscription.py`. Add a documented `SerializerMethodField`, include it in `Meta.fields`, and declare its generated enum:
 
 ```python
 ai_query_plan_status = serializers.SerializerMethodField(
@@ -234,7 +235,7 @@ ai_query_plan_status = serializers.SerializerMethodField(
 
 @extend_schema_field(
     serializers.ChoiceField(
-        choices=[(status.value, status.value.replace("_", " ").capitalize()) for status in AIQueryPlanStatus],
+        choices=AIQueryPlanStatus.choices,
         allow_null=True,
     )
 )
@@ -294,8 +295,8 @@ git commit -S -m "feat(subscriptions): expose query plan status"
 
 **Interfaces:**
 
-- Consumes: generated `AiQueryPlanStatusEnumApi` and `SubscriptionApi.ai_query_plan_status` from Task 2.
-- Produces: `SubscriptionQueryPlanStatus({ status }: { status: AiQueryPlanStatusEnumApi | null | undefined }): JSX.Element | null`.
+- Consumes: generated `AIQueryPlanStatusEnumApi` and `SubscriptionApi.ai_query_plan_status` from Task 2.
+- Produces: `SubscriptionQueryPlanStatus({ status }: { status: AIQueryPlanStatusEnumApi | null | undefined }): JSX.Element | null`.
 - Changes: `SubscriptionSummary` renders a `Query plan` definition only when `resource_type === SubscriptionResourceTypeEnumApi.AiPrompt`.
 
 - [ ] **Step 1: Write failing status-component tests**
@@ -306,11 +307,11 @@ Literal expected copy:
 
 ```typescript
 const EXPECTED = {
-  [AiQueryPlanStatusEnumApi.Frozen]:
+  [AIQueryPlanStatusEnumApi.Frozen]:
     'Frozen query plan. PostHog will reuse these query definitions for each delivery. Date ranges, results, and the written report will still update. PostHog generates a new plan when you edit the prompt or when the query planner is updated.',
-  [AiQueryPlanStatusEnumApi.NotFrozen]:
+  [AIQueryPlanStatusEnumApi.NotFrozen]:
     'Query plan not frozen. No reusable plan is available yet. PostHog will freeze the plan when it can be safely reused.',
-  [AiQueryPlanStatusEnumApi.PlannerUpdated]:
+  [AIQueryPlanStatusEnumApi.PlannerUpdated]:
     'Query plan will be regenerated. The query planner changed. The next successful delivery will freeze a new plan.',
 }
 ```

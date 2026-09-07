@@ -66,9 +66,9 @@ export interface AIPromptConfigApi {
     window?: AIWindowConfigApi
 }
 
-export type AiQueryPlanStatusEnumApi = (typeof AiQueryPlanStatusEnumApi)[keyof typeof AiQueryPlanStatusEnumApi]
+export type AIQueryPlanStatusEnumApi = (typeof AIQueryPlanStatusEnumApi)[keyof typeof AIQueryPlanStatusEnumApi]
 
-export const AiQueryPlanStatusEnumApi = {
+export const AIQueryPlanStatusEnumApi = {
     Frozen: 'frozen',
     NotFrozen: 'not_frozen',
     PlannerUpdated: 'planner_updated',
@@ -224,7 +224,7 @@ export interface SubscriptionApi {
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
     /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
-    readonly ai_query_plan_status: AiQueryPlanStatusEnumApi | null
+    readonly ai_query_plan_status: AIQueryPlanStatusEnumApi | null
     /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
@@ -377,7 +377,7 @@ export interface PatchedSubscriptionApi {
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
     /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
-    readonly ai_query_plan_status?: AiQueryPlanStatusEnumApi | null
+    readonly ai_query_plan_status?: AIQueryPlanStatusEnumApi | null
     /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email

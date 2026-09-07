@@ -882,7 +882,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
         }
 
     def test_classifies_stored_plan_lifecycle(self) -> None:
-        for stored, expected in [
+        cases: list[tuple[object, str]] = [
             (None, "not_frozen"),
             ([], "not_frozen"),
             ({"version": True, "plan": {}}, "not_frozen"),
@@ -890,7 +890,8 @@ class TestBuildFrozenPrompt(APIBaseTest):
             ({"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "planner_updated"),
             ({"version": AI_QUERY_PLAN_VERSION, "plan": {}}, "not_frozen"),
             (self._stored_plan(), "frozen"),
-        ]:
+        ]
+        for stored, expected in cases:
             assert get_ai_query_plan_status(stored).value == expected
 
     @patch(f"{_SG}.MaxChatOpenAI")

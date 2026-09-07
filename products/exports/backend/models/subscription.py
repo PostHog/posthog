@@ -95,6 +95,12 @@ class SubscriptionResource:
     url: str
 
 
+class AIQueryPlanStatus(models.TextChoices):
+    FROZEN = "frozen", "Frozen"
+    NOT_FROZEN = "not_frozen", "Not frozen"
+    PLANNER_UPDATED = "planner_updated", "Planner updated"
+
+
 class Subscription(ModelActivityMixin, models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules

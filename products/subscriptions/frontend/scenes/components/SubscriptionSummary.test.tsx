@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 
 import {
-    AiQueryPlanStatusEnumApi,
+    AIQueryPlanStatusEnumApi,
     SubscriptionResourceTypeEnumApi,
     type SubscriptionApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -19,7 +19,7 @@ const AI_SUBSCRIPTION: SubscriptionApi = {
     insight_short_id: null,
     resource_name: 'Weekly growth report',
     prompt: 'Summarize weekly growth',
-    ai_query_plan_status: AiQueryPlanStatusEnumApi.Frozen,
+    ai_query_plan_status: AIQueryPlanStatusEnumApi.Frozen,
 }
 
 describe('SubscriptionSummary', () => {
@@ -39,5 +39,14 @@ describe('SubscriptionSummary', () => {
 
         expect(screen.queryByText('Query plan')).not.toBeInTheDocument()
         expect(screen.queryByRole('img', { name: /query plan/i })).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['unavailable', null],
+        ['unknown', 'future_status' as AIQueryPlanStatusEnumApi],
+    ])('does not show an empty query plan item when the status is %s', (_name, aiQueryPlanStatus) => {
+        render(<SubscriptionSummary sub={{ ...AI_SUBSCRIPTION, ai_query_plan_status: aiQueryPlanStatus }} />)
+
+        expect(screen.queryByText('Query plan')).not.toBeInTheDocument()
     })
 })

@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import {
-    AiQueryPlanStatusEnumApi,
+    AIQueryPlanStatusEnumApi,
     SubscriptionResourceTypeEnumApi,
     type SubscriptionApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -17,13 +17,13 @@ const AI_SUBSCRIPTION: SubscriptionApi = {
     insight_short_id: null,
     resource_name: 'Weekly growth report',
     prompt: 'Summarize weekly growth and flag any anomalies.',
-    ai_query_plan_status: AiQueryPlanStatusEnumApi.Frozen,
+    ai_query_plan_status: AIQueryPlanStatusEnumApi.Frozen,
 }
 
 const QUERY_PLAN_STATES = [
-    ['Frozen', AiQueryPlanStatusEnumApi.Frozen],
-    ['Not frozen', AiQueryPlanStatusEnumApi.NotFrozen],
-    ['Planner updated', AiQueryPlanStatusEnumApi.PlannerUpdated],
+    ['Frozen', AIQueryPlanStatusEnumApi.Frozen],
+    ['Not frozen', AIQueryPlanStatusEnumApi.NotFrozen],
+    ['Planner updated', AIQueryPlanStatusEnumApi.PlannerUpdated],
 ] as const
 
 const meta: Meta<typeof SubscriptionSummary> = {

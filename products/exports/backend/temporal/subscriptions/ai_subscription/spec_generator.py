@@ -2,7 +2,6 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
-from enum import StrEnum
 from typing import Optional, Union
 
 from django.db.models import F, Q
@@ -18,7 +17,7 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
@@ -112,12 +111,6 @@ class StoredPlanInvalidError(Exception):
     `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
 
     pass
-
-
-class AIQueryPlanStatus(StrEnum):
-    FROZEN = "frozen"
-    NOT_FROZEN = "not_frozen"
-    PLANNER_UPDATED = "planner_updated"
 
 
 def _stored_query_plan_envelope(ai_query_plan: object) -> dict[str, object]:

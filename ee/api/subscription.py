@@ -48,6 +48,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
+    AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
     attribute_subscription_saves,
@@ -55,7 +56,6 @@ from products.exports.backend.models.subscription import (
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
-    AIQueryPlanStatus,
     PromptRejectedError,
     get_ai_query_plan_status as derive_ai_query_plan_status,
     sanitize_prompt,
@@ -460,7 +460,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(
         serializers.ChoiceField(
-            choices=[(status.value, status.value.replace("_", " ").capitalize()) for status in AIQueryPlanStatus],
+            choices=AIQueryPlanStatus.choices,
             allow_null=True,
         )
     )

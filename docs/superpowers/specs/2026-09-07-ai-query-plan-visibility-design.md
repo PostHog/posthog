@@ -45,6 +45,7 @@ Those diagnostics use concrete date bounds, so they are evidence of what ran rat
 ## API design
 
 Add a read-only nullable `ai_query_plan_status` field to `SubscriptionSerializer`.
+Define its values once in a module-level Django `TextChoices` class and reuse those choices in the serializer schema so generated enum names remain stable and collision-checkable.
 The field is `null` for insight and dashboard subscriptions and has one of these values for AI prompt subscriptions:
 
 | Value             | Meaning                                                                                                                                   |
@@ -101,7 +102,7 @@ Do not repeat the subscription's current status inside historical delivery rows 
 ## Error and compatibility behavior
 
 - The status is informational and never blocks delivery.
-- Unknown status values render no icon rather than breaking the subscription detail page.
+- Unknown or unavailable status values render no query-plan item rather than breaking the subscription detail page or leaving an empty value behind during a rolling deploy.
 - Malformed stored data is presented as `not_frozen` and is converted into the runtime's recoverable invalid-plan error so the delivery replans automatically.
 - Existing subscriptions require no data migration because status is derived from `ai_query_plan`.
 - Existing planner upgrade behavior remains unchanged.
