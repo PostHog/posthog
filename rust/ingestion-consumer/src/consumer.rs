@@ -8,14 +8,13 @@ use common_kafka_consumer::{
 use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
-use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
+use crate::commit_manager::CommitManager;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
@@ -218,9 +217,7 @@ pub struct IngestionConsumer {
     max_in_flight_batches: usize,
     handle: Handle,
     group_id: String,
-    /// Validates commit contiguity/monotonicity per partition. Shared with the
-    /// consumer's [`SentinelContext`], which resets baselines on rebalance.
-    commit_sentinel: Arc<CommitSentinel>,
+    commit_manager: CommitManager,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// The per-partition offset ledger the commit path reads its frontiers
@@ -242,10 +239,10 @@ impl IngestionConsumer {
         options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
-        // Share the context's commit sentinel and ledger so rebalance
-        // callbacks reset the same baselines the commit path checks against.
-        let commit_sentinel = consumer.context().commit_sentinel();
+        // Share the context's ledger so rebalance callbacks forget partitions
+        // on the same ledger the commit path settles against.
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let consumer = Arc::new(consumer);
         let (batcher, outputs) = Batcher::new(
             dispatcher,
             Arc::clone(&transport),
@@ -253,10 +250,10 @@ impl IngestionConsumer {
             options.deferred_flush_timeout,
         );
         Self {
-            commit_sentinel,
+            commit_manager: CommitManager::new(Arc::clone(&consumer)),
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
-            consumer: Arc::new(consumer),
+            consumer,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -303,7 +300,7 @@ impl IngestionConsumer {
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
         let mut context = SentinelContext::new(
-            Arc::clone(&commit_sentinel),
+            commit_sentinel,
             key_sentinel,
             Arc::clone(&topic_offset_ledger),
         );
@@ -311,6 +308,7 @@ impl IngestionConsumer {
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
+        let consumer = Arc::new(consumer);
 
         info!(
             topic = %config.ingestion_consumer_consume_topic,
@@ -322,8 +320,8 @@ impl IngestionConsumer {
         );
 
         Ok(Self {
-            consumer: Arc::new(consumer),
-            commit_sentinel,
+            commit_manager: CommitManager::new(Arc::clone(&consumer)),
+            consumer,
             debug_recorder,
             topic_offset_ledger,
             batcher,
@@ -366,15 +364,7 @@ impl IngestionConsumer {
             workers: self.worker_urls.clone(),
         });
 
-        // Verify async commits actually land: librdkafka drops the result of
-        // manual async commits (see the note on SentinelContext), so poll the
-        // broker's committed offsets instead. Aborted on drop so a consumer
-        // torn down mid-test doesn't keep the rdkafka client alive.
-        let _commit_monitor = AbortOnDrop(tokio::spawn(run_commit_monitor(
-            Arc::clone(&self.consumer),
-            Arc::clone(&self.commit_sentinel),
-            self.handle.clone(),
-        )));
+        let _commit_monitor = self.commit_manager.spawn_monitor(self.handle.clone());
 
         let mut in_flight_polls: VecDeque<InFlightPoll> = VecDeque::new();
         let mut accepting_new_batches = true;
@@ -752,7 +742,7 @@ impl IngestionConsumer {
             return Ok(());
         }
 
-        self.submit_commit(
+        self.commit_manager.commit(
             frontier_spans
                 .iter()
                 .map(|(topic_partition, span)| (*topic_partition, span)),
@@ -785,32 +775,6 @@ impl IngestionConsumer {
                     RejectedSlice::settled(&partition.span),
                 )
             })
-    }
-
-    /// Validate and submit one commit to Kafka.
-    fn submit_commit<'a>(
-        &self,
-        spans: impl IntoIterator<Item = (&'a TopicPartition, &'a OffsetSpan)>,
-    ) -> anyhow::Result<()> {
-        let spans: Vec<_> = spans.into_iter().collect();
-        // Validate contiguity/monotonicity per partition before committing, so
-        // a violation is attributed to the batch that caused it.
-        self.commit_sentinel.check_commit(spans.iter().copied());
-
-        let mut tpl = TopicPartitionList::new();
-        for (topic_partition, span) in &spans {
-            // Commit offset + 1 (Kafka convention: committed offset = next to read)
-            tpl.add_partition_offset(
-                &topic_partition.topic,
-                topic_partition.partition,
-                rdkafka::Offset::Offset(span.last + 1),
-            )?;
-        }
-
-        self.consumer.commit(&tpl, CommitMode::Async)?;
-        counter!("ingestion_consumer_offset_commits_total").increment(1);
-
-        Ok(())
     }
 }
 
@@ -900,74 +864,6 @@ fn debug_partition_offsets(
             lag_ms: partition.max_lag_ms.unwrap_or(0),
         })
         .collect()
-}
-
-/// Aborts the wrapped task when dropped, covering every `process()` exit path.
-struct AbortOnDrop(JoinHandle<()>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// How often the commit monitor fetches the group's broker-committed offsets.
-const COMMIT_MONITOR_INTERVAL: Duration = Duration::from_secs(30);
-
-/// Periodically fetch the broker's committed offsets for the current
-/// assignment (an OffsetFetch round trip) and feed them to the commit
-/// sentinel, which compares them against attempted commits and stamps the
-/// last-successful-commit gauge on progress.
-async fn run_commit_monitor(
-    consumer: Arc<StreamConsumer<SentinelContext>>,
-    sentinel: Arc<CommitSentinel>,
-    handle: Handle,
-) {
-    loop {
-        tokio::select! {
-            _ = handle.shutdown_recv() => return,
-            _ = tokio::time::sleep(COMMIT_MONITOR_INTERVAL) => {}
-        }
-
-        let fetch_consumer = Arc::clone(&consumer);
-        // assignment() and committed_offsets() block on librdkafka.
-        let fetched = tokio::task::spawn_blocking(move || {
-            let assignment = fetch_consumer.assignment()?;
-            if assignment.count() == 0 {
-                return Ok(None);
-            }
-            fetch_consumer
-                .committed_offsets(assignment, Duration::from_secs(5))
-                .map(Some)
-        })
-        .await;
-
-        match fetched {
-            Ok(Ok(Some(committed))) => {
-                let observed: Vec<(String, i32, i64)> = committed
-                    .elements()
-                    .iter()
-                    .filter_map(|e| match e.offset() {
-                        rdkafka::Offset::Offset(offset) => {
-                            Some((e.topic().to_string(), e.partition(), offset))
-                        }
-                        // Invalid = no offset stored for the partition yet.
-                        _ => None,
-                    })
-                    .collect();
-                sentinel.observe_broker_committed(observed);
-            }
-            Ok(Ok(None)) => {} // no assignment yet (e.g. before first rebalance)
-            Ok(Err(err)) => {
-                counter!("ingestion_consumer_commit_monitor_errors_total").increment(1);
-                warn!(error = %err, "Commit monitor failed to fetch committed offsets");
-            }
-            Err(err) => {
-                counter!("ingestion_consumer_commit_monitor_errors_total").increment(1);
-                warn!(error = %err, "Commit monitor task join error");
-            }
-        }
-    }
 }
 
 /// One delivered message's cost against the ledger: one event, and the bytes

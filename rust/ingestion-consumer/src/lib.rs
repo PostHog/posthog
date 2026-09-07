@@ -1,5 +1,6 @@
 pub mod aperture;
 pub mod batcher;
+pub mod commit_manager;
 pub mod config;
 pub mod consumer;
 pub mod debug_recorder;
