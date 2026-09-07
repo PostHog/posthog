@@ -810,3 +810,29 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
+
+    @parameterized.expand(
+        [
+            ("legacy_config", {}, True),
+            ("images_on", {"include_images": True}, True),
+            ("images_off", {"include_images": False}, False),
+        ]
+    )
+    async def test_forwards_the_image_option_to_generation(
+        self, _name: str, delivery_config: dict, expected: bool
+    ) -> None:
+        # Generation renders the charts, so the option has to reach it — gating only the delivery
+        # renderers would still run a headless PNG export per chart for a report that hides them.
+        sub = self._subscription(ai_query_plan=None)
+        sub.delivery_config = delivery_config
+        result = AiReportResult(
+            markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00", plan_to_persist=None
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)) as mock_gen,
+        ):
+            await build_ai_subscription_report(sub)
+
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["include_charts"] is expected

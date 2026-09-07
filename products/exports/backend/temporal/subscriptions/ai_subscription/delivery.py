@@ -216,6 +216,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         window=window,
         ai_query_plan=ai_query_plan,
         trace_correlation_id=subscription.id,
+        include_charts=_include_delivery_part(subscription, "include_images"),
     )
 
     if result.plan_to_persist is not None:

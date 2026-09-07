@@ -210,6 +210,7 @@ async def generate_ai_report(
     window: ReportWindow,
     ai_query_plan: Optional[dict] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
+    include_charts: bool = True,
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
@@ -246,7 +247,11 @@ async def generate_ai_report(
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
                 freshly_planned = True
-            charts_enabled_for_team = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
+            # A report that will not show its charts must not build or render them: each render is a
+            # headless PNG export holding a slot in a pool every concurrent report shares.
+            charts_enabled_for_team = include_charts and await database_sync_to_async(
+                charts_enabled, thread_sensitive=False
+            )(team, user)
             execution = await _execute_plan(
                 spec, team, user, window, trace_correlation_id, charts_enabled_for_team=charts_enabled_for_team
             )
