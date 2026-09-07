@@ -30,43 +30,42 @@ export function isBrowserTabOpen(tabId: string | null): boolean {
 }
 
 /**
- * Whether a tab shows this destination, compared on the href (the tab's source
- * of truth) with the reference-vocabulary fields as fallback for tabs
- * persisted before hrefs were stored.
+ * Whether a tab shows this destination. The reference fields match both route
+ * forms of one target (a task tab can sit on `/tasks/$id` or
+ * `/spaces/$channelId/tasks/$id`); the href matches destinations outside that
+ * vocabulary. Identity answers which tab, never where it is: the switch lands
+ * on the tab's own href.
  */
 function tabShowsDestination(
   tab: BrowserTab,
   dest: BrowserTabDestination,
 ): boolean {
-  if (tab.href === dest.href) return true;
-  if (tab.href !== null) return false;
-  if (dest.taskId !== undefined) return tab.taskId === (dest.taskId ?? null);
-  if (dest.dashboardId !== undefined) {
-    return tab.dashboardId === (dest.dashboardId ?? null);
-  }
-  return false;
+  if (dest.taskId) return tab.taskId === dest.taskId;
+  if (dest.dashboardId) return tab.dashboardId === dest.dashboardId;
+  return tab.href === dest.href;
 }
 
 /**
  * Focus an existing tab that shows this destination, instead of opening a
- * duplicate. Selection goes through pushTabHistoryEntry, the same path a tab
- * click uses, so the navigation effect sees a tagged entry and settles the
- * switch (durable focus, view-state restore). Returns false when no tab
- * matches, or when the matching tab is already the active one.
+ * duplicate. The switch goes through pushTabHistoryEntry, the same path a tab
+ * click uses, so the navigation effect sees a tagged entry and settles it
+ * (durable focus, view-state restore). Returns false when no tab matches, the
+ * router is not mounted, or the matching tab is already the active one.
  */
 export function focusExistingTab(destination: BrowserTabDestination): boolean {
-  const window = primaryWindow(readMirror());
-  if (!window) return false;
-  const tab = readMirror().tabs.find(
+  const mirror = readMirror();
+  const window = primaryWindow(mirror);
+  const history = getRouterOrNull()?.history;
+  if (!window || !history) return false;
+
+  const tab = mirror.tabs.find(
     (candidate) =>
       candidate.windowId === window.id &&
       tabShowsDestination(candidate, destination),
   );
   if (!tab) return false;
-  if (tab.id === getRouterOrNull()?.history.location.state.tabId) return true;
+  if (tab.id === history.location.state.tabId) return true;
 
-  const history = getRouterOrNull()?.history;
-  if (!history) return false;
   pushTabHistoryEntry(history, tab.href ?? destination.href, tab.id);
   return true;
 }

@@ -1,6 +1,9 @@
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import type { NotificationTarget } from "@posthog/platform/notifications";
-import { focusExistingTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import {
+  type BrowserTabDestination,
+  focusExistingTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import {
   readMirror,
   reseedMirror,
@@ -15,13 +18,16 @@ import { useCallback, useEffect } from "react";
 
 const log = logger.scope("open-target-deep-link");
 
-/** The href a target opens at, or null when the kind has no mapping. */
-function openTargetHref(target: NotificationTarget): string | null {
+/** The tab destination a target opens at. */
+function targetDestination(target: NotificationTarget): BrowserTabDestination {
   switch (target.kind) {
     case "task":
-      return `/tasks/${target.taskId}`;
+      return { href: `/tasks/${target.taskId}`, taskId: target.taskId };
     case "canvas":
-      return `/spaces/${target.channelId}/dashboards/${target.dashboardId}`;
+      return {
+        href: `/spaces/${target.channelId}/dashboards/${target.dashboardId}`,
+        dashboardId: target.dashboardId,
+      };
   }
 }
 
@@ -34,48 +40,48 @@ export function useOpenTargetDeepLink() {
   const client = useHostTRPCClient();
   const handleOpenTask = useHandleOpenTask();
 
-  const handleTarget = useCallback(
-    (target: NotificationTarget) => {
-      log.info("Opening notification target", { kind: target.kind });
-      switch (target.kind) {
-        case "task":
-          handleOpenTask(target.taskId, target.taskRunId);
-          break;
-        case "canvas":
-          navigateToChannelDashboard(target.channelId, target.dashboardId);
-          break;
-      }
-    },
-    [handleOpenTask],
-  );
-
   // A tab that already shows the target wins over opening a duplicate: the
   // intent becomes a tab switch, and only an unmatched target opens anew. The
   // mirror can still be unseeded right after a cold start (the click launched
   // the app), so an unmatched first look re-checks after the boot fetch.
-  const handleTargetWithTabs = useCallback(
+  const handleTarget = useCallback(
     (target: NotificationTarget) => {
-      const href = openTargetHref(target);
-      if (href && focusExistingTab({ href })) return;
-      if (!href || readMirror().windows.length > 0) {
-        handleTarget(target);
+      log.info("Opening notification target", { kind: target.kind });
+
+      const openDirectly = () => {
+        switch (target.kind) {
+          case "task":
+            handleOpenTask(target.taskId, target.taskRunId);
+            break;
+          case "canvas":
+            navigateToChannelDashboard(target.channelId, target.dashboardId);
+            break;
+        }
+      };
+
+      const destination = targetDestination(target);
+      if (focusExistingTab(destination)) return;
+      if (readMirror().windows.length > 0) {
+        openDirectly();
         return;
       }
-      void reseedMirror().then((server) => {
-        if (server && focusExistingTab({ href })) return;
-        handleTarget(target);
-      });
+      void reseedMirror()
+        .then((server) => {
+          if (server && focusExistingTab(destination)) return;
+          openDirectly();
+        })
+        .catch(() => openDirectly());
     },
-    [handleTarget],
+    [handleOpenTask],
   );
 
   // Expose the same channel-aware routing to imperative, non-React callers (the
   // in-app notification toast's action), so a toast click and a native click
   // open a target identically.
   useEffect(() => {
-    setOpenTargetHandler(handleTargetWithTabs);
+    setOpenTargetHandler(handleTarget);
     return () => setOpenTargetHandler(null);
-  }, [handleTargetWithTabs]);
+  }, [handleTarget]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +89,7 @@ export function useOpenTargetDeepLink() {
     // Warm path: receive clicks while the app is running.
     const subscription = client.deepLink.onOpenTarget.subscribe(undefined, {
       onData: (target) => {
-        if (target && !cancelled) handleTargetWithTabs(target);
+        if (target && !cancelled) handleTarget(target);
       },
     });
 
@@ -94,7 +100,7 @@ export function useOpenTargetDeepLink() {
     void client.deepLink.getPendingOpenTarget
       .query()
       .then((pending) => {
-        if (pending && !cancelled) handleTargetWithTabs(pending);
+        if (pending && !cancelled) handleTarget(pending);
       })
       .catch((error) =>
         log.error("Failed to drain pending open-target", error),
@@ -104,5 +110,5 @@ export function useOpenTargetDeepLink() {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [client, handleTargetWithTabs]);
+  }, [client, handleTarget]);
 }

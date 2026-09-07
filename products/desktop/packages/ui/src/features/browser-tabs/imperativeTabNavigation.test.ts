@@ -166,7 +166,21 @@ describe("focusExistingTab", () => {
     expect(focusExistingTab({ href: "/tasks/other" })).toBe(false);
   });
 
-  it("matches a href-null tab on its task id fallback", () => {
+  it("matches a tab on its task id across both route forms", () => {
+    const channelScoped = snapshot();
+    channelScoped.tabs[0] = {
+      ...channelScoped.tabs[0],
+      href: "/spaces/chan-9/tasks/task-9",
+      taskId: "task-9",
+    };
+    mocks.readMirror.mockReturnValue(channelScoped);
+
+    expect(focusExistingTab({ href: "/tasks/task-9", taskId: "task-9" })).toBe(
+      true,
+    );
+  });
+
+  it("matches a href-null tab on its task id", () => {
     const legacy = snapshot();
     legacy.tabs[0] = { ...legacy.tabs[0], href: null, taskId: "task-9" };
     mocks.readMirror.mockReturnValue(legacy);
