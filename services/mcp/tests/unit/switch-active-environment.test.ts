@@ -13,6 +13,7 @@ interface FakeWorld {
     projects?: Record<string, FakeProject>
     orgs?: Record<string, FakeOrg>
     orgProjects?: Record<string, FakeProject[]>
+    failingOrgProjectLists?: string[]
 }
 
 // switch-project / switch-organization only touch `context.cache` and `context.api`, so a
@@ -44,6 +45,9 @@ function makeContext(world: FakeWorld): {
             projects: ({ orgId }: { orgId: string }) => ({
                 list: async () => {
                     listCalls.push(orgId)
+                    if (world.failingOrgProjectLists?.includes(orgId)) {
+                        return { success: false as const, error: new Error('projects list failed') }
+                    }
                     return { success: true as const, data: (world.orgProjects?.[orgId] ?? []) as CachedProject[] }
                 },
             }),
@@ -167,6 +171,28 @@ describe('switch active environment', () => {
 
             expect(await context.cache.get('projectId')).toBe('10')
             expect(result.content[0]!.text).toContain('B Project')
+        })
+
+        it('keeps the active project when the org project list fails', async () => {
+            const { context } = makeContext({
+                orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
+                failingOrgProjectLists: ['org-b'],
+            })
+            await context.cache.set('projectId', '10')
+            await context.cache.set(
+                'cachedProject:10' as const,
+                {
+                    id: 10,
+                    organization: 'org-a',
+                    name: 'A Project',
+                } as CachedProject
+            )
+
+            const result = await tool.handler(context, { orgId: 'org-b' })
+
+            // A failed list is not an empty org, so the selected project survives it.
+            expect(await context.cache.get('projectId')).toBe('10')
+            expect(result.content[0]!.text).not.toContain('A Project')
         })
 
         it('clears the stale project when the org has no accessible projects', async () => {

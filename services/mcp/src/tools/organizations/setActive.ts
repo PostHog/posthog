@@ -14,7 +14,8 @@ type Result = { content: Array<{ type: string; text: string }> }
  * Ensure the active project belongs to `orgId`. If the currently active project lives in a
  * different organization (or can't be resolved), re-point to the org's first project so
  * project-scoped tools don't silently keep querying the previous org's data. Returns the
- * project now active in this org, or `undefined` if the org has no accessible projects.
+ * project now active in this org, or `undefined` if the org has no accessible projects or its
+ * project list can't be fetched (in which case the active pointer is left untouched).
  */
 async function reconcileActiveProjectForOrg(context: Context, orgId: string): Promise<CachedProject | undefined> {
     const activeProjectId = await context.cache.get('projectId')
@@ -37,7 +38,14 @@ async function reconcileActiveProjectForOrg(context: Context, orgId: string): Pr
     }
 
     const projectsResult = await context.api.organizations().projects({ orgId }).list()
-    if (projectsResult.success && projectsResult.data.length > 0) {
+    if (!projectsResult.success) {
+        // A failed list proves nothing about this org's projects, so leave the active pointer
+        // where it is instead of discarding a project that may well be valid here. The caller
+        // still reports no project, since pairing an unconfirmed one with this org is the
+        // mismatch we are trying to avoid.
+        return undefined
+    }
+    if (projectsResult.data.length > 0) {
         // The list itself proves membership, so keep the project the agent selected when it is
         // in this org after all. Otherwise a transient failure of the detail lookup above would
         // silently replace it with the org's first project.
