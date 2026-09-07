@@ -29,6 +29,7 @@ import {
     type ScreenNameMatching,
     isScreenNameFilter,
 } from '../utils/screenName'
+import { EventHealthWarning } from './EventHealthWarning'
 import { EventName } from './EventName'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
@@ -65,7 +66,10 @@ export function ActionStep({
             )}
             <div className="deprecated-space-y-4">
                 <div className="flex items-center justify-between">
-                    <b>Match Group #{index + 1}</b>
+                    <div className="flex items-center gap-2">
+                        <b>Match Group #{index + 1}</b>
+                        <EventHealthWarning event={step.event} />
+                    </div>
 
                     {!isOnlyStep && (
                         <LemonButton

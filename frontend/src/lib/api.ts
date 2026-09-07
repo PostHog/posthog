@@ -3113,10 +3113,11 @@ const api = {
             event_type?: EventDefinitionType
             search?: string
             ordering?: string
+            names?: string[]
         }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
-                .withQueryString(toParams({ limit, ...params }))
+                .withQueryString(toParams({ limit, ...params }, true))
                 .get()
         },
         async primaryProperties({
