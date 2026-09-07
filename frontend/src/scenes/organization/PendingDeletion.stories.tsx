@@ -26,8 +26,6 @@ const meta: Meta = {
                         email: 'test@posthog.com',
                         first_name: 'Test PostHog',
                         organization: { name: 'Test org', teams: [], projects: [] },
-                        // No other organizations, so the switcher stays hidden. The screen with a
-                        // switcher is a different shape and would need its own story.
                         organizations: [],
                         team: null,
                     },

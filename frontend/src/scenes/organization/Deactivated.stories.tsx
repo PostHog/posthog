@@ -30,9 +30,7 @@ const meta: Meta = {
                         team: null,
                     },
                 ],
-                // The screen reads the operator's reason off this endpoint, which
-                // `ActiveOrganizationPermission` keeps reachable for exactly this purpose. A
-                // deactivated organization has no other way to learn why it was revoked.
+                // The reason below is the only place a revoked organization learns why.
                 '/api/organizations/@current/': () => [
                     200,
                     {
