@@ -359,14 +359,14 @@ func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
 		{
 			name:      "allowlist",
 			input:     `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null],"$sdk_debug_current_session_duration":42,"$debug_images":[{"type":"elf"}],"$feature/demo":"control","$active_feature_flags":["demo"],"$feature_flag_payload":{},"$feature_flag_payloads":{},"$feature_flag_bootstrapped_payload":{},"$feature_flag_original_payload":{},"$transformations_succeeded":[],"custom":{"$set":"keep"}}`,
-			permanent: `{"$sdk_debug_current_session_duration":42,"$debug_images":[{"type":"elf"}],"custom":{"$set":"keep"},"$feature_flags":{"demo":"control"}}`,
-			temporary: `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null]}`,
+			permanent: `{"$debug_images":[{"type":"elf"}],"custom":{"$set":"keep"},"$feature_flags":{"demo":"control"}}`,
+			temporary: `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null],"$sdk_debug_current_session_duration":42}`,
 		},
 		{
 			name:      "dotted roots and normalization",
 			input:     `{"$set.profile.score":7,"$set.profile.missing":null,"$sdk_debug_probe.a":1,"$sdk_debug_probe.a":2,"$sdk_debug_probe.large":18446744073709551616,"$sdk_debug_current_session_duration.value":42,"$set_extra":true,"$debug_custom":"keep","custom.$set":"keep"}`,
-			permanent: `{"$sdk_debug_current_session_duration":{"value":42},"$set_extra":true,"$debug_custom":"keep","custom":{"$set":"keep"}}`,
-			temporary: `{"$set":{"profile":{"score":7}},"$sdk_debug_probe":{"a":1,"large":"18446744073709551616"}}`,
+			permanent: `{"$set_extra":true,"$debug_custom":"keep","custom":{"$set":"keep"}}`,
+			temporary: `{"$set":{"profile":{"score":7}},"$sdk_debug_probe":{"a":1,"large":"18446744073709551616"},"$sdk_debug_current_session_duration":{"value":42}}`,
 		},
 		{
 			name: "nothing temporary", input: `{"custom":true}`, permanent: `{"custom":true}`, temporary: `{}`,

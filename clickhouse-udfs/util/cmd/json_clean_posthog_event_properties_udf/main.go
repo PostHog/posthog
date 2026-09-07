@@ -76,8 +76,7 @@ func isTemporaryProperty(key string) bool {
 		"$replay_script_config", "$sent_at", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
 		return true
 	}
-	// Session duration has analytical consumers that need the full event history.
-	return strings.HasPrefix(root, "$sdk_debug_") && root != "$sdk_debug_current_session_duration"
+	return strings.HasPrefix(root, "$sdk_debug_")
 }
 
 func makePathRules(paths ...string) *pathRule {
