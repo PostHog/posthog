@@ -28,7 +28,8 @@ export abstract class ScopedCache<T extends Record<string, any>> {
             if (!isTransientRedisError(error)) {
                 throw error
             }
-            console.warn(`[ScopedCache] dropped warm write of ${String(key)}:`, error)
+            // Message only: the stack points into the client, and one outage drops many writes.
+            console.warn(`[ScopedCache] dropped warm write of ${String(key)}: ${error.message}`)
         }
     }
 

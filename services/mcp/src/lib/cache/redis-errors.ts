@@ -19,7 +19,7 @@ const TRANSIENT_SOCKET_CODES = new Set([
     'EAI_AGAIN',
 ])
 
-export function isTransientRedisError(error: unknown): boolean {
+export function isTransientRedisError(error: unknown): error is Error {
     if (!(error instanceof Error)) {
         return false
     }
