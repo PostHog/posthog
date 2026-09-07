@@ -14,8 +14,9 @@ Verifies the experiment has a valid primary metric configuration.
 
 **Look at**: `metrics`, `metrics_secondary`, `saved_metrics`
 
-Shared metrics arrive in `saved_metrics`, where each entry's `metadata.type` is `primary` or `secondary`.
-Count them alongside the inline metrics: the product measures a shared metric typed `primary` as a primary metric.
+Shared metrics arrive in `saved_metrics`, classified by each entry's `metadata.type`.
+An entry counts as primary when `metadata.type` is `primary` or absent, and as secondary otherwise.
+Count these alongside the inline metrics.
 
 **Findings**:
 
@@ -24,7 +25,7 @@ Count them alongside the inline metrics: the product measures a shared metric ty
   - Report: "This experiment has no metrics configured. Results cannot be measured."
   - Action: Add at least one primary metric before launching.
 
-- **Secondary metrics only**: The experiment has no primary metric (`metrics` is empty and no `saved_metrics` entry has `metadata.type: primary`) but does have a secondary one, in `metrics_secondary` or in `saved_metrics` with `metadata.type: secondary`.
+- **Secondary metrics only**: The experiment has no primary metric (`metrics` is empty and no `saved_metrics` entry counts as primary) but does have a secondary one, in `metrics_secondary` or in a `saved_metrics` entry that counts as secondary.
   - Severity: WARNING · Category: Process
   - Report: "This experiment has secondary metrics but no primary metric. There is no primary success criterion."
   - Action: Promote one secondary metric to primary or add a new primary metric.
