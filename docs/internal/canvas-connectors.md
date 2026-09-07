@@ -42,7 +42,7 @@ Results are limited to 256 KiB. Large results become a bounded `preview` with `t
 
 - `github` exposes `list_pull_requests`, `search_issues`, and `get_file_contents`. Use `owner/name` to select a repository without ambiguity. A bare name uses the connection's account. Calls try the viewer's connections, newest first, until one can read the repository. Rate-limit failures stop retries.
 - `mcp:<host>` uses the viewer's personal installation, or the team's shared installation if no personal one exists. It never uses a teammate's personal installation. Existing MCP policy, credential checks, and audit rules apply.
-- MCP tools with a destructive name or `destructiveHint: true` are blocked. An upstream `readOnlyHint` cannot remove that block. These checks cannot prove that an arbitrary upstream tool has no side effects; connect only trusted servers.
+- MCP connector tools must declare `readOnlyHint: true` and start with a recognized read verb: `get`, `list`, `search`, `fetch`, `read`, `find`, `query`, `count`, or `describe`. Write verbs, destructive hints, and an explicit `readOnlyHint: false` block the call. Unknown operations are blocked. An upstream `readOnlyHint: true` alone cannot grant access. These checks cannot prove that an arbitrary upstream tool has no side effects; connect only trusted servers.
 
 When a connection is missing or needs authorization, `connect_path` identifies the settings page. The host must validate the provider before navigation and require a user action.
 

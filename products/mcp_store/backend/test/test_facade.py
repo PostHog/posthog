@@ -926,6 +926,7 @@ class TestCallMemberServerTool(BaseTest):
         return MCPServerInstallation.objects.create(**defaults)
 
     def _tool(self, installation: MCPServerInstallation, name: str = "list_events", **kwargs) -> None:
+        kwargs.setdefault("annotations", {"readOnlyHint": True})
         MCPServerInstallationTool.objects.create(
             installation=installation,
             tool_name=name,
@@ -983,6 +984,13 @@ class TestCallMemberServerTool(BaseTest):
                 False,
                 "write_blocked",
             ),
+            ("create", "create_issue", {"readOnlyHint": True}, False, "write_blocked"),
+            ("update", "update_event", {"readOnlyHint": True}, False, "write_blocked"),
+            ("send", "send_message", {"readOnlyHint": True}, False, "write_blocked"),
+            ("unknown", "process_event", {"readOnlyHint": True}, False, "write_blocked"),
+            ("mixed", "getOrCreateEvent", {"readOnlyHint": True}, False, "write_blocked"),
+            ("missing_hint", "list_events", {}, False, "write_blocked"),
+            ("read_name_marked_write", "list_events", {"readOnlyHint": False}, False, "write_blocked"),
             ("writes_allowed", "delete_event", {}, True, "ok"),
         ]
     )

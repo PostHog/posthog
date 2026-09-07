@@ -282,6 +282,7 @@ class TestCanvasConnectors(CanvasAPIBaseTest):
         canvas = Canvas.objects.for_team(self.team.id).get(id=canvas_id)
         version = canvas.current_source_version
         assert version is not None
+        assert version.capabilities is not None
         version.capabilities["posthog"]["state"] = ["shared"]
         version.save(update_fields=["capabilities"])
         assert self._call(canvas_id).status_code == 403

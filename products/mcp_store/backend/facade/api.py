@@ -36,7 +36,7 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
-from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_destructive_tool
+from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from products.mcp_store.backend.tools import ToolCallError, ToolsFetchError, call_upstream_tool
 
@@ -544,7 +544,7 @@ def _connector_tool(tool: MCPServerInstallationTool) -> ConnectorTool:
         name=tool.tool_name,
         description=tool.description or "",
         input_schema=tool.input_schema or {},
-        read_only=not is_destructive_tool(tool.tool_name, annotations),
+        read_only=is_read_only_connector_tool(tool.tool_name, annotations),
     )
 
 
