@@ -467,6 +467,10 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "access token on every request."
         ),
     )
+    task_summary = serializers.CharField(
+        allow_null=True,
+        help_text="Latest summary for this task, including a summary inherited from an earlier run.",
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -484,6 +488,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "log_url",
             "error_message",
             "output",
+            "task_summary",
             "state",
             "artifacts",
             "created_at",
@@ -1001,6 +1006,15 @@ class TaskCreateSerializer(TaskWriteSerializer):
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     output = serializers.JSONField(
         help_text="Output data from the run. Validated against the task's json_schema if one is set."
+    )
+
+
+class TaskRunSetSummaryRequestSerializer(serializers.Serializer):
+    summary = serializers.CharField(
+        max_length=tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Complete running summary that replaces the prior summary.",
     )
 
 
@@ -1928,6 +1942,11 @@ class TaskRunSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the latest run.")
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
     environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
+    task_summary = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Latest summary for this task, including a summary inherited from an earlier run.",
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):

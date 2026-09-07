@@ -18,11 +18,8 @@ export interface FullTask {
     id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
-    output?: {
-      pr_url?: unknown;
-      summary?: unknown;
-      final_message?: unknown;
-    } | null;
+    output?: { pr_url?: unknown } | null;
+    task_summary?: string | null;
     state?: Record<string, unknown> | null;
   } | null;
 }
@@ -41,11 +38,8 @@ export interface SidebarTask {
     id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
-    output?: {
-      pr_url?: unknown;
-      summary?: unknown;
-      final_message?: unknown;
-    } | null;
+    output?: { pr_url?: unknown } | null;
+    task_summary?: string | null;
     /** "interactive" or "background"; see `readRunMode`. */
     mode?: RunMode | null;
   } | null;
@@ -91,6 +85,7 @@ export function narrowFullTask(task: FullTask | Task): SidebarTask {
           status: task.latest_run.status,
           environment: task.latest_run.environment ?? null,
           output: task.latest_run.output ?? null,
+          task_summary: task.latest_run.task_summary ?? null,
           mode: readRunMode(task.latest_run.state),
         }
       : null,
@@ -127,6 +122,7 @@ export interface TaskSession {
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
   cloudOutput?: { pr_url?: unknown } | null;
+  cloudTaskSummary?: string | null;
 }
 
 /**
@@ -145,9 +141,10 @@ export function computeSidebarSessionSignature(
       typeof session.cloudOutput?.pr_url === "string"
         ? session.cloudOutput.pr_url
         : "";
+    const taskSummary = session.cloudTaskSummary ?? "";
     signature += `${session.taskId}:${session.isPromptPending ? 1 : 0}:${
       session.pendingPermissions?.size ?? 0
-    }:${session.cloudStatus ?? ""}:${prUrl};`;
+    }:${session.cloudStatus ?? ""}:${prUrl}:${taskSummary};`;
   }
   return signature;
 }
@@ -228,31 +225,8 @@ export function deriveTaskRunState(
   };
 }
 
-/**
- * How much of a fallback `final_message` a row shows. The agent's own summary is already
- * capped server-side; a closing chat turn is not, and a whole report does not belong in a
- * hover.
- */
-const FALLBACK_SUMMARY_CHARS = 400;
-
-/**
- * What the task is about, for a reader who has not opened it: the summary the agent kept
- * with `task_summary_update`, or failing that the start of its closing message, so the
- * hover is never empty on a run that said something.
- */
-export function readTaskSummary(
-  output: { summary?: unknown; final_message?: unknown } | null | undefined,
-): string | null {
-  const summary = output?.summary;
-  if (typeof summary === "string" && summary.trim()) return summary.trim();
-  const finalMessage = output?.final_message;
-  if (typeof finalMessage === "string" && finalMessage.trim()) {
-    const trimmed = finalMessage.trim();
-    return trimmed.length > FALLBACK_SUMMARY_CHARS
-      ? `${trimmed.slice(0, FALLBACK_SUMMARY_CHARS)}…`
-      : trimmed;
-  }
-  return null;
+export function readTaskSummary(summary: unknown): string | null {
+  return typeof summary === "string" && summary.trim() ? summary.trim() : null;
 }
 
 export function deriveTaskData(
@@ -299,7 +273,9 @@ export function deriveTaskData(
     slackThreadUrl,
     folderPath: workspace?.folderPath ?? null,
     cloudPrUrl,
-    summary: readTaskSummary(task.latest_run?.output),
+    summary: readTaskSummary(
+      session?.cloudTaskSummary ?? task.latest_run?.task_summary,
+    ),
     branchName: workspace?.branchName ?? null,
     linkedBranch: workspace?.linkedBranch ?? null,
   };

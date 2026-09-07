@@ -1,6 +1,12 @@
 import { Archive, GitPullRequest, PushPin } from "@phosphor-icons/react";
 import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import { parseGithubUrl } from "@posthog/git/utils";
+import {
+  Tooltip as QuillTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
@@ -245,25 +251,19 @@ export function TaskItem({
 
   if (!summary) return row;
 
-  // The row's own pointer and focus handlers win over the ones a trigger would inject
-  // (SidebarItem sets them after its prop spread), so the wrapper carries the hover
-  // instead of the row. A long delay keeps the summary out of the way while somebody is
-  // running down the list.
   return (
-    <Tooltip
-      content={
-        // A summary runs to a paragraph or two, so it gets a readable column, not one line.
-        <span className="block max-w-[320px] whitespace-pre-wrap text-left">
+    <TooltipProvider delay={700}>
+      <QuillTooltip>
+        <TooltipTrigger render={row} />
+        <TooltipContent
+          side="right"
+          align="start"
+          className="min-w-0 max-w-[320px] whitespace-pre-wrap break-words text-left"
+        >
           {summary}
-        </span>
-      }
-      side="right"
-      align="start"
-      delayDuration={700}
-      disableHoverableContent
-    >
-      <span className="block w-full">{row}</span>
-    </Tooltip>
+        </TooltipContent>
+      </QuillTooltip>
+    </TooltipProvider>
   );
 }
 

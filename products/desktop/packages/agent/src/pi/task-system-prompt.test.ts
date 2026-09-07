@@ -57,4 +57,19 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).not.toContain('git commit -m "$(cat');
     expect(prompt).toContain("Use the existing pull request.");
   });
+
+  it("adds summary instructions only when the server supports summaries", () => {
+    const context = {
+      projectId: 42,
+      apiHost: "https://us.posthog.com",
+      taskId: "task-123",
+      cwd: "/tmp/workspace",
+      environment: "cloud",
+    } as const;
+
+    expect(buildTaskSystemPrompt(context)).not.toContain("task_summary_update");
+    expect(
+      buildTaskSystemPrompt({ ...context, taskSummarySupported: true }),
+    ).toContain("task_summary_update");
+  });
 });

@@ -383,6 +383,22 @@ export class PostHogAPIClient {
     );
   }
 
+  async setTaskRunSummary(
+    taskId: string,
+    runId: string,
+    summary: string,
+    signal?: AbortSignal,
+  ): Promise<TaskRun> {
+    return this.apiRequest(
+      `/api/projects/${this.getTeamId()}/tasks/${taskId}/runs/${runId}/set_summary/`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ summary }),
+        signal,
+      },
+    );
+  }
+
   async setTaskRunOutput(
     taskId: string,
     runId: string,

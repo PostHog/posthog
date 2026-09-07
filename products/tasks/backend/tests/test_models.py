@@ -909,14 +909,19 @@ class TestTaskRun(TestCase):
 
     @parameterized.expand(
         [
-            ("summary", {"summary": "Halfway through the migration"}, "Halfway through the migration"),
-            ("blank_summary", {"summary": "   "}, None),
-            ("no_summary", {"final_message": "Done"}, None),
+            ("current_summary", {"task_summary": "Halfway through the migration"}, "Halfway through the migration"),
+            ("inherited_summary", {"prior_run_summary": "Reading the API"}, "Reading the API"),
+            (
+                "current_over_inherited",
+                {"task_summary": "Writing tests", "prior_run_summary": "Reading"},
+                "Writing tests",
+            ),
+            ("blank_summary", {"task_summary": "   "}, None),
         ]
     )
-    def test_create_run_carries_the_resume_source_summary(self, _name, source_output, expected):
+    def test_create_run_carries_the_resume_source_summary(self, _name, source_state, expected):
         previous_run = TaskRun.objects.create(
-            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, output=source_output
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state=source_state
         )
 
         run = self.task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
