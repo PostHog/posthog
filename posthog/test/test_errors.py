@@ -75,6 +75,18 @@ class TestWrapClickhouseQueryError:
         assert wrapped.code_name == "quantile_level_out_of_bound"
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
 
+    def test_non_quantile_parameter_out_of_bound_stays_a_platform_error(self) -> None:
+        # ClickHouse also raises code 12 for internal column and query plan bounds faults. Those
+        # return a 500, so a code-wide user_error category would count them as successful requests
+        # in the query SLO.
+        err = ServerException(
+            "DB::Exception: Position out of bound in Block::erase(). (PARAMETER_OUT_OF_BOUND)", code=12
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert classify_query_error(wrapped) == QueryErrorCategory.ERROR
+
     @parameterized.expand(
         [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.

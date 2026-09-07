@@ -233,6 +233,11 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # PARAMETER_OUT_OF_BOUND also covers internal bounds faults, so only the quantile level shape is
+    # user input. Checked before the code lookup, which sees the code but not the message.
+    if isinstance(e, CHQueryErrorQuantileLevelOutOfBound):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
@@ -396,9 +401,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
     10: ErrorCodeMeta("NOT_FOUND_COLUMN_IN_BLOCK"),
     11: ErrorCodeMeta("POSITION_OUT_OF_BOUND"),
-    # Stays internal: some CH messages for this code embed the failing data value. The category
-    # keeps a bad parameter in the query out of the platform failure rate.
-    12: ErrorCodeMeta("PARAMETER_OUT_OF_BOUND", category=QueryErrorCategory.USER_ERROR),
+    # Stays internal: some CH messages for this code embed the failing data value. The code also
+    # covers internal bounds faults, so the user error category is set per class in
+    # classify_query_error instead of here.
+    12: ErrorCodeMeta("PARAMETER_OUT_OF_BOUND"),
     13: ErrorCodeMeta("SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH"),
     15: ErrorCodeMeta("DUPLICATE_COLUMN"),
     16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
