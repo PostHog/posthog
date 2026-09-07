@@ -1,6 +1,7 @@
 # Experiment checks
 
-Run these checks against each experiment fetched via `experiment-get` or `experiment-list`.
+Run these checks against each experiment fetched via `experiment-get`.
+`experiment-list` returns a thin summary that omits the fields below, so it resolves IDs only.
 
 For each check, the "Look at" section tells you which fields to inspect on the experiment object.
 The "Findings" section lists what to report and at what severity.

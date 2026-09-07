@@ -1,7 +1,8 @@
 {%- set c = audit_constants() -%}
 # Feature flag checks
 
-Run these checks against each flag fetched via `feature-flag-get-definition` or `feature-flag-get-all`.
+Run these checks against each flag fetched via `feature-flag-get-definition`.
+`feature-flag-get-all` returns a thin summary that omits the fields below, so it resolves IDs only.
 
 ---
 
