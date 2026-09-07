@@ -13,8 +13,29 @@ from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSki
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig
 
-# Naming contract for skills that steer a Signals-agent run.
+# Prefix the canonical fleet ships under. A scout is a skill that has a `SignalScoutConfig`
+# row, so this is no longer a naming requirement: it still drives auto-registration of
+# `signals-scout-*` skills, the canonical on-disk paths, and the cosmetic name strippers.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
+
+# Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never
+# be opened. They stay valid as ordinary skill names — only the scout paths refuse them.
+RESERVED_SCOUT_NAMES: frozenset[str] = frozenset({"scratchpad", "findings", "runs"})
+
+
+def reserved_scout_name_error(name: str) -> str | None:
+    """Why `name` cannot be a scout name, or None when it can.
+
+    Applied by the scout create serializer and by explicit config registration — the two paths
+    that mint a scout — so both refuse the same set.
+    """
+    if name.lower() in RESERVED_SCOUT_NAMES:
+        return (
+            f"'{name}' is reserved by the inbox and cannot be a scout name. "
+            f"The reserved names are {', '.join(sorted(RESERVED_SCOUT_NAMES))}."
+        )
+    return None
+
 
 # Tools whose presence in a skill's `allowed_tools` opts the scout into the report-authoring channel
 # (it writes full `SignalReport`s via `emit_report` / `edit_report` instead of firing weak signals).

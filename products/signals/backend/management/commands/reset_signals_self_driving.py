@@ -18,7 +18,6 @@ from products.signals.backend.models import (
     SignalScratchpad,
     SignalSourceConfig,
 )
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceCreatedVia
 
@@ -135,18 +134,23 @@ class Command(BaseCommand):
 
         # 2. Postgres self-driving state, atomically.
         with transaction.atomic():
-            # Custom scouts: every version of each `signals-scout-*` skill NOT stamped by the
-            # seeding harness. We partition by SET DIFFERENCE (all scout names minus seeded
-            # names), NOT `.exclude(metadata__seeded_by=...)`. An ABSENT JSONB key makes
-            # `metadata->>'seeded_by'` SQL NULL, and `NOT (NULL = '...')` is NULL (not TRUE),
-            # so `.exclude()` silently skips rows whose metadata has no `seeded_by` key at all
-            # — which is the common case for a wizard-/hand-authored scout. The set diff is
-            # NULL-safe: a name is custom iff it is a scout name not among the seeded ones.
-            # No seeded name can land in `custom_scout_names`, so deleting by `name__in`
-            # (every version) never touches a canonical/companion row, and cascades LLMSkillFile.
+            # Custom scouts: every version of each scout skill NOT stamped by the seeding
+            # harness. The roster comes from the config rows, not from the name, so a scout
+            # under a bare name is reset too. We then partition by SET DIFFERENCE (all scout
+            # names minus seeded names), NOT `.exclude(metadata__seeded_by=...)`. An ABSENT
+            # JSONB key makes `metadata->>'seeded_by'` SQL NULL, and `NOT (NULL = '...')` is
+            # NULL (not TRUE), so `.exclude()` silently skips rows whose metadata has no
+            # `seeded_by` key at all — which is the common case for a wizard-/hand-authored
+            # scout. The set diff is NULL-safe: a name is custom iff it is a scout name not
+            # among the seeded ones. No seeded name can land in `custom_scout_names`, so
+            # deleting by `name__in` (every version) never touches a canonical/companion row,
+            # and cascades LLMSkillFile.
+            configured_scout_names = set(
+                SignalScoutConfig.all_teams.filter(team=team).values_list("skill_name", flat=True)
+            )
             scout_skills = LLMSkill.objects.filter(
                 team_id=team.id,
-                name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+                name__in=configured_scout_names,
                 is_latest=True,
                 deleted=False,
             )

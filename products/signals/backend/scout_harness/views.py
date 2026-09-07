@@ -1,7 +1,7 @@
 """DRF viewsets exposing the Signals scout surface over HTTP for MCP consumption.
 
 These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
-(and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
+(and any other agent on the team's PostHog MCP) can call the scout
 tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
 `memory-create`, `memory-delete`, `project-profile-get`, and `members-list` — over
 the standard PostHog MCP plumbing.
@@ -1478,7 +1478,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Leave a note for the scouts",
         description=(
             "Leave a steering note the scout fleet reads on its next runs. Address it to one scout "
-            "via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved "
+            "via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved "
             "audience (`pipeline:report-research`), or omit it for a general note every scout sees. "
             "Each call creates a new note (no upsert); delete retires one. Attributed to the "
             "authenticated user."
@@ -2126,7 +2126,8 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create a scout",
         description=(
-            "Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the "
+            "Create a scout skill and its runnable config atomically. Any valid skill name works — the "
+            "config row is what makes the skill a scout. The skill always receives the "
             "report-channel tools. The optional config controls schedule, enablement, dry-run posture, network "
             "access, and typed destinations such as Slack. Repeating the same definition is safe and applies any "
             "supplied config fields; "
@@ -2189,8 +2190,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     `readOnly`, so it must never write. `create`, `partial_update`, and `destroy` are
     user-grantable writes (`signal_scout:write`) — config changes drive spend, so enablement is
     activity-logged and `enabled_by` records who flipped it on. `create` exists so a freshly
-    authored `signals-scout-*` skill can be configured immediately instead of waiting for the
-    coordinator tick to auto-register a row. `destroy` removes a row outright — the cleanup path
+    authored skill can be configured immediately instead of waiting for the coordinator tick to
+    auto-register a row — and it is the only way a skill without the `signals-scout-` prefix
+    becomes a scout, since auto-registration still scans for that prefix. `destroy` removes a row outright — the cleanup path
     for an orphaned config whose skill was archived/deleted, which `partial_update` can only make
     inert (`enabled=false`), not remove.
     """
@@ -2283,15 +2285,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(
                 description=(
-                    "No such skill on this project, the name lacks the `signals-scout-` prefix, "
+                    "No such skill on this project, the name is reserved by the inbox, "
                     "or the project is already at its enabled-scouts maximum."
                 )
             ),
         },
         summary="Create a scout config",
         description=(
-            "Register the config for a `signals-scout-*` skill immediately, without waiting "
-            "for the coordinator to auto-register it. The same call can optionally set "
+            "Register the config for a skill immediately, without waiting for the coordinator "
+            "to auto-register it — and the way to make a skill without the `signals-scout-` "
+            "prefix a scout at all. The same call can optionally set "
             "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, "
             "and output destinations. "
             "The skill must already exist on this project. Upsert: if a config already exists "
@@ -2525,7 +2528,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Delete a scout config",
         description=(
             "Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row "
-            "outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was "
+            "outright. The point is cleaning up an orphaned config whose skill was "
             "archived or deleted — it lingers in `list` with an empty `description`, never runs (the "
             "coordinator skips it and the skill can't load), but can't otherwise be removed over the "
             "API. Deletion is activity-logged. Note: if the skill still exists, the coordinator "

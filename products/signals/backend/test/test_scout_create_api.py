@@ -147,6 +147,26 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
         assert config.enabled is True
 
+    def test_create_accepts_a_name_without_the_scout_prefix(self) -> None:
+        # The config row created alongside the skill is what makes it a scout, so the name only
+        # has to pass the ordinary skill-name rules.
+        payload = {**self._payload(), "name": "my-churn-watch"}
+
+        response = self.client.post(self._url(), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert LLMSkill.objects.filter(team=self.team, name="my-churn-watch", deleted=False).exists()
+        assert SignalScoutConfig.all_teams.filter(team=self.team, skill_name="my-churn-watch").exists()
+
+    @parameterized.expand([("scratchpad",), ("findings",), ("runs",)])
+    def test_create_rejects_a_name_the_inbox_reserves(self, name: str) -> None:
+        # `/inbox/scouts/<name>` reads these as sub-pages, so a scout under one could never be
+        # opened. They stay valid as ordinary skill names.
+        response = self.client.post(self._url(), data={**self._payload(), "name": name}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name=name, deleted=False).exists()
+
     def test_invalid_slack_destination_does_not_create_skill(self) -> None:
         other_organization = Organization.objects.create(name="Other")
         other_team = Team.objects.create(organization=other_organization, name="Other")

@@ -35,9 +35,11 @@ from products.signals.backend.scout_harness.suggestions import (
     parse_suggestion_settings,
     persist_suggestion_batch,
     plan_suggestion_runs,
+    reserved_scout_names,
     visible_items,
 )
 from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions, validate_suggestion_items
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 
 CANONICAL = {"signals-scout-general", "signals-scout-error-tracking"}
@@ -91,7 +93,6 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("unknown_canonical", _item(skill_name="signals-scout-nope")),
             ("already_enabled", _item(skill_name="signals-scout-general")),
             ("custom_shadows_canonical", _custom(skill_name="signals-scout-error-tracking")),
-            ("custom_bad_slug", _custom(skill_name="scout-checkout")),
             ("custom_uppercase_slug", _custom(skill_name="signals-scout-Checkout")),
             ("custom_double_hyphen", _custom(skill_name="signals-scout--checkout")),
             ("six_field_cron", _item(proposed_config={"run_cron_schedule": "0 30 9 * * *"})),
@@ -132,6 +133,14 @@ class TestValidateSuggestionItems(SimpleTestCase):
         )
         self.assertIsNone(kept[0].proposed_config.run_cron_schedule)
 
+    def test_keeps_a_custom_draft_without_the_scout_prefix(self):
+        # The producer prompt still asks for prefixed names, but that is a prompt choice: Create
+        # accepts any valid skill name, so a bare-named draft must not be dropped as invalid.
+        kept = validate_suggestion_items(
+            [_custom(skill_name="my-churn-watch")], enabled_skill_names=set(), canonical_names=CANONICAL
+        )
+        self.assertEqual([item.skill_name for item in kept], ["my-churn-watch"])
+
     def test_keeps_valid_items_dedupes_and_caps_at_five(self):
         items = [_item(), _item(), _custom()] + [_custom(skill_name=f"signals-scout-extra-{i}") for i in range(5)]
         kept = validate_suggestion_items(items, enabled_skill_names=set(), canonical_names=CANONICAL)
@@ -139,6 +148,16 @@ class TestValidateSuggestionItems(SimpleTestCase):
         self.assertEqual(kept[0].skill_name, "signals-scout-error-tracking")
         self.assertEqual(kept[1].skill_name, "signals-scout-checkout-drop")
         self.assertEqual(len({item.skill_name for item in kept}), 5)
+
+
+class TestReservedScoutNames(BaseTest):
+    def test_reserves_a_configured_scout_name_without_the_prefix(self):
+        # Offering a name the project already holds would surface a Create that answers 409, and
+        # a scout can now hold any valid skill name.
+        LLMSkill.objects.create(team=self.team, name="my-churn-watch", description="d", body="b")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="my-churn-watch")
+
+        self.assertIn("my-churn-watch", reserved_scout_names(self.team.id))
 
 
 class TestSuggestionPersistence(BaseTest):
