@@ -623,68 +623,21 @@ def _active_feature_flag_keys(feature_flags: ast.Expr, restricted_keys: list[str
     )
 
 
-def _active_feature_flags(
-    field_type: ast.FieldType, feature_flags: ast.Expr, restricted_keys: list[str]
-) -> tuple[ast.Expr, ast.Expr, ast.Expr]:
-    raw = _synthetic_column_field(field_type, "_active_feature_flags", is_nullable=False)
-    if raw is None:
-        fallback = _active_feature_flag_keys(feature_flags, restricted_keys)
-        return _const(""), fallback, clone_expr(fallback)
-    stored: ast.Expr = ast.Call(
-        name="JSONExtract",
-        args=[clone_expr(raw), _const("Array(String)")],
-        type=ast.ArrayType(item_type=ast.StringType(nullable=False)),
-    )
-    if restricted_keys:
-        stored = _call(
-            "arrayFilter",
-            [ast.Lambda(args=["key"], expr=_not_in_lambda_values("key", restricted_keys)), stored],
-        )
-    return (
-        raw,
-        stored,
-        _call(
-            "if",
-            [
-                _call("notEmpty", [clone_expr(raw)]),
-                clone_expr(stored),
-                _active_feature_flag_keys(feature_flags, restricted_keys),
-            ],
-        ),
-    )
-
-
-def _active_feature_flags_json(
-    field_type: ast.FieldType, feature_flags: ast.Expr, restricted_keys: list[str]
-) -> ast.Expr:
-    raw, stored_flags, _ = _active_feature_flags(field_type, feature_flags, restricted_keys)
-    fallback_flags = _active_feature_flag_keys(feature_flags, restricted_keys)
+def _active_feature_flags_json(feature_flags: ast.Expr, restricted_keys: list[str]) -> ast.Expr:
+    active_flags = _active_feature_flag_keys(feature_flags, restricted_keys)
     empty_json = _call(
         "if",
         [_call("empty", [_filter_feature_flags(feature_flags, restricted_keys)]), _const("[]"), _const("")],
     )
     return ast.Call(
-        name="if",
-        args=[
-            _call("notEmpty", [raw]),
-            _call("toJSONString", [stored_flags]),
-            ast.Call(name="nullIf", args=[_call("toJSONString", [fallback_flags]), empty_json]),
-        ],
+        name="nullIf",
+        args=[_call("toJSONString", [active_flags]), empty_json],
         type=ast.StringType(nullable=True),
     )
 
 
-def _active_feature_flags_present(
-    raw: ast.Expr, stored_flags: ast.Expr, feature_flags: ast.Expr, restricted_keys: list[str]
-) -> ast.Expr:
-    return _call(
-        "if",
-        [
-            _call("notEmpty", [raw]),
-            _call("or", [_call("equals", [clone_expr(raw), _const("[]")]), _call("notEmpty", [stored_flags])]),
-            _call("notEmpty", [_filter_feature_flags(feature_flags, restricted_keys)]),
-        ],
-    )
+def _active_feature_flags_present(feature_flags: ast.Expr, restricted_keys: list[str]) -> ast.Expr:
+    return _call("notEmpty", [_filter_feature_flags(feature_flags, restricted_keys)])
 
 
 def _feature_flag_compatibility_read(
@@ -719,7 +672,7 @@ def _feature_flag_compatibility_read(
         return ast.PropertyAccess(expr=value, keys=deeper_keys) if deeper_keys else value
 
     if context.uses_new_events_schema() and first_key == "$active_feature_flags":
-        value = _active_feature_flags_json(field_type, feature_flags, restricted_keys)
+        value = _active_feature_flags_json(feature_flags, restricted_keys)
         return ast.PropertyAccess(expr=value, keys=deeper_keys) if deeper_keys else value
 
     if first_key != "$feature_flags":
@@ -1288,15 +1241,14 @@ class ClickHousePropertyResolver(CloningVisitor):
                         ast.Call(
                             name="ifNull",
                             args=[
-                                _active_feature_flags_json(field_type, feature_flags, restricted_keys),
+                                _active_feature_flags_json(feature_flags, restricted_keys),
                                 _sentinel(""),
                             ],
                         ),
                         *[self.visit(arg) for arg in node.args[2:]],
                     ],
                 )
-            raw, stored_flags, _ = _active_feature_flags(field_type, feature_flags, restricted_keys)
-            return _active_feature_flags_present(raw, stored_flags, feature_flags, restricted_keys)
+            return _active_feature_flags_present(feature_flags, restricted_keys)
         if first_key == "$feature_flags":
             return ast.Call(
                 name="notEmpty",
@@ -1615,15 +1567,15 @@ class ClickHousePropertyResolver(CloningVisitor):
     def _string_array_expr(self, expr: ast.Expr, *, allow_to_string: bool = False) -> ast.Expr | None:
         active_feature_flags = self._active_feature_flags_operand(expr, allow_to_string=allow_to_string)
         if active_feature_flags is not None:
-            _, _, active_flags, _, _ = active_feature_flags
-            return active_flags
+            feature_flags, restricted_keys = active_feature_flags
+            return _active_feature_flag_keys(feature_flags, restricted_keys)
 
         prop = self._materialized_string_array_property(expr, allow_to_string=allow_to_string)
         return prop.bare_column() if prop is not None else None
 
     def _active_feature_flags_operand(
         self, expr: ast.Expr, *, allow_to_string: bool = False
-    ) -> tuple[ast.Expr, ast.Expr, ast.Expr, ast.Expr, list[str]] | None:
+    ) -> tuple[ast.Expr, list[str]] | None:
         unwrapped = expr.expr if isinstance(expr, ast.Alias) else expr
         if (
             allow_to_string
@@ -1665,8 +1617,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if feature_flags is None:
             return None
         restricted_keys = _restricted_feature_flag_keys(field_type, self.context)
-        raw, stored_flags, active_flags = _active_feature_flags(field_type, feature_flags, restricted_keys)
-        return raw, stored_flags, active_flags, feature_flags, restricted_keys
+        return feature_flags, restricted_keys
 
     def _property_group_property(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key property backed by a property group, only under OPTIMIZED mode."""
@@ -1813,7 +1764,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             array_expr: ast.Expr | None = None
             constant_expr: ast.Constant | None = None
-            active_feature_flags: tuple[ast.Expr, ast.Expr, ast.Expr, ast.Expr, list[str]] | None = None
+            active_feature_flags: tuple[ast.Expr, list[str]] | None = None
             if (value := self._active_feature_flags_operand(node.left)) is not None and isinstance(
                 node.right, ast.Constant
             ):
@@ -1835,8 +1786,8 @@ class ClickHousePropertyResolver(CloningVisitor):
 
             if constant_expr.value is None:
                 if active_feature_flags is not None:
-                    raw, stored_flags, _, feature_flags, restricted_keys = active_feature_flags
-                    is_set = _active_feature_flags_present(raw, stored_flags, feature_flags, restricted_keys)
+                    feature_flags, restricted_keys = active_feature_flags
+                    is_set = _active_feature_flags_present(feature_flags, restricted_keys)
                     return is_set if node.op == ast.CompareOperationOp.NotEq else _call("not", [is_set])
                 assert array_expr is not None
                 is_set = _call("notEmpty", [clone_expr(array_expr)])
@@ -1844,7 +1795,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             if not isinstance(constant_expr.value, str):
                 return None
             if active_feature_flags is not None:
-                raw, stored_flags, _, feature_flags, restricted_keys = active_feature_flags
+                feature_flags, restricted_keys = active_feature_flags
                 map_key = _physical_feature_flag_key(constant_expr.value, self.context)
                 if map_key in restricted_keys:
                     return _const(node.op == ast.CompareOperationOp.NotEq)
@@ -1853,14 +1804,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                     property=_const(map_key),
                     type=ast.StringType(nullable=False),
                 )
-                contains = _call(
-                    "if",
-                    [
-                        _call("notEmpty", [raw]),
-                        _call("has", [stored_flags, _const(constant_expr.value)]),
-                        _call("notIn", [map_value, ast.Tuple(exprs=[_const(""), _const("false")])]),
-                    ],
-                )
+                contains = _call("notIn", [map_value, ast.Tuple(exprs=[_const(""), _const("false")])])
                 return contains if node.op == ast.CompareOperationOp.Eq else _call("not", [contains])
             assert array_expr is not None
             contains = _call("has", [array_expr, _const(constant_expr.value)])
