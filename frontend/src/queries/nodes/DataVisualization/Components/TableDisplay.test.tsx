@@ -4,9 +4,6 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -32,15 +29,10 @@ const cachedResults: HogQLQueryResponse = {
 describe('TableDisplay', () => {
     afterEach(() => {
         cleanup()
-        featureFlagLogic.unmount()
     })
 
-    it('offers box plots and saves the selected display when the feature is enabled', async () => {
+    it('offers box plots and saves the selected display', async () => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_BOX_PLOT_INSIGHT], {
-            [FEATURE_FLAGS.SQL_BOX_PLOT_INSIGHT]: true,
-        })
 
         let query: DataVisualizationNode = {
             kind: NodeKind.DataVisualizationNode,

@@ -321,6 +321,12 @@ class ZipRenderer(BaseRenderer):
         return SafeJSONRenderer().render(data, "application/json", renderer_context)
 
 
+def _spec_problems_detail(lead: str, problems: list[str], next_step: str) -> str:
+    # Clients such as the app toast show only `detail`, so the specific problems must live there too.
+    sentences = ". ".join((problem[:1].upper() + problem[1:]).removesuffix(".") for problem in problems)
+    return f"{lead} {sentences}. {next_step}"
+
+
 _ZIP_ACTIONS = ("bundle", "export")
 # With two renderers on an action, drf-spectacular advertises DRF's ``?format=`` override as a query
 # parameter. Clients select the zip with ``Accept``; keep the generated types free of it.
@@ -809,7 +815,14 @@ class LLMSkillViewSet(
         problems = validate_for_export(export)
         if problems:
             return Response(
-                {"detail": "Skill is not export-ready under the Agent Skills spec.", "problems": problems},
+                {
+                    "detail": _spec_problems_detail(
+                        "Couldn't download this skill because it doesn't meet the Agent Skills spec.",
+                        problems,
+                        "Edit the skill to fix this, then try again.",
+                    ),
+                    "problems": problems,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -905,7 +918,14 @@ class LLMSkillViewSet(
         problems = self._import_problems(skill_export)
         if problems:
             return Response(
-                {"detail": "Zip is not a valid, spec-compliant skill.", "problems": problems},
+                {
+                    "detail": _spec_problems_detail(
+                        "Couldn't import this zip because it doesn't meet the Agent Skills spec.",
+                        problems,
+                        "Fix the skill files, then try again.",
+                    ),
+                    "problems": problems,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

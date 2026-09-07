@@ -1633,6 +1633,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Deliberately NOT excluded from activity logging, because changing which external tools
     # a scout reaches is a security-relevant change, like `network_access`.
     mcp_gateway_server_ids = models.JSONField(default=list, db_default=[])
+    # User-facing write scopes a person granted this one scout, on top of the fleet-wide posture
+    # every scout carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding
+    # a grantable object later is one allowlist entry rather than a new column. Empty means the
+    # scout reads the project and writes only what the fleet grants every scout.
+    # Validated against `SCOUT_GRANTABLE_WRITE_SCOPES` at the API boundary and intersected against
+    # it again when a run's token is minted, so a stored grant cannot widen a token past the
+    # allowlist. Deliberately NOT excluded from activity logging, and gated in the config API to the
+    # scout's acting user and project admins: this field decides what an unattended agent may change
+    # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
+    write_scopes = models.JSONField(default=list, db_default=[])
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
