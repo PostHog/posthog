@@ -1177,6 +1177,54 @@ describe('exec tool', () => {
         })
     })
 
+    describe('flag-gated tool redirects', () => {
+        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
+
+        it('names the successor a flag retired the tool for', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /retired[\s\S]*notebooks-create-markdown/
+            )
+            await expect(exec.handler(mockContext, { command: 'info notebooks-create' })).rejects.toThrow(
+                /notebooks-create-markdown/
+            )
+        })
+
+        it('reports a gated tool with no successor as not enabled, not as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-add-cell', supersededBy: [] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.not.toThrow(
+                /Unknown tool/
+            )
+        })
+
+        // A successor behind its own gate is no more callable than the tool it replaced,
+        // so pointing at it would send the agent on a second dead-end round trip.
+        it('falls back to the not-enabled message when no declared successor is registered', async () => {
+            const exec = createExec([makeMockTool()], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+        })
+
+        it('still reports a name we do not own as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toThrow(
+                /Unknown tool[\s\S]*search not-a-posthog-tool/
+            )
+        })
+    })
+
     describe('deprecated tool redirects', () => {
         it.each([
             ['read-data-warehouse-schema', 'execute-sql'],
