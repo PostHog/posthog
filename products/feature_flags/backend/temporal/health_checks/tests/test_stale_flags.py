@@ -312,6 +312,9 @@ class TestStaleFlagsDetect(BaseTest):
         flag_a.save()
         run()
         assert active_issues().count() == 2
+        issue_a.refresh_from_db()
+        assert issue_a.status == HealthIssue.Status.RESOLVED
+        assert active_issues().get(payload__flag_id=flag_a.id).id != issue_a.id
 
 
 class TestStaleFlagsContract(SimpleTestCase):
@@ -336,8 +339,11 @@ class TestStaleFlagsContract(SimpleTestCase):
     def test_remediation_orders_code_removal_before_archive(self) -> None:
         remediation = StaleFeatureFlagsCheck.remediation
         assert remediation is not None
-        for text in (remediation.human, remediation.agent):
-            assert text.index("code") < text.index("deploy") < text.index("archive")
+        for text, code_removal in (
+            (remediation.human, "remove the code checks"),
+            (remediation.agent, "remove code checks"),
+        ):
+            assert text.index(code_removal) < text.index("deploy") < text.index("archive")
         assert "Never archive, disable, or delete" in remediation.agent
 
     def test_render_alert_for_usage_evidence(self) -> None:
@@ -369,6 +375,8 @@ class TestStaleFlagsContract(SimpleTestCase):
             )
         )
         assert content.title == f"Feature flag '{'k' * 200}' may be ready for cleanup"
+        assert "PostHog has not received a call for this flag recently" in content.summary
+        assert "The flag is" not in content.summary
 
     def test_render_alert_for_config_evidence(self) -> None:
         content = StaleFeatureFlagsCheck.render_alert(

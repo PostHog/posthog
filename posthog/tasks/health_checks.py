@@ -15,14 +15,14 @@ def evaluate_health_check_for_team(kind: str, team_id: int) -> None:
     ensure_registry_loaded()
     try:
         detect_fn = get_detect_fn(kind)
+        registration = HEALTH_CHECKS[kind]
     except KeyError:
         logger.warning("evaluate_health_check_for_team.unknown_kind", kind=kind, team_id=team_id)
         return
 
-    registration = HEALTH_CHECKS.get(kind)
     _process_batch_detection(
         team_ids=[team_id],
         kind=kind,
         detect_fn=detect_fn,
-        dry_run=registration.dry_run if registration is not None else False,
+        dry_run=registration.dry_run,
     )
