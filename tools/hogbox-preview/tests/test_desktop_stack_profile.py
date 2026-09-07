@@ -3,8 +3,37 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+import yaml
 from hogbox_preview.backend import ExecResult, PreviewBackend
 from hogbox_preview.stack import PostHogPreviewStack
+
+
+def _mapping_without_duplicates(loader: yaml.SafeLoader, node: yaml.MappingNode) -> dict[str, object]:
+    mapping: dict[str, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if key in mapping:
+            raise AssertionError(f"Compose refuses a duplicate key: {key!r} at {key_node.start_mark}")
+        mapping[key] = loader.construct_object(value_node, deep=True)
+    return mapping
+
+
+def _tagged_value(loader: yaml.SafeLoader, suffix: str, node: yaml.Node) -> object:
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node, deep=True)
+    if isinstance(node, yaml.MappingNode):
+        return _mapping_without_duplicates(loader, node)
+    return node.value
+
+
+# Parses the override the way Compose does: duplicate mapping keys are an error,
+# and Compose's own !override / !reset tags are values, not YAML core types.
+class ComposeLoader(yaml.SafeLoader):
+    pass
+
+
+ComposeLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping_without_duplicates)
+ComposeLoader.add_multi_constructor("!", _tagged_value)
 
 
 class DesktopProfileStack(unittest.TestCase):
@@ -39,10 +68,12 @@ class DesktopProfileStack(unittest.TestCase):
         self.assertIn("handle_path /llm-gateway/*", override)
         self.assertIn("header_up x-posthog-provider bedrock", override)
         self.assertIn("AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:8181/credentials", override)
-        self.assertIn("- 8001:8000", override)
         self.assertEqual(override.count("network_mode: host"), 2)
-        # One web key: a duplicate YAML mapping key makes Compose refuse the file.
-        self.assertEqual(override.count("  web:"), 1)
+        # The whole file has to parse: a second web key, or a stray indent in the
+        # generated proxy block, makes Compose refuse it before any merge runs.
+        services = yaml.load(override, Loader=ComposeLoader)["services"]
+        self.assertEqual(services["web"]["ports"], ["8001:8000"])
+        self.assertLessEqual({"desktop-preview-proxy", "llm-gateway"}, set(services))
         # The gateway reads only the LLM_GATEWAY_-prefixed env names.
         self.assertIn("LLM_GATEWAY_POSTHOG_API_BASE_URL=http://localhost:8001", override)
         self.assertNotIn("POSTHOG_API_BASE_URL=http", override.replace("LLM_GATEWAY_POSTHOG_API_BASE_URL", ""))
