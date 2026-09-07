@@ -22,6 +22,8 @@ The fetcher follows configuration redirects only inside the source registrable d
 
 The shared streamed-request helper preserves repeated response field lines. Policy evaluation therefore sees every opt-out field in received order.
 
+Image and configuration requests opt into HTTP/2 on the shared secure dispatcher. One TLS session then carries every concurrent and sequential request to an origin, which saves a handshake on both sides. An origin that offers only HTTP/1.1 gets HTTP/1.1 with no change in behavior.
+
 Production requests use Smokescreen. The Rust admission policy also refuses every IP literal, including a public IP literal.
 
 Web Bot Auth uses the shared PostHog key directory. The directory response has a 60-second public cache lifetime.
