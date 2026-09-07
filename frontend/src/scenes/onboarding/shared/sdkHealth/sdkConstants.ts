@@ -4,10 +4,8 @@ export type SdkDocsLinks = { releases: string; docs: string }
 
 export const SDK_LIBRARIES_DOCS_URL = 'https://posthog.com/docs/libraries'
 
-// Keyed by `string`, not by `SdkType`, so a lookup returns `undefined` for an SDK this bundle does
-// not know. The API is deployed before the frontend, so it can report an SDK that was added to
-// products/growth/backend/constants.py after this bundle was built. The `satisfies` clause keeps
-// every known SDK mandatory.
+// Keyed by `string` so a lookup returns `undefined` for an SDK this bundle does not know: the API
+// deploys first and can report one. The `satisfies` clause keeps every known SDK mandatory.
 export const SDK_TYPE_READABLE_NAME: Record<string, string | undefined> = {
     web: 'Web',
     'posthog-ios': 'iOS',

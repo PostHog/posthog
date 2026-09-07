@@ -93,8 +93,7 @@ describe('SdkHealthComponents', () => {
             sdkHealthLogic.unmount()
         })
 
-        // The API ships before the frontend, so it can report an SDK this bundle has no docs links for.
-        // The section must still render — an unguarded lookup used to throw and blank the whole scene.
+        // An unguarded docs-links lookup threw here, and the error boundary blanked the whole scene.
         it('renders an SDK that is missing from the docs links map', () => {
             const { container } = render(<SdkSection sdkType={UNKNOWN_SDK} />)
 
