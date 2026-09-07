@@ -108,6 +108,19 @@ describe('RedisCache', () => {
         })
     })
 
+    describe('a failover that demotes the primary in place', () => {
+        // The server's reply reaches the caller as an error with no socket code; reads still work.
+        const readOnlyReply = new Error("READONLY You can't write against a read only replica.")
+
+        it('drops a warm write instead of failing the request that made it', async () => {
+            mockRedis.set = vi.fn(async () => {
+                throw readOnlyReply
+            })
+
+            await expect(cache.warm('region', 'us')).resolves.toBeUndefined()
+        })
+    })
+
     describe('a Redis error that is not a reconnect', () => {
         it('propagates from a read rather than looking like an empty cache', async () => {
             mockRedis.get = vi.fn(async () => {

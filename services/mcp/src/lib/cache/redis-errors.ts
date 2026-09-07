@@ -19,12 +19,19 @@ const TRANSIENT_SOCKET_CODES = new Set([
     'EAI_AGAIN',
 ])
 
+// A failover can demote the old primary in place, so a write replies READONLY over a
+// socket that is otherwise healthy. That describes the topology, not the data behind a key.
+const READ_ONLY_REPLICA_REPLY = 'READONLY'
+
 export function isTransientRedisError(error: unknown): error is Error {
     if (!(error instanceof Error)) {
         return false
     }
     const code = (error as NodeJS.ErrnoException).code
     if (typeof code === 'string' && TRANSIENT_SOCKET_CODES.has(code)) {
+        return true
+    }
+    if (error.message.startsWith(READ_ONLY_REPLICA_REPLY)) {
         return true
     }
     return TRANSIENT_MESSAGE_FRAGMENTS.some((fragment) => error.message.includes(fragment))
