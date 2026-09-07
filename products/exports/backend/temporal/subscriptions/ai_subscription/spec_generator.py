@@ -2,6 +2,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
+from enum import StrEnum
 from typing import Optional, Union
 
 from django.db.models import F, Q
@@ -111,6 +112,69 @@ class StoredPlanInvalidError(Exception):
     `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
 
     pass
+
+
+class AIQueryPlanStatus(StrEnum):
+    FROZEN = "frozen"
+    NOT_FROZEN = "not_frozen"
+    PLANNER_UPDATED = "planner_updated"
+
+
+def _stored_query_plan_envelope(ai_query_plan: object) -> dict[str, object]:
+    if not isinstance(ai_query_plan, dict):
+        raise StoredPlanInvalidError("Stored query plan envelope is malformed.")
+    return ai_query_plan
+
+
+def _stored_query_plan_version(envelope: dict[str, object]) -> int:
+    version = envelope.get("version")
+    # bool is an int subclass in Python, but never a meaningful compatibility version.
+    if type(version) is not int:
+        raise StoredPlanInvalidError("Stored query plan version is malformed.")
+    return version
+
+
+def validate_stored_query_plan(ai_query_plan: object) -> tuple[QueryPlan, list[str]]:
+    envelope = _stored_query_plan_envelope(ai_query_plan)
+    version = _stored_query_plan_version(envelope)
+    if version != AI_QUERY_PLAN_VERSION:
+        raise StoredPlanInvalidError("Stored query plan version is stale.")
+
+    try:
+        plan = QueryPlan.model_validate(envelope.get("plan"))
+    except ValidationError as exc:
+        raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
+
+    raw_relevant_events = envelope.get("relevant_events")
+    if raw_relevant_events is None:
+        relevant_events: list[str] = []
+    elif isinstance(raw_relevant_events, list) and all(isinstance(event, str) for event in raw_relevant_events):
+        relevant_events = list(raw_relevant_events)
+    else:
+        raise StoredPlanInvalidError("Stored query plan relevant events are malformed.")
+
+    return plan, relevant_events
+
+
+def get_ai_query_plan_status(ai_query_plan: object | None) -> AIQueryPlanStatus:
+    if ai_query_plan is None:
+        return AIQueryPlanStatus.NOT_FROZEN
+
+    try:
+        envelope = _stored_query_plan_envelope(ai_query_plan)
+        version = _stored_query_plan_version(envelope)
+    except StoredPlanInvalidError:
+        return AIQueryPlanStatus.NOT_FROZEN
+
+    # Check compatibility before the body: an older version can legitimately have an older schema.
+    if version != AI_QUERY_PLAN_VERSION:
+        return AIQueryPlanStatus.PLANNER_UPDATED
+
+    try:
+        validate_stored_query_plan(envelope)
+    except StoredPlanInvalidError:
+        return AIQueryPlanStatus.NOT_FROZEN
+    return AIQueryPlanStatus.FROZEN
 
 
 @dataclass(frozen=True)
@@ -626,7 +690,7 @@ def build_frozen_prompt(
     user: User,
     prompt: Optional[str],
     window: ReportWindow,
-    ai_query_plan: dict,
+    ai_query_plan: object,
 ) -> EnrichedPromptSpec:
     """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
 
@@ -635,17 +699,11 @@ def build_frozen_prompt(
     the subscription.
     """
     cleaned = sanitize_prompt(prompt)
-    if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
-        raise StoredPlanInvalidError("Stored query plan version is stale.")
-    try:
-        plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
-    except ValidationError as exc:
-        raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
+    plan, relevant_events = validate_stored_query_plan(ai_query_plan)
     # Rebuild the property-aware blob from the events the plan was built against — without them the
     # frozen fixer would only see event names, not the per-event properties it needs to repair a
     # wrong field. The version bump guarantees pre-relevant_events envelopes re-plan rather than
     # silently running with an empty list.
-    relevant_events = ai_query_plan.get("relevant_events") or []
     context_blob = build_context_blob(
         team,
         window,

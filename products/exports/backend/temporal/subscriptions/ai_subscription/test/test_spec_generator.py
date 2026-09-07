@@ -39,6 +39,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_frozen_prompt,
     compute_report_window,
     generate_query_plan,
+    get_ai_query_plan_status,
     sanitize_prompt,
 )
 
@@ -870,7 +871,8 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
 class TestBuildFrozenPrompt(APIBaseTest):
     """The deterministic reuse path: reconstruct the spec from a persisted plan with NO LLM calls."""
 
-    def _stored_plan(self) -> dict:
+    @staticmethod
+    def _stored_plan() -> dict:
         return {
             "version": AI_QUERY_PLAN_VERSION,
             "plan": QueryPlan(
@@ -878,6 +880,18 @@ class TestBuildFrozenPrompt(APIBaseTest):
                 steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
             ).model_dump(),
         }
+
+    def test_classifies_stored_plan_lifecycle(self) -> None:
+        for stored, expected in [
+            (None, "not_frozen"),
+            ([], "not_frozen"),
+            ({"version": True, "plan": {}}, "not_frozen"),
+            ({"version": float(AI_QUERY_PLAN_VERSION), "plan": {}}, "not_frozen"),
+            ({"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "planner_updated"),
+            ({"version": AI_QUERY_PLAN_VERSION, "plan": {}}, "not_frozen"),
+            (self._stored_plan(), "frozen"),
+        ]:
+            assert get_ai_query_plan_status(stored).value == expected
 
     @patch(f"{_SG}.MaxChatOpenAI")
     @patch(f"{_SG}._select_relevant_events")
@@ -922,13 +936,26 @@ class TestBuildFrozenPrompt(APIBaseTest):
                 "malformed",
             ),
             ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
-            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "stale"),
+            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "version"),
+            ("non_object_envelope", [], "envelope"),
+            ("boolean_version", {"version": True, "plan": {}}, "version"),
+            ("floating_version", {"version": float(AI_QUERY_PLAN_VERSION), "plan": {}}, "version"),
+            (
+                "non_list_relevant_events",
+                {**_stored_plan(), "relevant_events": "event"},
+                "relevant events",
+            ),
+            (
+                "non_string_relevant_event",
+                {**_stored_plan(), "relevant_events": [123]},
+                "relevant events",
+            ),
         ]
     )
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_invalid_stored_plan_raises_recoverable_error(
-        self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
+        self, _name: str, stored: object, match: str, _mock_top: object, _mock_groups: object
     ) -> None:
         with pytest.raises(StoredPlanInvalidError, match=match):
             build_frozen_prompt(team=self.team, user=self.user, prompt="p", window=_window(7), ai_query_plan=stored)
