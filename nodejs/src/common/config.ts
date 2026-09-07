@@ -216,7 +216,9 @@ export type CommonConfig = BaseServerConfig & {
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
     // Per-origin cap for the HTTP/2 dispatchers. One session multiplexes, but undici counts a client as busy until its
-    // session negotiates, so a burst to a cold origin opens one session per request up to this cap.
+    // session negotiates, so a burst to a cold origin opens one session per request up to this cap. Keep it above the
+    // largest per-origin concurrency a caller runs (the image fetch lane allows 6 per registrable domain), because an
+    // origin that falls back to HTTP/1.1 gets one request per connection and queues the rest against the timeout.
     EXTERNAL_REQUEST_H2_CONNECTIONS: number
 
     // PostHog analytics
@@ -262,7 +264,7 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
-        EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 4),
+        EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
     }
 }
 
@@ -416,7 +418,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
-        EXTERNAL_REQUEST_H2_CONNECTIONS: 4,
+        EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
