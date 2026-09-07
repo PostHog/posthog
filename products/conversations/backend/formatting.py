@@ -26,11 +26,12 @@ _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
-_RE_MD_UNESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
-# Fenced blocks (```...```) or simple inline spans (`code`). Their contents are literal
-# and must skip mrkdwn rewriting and backslash unescaping.
-_RE_CODE_SEGMENT = re.compile(r"```[\s\S]*?```|`[^`\n]*`")
+# A backslash escape left by serialization, a fenced block (```...```), or an inline span
+# (`code`). Both need lifting out before any rewriting: escapes because the char they hide
+# must not be read as syntax, code because its contents are literal. Escapes are matched
+# first so an escaped backtick can't pair with a real code span's opening backtick.
+_RE_MD_ESCAPE_OR_CODE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])|```[\s\S]*?```|`[^`\n]*`")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 
 
@@ -178,15 +179,7 @@ def strip_markdown_escapes(text: str) -> str:
     if not text:
         return ""
 
-    chunks: list[str] = []
-    position = 0
-    for code_segment in _RE_CODE_SEGMENT.finditer(text):
-        chunks.append(_RE_MD_UNESCAPE.sub(r"\1", text[position : code_segment.start()]))
-        chunks.append(code_segment.group(0))
-        position = code_segment.end()
-    chunks.append(_RE_MD_UNESCAPE.sub(r"\1", text[position:]))
-
-    return "".join(chunks)
+    return _RE_MD_ESCAPE_OR_CODE.sub(lambda match: match.group(1) if match.group(1) else match.group(0), text)
 
 
 def content_to_slack_mrkdwn(content: str) -> str:
@@ -194,15 +187,22 @@ def content_to_slack_mrkdwn(content: str) -> str:
     if not content:
         return ""
 
-    # Pull code out first: its contents are literal, so they must not be rewritten as
-    # mrkdwn, have escapes stripped, or have their `<`/`>`/`&` treated as user injection.
+    # Pull escaped characters and code out first. An escaped character is one the author
+    # typed literally, so it must not be read as mrkdwn syntax by the rewrites below.
+    # Code contents are literal too, and must additionally keep their `<`/`>`/`&` out of
+    # the injection check.
     code_segments: list[str] = []
+    escaped_chars: list[str] = []
 
-    def capture_code(match: re.Match) -> str:
+    def capture_escape_or_code(match: re.Match) -> str:
+        escaped_char = match.group(1)
+        if escaped_char:
+            escaped_chars.append(escaped_char)
+            return f"\x00ESC{len(escaped_chars) - 1}\x00"
         code_segments.append(match.group(0))
         return f"\x00CODE{len(code_segments) - 1}\x00"
 
-    text = _RE_CODE_SEGMENT.sub(capture_code, content)
+    text = _RE_MD_ESCAPE_OR_CODE.sub(capture_escape_or_code, content)
 
     # Escape control chars in user text before the conversions below emit their own trusted
     # `<...>` link tokens — otherwise a literal `<!channel>` would become an active broadcast.
@@ -217,20 +217,34 @@ def content_to_slack_mrkdwn(content: str) -> str:
         return f"\x00BI{len(bold_italic_matches) - 1}\x00"
 
     text = _RE_MD_BOLD_ITALIC.sub(capture_bold_italic, text)
-    text = _RE_MD_BOLD.sub(r"*\1*", text)
+
+    # Bold is stashed rather than rewritten in place: mrkdwn bold is `*x*`, which the
+    # italic rewrite below would otherwise consume and turn back into `_x_`.
+    bold_matches: list[str] = []
+
+    def capture_bold(match: re.Match) -> str:
+        bold_matches.append(match.group(1))
+        return f"\x00BOLD{len(bold_matches) - 1}\x00"
+
+    text = _RE_MD_BOLD.sub(capture_bold, text)
     text = _RE_MD_ITALIC.sub(r"_\1_", text)
     text = _RE_MD_LINK.sub(r"<\2|\1>", text)
+
+    for index, value in enumerate(bold_matches):
+        text = text.replace(f"\x00BOLD{index}\x00", f"*{value}*")
 
     for index, value in enumerate(bold_italic_matches):
         text = text.replace(f"\x00BI{index}\x00", f"*_{value}_*")
 
-    # Markdown syntax has been rewritten to Slack mrkdwn above, so drop the CommonMark
-    # backslash escapes left over from serialization — Slack mrkdwn doesn't use them and
-    # would otherwise show them literally (e.g. "world\!").
-    text = _RE_MD_UNESCAPE.sub(r"\1", text)
-
     for index, value in enumerate(code_segments):
         text = text.replace(f"\x00CODE{index}\x00", _escape_slack_control_chars(value))
+
+    # Put the escaped characters back as themselves, now that the rewrites can no longer
+    # read them as syntax — Slack mrkdwn has no backslash escaping and would show a
+    # leftover "world\!" literally. Restored before mentions so an `@member:` UUID that
+    # was escaped mid-token is whole again by the time the mention regex runs.
+    for index, value in enumerate(escaped_chars):
+        text = text.replace(f"\x00ESC{index}\x00", value)
 
     def resolve_mention(match: re.Match) -> str:
         uuid_str = match.group(1)

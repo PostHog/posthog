@@ -169,6 +169,66 @@ class TestSlackFormatting(SimpleTestCase):
 
         assert slack_text == expected
 
+    @parameterized.expand(
+        [
+            ("bold", [{"type": "bold"}], "*Hi*"),
+            ("italic", [{"type": "italic"}], "_Hi_"),
+            ("bold_italic", [{"type": "bold"}, {"type": "italic"}], "*_Hi_*"),
+        ]
+    )
+    def test_outbound_emphasis_maps_to_mrkdwn(self, _name: str, marks: list[dict], expected: str) -> None:
+        # The bold rewrite emits mrkdwn `*x*`, which the italic rewrite consumes if bold
+        # is written in place — every bold word then reaches Slack in italics.
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Hi", "marks": marks}]}],
+        }
+
+        slack_text, _ = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_text == expected
+
+    @parameterized.expand(
+        [
+            ("asterisks", "*not bold*", "*not bold*"),
+            ("underscores", "_not italic_", "_not italic_"),
+            ("backtick", "a ` b", "a ` b"),
+        ]
+    )
+    def test_outbound_text_fallback_keeps_escaped_characters_literal(
+        self, _name: str, text: str, expected: str
+    ) -> None:
+        # Serialization escapes these, so the mrkdwn rewrites must not read them as syntax
+        # and turn a literal "*not bold*" into italics on its way to the fallback.
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+        }
+
+        slack_text, _ = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_text == expected
+
+    def test_outbound_escaped_backtick_does_not_capture_following_code_span(self) -> None:
+        # An escaped backtick must not pair with a real code span's opener, or the span
+        # loses its protection and the stray backtick leaks into the fallback.
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "a ` b <@U1> "},
+                        {"type": "text", "text": "x", "marks": [{"type": "code"}]},
+                    ],
+                }
+            ],
+        }
+
+        slack_text, _ = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_text == "a ` b &lt;@U1&gt; `x`"
+
     def test_outbound_code_block_preserves_literal_backslashes(self) -> None:
         # Code bypasses markdown escaping, so the unescape pass must leave its backslashes alone.
         rich_content = {
@@ -526,6 +586,24 @@ class TestEmailFormatting(SimpleTestCase):
         txt_body, _ = rich_content_to_email_payload(rich_content, "")
 
         assert txt_body == "**Read **[the docs](https://posthog.com/docs)"
+
+    def test_escaped_backtick_does_not_capture_following_code_span(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "a ` b "},
+                        {"type": "text", "text": "x", "marks": [{"type": "code"}]},
+                    ],
+                }
+            ],
+        }
+
+        txt_body, _ = rich_content_to_email_payload(rich_content, "")
+
+        assert txt_body == "a ` b `x`"
 
     def test_code_keeps_literal_backslashes(self) -> None:
         rich_content = {
