@@ -97,6 +97,10 @@ class CustomPromptSandboxContext:
     team_id: int
     user_id: int
     repository: str | None = None
+    repositories: tuple[str, ...] = ()
+    """Repositories (``organization/repository``) the sandbox clones, in order. The first is the
+    one a branch is checked out on. Empty keeps the sandbox repo-less; prefer this over
+    ``repository`` for new callers, which stays for the single-repo ones that predate it."""
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
@@ -126,11 +130,12 @@ class CustomPromptSandboxContext:
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
     github_read_access: bool = False
-    """Inject a READ-ONLY GitHub token (``GH_TOKEN``/``GITHUB_TOKEN``) into a repo-less sandbox so
-    the agent can gather evidence via ``gh`` (commit history, PR metadata) without any write
-    capability. Only meaningful when ``repository`` is None — a task with a repository already gets
-    the full-permission credential path. Best-effort: if no team GitHub integration exists or the
-    mint fails, the sandbox starts without a token."""
+    """Downscope the sandbox's GitHub credential (``GH_TOKEN``/``GITHUB_TOKEN``) to a READ-ONLY
+    token, so the agent can read code and gather evidence via ``gh`` (commit history, PR metadata)
+    with no write capability. Independent of ``repositories``: the token carries
+    ``contents: read``, so a run that pins repositories still clones them and just cannot push.
+    Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
+    without a token."""
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -231,6 +236,7 @@ async def create_task_and_trigger(
         origin_product=origin_product or Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
+        repositories=list(context.repositories) or None,
         create_pr=False,
         mode="background",
         branch=branch,

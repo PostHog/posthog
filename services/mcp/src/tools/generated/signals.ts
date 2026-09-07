@@ -618,6 +618,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
@@ -746,6 +749,9 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
@@ -1483,6 +1489,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
@@ -1611,6 +1620,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes

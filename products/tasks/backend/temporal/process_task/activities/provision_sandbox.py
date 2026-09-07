@@ -347,14 +347,17 @@ def _resolve_sandbox_github_token(
 ) -> str:
     """Decide which GitHub credential (if any) a fresh sandbox gets.
 
-    A repo-less run that requested read-only access is resolved FIRST: _build_task attaches the
-    team's GitHub integration to every task, so has_github_credentials is true whenever the team
-    has GitHub connected at all — resolved the other way around, the write-capable installation
-    token would reach a run that asked for read-only. The read-only mint is best-effort (empty
-    string on failure, never the full token); the full credential path keeps its raise-on-failure
-    contract for repo-backed runs that can't work without credentials.
+    A run that requested read-only access is resolved FIRST: _build_task attaches the team's
+    GitHub integration to every task, so has_github_credentials is true whenever the team has
+    GitHub connected at all. Resolved the other way around, the write-capable installation
+    token would reach a run that asked for read-only. The request holds whether or not the run
+    clones, so pinning repositories onto a read-only caller buys it a checkout, never write
+    capability: a read-only mint carries `contents: read`, which is all a clone needs. The mint
+    is best-effort (empty string on failure, never the full token); the full credential path
+    keeps its raise-on-failure contract for runs that never asked to be downscoped and can't
+    work without credentials.
     """
-    if ctx.github_read_access and not has_repo:
+    if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
             ctx.run_id,
@@ -1218,10 +1221,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
-        if ctx.github_read_access and input.repository is None:
-            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a repo-less
-            # read-only run must never regain the write-capable token on resume. Best-effort — an
-            # empty token just leaves the sandbox without GitHub access.
+        if ctx.github_read_access:
+            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
+            # read-only run must never regain the write-capable token on resume, cloned repos or
+            # not. Best-effort, since an empty token just leaves the sandbox without GitHub access.
             github_token = get_readonly_github_token(ctx.team_id) or ""
         elif ctx.has_github_credentials:
             try:

@@ -15,6 +15,7 @@ from django.utils import timezone
 import posthoganalytics
 from croniter import CroniterError, croniter
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -253,7 +254,8 @@ async def arun_signals_scout(
     # Resolve the acting user up front: the skill's creator (else the config's enabler/creator)
     # when one resolves, so a scout's runs, and the AI spend attributed off the task row, land on
     # the human who authored or enabled the scout instead of pooling on one team-level default
-    # user. Scouts don't clone a repo on the cadence path, so they don't need a GitHub integration
+    # user. A scout clones with the team's read-only mint rather than the acting user's own
+    # credential, so it needs no personal GitHub link even when it pins repositories
     # — the `resolve_acting_user_id_for_team` fallback prefers the GitHub creator when present but
     # falls back to any other member with access to this project, so a team that never connected
     # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
@@ -334,24 +336,8 @@ async def arun_signals_scout(
     # Resolved here rather than inside `_spawn_and_run` so the failure and cancellation paths below
     # can report the same prompt shape the run actually got: a spawn that raises never returns, so a
     # value resolved in there would be unavailable to exactly the runs whose shape matters most.
-    # The `gh` guidance is gated on report-channel scouts whose team passes the `github_read_access`
-    # posture in the `signals-scout` flag payload (default on; per-team or fleet-wide `false` is the
-    # kill switch, resolved against the canonical project id) AND a mint preflight, since the prompt
-    # must not name `gh` when the team has no usable installation to mint from (the scout would burn
-    # budget on 401s before falling back). Repo-backed runs (the management command's `--repository`
-    # escape hatch) are excluded too: they take the full-credential provisioning path, and the
-    # section's read-only framing would misdescribe the token they actually hold.
-    github_guidance = (
-        skill_uses_report_channel(skill.allowed_tools)
-        and repository is None
-        and await database_sync_to_async(github_read_access_for_team, thread_sensitive=False)(
-            team.parent_team_id or team.id
-        )
-    )
-    if github_guidance:
-        github_guidance = await database_sync_to_async(
-            tasks_facade.can_mint_readonly_github_token, thread_sensitive=False
-        )(team.id)
+    github = await _resolve_github_posture(team=team, config=config, skill=skill, repository_override=repository)
+    github_guidance = github.prompt_names_gh
     # Resolved here alongside `github_guidance`, and for the same reason: it forks the prompt, so
     # the failure and cancellation paths below must report the same shape the run got, and a value
     # resolved inside `_spawn_and_run` would be missing on exactly the runs that raised before
@@ -367,7 +353,7 @@ async def arun_signals_scout(
             run_id=run_id,
             started_at=started_at,
             skill=skill,
-            repository=repository,
+            repositories=github.repositories,
             verbose=verbose,
             user_id=user_id,
             github_guidance=github_guidance,
@@ -608,6 +594,58 @@ def _mcp_server_names_for_run(team: Team, user_id: int, config: SignalScoutConfi
         return []
 
 
+@frozen
+class _GithubPosture:
+    """What one scout run gets from GitHub: the repositories its sandbox clones, and whether the
+    prompt may name `gh`."""
+
+    repositories: list[str]
+    prompt_names_gh: bool
+
+
+async def _resolve_github_posture(
+    *,
+    team: Team,
+    config: SignalScoutConfig,
+    skill: LoadedSkill,
+    repository_override: str | None,
+) -> _GithubPosture:
+    """Decide what this run can read on GitHub, before the sandbox is spawned.
+
+    `repositories` are cloned into the sandbox, so the agent works on a tree instead of reading
+    code one `gh api` call at a time. The scout's own pin is the cadence path; the management
+    command's `--repository` override wins, so an ad-hoc investigation can aim a scout at one repo
+    without editing its config.
+
+    `prompt_names_gh` gates the `gh` evidence section on report-channel scouts whose team passes
+    the `github_read_access` posture in the `signals-scout` flag payload (default on; per-team or
+    fleet-wide `false` is the kill switch, resolved against the canonical project id) AND a mint
+    preflight, since the prompt must not name `gh` when the team has no usable installation to
+    mint from (the scout would burn budget on 401s before falling back).
+
+    That same preflight decides whether a pin can be honored: a scout clones with the read-only
+    mint, so without a mintable installation the clone would fail on every run. The pin is dropped
+    in that case and the run goes ahead repo-less rather than wedging the lane on clone failures.
+    The prompt reads this same list, so the agent is never told about a checkout it does not have.
+    """
+    repositories = [repository_override] if repository_override else list(config.repositories or [])
+    names_gh = skill_uses_report_channel(skill.allowed_tools) and await database_sync_to_async(
+        github_read_access_for_team, thread_sensitive=False
+    )(team.parent_team_id or team.id)
+    if not names_gh and not repositories:
+        return _GithubPosture(repositories=[], prompt_names_gh=False)
+    can_mint = await database_sync_to_async(tasks_facade.can_mint_readonly_github_token, thread_sensitive=False)(
+        team.id
+    )
+    if repositories and not can_mint:
+        logger.info(
+            "signals_scout: dropping pinned repositories, no mintable GitHub installation",
+            extra={"team_id": team.id, "skill_name": skill.name, "repositories": repositories},
+        )
+        repositories = []
+    return _GithubPosture(repositories=repositories, prompt_names_gh=names_gh and can_mint)
+
+
 async def _spawn_and_run(
     *,
     team: Team,
@@ -615,7 +653,7 @@ async def _spawn_and_run(
     run_id: Any,
     started_at: Any,
     skill: LoadedSkill,
-    repository: str | None,
+    repositories: list[str],
     verbose: bool,
     user_id: int,
     github_guidance: bool,
@@ -657,27 +695,26 @@ async def _spawn_and_run(
         _write_scopes_for_run(config),
     )
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
-    # team's GitHub integration to every task, so without this request a repo-less scout run on a
+    # team's GitHub integration to every task, so without this request a scout run on a
     # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
     # every scout run downscopes that to a read-only mint (or nothing when the mint fails) —
     # a strict privilege reduction, independent of the prompt-guidance flag below.
+    #
+    # `repositories` does not weaken that. Provisioning keys the downscope on the request alone,
+    # so a scout that pins repos clones them with a `contents: read` token: it gets a working tree
+    # it can read, build, and test, and still cannot push, comment, or open a pull request. Write
+    # capability for a scout stays a separate opt-in nobody has yet.
     #
     # The `gh` guidance in the prompt is gated separately: report-channel scouts only, the
     # `github_read_access` posture in the `signals-scout` flag payload (default on; per-team or
     # fleet-wide `false` is the kill switch — resolved against the canonical project id, like
     # every flag-payload lookup), AND a mint preflight — the prompt must not name `gh` when the
     # team has no usable installation to mint from (the scout would burn budget on 401s before
-    # falling back). Repo-backed runs (the management command's `--repository` escape hatch) are
-    # excluded too: they take the full-credential provisioning path, and the section's read-only
-    # framing would misdescribe the token they actually hold.
-    # `repository` is None on the cadence path — v1 doesn't clone a repo into the
-    # sandbox. The kwarg stays wired so the management command can still pass
-    # `--repository` for ad-hoc local investigations; productionised repo access
-    # is deferred (see implementation plan).
+    # falling back).
     context = CustomPromptSandboxContext(
         team_id=team.id,
         user_id=user_id,
-        repository=repository,
+        repositories=tuple(repositories),
         sandbox_environment_id=sandbox_env_id,
         # `signals_scout` is the harness's own scope posture: project reads +
         # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`, plus a narrow
@@ -729,6 +766,10 @@ async def _spawn_and_run(
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
         write_scopes=scope_posture["extra_write_scopes"],
+        # The repositories the sandbox clones, so the prompt can point the agent at the checkout
+        # instead of leaving it to discover the tree. Same list the sandbox context carries, so
+        # the prompt can never describe a tree the run does not have.
+        repositories=repositories,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -759,6 +800,7 @@ async def _spawn_and_run(
             reasoning_effort=reasoning_effort,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            repositories=repositories,
             triggered_by=triggered_by,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
@@ -958,6 +1000,7 @@ def _create_run_row(
     reasoning_effort: str | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
+    repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> SignalScoutRun:
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
@@ -1012,6 +1055,12 @@ def _create_run_row(
     # grant, so absence reads as "the fleet posture".
     if granted_write_scopes := _granted_write_scopes(config):
         metadata["write_scopes"] = granted_write_scopes
+    # Which tree the run was looking at, so a reader of its report can tell. Stamped rather than
+    # read off the config, for the same reason as the write grant: the pin can be edited or
+    # dropped afterwards, and this is the only record of what a past run actually cloned. Omitted
+    # when the run was repo-less, so absence reads as "no checkout".
+    if repositories:
+        metadata["repositories"] = list(repositories)
     # Omitted on the default path like the model triple, so absence reads as "the schedule".
     # Load-bearing for the workflow path specifically: its 30-minute cooldown counts prior
     # *workflow*-triggered runs of this (team, skill), and this is the only record of which those

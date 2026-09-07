@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
@@ -89,16 +91,31 @@ def test_can_mint_readonly_github_token_matches_mint_eligibility(resolved, expec
         assert can_mint_readonly_github_token(1) is expected
 
 
+@parameterized.expand(
+    [
+        ("repo_less", None, False),
+        ("repo_backed", "acme/repo", True),
+    ]
+)
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_readonly_github_token")
 def test_readonly_request_takes_priority_over_full_credential_path(
-    mock_readonly: MagicMock, mock_full: MagicMock, _mock_log: MagicMock
+    _name: str,
+    repository: str | None,
+    has_repo: bool,
+    mock_readonly: MagicMock,
+    mock_full: MagicMock,
+    _mock_log: MagicMock,
 ) -> None:
-    # Task creation attaches the team's GitHub integration to every task, so a repo-less run on a
+    # Task creation attaches the team's GitHub integration to every task, so a run on a
     # GitHub-connected team satisfies the full-credential condition too. If the full path is
     # resolved first, a run that asked for read-only silently receives the write-capable
     # installation token — the exact escalation this ordering exists to prevent.
+    #
+    # The repo-backed case is the one a Signals scout with pinned repositories takes. Gating the
+    # downscope on "no repository" would hand every such scout a write-capable token as a side
+    # effect of cloning, which is a fleet-wide escalation delivered by a feature about checkouts.
     from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
         _resolve_sandbox_github_token,
     )
@@ -111,12 +128,14 @@ def test_readonly_request_takes_priority_over_full_credential_path(
         team_uuid="u",
         organization_id="o",
         github_integration_id=5,
-        repository=None,
+        repository=repository,
         distinct_id="d",
         state={"github_read_access": True},
     )
 
-    token = _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository=None, has_repo=False)
+    token = _resolve_sandbox_github_token(
+        ctx, task=MagicMock(), actor_user=None, repository=repository, has_repo=has_repo
+    )
 
     assert token == "READONLY_TOKEN"
     mock_full.assert_not_called()

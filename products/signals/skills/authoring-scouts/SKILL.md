@@ -134,6 +134,12 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
   Applies from the scout's next run.
+- `repositories` — defaults to `[]`: the scout's sandbox holds no checkout, which is right for a scout that only reads the project over MCP.
+  Set `["organization/repository", ...]` for a scout that reasons about code, and its sandbox clones each one before the run starts, so the scout can grep the tree, read the layout, and run the project's own build, type check, and tests instead of fetching files one `gh api` call at a time.
+  Up to 10 per scout, and each must be reachable through the project's GitHub connection — an unreachable name is refused on write rather than surfacing as a clone failure mid-run.
+  The scout's GitHub access stays read-only whether or not it clones, so a listed repository gives it a tree to read and never the ability to push, comment, or open a pull request. Write access for a scout is a separate opt-in that does not exist yet.
+  A multi-repository scout gets each tree on its default branch; there is no per-repository branch selection.
+  Applies from the scout's next run, and changes are activity-logged.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.

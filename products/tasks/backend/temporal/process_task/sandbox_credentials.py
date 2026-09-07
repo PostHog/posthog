@@ -378,16 +378,22 @@ class GitHubSandboxCredential:
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
-        # A repo-less read-only run must stay read-only for its whole lifetime: without this
-        # guard the periodic refresh would resolve the full credential path (the team integration
-        # is attached to every task) and silently swap the downscoped token for the write-capable
-        # one mid-run. Re-mint the same read-only grant instead; best-effort like the original.
-        if ctx.github_read_access and ctx.repository is None:
+        # A read-only run must stay read-only for its whole lifetime: without this guard the
+        # periodic refresh would resolve the full credential path (the team integration is
+        # attached to every task) and silently swap the downscoped token for the write-capable
+        # one mid-run. This holds for a run that cloned repositories too, because the pinned
+        # repositories decide what the sandbox can read, never what it can write. Re-mint the same
+        # read-only grant instead; best-effort like the original.
+        if ctx.github_read_access:
             token = get_readonly_github_token(ctx.team_id)
             if token and _loop_owner_credentials_revoked(task, ctx.state):
                 token = None
             if token:
-                apply_github_credentials_to_sandbox(sandbox, None, token)
+                # Pass the run's repository so that a cloned checkout's `origin` is rewritten
+                # with the fresh token, not just the credential file. A repo-less run has no remote
+                # to rewrite, but a repo-backed one keeps the expired token in `.git/config`
+                # without this, which fails every later `git fetch`.
+                apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
             return CredentialRefreshOutcome(
                 self.kind,
                 refreshed=bool(token),

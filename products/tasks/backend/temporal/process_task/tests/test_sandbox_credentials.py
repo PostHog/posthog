@@ -144,6 +144,36 @@ class TestGitHubSandboxCredential:
 
         assert outcome.next_refresh_seconds == 2 * 60 * 60
 
+    @pytest.mark.parametrize("repository", [None, "explore-science/paper-wizard-frontend"])
+    def test_read_only_run_re_mints_read_only_token(self, repository):
+        # The team integration is attached to every task, so this periodic refresh would otherwise
+        # resolve the full credential path and swap a downscoped token for the write-capable one
+        # partway through the run. It must hold whether or not the run cloned a repository,
+        # because a Signals scout with repositories pinned to it is read-only for its whole life.
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok("")
+        sandbox.write_file.return_value = _ok()
+        ctx = _context(repository=repository, state={"github_read_access": True})
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_readonly_github_token",
+                return_value="ghs_readonly",
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token"
+            ) as resolve_full,
+        ):
+            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
+
+        resolve_full.assert_not_called()
+        assert outcome.refreshed is True
+        assert b"ghs_readonly" in sandbox.write_file.call_args.args[1]
+        # A cloned checkout embeds the token in its `origin` URL, so a repo-backed refresh has to
+        # rewrite the remote too or the expired token stays there and every `git fetch` fails.
+        rewrote_remote = any("x-access-token:ghs_readonly" in str(c.args[0]) for c in sandbox.execute.call_args_list)
+        assert rewrote_remote is (repository is not None)
+
     def test_no_op_without_github_credentials(self):
         sandbox = MagicMock()
         ctx = _context(github_integration_id=None, github_user_integration_id=None)
