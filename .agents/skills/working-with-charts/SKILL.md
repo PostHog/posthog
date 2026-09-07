@@ -33,7 +33,6 @@ If you are writing a library fact here, move it to the topic doc and link.
 | Shared app helpers | `frontend/src/lib/charts/`, `frontend/src/lib/components/AnnotationsOverlay/`, `frontend/src/lib/components/ChartLegendSeriesMenu/`, `products/product_analytics/frontend/insights/shared/` | Reuse before writing a sibling.                                                                                                                                                                                                                          |
 
 Product code never goes into the library package.
-A transform inlined into the component is wrong regardless of how small it is.
 
 ## The adapter shape
 
@@ -88,11 +87,11 @@ Resolve the theme once per scene and pass it down when a grid renders many chart
 
 ### Series
 
-The shape rules (`data.length === labels.length`, `NaN` for a gap, unique labels, a memoized array, `overlay: true`, `stroke.partial`) are gotchas in the library `AGENTS.md`.
+The shape rules (`data.length === labels.length`, unique labels, ISO dates on time-series charts, a memoized array, `overlay: true`, `stroke.partial`) are in the library `AGENTS.md`.
 On top of them, the app adds:
 
 - `key` is a stable id from the data (`String(result.id)`), so click handlers and the legend can resolve back to the source. Never an array index.
-- On time-series charts pass ISO dates as `labels` and let `xAxis.timezone` and `interval` format them. Display labels repeat across years and collapse points onto each other.
+- Use `NaN` for a missing value, not `null`.
 - Omit `color` to take the palette by index; set it only when the product owns the color (insight result customizations, lifecycle statuses, spike bars). Canvas cannot paint `var(--x)` or `oklch()`; resolve tokens with `resolveVariableColor` or `getColorVar` first.
 - `meta` carries everything a tooltip or click handler needs. Type it (`Series<MyMeta>`) and read it from `entry.series.meta` or `clickData.series.meta`, never from array position. Insight charts use `TrendsSeriesMeta` built by `buildTrendsSeriesMeta`.
 - Hidden series stay in the array and are excluded through `config.legend.hiddenKeys`, so the legend can restore them. Drop them only where a hidden row would leave an empty band (aggregated bar value).
@@ -141,7 +140,7 @@ The library overlays, the app precedents to copy, and where a new one lives are 
 - Drag-to-zoom: `onDateRangeZoom={useDateRangeZoom(dates, context?.onDateRangeZoom)}`. The hook maps dragged indices to dates, orders them, and returns `undefined` unless the rollout flag is on and the host passed a handler, so every surface is gated in one place. The host widens the end bucket; the chart emits bucket starts.
 - Wrap every callback in `useCallback`. Unstable handlers re-register the chart's interaction layer.
 
-The handlers each chart type exposes are in the library's `interactions.md`.
+The handlers each chart type exposes are in the library's `interactions.md` and `chart-types.md`.
 
 ### Chrome around the chart
 

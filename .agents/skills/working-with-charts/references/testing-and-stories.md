@@ -42,7 +42,8 @@ The trends test files are the reference:
 
 Rules:
 
-- The rules in the library's TESTING.md apply: do not mock the library, do not query the canvas, do not read private scale state.
+- Do not mock `@posthog/quill-charts`. A `jest.mock` that captures the chart's props skips the only thing the test could prove.
+- The library's TESTING.md rules apply: no canvas pixel checks, no `scales._private` reads.
 - Pass an explicit `timeout` to `hoverUntilTooltip` / `clickAtIndex` when the call sits behind another wait, so two 3s budgets do not exceed Jest's 5s per-test limit.
 - Keep the cases that catch a regression. An `it.each` matrix whose rows only prove "a canvas rendered" catches nothing.
 
