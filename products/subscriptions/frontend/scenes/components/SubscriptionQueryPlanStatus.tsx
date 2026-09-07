@@ -1,4 +1,6 @@
-import { IconPin, IconPinFilled, IconRefresh } from '@posthog/icons'
+import { Snowflake } from 'lucide-react'
+
+import { IconRefresh } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import {
@@ -28,12 +30,17 @@ export function SubscriptionQueryPlanStatus({
         case AIQueryPlanStatusEnumApi.Frozen:
             copy =
                 "This delivery's query plan was frozen for reuse. PostHog will reuse it for future deliveries until the prompt or query planner changes. Date ranges, results, and the written report still update."
-            icon = <IconPinFilled aria-hidden="true" />
+            icon = <Snowflake aria-hidden="true" className="size-4" />
             break
         case AIQueryPlanStatusEnumApi.NotFrozen:
             copy =
                 "This delivery's query plan was not frozen for reuse. PostHog will generate a new plan for the next delivery."
-            icon = <IconPin aria-hidden="true" />
+            icon = (
+                <span className="relative inline-flex size-4 items-center justify-center">
+                    <Snowflake aria-hidden="true" className="size-4" />
+                    <span aria-hidden="true" className="absolute h-0.5 w-[1.1rem] -rotate-45 rounded bg-current" />
+                </span>
+            )
             break
         case AIQueryPlanStatusEnumApi.PlannerUpdated:
             copy =

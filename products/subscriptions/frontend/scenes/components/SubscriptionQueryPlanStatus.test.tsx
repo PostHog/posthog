@@ -45,6 +45,22 @@ describe('SubscriptionQueryPlanStatus', () => {
         expect(await screen.findByText(copy)).toBeInTheDocument()
     })
 
+    it('distinguishes frozen and not-frozen plans with a snowflake and a slashed snowflake', () => {
+        const { rerender } = render(<SubscriptionQueryPlanStatus status={AIQueryPlanStatusEnumApi.Frozen} />)
+
+        const frozenIndicator = screen.getByRole('img', { name: EXPECTED_COPY[AIQueryPlanStatusEnumApi.Frozen] })
+        expect(frozenIndicator.querySelector('svg')).toHaveClass('lucide-snowflake')
+        expect(frozenIndicator.querySelector('span[aria-hidden="true"]')).not.toBeInTheDocument()
+
+        rerender(<SubscriptionQueryPlanStatus status={AIQueryPlanStatusEnumApi.NotFrozen} />)
+
+        const notFrozenIndicator = screen.getByRole('img', {
+            name: EXPECTED_COPY[AIQueryPlanStatusEnumApi.NotFrozen],
+        })
+        expect(notFrozenIndicator.querySelector('svg')).toHaveClass('lucide-snowflake')
+        expect(notFrozenIndicator.querySelector('span[aria-hidden="true"]')).toBeInTheDocument()
+    })
+
     it.each([
         ['null', null],
         ['undefined', undefined],
