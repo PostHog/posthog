@@ -12,7 +12,7 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 # Active-users maths compute each bucket from a trailing window, so they need the days *between* the
 # two end buckets — the two-bucket scan restriction can't be applied without starving the lookback.

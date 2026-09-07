@@ -5,8 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse
 
 from posthog.schema import DataWarehouseNode, DateRange, PropertyMathType, TrendsQuery
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.trends.datawarehouse.timestamp_handling"

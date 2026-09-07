@@ -25,8 +25,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 

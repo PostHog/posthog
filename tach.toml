@@ -224,6 +224,8 @@ path = "products.cohorts"
 depends_on = [
     "products.actions",
     "posthog",
+    # A behavioural cohort filter reads a trends insight's display type.
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -675,6 +677,9 @@ depends_on = [
     "products.event_definitions",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",
+    # A trends query filtering on a first-pageview-aware property builds it through
+    # web analytics' attribution helper. Core held this import before trends moved.
+    "products.web_analytics",
 ]
 layer = "modules"
 
@@ -1013,6 +1018,8 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
+    "products.product_analytics",
     "products.replay_vision",
 ]
 layer = "modules"
