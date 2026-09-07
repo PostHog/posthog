@@ -177,6 +177,15 @@ describe("ChannelItemRow", () => {
       "All caught up",
     ],
     [
+      "a running cloud session restored after an app restart",
+      {
+        taskRunStatus: "in_progress" as const,
+        workspaceMode: "cloud" as const,
+        isGenerating: true,
+      },
+      "Working",
+    ],
+    [
       // The backend leaves an interactive run in_progress after it succeeds, so
       // the session stays open for a follow-up. Reading that as a claim marked
       // every finished session pending, forever, on a row opening it could not
@@ -187,6 +196,14 @@ describe("ChannelItemRow", () => {
         runMode: "interactive" as const,
       },
       "All caught up",
+    ],
+    [
+      "a cloud run waiting to be queued",
+      {
+        taskRunStatus: "not_started" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Loading",
     ],
     [
       // Launching: a sandbox is being claimed and the backend leaves this state

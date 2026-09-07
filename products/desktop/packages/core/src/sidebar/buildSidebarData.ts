@@ -1,5 +1,9 @@
 import { readPrUrls, type WorkspaceMode } from "@posthog/shared";
-import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  isTerminalStatus,
+  type Task,
+  type TaskRunStatus,
+} from "@posthog/shared/domain-types";
 import { taskActivityAt } from "../tasks/taskActivity";
 import { getRepositoryInfo } from "./groupTasks";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
@@ -115,10 +119,12 @@ export function filterVisibleTasks(
 }
 
 export interface TaskSession {
+  taskRunId: string;
   isPromptPending?: boolean;
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
   cloudOutput?: { pr_url?: unknown } | null;
+  agentIdleForRunId?: string;
 }
 
 /**
@@ -137,9 +143,10 @@ export function computeSidebarSessionSignature(
       typeof session.cloudOutput?.pr_url === "string"
         ? session.cloudOutput.pr_url
         : "";
+    const isAgentIdle = session.agentIdleForRunId === session.taskRunId;
     signature += `${session.taskId}:${session.isPromptPending ? 1 : 0}:${
       session.pendingPermissions?.size ?? 0
-    }:${session.cloudStatus ?? ""}:${prUrl};`;
+    }:${session.cloudStatus ?? ""}:${prUrl}:${isAgentIdle ? 1 : 0};`;
   }
   return signature;
 }
@@ -211,11 +218,21 @@ export function deriveTaskRunState(
   TaskData,
   "id" | "isGenerating" | "taskRunId" | "taskRunStatus" | "taskRunEnvironment"
 > {
+  const taskRunStatus =
+    session?.cloudStatus ?? task.latest_run?.status ?? undefined;
+  const isAgentIdle =
+    session !== undefined && session.agentIdleForRunId === session.taskRunId;
+  const isActiveCloudRun =
+    task.latest_run?.environment === "cloud" &&
+    taskRunStatus !== undefined &&
+    !isTerminalStatus(taskRunStatus) &&
+    !isAgentIdle;
+
   return {
     id: task.id,
-    isGenerating: session?.isPromptPending ?? false,
+    isGenerating: session?.isPromptPending === true || isActiveCloudRun,
     taskRunId: task.latest_run?.id ?? undefined,
-    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
+    taskRunStatus,
     taskRunEnvironment: task.latest_run?.environment ?? undefined,
   };
 }
