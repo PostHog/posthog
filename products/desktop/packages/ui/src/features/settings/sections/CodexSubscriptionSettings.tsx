@@ -18,6 +18,19 @@ import { type ReactElement, useEffect, useState } from "react";
 const SIGN_IN_POLL_TIMEOUT_MS = 10 * 60_000 + 15_000;
 const SIGN_IN_LAUNCH_FEEDBACK_MS = 4_000;
 
+interface CodexAccountStatus {
+  email?: string;
+  subscriptionType?: string;
+}
+
+function connectedAccountLabel(status: CodexAccountStatus | undefined): string {
+  if (!status?.email) return "ChatGPT account connected";
+  const plan = status.subscriptionType
+    ? ` (${status.subscriptionType} plan)`
+    : "";
+  return `Connected as ${status.email}${plan}`;
+}
+
 export function CodexSubscriptionSettings(): ReactElement | null {
   const subscription = useAdapterSubscription("codex");
   const hostTRPC = useHostTRPC();
@@ -152,7 +165,7 @@ export function CodexSubscriptionSettings(): ReactElement | null {
               className="inline-block h-1.5 w-1.5 rounded-full bg-(--green-9)"
               aria-hidden
             />
-            ChatGPT account connected
+            {connectedAccountLabel(status)}
             <span aria-hidden>&middot;</span>
             <button
               type="button"

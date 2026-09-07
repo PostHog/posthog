@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
         ("reminders", "0001_squash_2026_08_21_initial"),
         ("replay", "0001_squash_2026_08_21_initial"),
         ("replay_vision", "0001_squash_2026_08_21_initial"),
-        ("replay_vision", "0085_alter_replayobservation_error_reason"),
+        ("replay_vision", "0089_replayscanner_search_suggestions"),
         ("review_hog", "0001_squash_2026_08_21_initial"),
         ("signals", "0001_squash_2026_08_21_initial"),
         ("skills", "0001_squash_2026_08_21_initial"),

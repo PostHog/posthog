@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         ("access_control", "0001_squash_2026_08_21_initial"),
         ("actions", "0001_squash_2026_08_21_initial"),
         ("ai_observability", "0002_squash_2026_08_21_finalize_fks"),
-        ("ai_observability", "0042_aiobservabilitychecklistitemstate"),
+        ("ai_observability", "0043_drop_legacy_dataset_tables"),
         ("alerts", "0002_squash_2026_08_21_finalize_fks"),
         ("analytics_platform", "0001_squash_2026_08_21_initial"),
         ("annotations", "0001_squash_2026_08_21_initial"),

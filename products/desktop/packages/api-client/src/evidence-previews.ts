@@ -7,6 +7,14 @@
 // stays a thin "fetch by kind, shape result" dispatch.
 
 import type { SignalReport } from "@posthog/shared/domain-types";
+import {
+  type FlagAudience,
+  type FlagCondition,
+  flagReachLabel,
+  type ResolvedPerson,
+  shapeFlagAudience,
+  targetedDistinctIds,
+} from "./flag-audience";
 import type { Schemas } from "./generated";
 
 export interface EvidenceDetailField {
@@ -108,6 +116,10 @@ export interface EvidencePreview {
   };
   sections?: EvidenceDetailSection[];
   experimentResults?: ExperimentResultsPresentation;
+  /** Who a feature flag reaches, as a readable rules table. */
+  flagAudience?: FlagAudience;
+  /** Conditions every check must meet before the rules apply, such as a survey's URL. */
+  displayConditions?: FlagCondition[];
   /**
    * A dashboard's tiles, each resolvable to a live insight chart, so a full
    * page can render the metrics themselves rather than describe them.
@@ -269,8 +281,12 @@ function surveyQuestionSummary(question: unknown): string | null {
   return type ? `${prompt} (${humanizeStatus(type)})` : prompt;
 }
 
-export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
+export function shapeFlagPreview(
+  flag: Schemas.FeatureFlag,
+  people: Map<string, ResolvedPerson> = new Map(),
+): EvidencePreview {
   const name = flag.name?.trim();
+  const audience = shapeFlagAudience(flag, people);
 
   const facts: string[] = [];
   const filters = isRecord(flag.filters) ? flag.filters : {};
@@ -298,19 +314,12 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
     : isMultivariate
       ? "Multivariate"
       : "Boolean";
-  const singleRollout =
-    groups.length === 1 && isRecord(groups[0])
-      ? groups[0].rollout_percentage
-      : null;
   const stats: Array<{ label: string; value: string }> = [
-    ...(typeof singleRollout === "number"
-      ? [{ label: "Rollout", value: `${singleRollout}%` }]
-      : groups.length > 1
-        ? [{ label: "Release conditions", value: String(groups.length) }]
-        : []),
+    { label: "Reach", value: flagReachLabel(audience) },
     ...(variants > 0 ? [{ label: "Variants", value: String(variants) }] : []),
     { label: "Type", value: flagType },
   ];
+  const distinctIds = targetedDistinctIds(flag, true);
   return {
     title: flag.key,
     detail: name || undefined,
@@ -319,13 +328,10 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
       : { label: "Disabled", tone: "neutral" },
     facts,
     stats,
+    flagAudience: audience,
     sections: [
       ...detailSection("Configuration", [
         ["Type", flagType],
-        [
-          "Release conditions",
-          groups.length ? count(groups.length, "condition") : "All users",
-        ],
         [
           "Evaluation runtime",
           flag.evaluation_runtime === "all"
@@ -344,17 +350,22 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
               : "Disabled",
         ],
         [
+          "Used by",
+          flag.experiment_set?.length
+            ? count(flag.experiment_set.length, "experiment")
+            : null,
+        ],
+        [
           "Last called",
           flag.last_called_at ? formatDay(flag.last_called_at) : null,
         ],
+        [
+          distinctIds.length === 1
+            ? "Targeted distinct ID"
+            : "Targeted distinct IDs",
+          distinctIds.length > 0 ? distinctIds.join(", ") : null,
+        ],
       ]),
-      ...detailSection(
-        "Release conditions",
-        groups.map((group, index) => [
-          `Set ${index + 1}`,
-          flagConditionSummary(group),
-        ]),
-      ),
     ],
     resolvedId: String(flag.id),
   };
@@ -1155,9 +1166,11 @@ export function decorateSurveyPreview(
 }
 
 export function shapeErrorIssuePreview(
-  issue: Schemas.ErrorTrackingIssueFull,
+  issue: Schemas.ErrorTrackingIssueRead,
 ): EvidencePreview {
-  const firstSeen = `First seen ${formatDay(issue.first_seen)}`;
+  const firstSeen = issue.first_seen
+    ? `First seen ${formatDay(issue.first_seen)}`
+    : undefined;
   const assignee = issue.assignee
     ? `${issue.assignee.type} (${issue.assignee.id})`
     : null;
@@ -1172,7 +1185,7 @@ export function shapeErrorIssuePreview(
       : undefined,
     sections: detailSection("Issue", [
       ["Status", issue.status ? humanizeStatus(issue.status) : null],
-      ["First seen", formatDay(issue.first_seen)],
+      ["First seen", issue.first_seen ? formatDay(issue.first_seen) : null],
       ["Assignee", assignee],
       [
         "Linked issues",
@@ -1421,12 +1434,42 @@ function asCount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function describeCohortCriterion(criterion: QueryRecord): string | null {
+/** Cohort ids referenced by a cohort's criteria, so the caller can resolve their names. */
+export function referencedCohortIds(filters: unknown): string[] {
+  const ids = new Set<string>();
+  for (const group of criteriaGroups(filters)) {
+    for (const criterion of asRecords(group.values)) {
+      const id =
+        criterion.type === "cohort" ? conciseValue(criterion.value) : null;
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+function asRecords(value: unknown): QueryRecord[] {
+  return (Array.isArray(value) ? value : []).filter(isRecord);
+}
+
+function criteriaGroups(filters: unknown): QueryRecord[] {
+  const properties =
+    isRecord(filters) && isRecord(filters.properties)
+      ? filters.properties
+      : null;
+  return asRecords(properties?.values);
+}
+
+function describeCohortCriterion(
+  criterion: QueryRecord,
+  cohortNames: ReadonlyMap<string, string>,
+): string | null {
   const type = String(criterion.type ?? "");
   if (type === "behavioral") return describeBehavioralCriterion(criterion);
   const negated = criterion.negation === true;
-  if (type === "cohort")
-    return `Is ${negated ? "not " : ""}in cohort ${conciseValue(criterion.value) ?? "?"}`;
+  if (type === "cohort") {
+    const id = conciseValue(criterion.value) ?? "?";
+    return `Is ${negated ? "not " : ""}in cohort ${cohortNames.get(id) ?? id}`;
+  }
   if (type === "static-cohort")
     return `Is ${negated ? "not " : ""}in a static cohort`;
   if (type === "person" || type === "event" || type === "group") {
@@ -1457,19 +1500,16 @@ function describeCohortCriterion(criterion: QueryRecord): string | null {
  */
 export function cohortCriteriaSection(
   filters: unknown,
+  cohortNames: ReadonlyMap<string, string> = new Map(),
 ): EvidenceDetailSection[] {
-  const properties =
+  const groups = criteriaGroups(filters);
+  const outerAny =
     isRecord(filters) && isRecord(filters.properties)
-      ? filters.properties
-      : null;
-  const groups = (
-    Array.isArray(properties?.values) ? properties.values : []
-  ).filter(isRecord);
-  const outerAny = properties?.type === "OR";
+      ? filters.properties.type === "OR"
+      : false;
   const fields = groups.flatMap((group, index) => {
-    const criteria = (Array.isArray(group.values) ? group.values : [])
-      .filter(isRecord)
-      .map(describeCohortCriterion)
+    const criteria = asRecords(group.values)
+      .map((criterion) => describeCohortCriterion(criterion, cohortNames))
       .filter((line): line is string => line !== null);
     if (criteria.length === 0) return [];
     const joiner = group.type === "OR" ? " or " : " and ";
@@ -1482,7 +1522,10 @@ export function cohortCriteriaSection(
   return detailSection("Membership criteria", fields);
 }
 
-export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
+export function shapeCohortPreview(
+  cohort: Schemas.Cohort,
+  cohortNames: ReadonlyMap<string, string> = new Map(),
+): EvidencePreview {
   const detail =
     typeof cohort.count === "number"
       ? count(cohort.count, "person", "people")
@@ -1532,7 +1575,7 @@ export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
         ],
         ["Created", cohort.created_at ? formatDay(cohort.created_at) : null],
       ]),
-      ...cohortCriteriaSection(cohort.filters),
+      ...cohortCriteriaSection(cohort.filters, cohortNames),
     ],
   };
 }
@@ -1752,6 +1795,89 @@ export function shapeEventDefinitionPreview(
   };
 }
 
+const SURVEY_WORDING = { on: "Shown to", off: "Not shown to anyone." };
+
+const URL_MATCH_LABELS: Record<string, string> = {
+  exact: "is",
+  is_not: "is not",
+  icontains: "contains",
+  not_icontains: "does not contain",
+  regex: "matches",
+  not_regex: "does not match",
+};
+
+function surveyAudience(
+  survey: Schemas.Survey,
+  running: boolean,
+): FlagAudience {
+  const flag = isRecord(survey.targeting_flag) ? survey.targeting_flag : null;
+  const filters = isRecord(flag?.filters) ? flag.filters : null;
+  // Without a targeting flag the survey shows to everyone who meets the
+  // display conditions, which the evaluator models as one 100% rule.
+  return shapeFlagAudience(
+    {
+      key: survey.name,
+      filters: filters ?? { groups: [{ rollout_percentage: 100 }] },
+      active: running,
+    },
+    new Map(),
+    SURVEY_WORDING,
+  );
+}
+
+function surveyDisplayConditions(survey: Schemas.Survey): FlagCondition[] {
+  const conditions = isRecord(survey.conditions) ? survey.conditions : {};
+  const out: FlagCondition[] = [];
+  const url = conciseValue(conditions.url);
+  if (url) {
+    out.push({
+      subject: "URL",
+      operator: URL_MATCH_LABELS[String(conditions.urlMatchType)] ?? "contains",
+      values: [{ label: url }],
+    });
+  }
+  const selector = conciseValue(conditions.selector);
+  if (selector) {
+    out.push({
+      subject: "Element",
+      operator: "matches",
+      values: [{ label: selector }],
+    });
+  }
+  const devices = Array.isArray(conditions.deviceTypes)
+    ? conditions.deviceTypes.map(String)
+    : [];
+  if (devices.length > 0) {
+    out.push({
+      subject: "Device",
+      operator: conditions.deviceTypesMatchType === "is_not" ? "is not" : "is",
+      values: devices.map((label) => ({ label })),
+    });
+  }
+  const linkedFlag = isRecord(survey.linked_flag)
+    ? conciseValue(survey.linked_flag.key)
+    : null;
+  if (linkedFlag) {
+    out.push({
+      subject: "Flag",
+      operator: "evaluates to",
+      values: [
+        { label: linkedFlag },
+        { label: conciseValue(conditions.linkedFlagVariant) ?? "true" },
+      ],
+    });
+  }
+  const wait = conditions.seenSurveyWaitPeriodInDays;
+  if (typeof wait === "number" && wait > 0) {
+    out.push({
+      subject: "Last survey seen",
+      operator: "more than",
+      values: [{ label: `${wait} days ago` }],
+    });
+  }
+  return out;
+}
+
 export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
   let detail: string | undefined;
   let status: EvidencePreview["status"];
@@ -1771,6 +1897,8 @@ export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
     title: survey.name,
     detail,
     status,
+    flagAudience: surveyAudience(survey, status.label === "Running"),
+    displayConditions: surveyDisplayConditions(survey),
     sections: [
       ...detailSection("Survey", [
         ["State", survey.archived ? "Archived" : null],

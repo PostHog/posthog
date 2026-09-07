@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
         ("cohorts", "0002_squash_2026_08_21_finalize_fks"),
         ("conversations", "0001_squash_2026_08_21_initial"),
         ("customer_analytics", "0002_squash_2026_08_21_finalize_fks"),
-        ("customer_analytics", "0045_custom_property_definition_link_display_type"),
+        ("customer_analytics", "0049_validate_customer_task_foreign_keys"),
         ("dashboards", "0002_squash_2026_08_21_finalize_fks"),
         ("data_catalog", "0001_squash_2026_08_21_initial"),
         ("data_modeling", "0002_squash_2026_08_21_finalize_fks"),

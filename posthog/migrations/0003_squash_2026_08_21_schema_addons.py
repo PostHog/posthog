@@ -53,7 +53,7 @@ class Migration(migrations.Migration):
         ("notebooks", "0001_squash_2026_08_21_initial"),
         ("notifications", "0001_squash_2026_08_21_initial"),
         ("posthog", "0002_squash_2026_08_21_finalize_fks"),
-        ("posthog", "1333_uploaded_media_library_index"),
+        ("posthog", "1342_drop_cimd_blocklist_table"),
         ("posthog_ai", "0001_squash_2026_08_21_initial"),
         ("product_analytics", "0001_squash_2026_08_21_initial"),
         ("product_tours", "0001_squash_2026_08_21_initial"),

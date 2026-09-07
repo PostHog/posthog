@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
         ("ee", "0002_squash_2026_08_21_finalize_fks"),
         ("endpoints", "0001_squash_2026_08_21_initial"),
         ("error_tracking", "0001_squash_2026_08_21_initial"),
-        ("error_tracking", "0030_add_stackframe_team_created_at_index"),
+        ("error_tracking", "0031_errortrackingalert_errortrackingalertdestination_and_more"),
         ("event_definitions", "0001_squash_2026_08_21_initial"),
         ("experiments", "0002_squash_2026_08_21_finalize_fks"),
         ("exports", "0001_squash_2026_08_21_initial"),

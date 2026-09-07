@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
         ("dashboards", "0002_squash_2026_08_21_finalize_fks"),
         ("data_catalog", "0001_squash_2026_08_21_initial"),
         ("data_modeling", "0002_squash_2026_08_21_finalize_fks"),
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
+        ("data_modeling", "0033_alter_datawarehousesavedquery_status"),
         ("data_quality", "0001_squash_2026_08_21_initial"),
         ("data_tools", "0001_squash_2026_08_21_initial"),
         ("data_warehouse", "0001_squash_2026_08_21_initial"),

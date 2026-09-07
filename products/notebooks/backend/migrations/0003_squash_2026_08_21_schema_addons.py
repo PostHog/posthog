@@ -50,7 +50,7 @@ class Migration(migrations.Migration):
         ("mcp_store", "0001_squash_2026_08_21_initial"),
         ("messaging", "0001_squash_2026_08_21_initial"),
         ("notebooks", "0001_squash_2026_08_21_initial"),
-        ("notebooks", "0016_generatedwidgetversion_security_review_findings_and_more"),
+        ("notebooks", "0017_kernelruntime_provisioned_cpu_cores_and_more"),
         ("notifications", "0001_squash_2026_08_21_initial"),
         ("posthog", "0002_squash_2026_08_21_finalize_fks"),
         ("posthog_ai", "0001_squash_2026_08_21_initial"),

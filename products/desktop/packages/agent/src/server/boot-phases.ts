@@ -19,7 +19,16 @@ export interface AgentBootSnapshot {
   failedPhase?: AgentBootPhase;
   totalMs: number;
   httpReadyMs?: number;
+  launcherToProcessMs?: number;
   phasesMs: Partial<Record<AgentBootPhase, number>>;
+}
+
+export function launcherToProcessMs(
+  launcherStartedAtMs?: number,
+): number | undefined {
+  if (launcherStartedAtMs === undefined) return undefined;
+  const processStartedAtMs = Date.now() - process.uptime() * 1000;
+  return Math.max(0, Math.round(processStartedAtMs - launcherStartedAtMs));
 }
 
 export class AgentBootTracker {
@@ -35,6 +44,7 @@ export class AgentBootTracker {
   constructor(
     private readonly bootId: string,
     httpReadyMs?: number,
+    private readonly launcherToProcessMs?: number,
   ) {
     this.httpReadyMs = httpReadyMs;
   }
@@ -84,6 +94,9 @@ export class AgentBootTracker {
       totalMs: this.totalMs ?? this.elapsedMs(),
       ...(this.httpReadyMs !== undefined
         ? { httpReadyMs: this.httpReadyMs }
+        : {}),
+      ...(this.launcherToProcessMs !== undefined
+        ? { launcherToProcessMs: this.launcherToProcessMs }
         : {}),
       phasesMs,
     };

@@ -1,7 +1,6 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
-import { router } from 'kea-router'
 import {
     Fragment,
     type MutableRefObject,
@@ -30,6 +29,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -528,7 +528,7 @@ function SearchRoot({
                     return
                 }
                 if (item.href) {
-                    router.actions.push(item.href)
+                    navigateToHref(item.href)
                     return
                 }
             }
@@ -538,7 +538,7 @@ function SearchRoot({
                 if (openInNewTab) {
                     newInternalTab(item.href)
                 } else {
-                    router.actions.push(item.href)
+                    navigateToHref(item.href)
                 }
             }
         },
@@ -697,7 +697,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {
                 e.preventDefault()
                 onAskAiClick?.()
-                router.actions.push(urls.ai(undefined, searchValue.trim()))
+                navigateToHref(urls.ai(undefined, searchValue.trim()))
                 return
             }
             // Cmd/Ctrl+Enter opens the highlighted result in a new tab. Base UI's combobox input
@@ -765,7 +765,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                         variant="panel"
                         onClick={() => {
                             onAskAiClick?.()
-                            router.actions.push(urls.ai(undefined, searchValue.trim()))
+                            navigateToHref(urls.ai(undefined, searchValue.trim()))
                         }}
                         tooltip="Click or press Tab to ask AI"
                     >

@@ -326,17 +326,17 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert UploadedMedia.objects.count() == 0
 
     def test_list_returns_only_matching_purpose_for_own_team_newest_first(self) -> None:
-        first = self._create_media(purpose="email", file_name="first.png")
-        second = self._create_media(purpose="email", file_name="second.png")
+        first = self._create_media(purpose="canvas", file_name="first.png")
+        second = self._create_media(purpose="canvas", file_name="second.png")
         self._create_media(purpose=None, file_name="legacy-dashboard-image.png")
         self._create_media(purpose="something-else", file_name="other-purpose.png")
 
         other_team = Team.objects.create(organization=self.organization, name="other team")
         UploadedMedia.objects.create(
-            team=other_team, file_name="not-mine.png", content_type="image/png", purpose="email"
+            team=other_team, file_name="not-mine.png", content_type="image/png", purpose="canvas"
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+        response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=canvas")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         payload = response.json()
@@ -346,7 +346,7 @@ class TestMediaLibraryAPI(APIBaseTest):
         listed = payload["results"][0]
         assert listed["name"] == "second.png"
         assert listed["content_type"] == "image/png"
-        assert listed["purpose"] == "email"
+        assert listed["purpose"] == "canvas"
         assert listed["url"] == f"http://localhost:8010/uploaded_media/{second.id}"
         assert listed["created_at"] is not None
 
@@ -414,7 +414,7 @@ class TestMediaLibraryAPI(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
-                {"name": "logo.png", "purpose": "email"},
+                {"name": "logo.png", "purpose": "canvas"},
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         payload = response.json()
@@ -424,7 +424,7 @@ class TestMediaLibraryAPI(APIBaseTest):
 
         media = UploadedMedia.objects.get(id=payload["id"])
         assert media.pending is True
-        assert media.purpose == "email"
+        assert media.purpose == "canvas"
         assert media.team_id == self.team.pk
 
     def test_start_upload_requires_name_and_purpose(self) -> None:

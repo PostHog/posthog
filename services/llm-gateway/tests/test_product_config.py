@@ -136,6 +136,13 @@ class TestCheckProductAccess:
                 True,
                 None,
             ),
+            # The batch trace summarization pipeline lands on this gateway when AI_GATEWAY_URL
+            # is unset. Its model missing from this list turns that fallback into a 403 on every
+            # call, which silently starves the clusters feature of summaries.
+            ("llma_summarization", "personal_api_key", None, "gpt-5-nano", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-5-mini", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-4.1-nano", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-4o", False, "not allowed"),
             # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),

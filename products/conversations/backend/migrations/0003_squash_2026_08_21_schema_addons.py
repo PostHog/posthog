@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
         ("cdp", "0001_squash_2026_08_21_initial"),
         ("cohorts", "0002_squash_2026_08_21_finalize_fks"),
         ("conversations", "0001_squash_2026_08_21_initial"),
-        ("conversations", "0062_emailthreadaccountlink"),
+        ("conversations", "0064_alter_emailthreadaccountlink_match_source"),
         ("customer_analytics", "0002_squash_2026_08_21_finalize_fks"),
         ("dashboards", "0002_squash_2026_08_21_finalize_fks"),
         ("data_catalog", "0001_squash_2026_08_21_initial"),

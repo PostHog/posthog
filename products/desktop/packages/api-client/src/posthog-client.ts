@@ -16,6 +16,7 @@ import {
   type CloudTaskConfigOption,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
+  type GatewayModel,
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
@@ -87,6 +88,7 @@ import {
   formatDay,
   gridRows,
   hogqlEscape,
+  referencedCohortIds,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
@@ -110,6 +112,7 @@ import {
   type FetchImplementation,
   requestErrorStatus,
 } from "./fetcher";
+import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
 import { createApiClient, type Schemas } from "./generated";
 import type {
   McpAgentGrantScope,
@@ -272,6 +275,48 @@ export interface TaskSearchResult {
   task_run_id: string | null;
   channel_id: string | null;
   metadata: Record<string, unknown>;
+}
+
+/**
+ * The effective AI run defaults for the signed-in user in a project, as resolved
+ * by the tasks backend: their own preference over the project default. `source`
+ * says which level supplied them, and is `"none"` when neither is set.
+ */
+export interface TaskRunDefaults {
+  runtime_adapter: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+  source: "user" | "team" | "none";
+}
+
+export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
+  runtime_adapter: null,
+  model: null,
+  reasoning_effort: null,
+  source: "none",
+};
+
+/**
+ * A stored preference triple. All three null means the level is unset and the one
+ * below it applies — a personal preference falls back to the project default, and
+ * the project default to each surface's built-in model.
+ */
+export interface TaskRunPreferences {
+  runtime_adapter: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+}
+
+export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
+  runtime_adapter: null,
+  model: null,
+  reasoning_effort: null,
+};
+
+/** What the signed-in user has stored for this project, and what it resolves to. */
+export interface MyTaskRunConfig {
+  preferences: TaskRunPreferences;
+  resolved: TaskRunDefaults;
 }
 
 export interface TaskSessionStorageAccess {
@@ -515,12 +560,68 @@ export interface ScoutConfig {
    */
   scout_origin?: "canonical" | "custom";
   run_interval_minutes: number;
+  /**
+   * Cron schedule the scout runs on, evaluated in the project timezone. Null when
+   * the scout runs on the rolling `run_interval_minutes` cadence instead, and
+   * absent entirely on backends predating the field.
+   */
+  run_cron_schedule?: string | null;
   last_run_at: string | null;
   created_at: string;
 }
 
+export interface ScoutSuggestionProposedConfig {
+  /** Five-field cron in the project timezone, or null for a rolling interval. */
+  run_cron_schedule: string | null;
+  /** Minutes between runs when no cron is given; null means the daily default. */
+  run_interval_minutes: number | null;
+  /** False means the suggested scout would run dry and file nothing. */
+  emit: boolean;
+}
+
+export interface ScoutSuggestionItem {
+  id: string;
+  /** `canonical` turns on a PostHog scout that is off; `custom` creates a drafted one. */
+  kind: "canonical" | "custom";
+  skill_name: string;
+  title: string;
+  /** Project-specific evidence for this suggestion, in prose. */
+  why_here: string;
+  /** Custom only: the one-line description the scout would be created with. */
+  description: string;
+  /** Custom only: the complete skill body the scout would be created with. */
+  draft_body: string;
+  proposed_config: ScoutSuggestionProposedConfig;
+  /** Nothing in the current fleet covers this. */
+  gap: boolean;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface ScoutSuggestionSet {
+  /** `fresh`, `stale` (the fleet moved on), `failed` (prior batch, if any), `empty`. */
+  status: "fresh" | "stale" | "failed" | "empty";
+  generated_at: string | null;
+  model: string;
+  /** Skill names that were enabled when the batch was generated. */
+  fleet_snapshot: string[];
+  /** Suggestions not yet dismissed or acted on, best first. Up to 5. */
+  items: ScoutSuggestionItem[];
+}
+
+export interface ScoutOutputSummary {
+  count: number;
+  scout_count: number;
+  authored_report_count: number;
+  edited_report_count: number;
+  run_count: number;
+  latest_at: string | null;
+}
+
 export interface ScoutRun {
   run_id: string;
+  created_at?: string;
+  emitted_report_ids?: string[];
+  edited_report_ids?: string[];
   skill_name: string;
   skill_version: number;
   /** TaskRun-derived status, e.g. "completed" | "failed" | "in_progress" | "queued". */
@@ -577,6 +678,7 @@ export interface ScoutScratchpadEntry {
 }
 
 export interface ScoutRunsQueryParams {
+  skill_name?: string;
   date_from?: string;
   date_to?: string;
   text?: string;
@@ -1099,6 +1201,17 @@ function optionalString(value: unknown): string | null {
 // alike — never a business-specific message, so it's less actionable than the
 // endpoint's own fallback plus status code.
 const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
+/** One request per targeted distinct id; flags listing more stay raw past this. */
+const MAX_RESOLVED_FLAG_PEOPLE = 10;
+const MAX_RESOLVED_COHORTS = 10;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPropertyRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Unwrap the shared fetcher's `Failed request: [<status>] <json>` into the endpoint's clean message. */
 function extractRequestErrorMessage(error: unknown, fallback: string): string {
@@ -1762,9 +1875,7 @@ export class PostHogAPIClient {
     return data;
   }
 
-  async getCloudTaskConfigOptions(
-    adapter: Adapter = "claude",
-  ): Promise<CloudTaskConfigOption[]> {
+  async getCloudTaskGatewayModels(): Promise<GatewayModel[]> {
     const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
@@ -1775,8 +1886,14 @@ export class PostHogAPIClient {
         header: buildPosthogProjectHeaderRecord(teamId),
       },
     });
+    return normalizeGatewayModelsResponse(await response.json());
+  }
+
+  async getCloudTaskConfigOptions(
+    adapter: Adapter = "claude",
+  ): Promise<CloudTaskConfigOption[]> {
     return buildCloudTaskConfigOptions(
-      normalizeGatewayModelsResponse(await response.json()),
+      await this.getCloudTaskGatewayModels(),
       adapter,
     );
   }
@@ -2100,6 +2217,86 @@ export class PostHogAPIClient {
     return data as Schemas.Team;
   }
 
+  /**
+   * The AI run triple a task run gets when the caller pins no runtime selection —
+   * the signed-in user's per-project preference over the project default.
+   *
+   * Hand-rolled rather than routed through the generated client because
+   * `tasks/@me/config/` postdates the last schema pull.
+   */
+  async getTaskRunDefaults(projectId: number): Promise<TaskRunDefaults> {
+    return (await this.getMyTaskRunConfig(projectId)).resolved;
+  }
+
+  /** The signed-in user's stored preference for this project, plus what it resolves to. */
+  async getMyTaskRunConfig(projectId: number): Promise<MyTaskRunConfig> {
+    return await this.taskRunConfigRequest(
+      "get",
+      `/api/projects/${projectId}/tasks/@me/config/`,
+    );
+  }
+
+  /**
+   * Store the signed-in user's preference for this project. All three fields null
+   * clears it, which is how "use the project default" is expressed.
+   */
+  async updateMyTaskRunPreferences(
+    projectId: number,
+    preferences: TaskRunPreferences,
+  ): Promise<MyTaskRunConfig> {
+    return await this.taskRunConfigRequest(
+      "post",
+      `/api/projects/${projectId}/tasks/@me/config/`,
+      preferences,
+    );
+  }
+
+  /**
+   * The project-wide default. Readable by any member; only project admins may change
+   * it, which is why this client offers no writer for it — the settings page links to
+   * PostHog rather than presenting a control that would 403.
+   */
+  async getTeamTaskRunPreferences(
+    projectId: number,
+  ): Promise<TaskRunPreferences> {
+    return (
+      await this.taskRunConfigRequest(
+        "get",
+        `/api/projects/${projectId}/tasks/config/`,
+      )
+    ).preferences;
+  }
+
+  private async taskRunConfigRequest(
+    method: "get" | "post",
+    urlPath: string,
+    body?: TaskRunPreferences,
+  ): Promise<MyTaskRunConfig> {
+    const response = await this.api.fetcher.fetch({
+      method,
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Task run config request failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      ai_run_preferences?: Partial<TaskRunPreferences> | null;
+      resolved_ai_run_defaults?: TaskRunDefaults | null;
+    };
+    return {
+      // The API stores a cleared preference as `{}`, so read each field rather than
+      // assuming the triple is present.
+      preferences: {
+        runtime_adapter: payload.ai_run_preferences?.runtime_adapter ?? null,
+        model: payload.ai_run_preferences?.model ?? null,
+        reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
+      },
+      resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+    };
+  }
+
   async listSignalSourceConfigs(
     projectId: number,
   ): Promise<SignalSourceConfig[]> {
@@ -2215,14 +2412,21 @@ export class PostHogAPIClient {
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(body),
-      },
-    });
+    const response = await this.api.fetcher
+      .fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(body),
+        },
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiRequestError) {
+          throw new ScoutRequestError(error.status, subPath, readDetail(error));
+        }
+        throw error;
+      });
     if (!response.ok) {
       throw new ScoutRequestError(
         response.status,
@@ -2253,6 +2457,26 @@ export class PostHogAPIClient {
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
+  /**
+   * The pre-computed "Suggested for this project" batch: PostHog scouts worth
+   * turning on, and drafts worth creating, each with the evidence behind it.
+   * A coordinator refreshes it on a schedule, so this read never waits on one.
+   */
+  async listScoutSuggestions(projectId: number): Promise<ScoutSuggestionSet> {
+    return this.scoutGet<ScoutSuggestionSet>(projectId, "suggestions/");
+  }
+
+  async dismissScoutSuggestion(
+    projectId: number,
+    suggestionId: string,
+  ): Promise<void> {
+    await this.scoutPost<unknown>(
+      projectId,
+      `suggestions/${suggestionId}/dismiss/`,
+      {},
+    );
+  }
+
   async updateScoutConfig(
     projectId: number,
     configId: string,
@@ -2265,6 +2489,8 @@ export class PostHogAPIClient {
       enabled?: boolean;
       emit?: boolean;
       run_interval_minutes?: number;
+      /** A cron expression puts the scout on a calendar; null returns it to the rolling cadence. */
+      run_cron_schedule?: string | null;
       auto_pause_exempt?: boolean;
     },
   ): Promise<ScoutConfig> {
@@ -2290,6 +2516,17 @@ export class PostHogAPIClient {
     return (await response.json()) as ScoutConfig;
   }
 
+  /**
+   * Queue one run of a scout outside its schedule. 409 when a run is already in
+   * flight, 429 when the project's daily run budget is spent.
+   */
+  async runScoutNow(
+    projectId: number,
+    configId: string,
+  ): Promise<{ skill_name: string; workflow_id: string; started: boolean }> {
+    return await this.scoutPost(projectId, `configs/${configId}/run/`, {});
+  }
+
   async listScoutRuns(
     projectId: number,
     params?: ScoutRunsQueryParams,
@@ -2298,6 +2535,7 @@ export class PostHogAPIClient {
       projectId,
       "runs/",
       {
+        skill_name: params?.skill_name,
         date_from: params?.date_from,
         date_to: params?.date_to,
         text: params?.text,
@@ -2306,6 +2544,22 @@ export class PostHogAPIClient {
       },
     );
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  async listRecentScoutRuns(projectId: number): Promise<ScoutRun[]> {
+    return await this.scoutGet<ScoutRun[]>(
+      projectId,
+      "runs/recent-per-scout/",
+      { per_scout_limit: 18 },
+    );
+  }
+
+  async getScoutOutputSummary(projectId: number): Promise<ScoutOutputSummary> {
+    return await this.scoutGet<ScoutOutputSummary>(
+      projectId,
+      "runs/findings/summary/",
+      { window_hours: 72 },
+    );
   }
 
   async getScoutRun(projectId: number, runId: string): Promise<ScoutRun> {
@@ -2389,13 +2643,10 @@ export class PostHogAPIClient {
   }
 
   async listEvaluations(projectId: number): Promise<Evaluation[]> {
-    const data = await this.api.get(
-      "/api/environments/{project_id}/evaluations/",
-      {
-        path: { project_id: projectId.toString() },
-        query: { limit: 200 },
-      },
-    );
+    const data = await this.api.get("/api/projects/{project_id}/evaluations/", {
+      path: { project_id: projectId.toString() },
+      query: { limit: 200 },
+    });
     return data.results ?? [];
   }
 
@@ -2405,7 +2656,7 @@ export class PostHogAPIClient {
     updates: { enabled: boolean },
   ): Promise<Evaluation> {
     return await this.api.patch(
-      "/api/environments/{project_id}/evaluations/{id}/",
+      "/api/projects/{project_id}/evaluations/{id}/",
       {
         path: {
           project_id: projectId.toString(),
@@ -2729,7 +2980,7 @@ export class PostHogAPIClient {
     if (ids.length === 0) return [];
     const TASK_SUMMARIES_MAX_PAGES = 50;
     const teamId = await this.getTeamId();
-    const all: Schemas.TaskSummary[] = [];
+    const all: Schemas.TaskSummaryDTO[] = [];
     let urlPath: string = `/api/projects/${teamId}/tasks/summaries/`;
     for (let i = 0; i < TASK_SUMMARIES_MAX_PAGES; i++) {
       const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -2746,7 +2997,8 @@ export class PostHogAPIClient {
           `Failed to fetch task summaries: ${response.statusText}`,
         );
       }
-      const page = (await response.json()) as Schemas.PaginatedTaskSummaryList;
+      const page =
+        (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
       all.push(...page.results);
       if (!page.next) return all;
       const nextUrl = new URL(page.next);
@@ -2847,6 +3099,7 @@ export class PostHogAPIClient {
         github_integration?: number | null;
         github_user_integration?: string | null;
         signal_report_task_relationship?: string;
+        signal_report_discussion_question?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;
@@ -2867,7 +3120,7 @@ export class PostHogAPIClient {
         body: {
           ...taskOptions,
           origin_product: originProduct ?? "user_created",
-        } as unknown as Schemas.Task,
+        } as unknown as Schemas.TaskCreate,
       }),
     );
 
@@ -2876,7 +3129,7 @@ export class PostHogAPIClient {
 
   async updateTask(
     taskId: string,
-    updates: Partial<Schemas.Task>,
+    updates: Schemas.PatchedTaskWrite,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -2893,13 +3146,10 @@ export class PostHogAPIClient {
   /**
    * Mirror this device's archive state onto the task, so every client agrees on
    * what is archived — and so the list endpoint, which hides archived tasks,
-   * counts what the app actually shows. `archived` is on the write serializer
-   * but not yet in the generated schema.
+   * counts what the app actually shows.
    */
   async setTaskArchived(taskId: string, archived: boolean): Promise<void> {
-    await this.updateTask(taskId, {
-      archived,
-    } as unknown as Partial<Schemas.Task>);
+    await this.updateTask(taskId, { archived });
   }
 
   async deleteTask(taskId: string) {
@@ -4104,7 +4354,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4124,7 +4374,7 @@ export class PostHogAPIClient {
     }
 
     const data =
-      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailList>;
+      (await response.json()) as Partial<Schemas.PaginatedTaskRunDetailDTOList>;
     return (data.results ?? []).map((run) =>
       normalizeTaskRunResponse(run, { teamId, taskId }),
     );
@@ -4145,7 +4395,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4178,7 +4428,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to create task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.TaskRunDetail;
+    const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
@@ -4209,7 +4459,7 @@ export class PostHogAPIClient {
       throw new Error(`Failed to start task run: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Schemas.Task;
+    const data = (await response.json()) as Schemas.TaskDetailDTO;
     return normalizeTaskResponse(data, { teamId });
   }
 
@@ -4245,8 +4495,7 @@ export class PostHogAPIClient {
     runId: string,
   ): Promise<{ analysis_task_id: string; created: boolean }> {
     const teamId = await this.getTeamId();
-    const data = await this.api.post(
-      //@ts-expect-error this is not in the generated client
+    return await this.api.post(
       `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
       {
         path: {
@@ -4256,7 +4505,6 @@ export class PostHogAPIClient {
         },
       },
     );
-    return data as { analysis_task_id: string; created: boolean };
   }
 
   /**
@@ -6794,6 +7042,78 @@ export class PostHogAPIClient {
    * back to a static reference. Query-backed kinds (hogql, insight) resolve
    * in the UI instead, where chart shaping lives.
    */
+  /** Names of the cohorts a cohort's criteria reference, so the criteria read as prose. */
+  private async resolveCohortNames(
+    projectId: string,
+    filters: unknown,
+  ): Promise<Map<string, string>> {
+    const ids = referencedCohortIds(filters).slice(0, MAX_RESOLVED_COHORTS);
+    const entries = await Promise.all(
+      ids.map((id) =>
+        this.api
+          .get("/api/projects/{project_id}/cohorts/{id}/", {
+            path: { project_id: projectId, id: Number(id) },
+          })
+          .then((cohort) => [id, cohort.name ?? id] as const)
+          .catch(() => null),
+      ),
+    );
+    return new Map(entries.filter((entry) => entry !== null));
+  }
+
+  /**
+   * People behind the distinct ids a flag targets, keyed by distinct id. A
+   * lookup that fails leaves its id unresolved so the raw id still renders.
+   */
+
+  private async resolveFlagPeople(
+    projectId: string,
+    flag: Schemas.FeatureFlag,
+  ): Promise<Map<string, ResolvedPerson>> {
+    const ids = targetedDistinctIds(flag).slice(0, MAX_RESOLVED_FLAG_PEOPLE);
+    if (ids.length === 0) return new Map();
+    try {
+      // One batched call instead of one request per id: the persons list
+      // endpoint hydrates an actors query per call and shares a per-user
+      // throttle with every other person preview.
+      const response = await this.api.post(
+        "/api/projects/{project_id}/persons/batch_by_distinct_ids/",
+        {
+          path: { project_id: projectId },
+          query: {},
+          // The spec mislabels the body as a full person record; the endpoint
+          // reads a distinct_ids array.
+          body: { distinct_ids: ids } as unknown as Schemas.PersonRecord,
+        },
+      );
+      const results =
+        response && typeof response === "object" && "results" in response
+          ? (response as { results: Record<string, unknown> }).results
+          : {};
+      const people = new Map<string, ResolvedPerson>();
+      for (const distinctId of ids) {
+        const person = results[distinctId];
+        if (!isRecord(person)) continue;
+        const uuid = typeof person.uuid === "string" ? person.uuid : null;
+        if (!uuid) continue;
+        const properties = isPropertyRecord(person.properties)
+          ? person.properties
+          : {};
+        const email =
+          typeof properties.email === "string" ? properties.email : null;
+        const name = typeof person.name === "string" ? person.name : null;
+        people.set(distinctId, {
+          uuid,
+          name: name || email || distinctId,
+          email,
+        });
+      }
+      return people;
+    } catch {
+      return new Map();
+    }
+  }
+
   async getEvidencePreview(
     kind: string,
     id: string,
@@ -6819,9 +7139,10 @@ export class PostHogAPIClient {
           flag = page.results.find((entry) => entry.key === id);
         }
         if (!flag) return null;
-        // Depth: PostHog's own staleness verdict, and whether anything still
-        // evaluates the flag (7-day call volume).
-        const [status, volume] = await Promise.all([
+        // Depth: PostHog's own staleness verdict, whether anything still
+        // evaluates the flag (7-day call volume), and the people behind any
+        // distinct ids the flag targets directly, so the page can name them.
+        const [status, volume, people] = await Promise.all([
           this.api
             .get("/api/projects/{project_id}/feature_flags/{id}/status/", {
               path: { project_id: projectId, id: flag.id },
@@ -6831,9 +7152,10 @@ export class PostHogAPIClient {
             kind: "HogQLQuery",
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(flag.key)}' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
+          this.resolveFlagPeople(projectId, flag),
         ]);
         return decorateFlagPreview(
-          shapeFlagPreview(flag),
+          shapeFlagPreview(flag, people),
           status,
           gridRows(volume),
         );
@@ -6921,7 +7243,7 @@ export class PostHogAPIClient {
         const scope = `event = '$exception' AND properties.$exception_issue_id = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 30 DAY`;
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
-            "/api/environments/{project_id}/error_tracking/issues/{id}/",
+            "/api/projects/{project_id}/error_tracking/issues/{id}/",
             { path: { project_id: projectId, id } },
           ),
           this.runQuery({
@@ -7092,7 +7414,10 @@ export class PostHogAPIClient {
           "/api/projects/{project_id}/cohorts/{id}/",
           { path: { project_id: projectId, id: numericId } },
         );
-        return shapeCohortPreview(cohort);
+        return shapeCohortPreview(
+          cohort,
+          await this.resolveCohortNames(projectId, cohort.filters),
+        );
       }
       case "action": {
         if (numericId === null) return null;
@@ -7164,7 +7489,7 @@ export class PostHogAPIClient {
       }
       case "eval": {
         const evaluation = await this.api.get(
-          "/api/environments/{project_id}/evaluations/{id}/",
+          "/api/projects/{project_id}/evaluations/{id}/",
           { path: { project_id: projectId, id } },
         );
         return shapeEvaluationPreview(evaluation);

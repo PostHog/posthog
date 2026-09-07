@@ -8,7 +8,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [("replay", "0001_migrate_replay_models"), ("replay", "0002_remove_session_summary_models")]
+    replaces = [("replay", "0001_migrate_replay_models"), ("replay", "0003_drop_exception_event_ids_gin_index")]
 
     initial = True
 

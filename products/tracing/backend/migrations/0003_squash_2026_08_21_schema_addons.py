@@ -70,6 +70,7 @@ class Migration(migrations.Migration):
         ("surveys", "0001_squash_2026_08_21_initial"),
         ("tasks", "0002_squash_2026_08_21_finalize_fks"),
         ("tracing", "0001_squash_2026_08_21_initial"),
+        ("tracing", "0002_teamtracingconfig"),
         ("user_interviews", "0001_squash_2026_08_21_initial"),
         ("visual_review", "0001_squash_2026_08_21_initial"),
         ("warehouse_sources", "0001_squash_2026_08_21_initial"),
