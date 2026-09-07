@@ -16,103 +16,69 @@ Use this skill when a PostHog API request spends most of its time in Postgres or
 For ClickHouse and HogQL, use
 [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md).
 
-The goal is a smaller user-visible delay, not a faster query in isolation.
-Measure the same request before and after the change.
+Measure the same user action before and after the change.
+A faster query does not help if the action stays slow.
 
-## 1. Define the slow interaction
+## Find the source of the delay
 
-Identify the page action, endpoint, request shape, and affected users.
-Use a latency distribution such as p95 with request volume.
-The mean alone can hide slow requests.
+Record the page action, endpoint, request shape, affected users, request volume, and a latency percentile such as p95.
+Read slow APM traces with `posthog:query-apm-spans` and the `exploring-apm-traces` skill.
+The distribution shows how often requests are slow.
+The traces show where they spend time.
 
-Read one or more slow APM traces.
-Use `posthog:query-apm-spans` and the `exploring-apm-traces` skill.
-The trace shows which span owns the delay.
-The distribution shows how often the delay occurs.
+- Django ORM and `cursor.execute` spans point to Postgres.
+- ClickHouse work belongs in the ClickHouse skill.
+- Time outside database spans can indicate repeated calls, serialization, or excess data loading.
 
-## 2. Find the layer that owns the delay
+Follow the request to the function that creates the work.
+Do not optimize a view wrapper when another function owns the delay.
 
-- A Django ORM or `cursor.execute` span points to Postgres.
-- A query runner points to ClickHouse. Switch to the ClickHouse skill.
-- Time outside database spans often points to repeated calls, serialization, or excess data loading.
+## Capture the exact work
 
-Follow the request into the function that creates the work.
-Do not optimize the view wrapper if another function owns the cost.
-
-## 3. Capture the exact work
-
-Get the SQL and parameters from the slow request.
+Get the SQL and parameters from a slow request.
 Keep its filters, ordering, and page size.
-Also check for repeated queries, count queries, and work that does not block the response.
-
-A reduced query can produce a different plan.
-A local plan can also differ because local data and statistics differ from production.
-
-## 4. Inspect a production plan safely
+Check for repeated queries, count queries, and work that does not block the response.
+A reduced query can use a different plan.
+Local data and statistics can also produce a different plan.
 
 Use
 [`querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md)
-to query the production read replica.
+to inspect the production read replica.
 Start with `EXPLAIN`.
-Use `EXPLAIN (ANALYZE, BUFFERS)` only for a narrow `SELECT` that is safe to execute.
+Use `EXPLAIN (ANALYZE, BUFFERS)` only when the exact `SELECT` is safe to run.
+Inspect row estimates, indexes, join types, loops, filters, sorts, and buffer use.
 
-Check:
+## Compare the smallest useful change
 
-- estimated rows against actual rows
-- the selected indexes and join types
-- loops, rows removed by filters, and sort work
-- shared buffer reads and hits
-- work that grows with tenant size or result size
-
-## 5. Test the smallest useful change
-
-First remove work that the response does not need.
-Then consider a query or predicate change.
-Consider a new index only when measurements support it and write cost is acceptable.
-
-If one plan helps small tenants but harms large tenants, measure the tenant-size distribution.
-Test both sides of the crossover before you select a threshold.
-Do not select a threshold from one tenant.
-
+Remove work that the response does not need before you change a query or add an index.
 Compare the original and candidate with the same parameters.
-Run each form more than once and record the cache state.
-Verify that both forms return the same result.
+Run each more than once, record the cache state, and verify equal results.
 
-## 6. Implement for safe failure
+Measure the tenant-size distribution when plans can change with tenant size.
+Test both sides of a plan crossover before you select a threshold.
+One tenant is not enough evidence for a conditional plan.
 
-Prefer one plan for all tenants when it performs well across the measured range.
-Add a conditional plan only when the measurements require it.
-
-If a performance-only decision uses a cache or a size check:
+Prefer one plan when it performs well across the measured range.
+If a size check or cache selects the plan:
 
 - keep the check cheaper than the work it avoids
-- accept a stale value when it only changes latency
+- let stale data affect latency, not results
 - keep the request working when the cache fails
-- record the selected path on the request span
+- record the selected plan on the request span
 
-Use a feature flag when the change has uncertain behavior or needs a staged rollout.
-Do not add a flag only to hide missing measurements.
+Use a feature flag when behavior is uncertain or the change needs a staged rollout.
+Do not use a flag as a substitute for measurements.
 
-## 7. Add useful tests
+## Verify the change
 
-Test the public behavior at the lowest useful level.
-Add a plan or SQL-shape test only when the improvement depends on that shape.
-If the code selects between plans, test both sides and the failure path.
+Test public behavior at the lowest useful level.
+Add plan or SQL-shape tests only when the improvement depends on that shape.
+Test each plan and the failure path when the code selects between plans.
+Use a representative database for plan and timing comparisons because unit tests cannot prove latency.
 
-A unit test cannot prove production latency.
-Use a representative database to compare plans and timings.
-
-## 8. Verify after deployment
-
-Check the deploy time, then read the same latency measure and request volume.
-Use the recorded span attribute to compare paths when the implementation has more than one.
-Check error rate and database load for regressions.
-
-Report the result as one of these:
-
-- the user-visible latency improved without a regression
-- the result is mixed and needs another change
-- the change did not help and should be removed
+After deployment, check the same latency measure, request volume, error rate, and database load.
+Compare recorded plan attributes when more than one plan exists.
+Remove the change if it does not improve the user action without a regression.
 
 ## Common mistakes
 
@@ -121,5 +87,5 @@ Report the result as one of these:
 - Testing SQL that differs from the endpoint SQL.
 - Selecting a threshold from one tenant.
 - Moving the first response behind optional work.
-- Adding an index before checking an existing plan.
-- Declaring success when tests pass but the production measure does not improve.
+- Adding an index before checking the current plan.
+- Declaring success from tests instead of the production measure.

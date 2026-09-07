@@ -42,4 +42,5 @@ Check both `infiniteListLogic.ts` and `hooks/useGroupList.ts` because the legacy
 - Test the legacy and rebuild loading paths.
 
 Result tests alone do not protect the plan choice because both plans return the same rows.
-Keep focused tests for the plan boundary, cache failure, predicate form, and both endpoints.
+When plan selection changes, test the boundary, cache failure, and SQL shape.
+Verify both definition endpoints when they share the changed helper.

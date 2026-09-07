@@ -77,7 +77,7 @@ results — the session value never appears in the agent's transcript.
 `metabase:cookie` exists for humans who want to hand-roll `curl` against
 Metabase.
 
-## Running an ad-hoc query
+## Running a ClickHouse query
 
 1. Discover the current ClickHouse DB ID: `hogli metabase:databases --region <region>`.
 2. Pass that ID into `hogli metabase:query`. Pipe SQL via stdin or `--file`.
@@ -194,60 +194,29 @@ clause via `/api/dataset` against the right region's DB ID.
 ## Postgres app database
 
 Use the Postgres connection when a Django request spends time in the app database.
-Local plans help with correctness, but production data and statistics can select a different plan.
+Production data and statistics can select a different plan from local data.
 
-The Metabase connection uses a read replica.
-Run only `SELECT` and `EXPLAIN` statements.
-Do not run writes or schema changes.
-`EXPLAIN ANALYZE` executes the statement, so use it only with a narrow `SELECT`.
-
-Discover the Postgres database ID from the current database list:
+Discover the current database IDs and select the Postgres app database:
 
 ```bash
 hogli metabase:databases --region us
 ```
 
-The list can include the app database, ingestion databases, and migration databases.
-Select the app database for Django queries.
+The list can also contain ingestion and migration databases.
+Use [`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md) for the investigation workflow.
 
-### Read a production plan
+### Safety
 
-Start with `EXPLAIN` to inspect the proposed plan without running the query.
-Add `ANALYZE` and `BUFFERS` only when the query is safe to execute on the shared replica.
+The Metabase connection uses a shared read replica.
+Run only `SELECT` and `EXPLAIN` statements.
+Do not run writes or schema changes.
+Start with `EXPLAIN`, which does not run the query.
+`EXPLAIN ANALYZE` runs the query, so use it only for a narrow, safe `SELECT`.
+Keep the endpoint's filters, order, and limit because they can change the plan.
 
-```bash
-hogli metabase:query --region us --database-id <postgres-id> <<'SQL'
-EXPLAIN (ANALYZE, BUFFERS)
-SELECT id, name
-FROM posthog_eventdefinition
-WHERE COALESCE(project_id, team_id) = <project_id>
-  AND name ILIKE '<pattern>'
-ORDER BY name
-LIMIT 26
-SQL
-```
-
-Check these plan fields:
-
-1. Compare estimated rows with actual rows.
-2. Check the selected indexes and join types.
-3. Check loops, rows removed by filters, and sort work.
-4. Check shared buffer hits and reads.
-5. Find work that grows with tenant size or result size.
-
-Keep the endpoint's filters, order, and limit.
-These details can change the selected plan.
-Run a measured query more than once and record the cache state.
-Compare candidate plans with the same parameters and verify equal results.
-
-### Measure tenant size
-
-If a plan choice depends on tenant size, inspect the distribution before you select a threshold.
-Prefer an existing aggregate, pganalyze data, or another database-owner approved source.
-A grouped count can scan the full table even when it has a small result limit.
-Run `EXPLAIN` and get database-owner approval before you execute such a query on the shared replica.
-
-For a known tenant, use a bounded count to check one side of a proposed threshold:
+A count grouped by tenant can scan a full table even when its result has a limit.
+Prefer an existing aggregate or another source approved by the database owner.
+For one tenant, bound the work inside the count:
 
 ```sql
 SELECT count(*)
@@ -259,14 +228,8 @@ FROM (
 ) AS bounded_rows
 ```
 
-Measure known tenants on both sides of the proposed boundary.
-Use [`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md)
-to turn the measurements into an implementation and rollout plan.
-
-### Keep results private
-
 Results can contain customer identifiers, query text, and private scale data.
-Do not copy this data into public code, tests, pull requests, issues, or comments.
+Do not copy them into public code, tests, pull requests, issues, or comments.
 Use placeholders and broad data shapes in public output.
 
 ## Parsing Metabase responses
@@ -297,14 +260,14 @@ for row in d['data']['rows']:
 
 ### Error responses
 
-| Symptom                        | Cause                                  | Fix                                                              |
-| ------------------------------ | -------------------------------------- | ---------------------------------------------------------------- |
-| HTTP 302 to `/auth/...`        | Cookie expired or missing              | Tell user to run `hogli metabase:login --region <region>`        |
-| HTTP 401                       | Cookie rejected by ALB                 | Same as 302                                                      |
-| `"status": "failed"` + `error` | ClickHouse error (syntax, table, etc.) | Read `error`; fix SQL                                            |
-| Hangs / timeout                | Wide `query_log` scan                  | Narrow `event_time` range, add `team_id` filter, use `cluster()` |
+| Symptom                        | Cause                                | Fix                                                              |
+| ------------------------------ | ------------------------------------ | ---------------------------------------------------------------- |
+| HTTP 302 to `/auth/...`        | Cookie expired or missing            | Tell user to run `hogli metabase:login --region <region>`        |
+| HTTP 401                       | Cookie rejected by ALB               | Same as 302                                                      |
+| `"status": "failed"` + `error` | Database error (syntax, table, etc.) | Read `error`; fix SQL                                            |
+| Hangs / timeout                | Wide `query_log` scan                | Narrow `event_time` range, add `team_id` filter, use `cluster()` |
 
-## Investigation workflow
+## ClickHouse investigation workflow
 
 1. **Frame the question.** Slow per-team? Specific query pattern? Cost/memory regression?
 2. **Pick the smallest time window** that still answers the question — `query_log` is large; default to 1h–24h, expand only when needed.
