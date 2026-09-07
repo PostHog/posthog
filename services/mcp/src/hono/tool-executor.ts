@@ -860,7 +860,10 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
     }
     const { verb, targetTool } = describeExecCommand(
         command,
-        (name) => state.allTools.some((t) => t.name === name) || state.scopeGatedTools.some((t) => t.name === name)
+        (name) =>
+            state.allTools.some((t) => t.name === name) ||
+            state.scopeGatedTools.some((t) => t.name === name) ||
+            state.flagGatedTools.some((t) => t.name === name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),
