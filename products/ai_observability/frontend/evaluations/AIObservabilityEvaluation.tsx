@@ -37,6 +37,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
+import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
@@ -86,6 +87,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
+    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -460,6 +462,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 />
                             ),
                         },
+                    !isNewEvaluation &&
+                        backfillsEnabled && {
+                            key: 'backfills',
+                            label: 'Backfills',
+                            'data-attr': 'llma-evaluation-backfills-tab',
+                            content: (
+                                <EvaluationBackfillsTab
+                                    evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
+                                />
+                            ),
+                        },
                     {
                         key: 'configuration',
                         label: 'Configuration',
@@ -776,9 +790,40 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
                                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
                                         <p className="text-muted text-sm mb-4">
-                                            Configure when this evaluation should run on your LLM generations.
+                                            The evaluation runs on generations that match any one of these condition
+                                            sets. Within a set, all filters must match, and sampling decides how many of
+                                            the matching generations get evaluated.
+                                            {evaluation.target === 'trace' && (
+                                                <>
+                                                    {' '}
+                                                    Conditions match individual generations. The whole trace is
+                                                    evaluated once any of its generations matches, and sampling applies
+                                                    per trace.
+                                                </>
+                                            )}
                                         </p>
                                         <EvaluationTriggers />
+                                        <div className="bg-bg-light border rounded p-3 text-sm mt-6">
+                                            <h4 className="font-semibold mb-2">Examples:</h4>
+                                            <ul className="space-y-1 text-muted list-disc list-inside">
+                                                <li>
+                                                    <strong>10% of all generations:</strong> Set 10% sampling with no
+                                                    filter conditions
+                                                </li>
+                                                <li>
+                                                    <strong>5% of GPT-4 generations:</strong> Set 5% sampling with
+                                                    $ai_model = "gpt-4o"
+                                                </li>
+                                                <li>
+                                                    <strong>Exclude internal users:</strong> Set 100% sampling with
+                                                    person property is_internal ≠ true
+                                                </li>
+                                                <li>
+                                                    <strong>High-cost generations:</strong> Set 100% sampling with
+                                                    $ai_total_cost_usd &gt; 0.01
+                                                </li>
+                                            </ul>
+                                        </div>
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
