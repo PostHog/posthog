@@ -182,6 +182,15 @@ def _effective_layout_compaction(customization: Any) -> str:
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
 
 
+def _normalize_breakdown_colors(breakdown_colors: Any) -> list[Any]:
+    # No write path validated this JSONField before, so a stored row can hold any shape. A list of
+    # breakdown values instead of config objects has to be dropped item by item, because
+    # DictField.to_representation calls .items() and fails on a scalar or nested-list item.
+    if not isinstance(breakdown_colors, list):
+        return []
+    return [config for config in breakdown_colors if isinstance(config, dict)]
+
+
 logger = structlog.get_logger(__name__)
 
 DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
@@ -1206,11 +1215,10 @@ class DashboardCustomizationSerializer(serializers.Serializer):
 
 
 class BreakdownColorsField(serializers.ListField):
-    # Writes still require a list of objects; reads tolerate legacy rows that stored a non-list value.
+    # Writes still require a list of objects. Reads drop the legacy shapes that the write path now rejects,
+    # so one bad row cannot fail the response for every viewer of the dashboard.
     def to_representation(self, data: Any) -> list[Any]:
-        if not isinstance(data, list):
-            return []
-        return super().to_representation(data)
+        return super().to_representation(_normalize_breakdown_colors(data))
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -1587,13 +1595,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if existing_dashboard and existing_dashboard.variables:
             validated_data["variables"] = existing_dashboard.variables
 
-        # A legacy row can hold a non-list here. Copying one skips field validation and crashes the copy's response.
-        if (
-            existing_dashboard
-            and isinstance(existing_dashboard.breakdown_colors, list)
-            and existing_dashboard.breakdown_colors
-        ):
-            validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
+        # Duplication assigns straight to validated_data, so field validation never cleans the copied value.
+        # Normalize it here to keep a legacy shape out of the new row and out of the copy's response.
+        copied_breakdown_colors = (
+            _normalize_breakdown_colors(existing_dashboard.breakdown_colors) if existing_dashboard else []
+        )
+        if copied_breakdown_colors:
+            validated_data["breakdown_colors"] = copied_breakdown_colors
 
         if existing_dashboard and existing_dashboard.data_color_theme_id:
             validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id

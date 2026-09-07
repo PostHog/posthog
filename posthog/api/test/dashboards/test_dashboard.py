@@ -2282,6 +2282,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ),
             # A legacy row can store an object; duplication must drop it instead of copying it and crashing the response.
             ("legacy_object_is_dropped", {"Chrome": "preset-1", "Firefox": "preset-2"}, []),
+            # A legacy row can also store a list of breakdown values instead of config objects.
+            ("legacy_list_of_values_is_dropped", ["Chrome", "Firefox"], []),
+            (
+                "legacy_invalid_items_are_dropped",
+                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}, "Firefox", None],
+                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}],
+            ),
         ]
     )
     def test_dashboard_duplication_copies_breakdown_colors(self, _name, stored_value, expected_copied):
@@ -2303,7 +2310,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            # A valid list renders verbatim; legacy non-list values render as no colors instead of a 500.
+            # A valid list renders verbatim; legacy values render as no colors instead of a 500, whether the
+            # bad shape is the stored value itself or an item inside a stored list.
             (
                 "valid_list",
                 [{"breakdownValue": "Chrome", "colorToken": "preset-1"}],
@@ -2312,6 +2320,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ("legacy_object", {"Chrome": "preset-1"}, []),
             ("legacy_string", "preset-1", []),
             ("legacy_number", 5, []),
+            ("legacy_list_of_values", ["Chrome", "Firefox"], []),
+            ("legacy_list_of_numbers", [1], []),
+            ("legacy_nested_list_item", [["Chrome", "preset-1"]], []),
+            ("legacy_null_item", [None], []),
+            (
+                "legacy_mixed_items",
+                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}, "Firefox"],
+                [{"breakdownValue": "Chrome", "colorToken": "preset-1"}],
+            ),
         ]
     )
     def test_dashboard_retrieve_tolerates_legacy_breakdown_colors(self, _name, stored_value, expected):
