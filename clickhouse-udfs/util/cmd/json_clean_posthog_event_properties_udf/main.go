@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"runtime/pprof"
+	"slices"
 	"strings"
 	"unsafe"
 )
@@ -36,8 +37,8 @@ type pathRule struct {
 var eventPropertyRules = makeEventPropertyRules()
 
 const (
-	// Leave headroom below ClickHouse's 1024-level JSON parser ceiling so destination casts cannot poison a Kafka block.
-	maxJSONDepth             = 1000
+	// Match fastjson's parser ceiling so every stored document remains readable by the blob-cleanup UDF.
+	maxJSONDepth             = 300
 	unparseablePropertiesKey = "$unparseable_properties"
 )
 
@@ -249,7 +250,20 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	if createdFeatureFlags {
 		v.entries = append(v.entries, entry{key: "$feature_flags", value: featureFlags})
 	}
-	return p.cleanNode(eventPropertyRules, v)
+	cleaned, err := p.cleanNode(eventPropertyRules, v)
+	if err != nil {
+		return nil, err
+	}
+	for _, property := range cleaned.entries {
+		if property.key == "$feature_flags" && property.value.kind == kindObject {
+			compare := func(a, b entry) int { return strings.Compare(a.key, b.key) }
+			if !slices.IsSortedFunc(property.value.entries, compare) {
+				slices.SortFunc(property.value.entries, compare)
+				p.mutated = true
+			}
+		}
+	}
+	return cleaned, nil
 }
 
 func (p *processor) newValue(kind valueKind) *value {

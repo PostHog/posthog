@@ -32,7 +32,6 @@ import {
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
-    buildStickinessLabels,
     buildStickinessTooltipTitle,
     stickinessPercentFormatter,
     STICKINESS_TOOLTIP_CONFIG,
@@ -86,8 +85,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
 
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
-    const bucketCount = currentPeriodResult?.labels?.length ?? 0
-    const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
+    const labels = currentPeriodResult?.labels ?? []
 
     const hasData = hasTrendsChartData(indexedResults)
 

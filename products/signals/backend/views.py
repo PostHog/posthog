@@ -2994,12 +2994,10 @@ class SignalReportViewSet(
     def _resolve_report_pr_reference(self, report: SignalReport) -> tuple[str, int] | None:
         """Resolve a report's implementation PR to ``(owner/repo, pr_number)``, or None if it has none
         (or the stored URL isn't a parseable GitHub PR URL)."""
-        assignment = getattr(report, "assignment", None)
-        if assignment is None or not assignment.pr_url:
+        pr = fetch_implementation_pr_state_for_reports([str(report.id)]).get(str(report.id))
+        if pr is None:
             return None
-        if assignment.repository and assignment.pr_number:
-            return assignment.repository, assignment.pr_number
-        parsed = GitHubIntegration.parse_pull_request_url(assignment.pr_url)
+        parsed = GitHubIntegration.parse_pull_request_url(pr.url)
         if parsed is None:
             return None
         return parsed.repository, parsed.number

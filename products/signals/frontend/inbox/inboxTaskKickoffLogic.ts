@@ -149,7 +149,8 @@ async function createReportTask(
     relationship: SignalReportTaskRelationship,
     prompt: string,
     fallbackTitle: string,
-    runtimeSelection?: ClaudeRuntimeSelection
+    runtimeSelection?: ClaudeRuntimeSelection,
+    discussionQuestion?: string
 ): Promise<void> {
     // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
     const task = await api.tasks.create({
@@ -159,6 +160,8 @@ async function createReportTask(
         // Linkage fields accepted by the tasks backend for the signal_report origin.
         signal_report: report.id,
         signal_report_task_relationship: relationship,
+        signal_report_discussion_question:
+            relationship === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP ? discussionQuestion?.trim() : undefined,
     } as Parameters<typeof api.tasks.create>[0])
 
     // Kick off a cloud run so the task actually executes — creating it alone lands the user on a
@@ -320,7 +323,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
                     buildDiscussReportPrompt(currentReport, reportUrl, question),
                     'Ask AI about report',
-                    DISCUSS_RUNTIME
+                    DISCUSS_RUNTIME,
+                    question
                 )
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
