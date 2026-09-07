@@ -50,6 +50,8 @@ export const organizationsProjectsPartialUpdateBodyNameMax = 200
 
 export const organizationsProjectsPartialUpdateBodyProductDescriptionMax = 1000
 
+export const organizationsProjectsPartialUpdateBodyTagsItemMax = 255
+
 export const organizationsProjectsPartialUpdateBodyAppUrlsItemMax = 200
 
 export const organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
@@ -112,6 +114,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .nullish()
             .describe(
                 'Short description of what the project is about. This is helpful to give our AI agents context about your project.'
+            ),
+        tags: zod
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                "Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags."
             ),
         app_urls: zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyAppUrlsItemMax).nullable())
@@ -2458,6 +2466,16 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     ),
             })
             .optional(),
+        feature_flag_policy_config: zod
+            .object({
+                require_tags: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -2648,7 +2666,9 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
         onboarding_tasks: zod.unknown().optional(),
         web_analytics_pre_aggregated_tables_enabled: zod.boolean().nullish(),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        "A project and its settings, including the settings that live on its passthrough Team.\n\nThis shape is a superset of TeamSerializer's, so a request rewritten from \/api\/environments\/\nonto \/api\/projects\/ never loses a field."
+    )
 
 export const ProductEnablementCreateParams = () => zod.object({
     project_id: zod
@@ -2685,7 +2705,7 @@ export const UploadedMediaListParams = () => zod.object({
 export const UploadedMediaListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    purpose: zod.enum(['email']).describe('The library to list.'),
+    purpose: zod.enum(['canvas', 'email']).describe('The library to list.'),
 })
 
 /**

@@ -394,13 +394,16 @@ export function CommandCenterGrid({ layout, cells }: CommandCenterGridProps) {
   const activeCellIndex = useCommandCenterStore((s) => s.activeCellIndex);
   const draggedKind = useCellDragActive();
   const pendingPlacement = useCommandCenterStore((s) => s.pendingPlacement);
+  const isComposing = useCommandCenterStore((s) => s.composer !== null);
   const cancelPlacement = useCommandCenterStore((s) => s.cancelPlacement);
 
-  const placement: PlacementState | null = pendingPlacement
-    ? { mode: "pick", ...pendingPlacement }
-    : draggedKind
-      ? { mode: "drag", kind: draggedKind }
-      : null;
+  const placement: PlacementState | null = isComposing
+    ? null
+    : pendingPlacement
+      ? { mode: "pick", ...pendingPlacement }
+      : draggedKind
+        ? { mode: "drag", kind: draggedKind }
+        : null;
 
   useEffect(() => {
     if (!pendingPlacement) return;

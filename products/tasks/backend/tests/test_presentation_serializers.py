@@ -60,6 +60,10 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         [
             ("image_builder", True),
             ("signals_scout", True),
+            # These two resolve mintable gateway products, so a forged origin would reach
+            # internally funded inference under a per-run cap.
+            ("signals_chat", True),
+            ("scout_suggestions", True),
             ("user_created", False),
         ]
     )

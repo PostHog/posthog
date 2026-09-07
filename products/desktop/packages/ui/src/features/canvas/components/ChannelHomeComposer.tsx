@@ -6,7 +6,11 @@ import {
   isValidConfigValue,
   syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
-import { type AgentRuntime, adapterForModelId } from "@posthog/shared";
+import {
+  type AgentRuntime,
+  adapterForModelId,
+  PI_HARNESS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   subscriptionModelAccess,
@@ -134,7 +138,7 @@ export const ChannelHomeComposer = forwardRef<
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");
@@ -158,7 +162,11 @@ export const ChannelHomeComposer = forwardRef<
   const { hasGithubIntegration, isLoadingIntegrations } =
     useUserRepositoryIntegration();
 
-  const { workspaceMode, setWorkspaceMode } = useResolvedWorkspaceMode({
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+  } = useResolvedWorkspaceMode({
     hasGithubIntegration,
     isLoadingIntegrations,
     allowWorktree: false,
@@ -280,7 +288,7 @@ export const ChannelHomeComposer = forwardRef<
     allowNoRepo: true,
     channelContext: effectiveChannelContext,
     channelContextPath: wiki.path,
-    submissionBlocked: wiki.blocked,
+    submissionBlocked: wiki.blocked || !isWorkspaceModeResolved,
     channelName,
     channelId,
     channelContextId: channelId,

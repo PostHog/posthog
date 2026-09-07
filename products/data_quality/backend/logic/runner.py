@@ -12,6 +12,8 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
@@ -34,6 +36,8 @@ from .subject_access import check_type_reads_beyond_subject, pin_referenced_subj
 from .subjects import resolve_subject
 
 QUERY_TYPE = "data_quality_check"
+
+FAILING_STATUSES = (CheckRunStatus.FAILED, CheckRunStatus.ERRORED)
 
 STAGED_FILES_UNREADABLE = "The staged files could not be read, so this data was not audited."
 
@@ -344,13 +348,40 @@ def _record_run(
 
 
 def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
+    ran_at = datetime.now(UTC)
     check.last_status = outcome.status
-    check.last_run_at = datetime.now(UTC)
+    check.last_run_at = ran_at
     updated = ["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"]
     if outcome.status is CheckRunStatus.PASSED:
-        check.last_succeeded_at = check.last_run_at
+        check.last_succeeded_at = ran_at
         # Written only by the run that earned it. A failing run holds whatever this row said when its
         # batch loaded it, so listing the column unconditionally would let it overwrite a success a
         # concurrent run committed in between.
         updated.append("last_succeeded_at")
-    check.save(update_fields=updated)
+    if outcome.status not in FAILING_STATUSES:
+        # Any run that did not fail ends the streak: a pass clears it, and a skipped run (its subject
+        # deleted or unresolved) is not a failure to measure from. Cleared unconditionally, unlike the
+        # guarded claim below, because only a failing run holds whatever this row said when its batch
+        # loaded it -- so only it must defer to the conditional update rather than overwrite a state a
+        # concurrent run committed in between.
+        check.failing_since = None
+        updated.append("failing_since")
+    # One transaction, so the row lock the status write takes is held across the streak claim. Apart,
+    # the two commit separately and a concurrent pass can land in the gap: the claim then matches
+    # failing_since IS NULL and stamps a streak onto a row that already reads passed.
+    with transaction.atomic():
+        check.save(update_fields=updated)
+        if outcome.status in FAILING_STATUSES:
+            _claim_failing_streak(check, ran_at)
+
+
+def _claim_failing_streak(check: DataQualityCheck, failed_at: datetime) -> None:
+    claimed = (
+        DataQualityCheck.objects.for_team(check.team_id)
+        .filter(id=check.id, failing_since__isnull=True)
+        .update(failing_since=failed_at)
+    )
+    if claimed:
+        check.failing_since = failed_at
+        return
+    check.refresh_from_db(fields=["failing_since"])

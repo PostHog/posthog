@@ -30,6 +30,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
+from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
@@ -49,7 +50,13 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAGS_PER_FINDING,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
-from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.report import (
+    MAX_EVIDENCE_DESCRIPTION_LENGTH,
+    MAX_REPORT_SIGNALS,
+    MAX_REPORT_SUMMARY_LENGTH,
+    MAX_REPORT_TITLE_LENGTH,
+    MAX_SUGGESTED_REVIEWERS,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -94,6 +101,7 @@ logger = structlog.get_logger(__name__)
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
             "network_access": {"type": "string"},
+            "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
             # Closed and fully required, unlike the parent: the region is written whole or not at
             # all, so every flag is present whenever the object is. Leaving it open would generate
@@ -248,7 +256,8 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "when the run departed from a default: `model`, `runtime_adapter`, and "
             "`reasoning_effort` (routing overrode the agent-server default), `network_access` "
             "(`full` when the scout's config lifted the trusted-domain network restriction for "
-            "this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
+            "this run), `write_scopes` (the extra write access the run's token carried, when the "
+            "scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
             "absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
             "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
@@ -372,6 +381,38 @@ class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
             "UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another "
             "team are silently ignored (they contribute no rows) rather than failing the whole request. "
             f"Capped at {SCOUT_RUNS_BATCH_LIMIT} ids per call."
+        ),
+    )
+
+
+class ScoutRunTokenCostSerializer(serializers.Serializer):
+    """What one scout run spent on model calls."""
+
+    run_id = serializers.CharField(help_text="UUID of the `SignalScoutRun` this cost belongs to.")
+    token_cost_usd = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. "
+            "Null when no generation is attributed to the run — it failed before its first model call, "
+            "or its events haven't landed yet. A run still in progress reports what it has spent so far."
+        ),
+    )
+
+
+class ScoutRunTokenCostsSerializer(serializers.Serializer):
+    """Model spend for a batch of scout runs."""
+
+    costs = ScoutRunTokenCostSerializer(
+        many=True,
+        help_text=(
+            "One entry per requested run that exists on this project. Runs from another project, and "
+            "ids that match no run, are absent."
+        ),
+    )
+    available = serializers.BooleanField(
+        help_text=(
+            "False when this deployment has no internal AI observability project to read the "
+            "generations from, so `costs` is empty and every cost is unknown rather than zero."
         ),
     )
 
@@ -734,6 +775,7 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class _BestEffortDateTimeField(serializers.DateTimeField):
     """A `DateTimeField` that never fails the request on an unparseable value.
 
@@ -741,9 +783,32 @@ class _BestEffortDateTimeField(serializers.DateTimeField):
     writes carry a malformed or nonsense datetime. The expiry is optional metadata; the content is
     the memory worth keeping. Coerce an unparseable value to `None` (durable) instead of rejecting
     the whole write — the same best-effort stance `run_id` takes on this serializer.
+
+    The field presents as a plain string, not `format: date-time`, so this tolerance can run. A
+    `date-time` format makes the generated MCP client reject an offset-less datetime or a bare date
+    before the request leaves the caller, and the write is lost one layer above this code — the
+    same reason `_BestEffortUUIDField` works, where the `uuid` format is stripped during codegen.
     """
 
     def run_validation(self, data: Any = empty) -> datetime | None:
+        try:
+            return super().run_validation(data)
+        except serializers.ValidationError:
+            return None
+
+
+class _BestEffortUUIDField(serializers.UUIDField):
+    """A `UUIDField` that never fails the request on an unparseable value.
+
+    The scout reads its `run_id` out of the run prompt and retypes it into the write, so a share of
+    writes carry a truncated or mistyped identifier. Lineage is optional metadata; the content is
+    the memory worth keeping. Coerce an unparseable value to `None` (lineage left unstamped)
+    instead of rejecting the whole write — the same best-effort stance `expires_at` takes on this
+    serializer, and the stance the view already takes on a `run_id` that names no run on this
+    project.
+    """
+
+    def run_validation(self, data: Any = empty) -> UUID | None:
         try:
             return super().run_validation(data)
         except serializers.ValidationError:
@@ -766,13 +831,15 @@ class RememberRequestSerializer(serializers.Serializer):
         max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
         help_text="Prose to write. Read verbatim into future prompts.",
     )
-    run_id = serializers.UUIDField(
+    run_id = _BestEffortUUIDField(
         required=False,
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
-            "null), not rejected, so the memory write is never lost."
+            "Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is "
+            "dropped rather than rejected, so the memory write is never lost. Omit it and the "
+            "lineage still lands: a write from a scout sandbox is attributed to that sandbox's own "
+            "run."
         ),
     )
     expires_at = _BestEffortDateTimeField(
@@ -849,7 +916,10 @@ class ScoutNoteSerializer(serializers.Serializer):
             "fleet-level steering. `report_discussion` for the question someone asked when they "
             "opened a discussion on a report: context to weigh, neither a verdict on the report nor "
             "a directive. `report_feedback` for the note someone left when rating a report useful or "
-            "not: one reader's rating of the named report, context to weigh rather than a directive."
+            "not: one reader's rating of the named report, context to weigh rather than a directive. "
+            "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
+            "report: evidence about who owns that surface, and a prompt to revisit the routing "
+            "memory it corrects, rather than a directive."
         ),
     )
 
@@ -929,19 +999,22 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
             "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
-    expires_at = serializers.DateTimeField(
+    expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
         help_text=(
             "Optional ISO-8601 expiry. After this time the note drops out of the default list view, "
             "so time-boxed steering ('watch closely this week') retires itself. Omit for a note that "
-            "stays active until deleted."
+            "stays active until deleted. Best-effort — a value that can't be parsed or is already in "
+            "the past is dropped (the note stays active), not rejected, so the note is never lost."
         ),
     )
 
     def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would hide the note the moment it lands. Drop it rather than rejecting the
+        # whole call — the steering prose is what the author came to write, the expiry is not.
         if value is not None and value <= timezone.now():
-            raise serializers.ValidationError("expires_at must be in the future")
+            return None
         return value
 
 
@@ -1058,15 +1131,11 @@ class ReportEvidenceSerializer(serializers.Serializer):
     """One observation backing an authored report — becomes a bound signal row on the report."""
 
     description = serializers.CharField(
+        max_length=MAX_EVIDENCE_DESCRIPTION_LENGTH,
         help_text="Prose for this observation. Embedded and rendered to the safety/research surfaces.",
     )
     source_id = serializers.CharField(
         help_text="Stable id for this observation within the report (lets a later edit address it).",
-    )
-    weight = serializers.FloatField(
-        required=False,
-        min_value=0.0,
-        help_text="Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.",
     )
 
 
@@ -1133,7 +1202,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "The report body the inbox shows. Markdown is supported (headings, lists, code, links; "
             "images are not rendered). Lead with one plain declarative sentence — the inbox card uses "
             "your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the "
-            "full markdown in the detail view."
+            "full markdown in the detail view. A heading, or a bold label on a line of its own with a "
+            "blank line above it, marks a section that a threaded Slack delivery splits into its own reply."
         ),
     )
     evidence = serializers.ListField(
@@ -1165,10 +1235,11 @@ class EmitReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the "
-            "`NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form "
-            "selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` "
-            "when you know it."
+            "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass "
+            "`owner/repo` whenever you can say where a fix would land. Omit the field when you can't, "
+            "which triggers free-form selection across the team's repos (the slow path on a many-repo "
+            "team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control "
+            "could change, since a skill body, a config file, or a doc still lives in a repo."
         ),
     )
     priority = serializers.ChoiceField(
@@ -1208,9 +1279,10 @@ class EmitReportRequestSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
         max_length=MAX_SUGGESTED_PROMPTS,
         help_text=(
-            "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks "
-            "one to fill the box with it, then sends or edits it. Write the questions your own research "
-            "left open, phrased as the reader would ask them."
+            "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or "
+            "next-step actions to request (e.g. carrying out the report's recommendation). The reader "
+            "clicks one to fill the box with it, then sends or edits it. Write the prompts your own "
+            "research left open, phrased as the reader would send them."
         ),
     )
 
@@ -1261,16 +1333,34 @@ class EditReportRequestSerializer(serializers.Serializer):
     summary = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=MAX_REPORT_SUMMARY_LENGTH,
         help_text=(
             "Optional new summary. Markdown is supported (headings, lists, code, links; images are not "
             "rendered); lead with one plain declarative sentence — it becomes the inbox card headline. "
-            "The pipeline may later re-research and overwrite it."
+            "A heading, or a bold label on a line of its own with a blank line above it, marks a section "
+            "that a threaded Slack delivery splits into its own reply. The pipeline may later re-research "
+            "and overwrite it."
         ),
     )
     append_note = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
+    )
+    append_evidence = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=ReportEvidenceSerializer(),
+        max_length=MAX_REPORT_SIGNALS,
+        help_text=(
+            "Optional observations to add to the report's evidence rail, each becoming a bound signal "
+            "attributed to this scout — adds to the report's evidence rather than replacing it. Use "
+            "this for a new observation a reader should be able to check, and `append_note` for "
+            "commentary (the owning team knows, a deploy fixed it). The report's signal count and "
+            "weight move with the appended rows. Emit plus every append share a cap of "
+            f"{MAX_REPORT_SIGNALS} signals per report."
+        ),
     )
     suggested_reviewers = serializers.ListField(
         required=False,
@@ -1301,11 +1391,11 @@ class EditReportRequestSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
         max_length=MAX_SUGGESTED_PROMPTS,
         help_text=(
-            "The full set of follow-up questions the report should offer above its `Ask AI` box. "
-            "Replaces the report's questions rather than adding to them, so send every one you want "
-            "kept. Omit the field (or send null) to leave them untouched, and send an empty list to "
-            "take them down, which is what you want once a rewrite has left them answering the old "
-            "report."
+            "The full set of follow-up prompts (questions or next-step actions) the report should "
+            "offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, "
+            "so send every one you want kept. Omit the field (or send null) to leave them untouched, "
+            "and send an empty list to take them down, which is what you want once a rewrite has "
+            "left them pointing at the old report."
         ),
     )
 
@@ -1317,6 +1407,9 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    evidence_appended = serializers.IntegerField(
+        help_text="How many observations this edit added to the report's evidence rail; 0 if none."
+    )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
     charts_set = serializers.IntegerField(
         allow_null=True,
@@ -1329,7 +1422,7 @@ class EditReportResponseSerializer(serializers.Serializer):
     suggested_prompts_set = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "How many questions the report now suggests, or null if the edit left them as they were "
+            "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
         ),
@@ -2117,8 +2210,9 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, post a report as a thread: a short lead in the channel and the rest split "
-            "by the report's Markdown headings into replies. Keeps a long summary from being clipped "
-            "at Slack's section limit. Off by default, and it does not change how findings post."
+            "into replies at the summary's section labels, which can be Markdown headings or bold "
+            "labels. Keeps a long summary from being clipped at Slack's section limit. Off by "
+            "default, and it does not change how findings post."
         ),
     )
 
@@ -2373,6 +2467,50 @@ def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
     return [str(server_id) for server_id in value]
 
 
+# Sorted so the help text, the error message, and the picker all name the scopes in one order.
+GRANTABLE_WRITE_SCOPES: list[str] = sorted(SCOUT_GRANTABLE_WRITE_SCOPES)
+
+_WRITE_SCOPES_HELP = (
+    "Extra write access granted to this one scout, as scope strings. The grantable set is "
+    f"{', '.join(f'`{scope}`' for scope in GRANTABLE_WRITE_SCOPES)}. Empty (the default) means the "
+    "scout reads the project and writes only what every scout may write: notebooks, its findings, "
+    "and its own memory. Each scope is project-wide and object-level, so a scout holding "
+    "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
+    "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
+    "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
+    "it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+)
+
+
+def _write_scopes_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(),
+        read_only=read_only,
+        required=False,
+        max_length=len(GRANTABLE_WRITE_SCOPES),
+        help_text=_WRITE_SCOPES_HELP,
+    )
+
+
+def _validate_write_scopes(value: list[str]) -> list[str]:
+    """Reject anything outside the allowlist, then dedupe and sort what is left.
+
+    This is the first of the two gates on a grant. It is the one a person sees, so the error
+    names every grantable scope rather than only the rejected one. The second gate runs at mint
+    time (`resolve_scopes`), which is what makes a hand-edited or since-narrowed grant harmless.
+
+    Sorting means the activity log records a change only when the granted set changed, not every
+    time a client resends the same scopes in a different order.
+    """
+    ungrantable = sorted(set(value) - SCOUT_GRANTABLE_WRITE_SCOPES)
+    if ungrantable:
+        raise serializers.ValidationError(
+            f"Not grantable to a scout: {', '.join(ungrantable)}. "
+            f"Grantable scopes are {', '.join(GRANTABLE_WRITE_SCOPES)}."
+        )
+    return sorted(set(value))
+
+
 class ScoutOrigin(models.TextChoices):
     CANONICAL = "canonical", "canonical"
     CUSTOM = "custom", "custom"
@@ -2543,6 +2681,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=_SCOUT_TAGS_HELP_TEXT,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field(read_only=True)
+    write_scopes = _write_scopes_field(read_only=True)
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -2586,6 +2725,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "network_access",
             "model",
             "mcp_gateway_server_ids",
+            "write_scopes",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -2713,6 +2853,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    write_scopes = _write_scopes_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -2731,6 +2872,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
         return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_write_scopes(self, value: list[str]) -> list[str]:
+        return _validate_write_scopes(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
@@ -2808,6 +2952,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "auto_pause_exempt",
             "tags",
             "mcp_gateway_server_ids",
+            "write_scopes",
         ]
 
 
@@ -2878,6 +3023,7 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
     )
 
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    write_scopes = _write_scopes_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -2900,6 +3046,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
         return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_write_scopes(self, value: list[str]) -> list[str]:
+        return _validate_write_scopes(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
@@ -2956,6 +3105,14 @@ class SignalScoutCreateSerializer(serializers.Serializer):
         help_text=(
             "Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, "
             "emitting scout on the daily interval with no external destination."
+        ),
+    )
+    suggestion_id = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text=(
+            "Optional id of the suggestion this scout was created from. The suggestion then stops "
+            "being offered on this project. An id this project's batch does not hold is ignored."
         ),
     )
 

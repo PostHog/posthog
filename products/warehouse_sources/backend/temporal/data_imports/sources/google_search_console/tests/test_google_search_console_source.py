@@ -191,13 +191,15 @@ def test_missing_integration_is_non_retryable():
 
 
 @pytest.mark.parametrize(
-    "status_code,expected_substring",
+    "status_code,body,expected_substring",
     [
-        (401, "rejected the credentials"),
-        (403, "rejected the credentials"),
+        (401, {}, "Reconnect your Google account"),
+        (403, {}, "can't read any Search Console property"),
+        # A quota 403 says nothing about the connection, so it must not send the user reconnecting.
+        (403, {"error": {"errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded"}]}}, "rate limiting"),
     ],
 )
-def test_validate_credentials_handles_auth_failures(status_code, expected_substring):
+def test_validate_credentials_handles_auth_failures(status_code, body, expected_substring):
     import requests
 
     with mock.patch(
@@ -205,6 +207,7 @@ def test_validate_credentials_handles_auth_failures(status_code, expected_substr
     ) as mock_session_factory:
         response = mock.MagicMock()
         response.status_code = status_code
+        response.json.return_value = body
         err = requests.HTTPError(response=response)
         session = mock.MagicMock()
         session.get.return_value.raise_for_status.side_effect = err
@@ -218,6 +221,40 @@ def test_validate_credentials_handles_auth_failures(status_code, expected_substr
 
     assert ok is False
     assert expected_substring in (message or "")
+
+
+@pytest.mark.parametrize(
+    "body,expected_substring",
+    [
+        ({}, "can't read any Search Console property"),
+        ({"error": {"errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded"}]}}, "rate limiting"),
+    ],
+)
+def test_get_oauth_accounts_reports_why_the_property_list_failed(body, expected_substring):
+    import requests
+
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+        IntegrationAccountListingError,
+    )
+
+    response = mock.MagicMock()
+    response.status_code = 403
+    response.json.return_value = body
+    err = requests.HTTPError(response=response)
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            side_effect=err,
+        ),
+        pytest.raises(IntegrationAccountListingError) as raised,
+    ):
+        GoogleSearchConsoleSource().get_oauth_accounts(integration_id=1, team_id=1)
+
+    assert expected_substring in str(raised.value)
 
 
 def test_validate_credentials_missing_integration_returns_reconnect_message():

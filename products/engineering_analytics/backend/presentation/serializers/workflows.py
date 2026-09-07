@@ -248,6 +248,11 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "percentile_run_count": {
                 "help_text": "Successful runs that did real CI work. This is the p50/p95 sample count."
             },
+            "merge_queue_run_count": {
+                "help_text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless "
+                "of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest "
+                "available proxy for a required check."
+            },
         }
 
 
