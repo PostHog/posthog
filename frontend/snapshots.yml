@@ -1641,9 +1641,9 @@ snapshots:
     components-playerinspector-itemdoctor--snapshot-type-counts--light:
         hash: v1.k794b7964.0f18d95f7773bbf995f86cf13254ff41ddc6b11d1d3b5c0641f60365355e3145.eUs-pGedPj1ElXgGW6VAnNTrZ0vEr4u1doXrtaTdy6Y
     components-playerinspector-itemevent--ai-generation-event--dark:
-        hash: v1.k794b7964.f991db692d775d339e8bed8d12c533f02207ac0d3f3b7adbe630fe0c541e42ce.zxpSfaxS2eHjjTXhplStJfs3cAjOZD0ftIkQao3wiv8
+        hash: v1.k794b7964.2db6a7f5781e14fc5a59f069d66b2744c5277538b088174fe726498986759896.rB-LOp-yHTBzmG8AQ2JyqmRpiBFOxW-QbrJClJlSjF8
     components-playerinspector-itemevent--ai-generation-event--light:
-        hash: v1.k794b7964.a82cde756818d5bfc854eebebf0f5cdba274e2f6f29b5e7382a969b29dc0f80f.qdXT4jN2t39G6YO37Y8td0VDvRQjrxjaTTh7E_N2Nhk
+        hash: v1.k794b7964.61e65ea3eb5fe542f9bd91b7ee9b0b3a16442f13bbdf2e81bf41747fb24e10da.XnbgMKlrsPZqakfdMBa-FZy9sfHOU0LvNH8nz5Z7j6A
     components-playerinspector-itemevent--ai-span-event--dark:
         hash: v1.k794b7964.c5c56c80712339d4648486695cd7018284ac9bda6b7c7689900e5ec52a56cac5.p_Y5dQcQADN_IzSF_08ADaFMVXDlQsfoTunAuGucO80
     components-playerinspector-itemevent--ai-span-event--light:
@@ -6013,37 +6013,37 @@ snapshots:
     scenes-app-ai-observability-clustercard--without-metrics--light:
         hash: v1.k794b7964.c5ee6757d060a3942b3c811cf3302d5619ed060659e6629503a3128f431ef919.EaDgjcrVCZGQSn5oAcspURsPpm6QZu6rr2LCHmgYNyg
     scenes-app-ai-observability-conversation-display--anthropic--dark:
-        hash: v1.k794b7964.87f4440b5a5bd8a370d835987f5422f4e4d8d2ea8086bdd85ad1264bc81c85d7.SCSsIud9YJ1GO35Sng0mwALj3XtFJhvs5f8UKgEn5AU
+        hash: v1.k794b7964.6c0c17698de15753642ffae47294cec53db8d7e6e4751830dd8983fd03bfc651.008raY9qkW-UWHLyUXplV3iqN6IKZMJE_-jaFl5QW3M
     scenes-app-ai-observability-conversation-display--anthropic--light:
-        hash: v1.k794b7964.153d5fe9eafbb67eb746a3ff3f516c67e65a84542325171764b68f6effbc3393.1EGkU0sySBFFoIO7iHUB6iLLycQqtjlgq7wInrBMgLc
+        hash: v1.k794b7964.4c78db14e941e0e41d2394ddf76a39374619c0b659d028a1037083505089d4fb.zgA0ou2ogDTrfur3JSMCifaBvxJvWaV0eJSHD6MuBDI
     scenes-app-ai-observability-conversation-display--basic--dark:
-        hash: v1.k794b7964.9ea11684de93cf0bf2fabc01d05a7b4fed8d0e540084b01ec27ab8a29d0f3823.vJCRxMCRSHVE9xVry1hOYTeYimJdH1PyeD0guOSQu4k
+        hash: v1.k794b7964.a0ee60944d3781ed6bb692a5f9a52e40684b97c001f5ec6b7d6663650c2d89d7.Kv2RlnDI7VmQ3R_wu0wsIKhtuKAVYT9Kwv7W9TTSfN4
     scenes-app-ai-observability-conversation-display--basic--light:
-        hash: v1.k794b7964.3cb142d720e0576d3b92310d75f791cf42452f5f32d38674f79d434790589239.7q-Lw22M7R633hrsN-ZnuIgkAWP9l4i9iRbu5jpnOG8
+        hash: v1.k794b7964.7412535b2a344703c43c6c14c8b6cb357cbe479e505f22583260b4e39f670946.mFWCqbQ4T_vl7VHpBAeFg_4SAU36_7dRHU81vjiydrs
     scenes-app-ai-observability-conversation-display--empty-output-blocked-by-provider--dark:
-        hash: v1.k794b7964.05125a80c55c9ad20c8edcc84bf05e1f58ff673ca1a2abbef34ced9ec3552b9d.mah6RylH_kokmN1fnEjxZQD4Ps3QUaffSekfCz5N6i4
+        hash: v1.k794b7964.e70edbfda151acebc94f9478737f49a74e56f3bb8e99e592d1ff3ab166dc9946.-pqrliCWW3aBo2r1b-JPQ3hXMpglJ-2BWzjzHsM5Obk
     scenes-app-ai-observability-conversation-display--empty-output-blocked-by-provider--light:
-        hash: v1.k794b7964.1f86f5ba9536b50c817ca0a3c0d55548c14b8f4a8ff13b504c3f7b150e012ada.4ZWD_3VA2AijSiEbq-_jE96K3tcgkw3HHuu_Ux3IFfQ
+        hash: v1.k794b7964.fbd3604d315716fa2ce1bc03915226c5499dad258440bba7a9b4e162627096a4.I_i41lueuqiVrDNStBZQ014EG2kGpHCSOfskOebPhyc
     scenes-app-ai-observability-conversation-display--empty-output-hit-token-limit--dark:
-        hash: v1.k794b7964.b2548b108edc6f8c958940e1fc0209b999b98438e0a6b6c095f3ac42a4cdd9f1.-411C02o_BaVwQeYWxv1oPT5d_J-6pawteYt4V80BAA
+        hash: v1.k794b7964.8c270f74357a3de5059ce153821191d4c363377304e96731d14ce5cfb2281080.dB9uHWOKK8VmNCrvogjV6XsTjLAVu5Y8bw1hMKQ2riI
     scenes-app-ai-observability-conversation-display--empty-output-hit-token-limit--light:
-        hash: v1.k794b7964.f8d093d6d02c6f147e06a6fbff6cbac04aa9cc29e7b1780a67c59b26681869c8.j7EwfprpifYVQrbjfTqvFjMSCeqtwfxhgfeLQQ_2lFk
+        hash: v1.k794b7964.05dd49a9933222d72ba4c3dc76754aa51ae9ded46baddf5b5d49dd16dbac54ee.oUruKAZTB5eyGbueGwZUycs1Q0cF7oCnLI2NlLZ4xEE
     scenes-app-ai-observability-conversation-display--empty-output-with-billed-tokens--dark:
-        hash: v1.k794b7964.42eeaa8552683109e50304840c0fe8907c4c0825b622ecd1d9745bc4f895d955.HGZ_kprIGe14sglkYwj1wNpS3hLSkGbZKw3tuUJTz5s
+        hash: v1.k794b7964.4c57b3a416a77d3df13b7fecb51e0338c1de87b3a2b1ab5cd3e6f54e9a2b0f9d.RSxXFC35N8hE4xQPYnWchQzK-Vfy4rGpmfBs4F7GmUs
     scenes-app-ai-observability-conversation-display--empty-output-with-billed-tokens--light:
-        hash: v1.k794b7964.b9e3adecf8f05139d76126faf07998b0a915fec481915e6a8bad3a97992dae68.4UFV8PthL3Y5pbeU3axDaPZIep6ixfatWlrzqW4JKm0
+        hash: v1.k794b7964.aeccad60926ee25db8a356c246b3961eecb041cc3a36a48287c577edcef3b1f5.OXuf6QwD27Vm83Jqg12aCxaF88Cm5wVpaJb0XLIHkos
     scenes-app-ai-observability-conversation-display--empty-output-with-reasoning-tokens--dark:
-        hash: v1.k794b7964.9f1da3403eb752b5499e096ed36633d7c8fff2e69b7ba3696354e664bde897ff.N7wmsys9CZDuETYl1x-hqLouyIimaxUWLRWc9DZYgjY
+        hash: v1.k794b7964.e92d2044b26126a64ad0a5159b8af6626c73d4fcc4a3af281bac883e1f7fe579.QsmfK94pGqhQLZAimaAHTFPvXffZHZGIwevYhkSFBpU
     scenes-app-ai-observability-conversation-display--empty-output-with-reasoning-tokens--light:
-        hash: v1.k794b7964.34eabfa265ecc45640d754647a5ad836ef95a3d32c1885391c94af7865d2fe18.N2i_3GzO4MpTXxY30ebKa5IiVNEIBVSbDgGepsfm4RI
+        hash: v1.k794b7964.26c00ba06edee3f80a76292d6b2bb2ca6a93c91da32fa23952687215777519da.qHiG7I94fSfEciOeJCTNHht0wHOgiPhTXKIjknRViH0
     scenes-app-ai-observability-conversation-display--error--dark:
-        hash: v1.k794b7964.477b40a99b407806f5a85839a94004a899be31370ea6861518dd11cf5c883c45.EQEZzP2enfzFprXAhyqSbD8Um6pvTD1cGa3yq6qn4VU
+        hash: v1.k794b7964.d74f381383c879030af8c433477c70041ebbcae9e220ef7af1196622b46cb8fc.lT97xEYZS1_cRfTbid1rmUSDABTVlrQELxeAsHH87BY
     scenes-app-ai-observability-conversation-display--error--light:
-        hash: v1.k794b7964.ac8507542eecfdaec76482cb232e677a0d0abe4b4c6ecdbac613ec4757cbfacd.jWQdUiUTDBIvtwDA-nQxlWMkAnWRT2mFrGrtmr3q_ys
+        hash: v1.k794b7964.b83393aac4d581ebffa8e67b7e2f7392840aa3a3f0ca3a8e46b885eda87446ec.IzMPDRME8DOyvzCHQvUFf4aawoDNXEf73qmstY2A2ug
     scenes-app-ai-observability-conversation-display--markdown--dark:
-        hash: v1.k794b7964.479524503d84d5795c027718559d41efcba3103a6a9e11a66854d4bedf300247.dkazWcFlzQhfdiEy_8W9vix5XwB2ROB6Z0k6S2vRKl4
+        hash: v1.k794b7964.ca8fc61f5255194dfe8ae8c3576f075575c81e1ae657aa0cde624a031654c0f3.dYwWpxUmI2YrXzO4XtgVF4tSQOIhqPG3m4Q79GoWDTI
     scenes-app-ai-observability-conversation-display--markdown--light:
-        hash: v1.k794b7964.031e91a251072760a2430dd98ba5e87374d77adebd27db1ed5ed08242d9b0537.FLdMLi2pEXuK08SP_gNnEB7gWrSV9iAYY6JMCD9xASI
+        hash: v1.k794b7964.fa46745e2339054f72e04d96f984a2d1614e73a017b34a89c74e25ffd6191090.Un38MvMNvx1UqHXKKua7Y9evJTVSgar5LNlKwTsvcg4
     scenes-app-ai-observability-conversation-display--tools--dark:
         hash: v1.k794b7964.c9cf0f699197f208ec18e3ad326c29d43b8034f37f5fc101a9e25773510895a5.f_qTgpzSlQlCRirQv0iD791ajpL-x8WnVi8T8qNYr1o
     scenes-app-ai-observability-conversation-display--tools--light:
@@ -6189,7 +6189,7 @@ snapshots:
     scenes-app-ai-observability-skills--skills-list--light:
         hash: v1.k794b7964.be983851dd216dffb0f8cdd9df2de912fa9d477a821e66eee7b1f82bd0000ca6.aiGZU3HoH-JsbDcEul_7etKK6iVsTktb0ZxZ2_vmfOk
     scenes-app-ai-observability-trace--full--dark:
-        hash: v1.k794b7964.3ea0677df8e51f08cfd46ad1957c78cb0e0c14dff003b15959f9dc9434a239ca.GUZTGarCld-XKdmLqsfKRE1ZIWdWvfojoa2vHPGVVOA
+        hash: v1.k794b7964.142fc550717f2be0bc0c72f8b670fb5b70f1be8cf26ae2805e4a6ae6937c06a5.ms9_vuzQ5yFxSSCaQtMJLVHBMBR0fIKrrKJhivb5Zfg
     scenes-app-ai-observability-trace--full--light:
         hash: v1.k794b7964.57c11ed1fabef66c724244d8f8c10a48048451bfb8c20725e5a7db7e6f3e97fa.ECgSmPCIFu7JDolQEatnDs2tvmkmel9NzTvekgyGgpA
     scenes-app-ai-observability-trace--full-specific-event--dark:
