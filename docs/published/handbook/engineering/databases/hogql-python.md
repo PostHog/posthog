@@ -83,6 +83,7 @@ The `posthog` folder contains the full available PostHog catalog, including tabl
 Tables explicitly marked as hidden stay out of the sidebar and autocomplete, and access controls and feature gates still apply.
 
 `posthog` is the default namespace for built-in tables.
+The SQL editor shows **Default schema: posthog** below the database selector, including when the sidebar is collapsed.
 For example, `SELECT event FROM events` and `SELECT event FROM posthog.events` use the same table, project settings, and joins.
 This also applies to newer tables: both `ai_events` and `posthog.ai_events` work.
 Autocomplete supports both spellings and suggests table names after `posthog.`.
