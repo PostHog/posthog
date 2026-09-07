@@ -116,12 +116,14 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
-def _all_queries_failed_notice(total_steps: int) -> str:
+def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
     noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
-    return (
-        f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
-        "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
-    )
+    notice = f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run."
+    # Every channel renders this one markdown body, so a report whose recipients get no manage
+    # control must not tell them to use it.
+    if include_manage_link:
+        notice += " Use the Manage subscription link to review the generated queries and the errors they hit."
+    return notice + "\n\n"
 
 
 def _validate_step_chart(
@@ -211,6 +213,7 @@ async def generate_ai_report(
     ai_query_plan: Optional[dict] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
     include_charts: bool = True,
+    include_manage_link: bool = True,
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
@@ -318,7 +321,7 @@ async def generate_ai_report(
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
-            report = _all_queries_failed_notice(total_steps) + report
+            report = _all_queries_failed_notice(total_steps, include_manage_link=include_manage_link) + report
         plan_to_persist = _plan_to_freeze(
             spec.plan,
             freshly_planned=freshly_planned,

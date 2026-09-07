@@ -274,6 +274,23 @@ async def test_degraded_report_still_synthesizes(
     assert props["query_coverage"] == 0.0
 
 
+@parameterized.expand(
+    [
+        ("manage_link_shown", True, True),
+        ("manage_link_hidden", False, False),
+    ]
+)
+def test_the_all_failed_notice_only_points_at_a_manage_link_that_ships(
+    _name: str, include_manage_link: bool, expects_recovery: bool
+) -> None:
+    # Without the gate the notice sends recipients to a manage control the delivered message does
+    # not contain, on every channel at once.
+    notice = _all_queries_failed_notice(2, include_manage_link=include_manage_link)
+
+    assert "all 2 queries the assistant wrote failed to run" in notice
+    assert ("Manage subscription link" in notice) is expects_recovery
+
+
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)

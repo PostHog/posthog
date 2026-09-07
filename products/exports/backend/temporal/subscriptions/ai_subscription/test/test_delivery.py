@@ -837,16 +837,19 @@ class TestFreezePlanPersistence:
 
     @parameterized.expand(
         [
-            ("legacy_config", {}, True),
-            ("images_on", {"include_images": True}, True),
-            ("images_off", {"include_images": False}, False),
+            ("legacy_config", {}, True, True),
+            ("images_on", {"include_images": True}, True, True),
+            ("images_off", {"include_images": False}, False, True),
+            ("manage_link_off", {"include_manage_link": False}, True, False),
         ]
     )
-    async def test_forwards_the_image_option_to_generation(
-        self, _name: str, delivery_config: dict, expected: bool
+    async def test_forwards_the_display_options_to_generation(
+        self, _name: str, delivery_config: dict, expected_charts: bool, expected_manage_link: bool
     ) -> None:
         # Generation renders the charts, so the option has to reach it — gating only the delivery
         # renderers would still run a headless PNG export per chart for a report that hides them.
+        # Generation also writes the all-queries-failed notice, whose recovery sentence names the
+        # manage control, so it has to know whether the delivery renderers ship one.
         sub = self._subscription(ai_query_plan=None)
         sub.delivery_config = delivery_config
         result = AiReportResult(
@@ -859,4 +862,5 @@ class TestFreezePlanPersistence:
             await build_ai_subscription_report(sub)
 
         assert mock_gen.await_args is not None
-        assert mock_gen.await_args.kwargs["include_charts"] is expected
+        assert mock_gen.await_args.kwargs["include_charts"] is expected_charts
+        assert mock_gen.await_args.kwargs["include_manage_link"] is expected_manage_link
