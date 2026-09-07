@@ -130,7 +130,6 @@ describe('scene chunk map', () => {
                 JSON.stringify({ ...sceneModules, MissingLoader: './scenes/replay' })
             )
             expect(typecheck).toThrow()
-            fs.writeFileSync(path.join(dir, 'src/sceneModules.json'), JSON.stringify(sceneModules))
 
             const esbuild = createRequire(require.resolve('@posthog/esbuilder')).resolve('esbuild/bin/esbuild')
             execFileSync(

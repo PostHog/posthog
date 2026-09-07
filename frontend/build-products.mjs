@@ -436,9 +436,7 @@ function buildProductManifests() {
         metadata: extractKeys(treeItemsMetadata, { keysToKeep, keysToKeepArray, enumMap }),
     }
 
-    const jsonTmpDir = path.join(__dirname, 'tmp')
-    fse.mkdirSync(jsonTmpDir, { recursive: true })
-    const jsonTmpFile = path.join(jsonTmpDir, 'products.json')
+    const jsonTmpFile = path.join(tsxTmpDir, 'products.json')
     fse.writeFileSync(jsonTmpFile, JSON.stringify(productsJson))
     ps.execFileSync('oxfmt', [jsonTmpFile])
     fse.renameSync(jsonTmpFile, outputJson)
