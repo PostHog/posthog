@@ -113,6 +113,7 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=True,
             status=status,
+            last_run_at=timezone.now() if status == DataWarehouseSavedQuery.Status.COMPLETED else None,
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         endpoint = Endpoint.objects.create(
@@ -193,6 +194,21 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
 
         self.assertEqual(_check_and_cache_materialization_status(self.team.id, f"endpoint_{name}"), expected_ready)
 
+    def test_failed_run_after_a_good_one_keeps_the_table_servable(self):
+        _create_ready_materialized_endpoint(self.team, self.user, "failed_after_good", timezone.now())
+        saved_query = DataWarehouseSavedQuery.objects.get(name="failed_after_good_query")
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.FAILED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=timezone.now() + timedelta(minutes=1),
+        )
+
+        # The execution service still serves the last good table, so the throttle must agree.
+        self.assertTrue(_check_and_cache_materialization_status(self.team.id, "failed_after_good"))
+        self.assertTrue(check_materialized_request(self.team.id, "failed_after_good", None, {}))
+
     def _create_endpoint_with_materialized_v1_and_inline_v2(self, name="versioned_endpoint"):
         from products.endpoints.backend.models import EndpointVersion
 
@@ -202,6 +218,7 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
+            last_run_at=timezone.now(),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         table = DataWarehouseTable.objects.create(

@@ -1,13 +1,13 @@
 """Materialized-serving cache for endpoint versions.
 
 Read by the presentation throttles (a request served from a materialized table gets
-a higher rate budget) and written by the data-modeling Temporal workflow on
-materialization completion/failure. The DRF throttle classes themselves live in
+a higher rate budget). The DRF throttle classes themselves live in
 ``presentation/throttles.py``.
 
 The cached value is a ``MaterializedServingState`` snapshot, so classifying a request
-needs only the snapshot and the request body. The database is read on a cache miss
-and when the workflow reports a run.
+needs only the snapshot and the request body. The cache is read-through: the database
+is read on a miss, and the entry expires with the table's freshness window. Writes that
+change the snapshot (materialization enable/disable, freshness edits) clear the entry.
 """
 
 from collections.abc import Iterable
@@ -20,11 +20,7 @@ from pydantic import ValidationError
 
 from posthog.schema import EndpointRefreshMode, EndpointRunRequest
 
-from products.data_modeling.backend.facade.api import (
-    latest_saved_query_materialization_job,
-    saved_query_materialized_at,
-)
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.api import saved_query_materialized_at
 from products.endpoints.backend.logic.materialized_serving import MaterializedServingState, serving_state_for_version
 from products.endpoints.backend.logic.strategies import strategy_for
 from products.endpoints.backend.models import Endpoint, EndpointVersion
@@ -156,14 +152,19 @@ def _load_and_cache_materialization_state(
         return state
 
     saved_query = endpoint_version.saved_query
-    is_ready = False
-    if endpoint_version.is_materialized and saved_query is not None:
-        # The v2 workflow records runs on DataModelingJob and never writes saved_query.status.
-        latest_job = latest_saved_query_materialization_job(saved_query)
-        status = latest_job.status if latest_job is not None else saved_query.status
-        is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
-
-    state = _serving_state(endpoint, endpoint_version, is_ready)
+    if not endpoint_version.is_materialized or saved_query is None or saved_query.table_id is None:
+        state = MaterializedServingState.not_ready()
+    else:
+        # Same test the execution service applies: a live table plus a completed run. A
+        # failed run after a good one leaves the last table servable, so the newest
+        # job's status is not the readiness signal.
+        materialized_at = saved_query_materialized_at(saved_query)
+        state = serving_state_for_version(
+            endpoint_version,
+            strategy_for(endpoint, endpoint_version, endpoint.team),
+            ready=materialized_at is not None,
+            materialized_at=materialized_at,
+        )
     set_endpoint_materialization_state(team_id, endpoint_name, state, version=version)
     return state
 
