@@ -892,7 +892,7 @@ stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
 // We will need to add F' to the start of the string to change the lexer's mode.
 fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
 stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;
-`{{` is not an escape for a literal brace. A brace-wrapped expression inside a string is a placeholder, and placeholders do not compile here. Build JSON as a dict and pass it to `jsonStringify()`.
+`{{` is not an escape for a literal brace. Doubled braces make a placeholder, which does not compile. Normal f-string interpolation such as `f'hello {event.b}'` is valid. Build JSON as a dict and pass it to `jsonStringify()`.
 Leave out all comment string and return the hog code nicely formatted.
 These functions are not available in the current version of HogQL (NEVER USE THEM):
 - break
