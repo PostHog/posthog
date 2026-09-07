@@ -1639,15 +1639,15 @@
         "feature_entitlement": "approvals"
     },
     "channel-create": {
-        "description": "Resolve-or-create a public channel by name (normalized to lowercase-dashed). Idempotent: returns the existing channel when one with the name already exists. Use channel-list first when the request names an existing channel.",
+        "description": "Create a channel. The default `channel_type` is public. Public names use lowercase letters and hyphens. If a public channel has that name, return it. Use channel-list to find an existing channel's ID. Set `channel_type` to \"private\" to create a private channel with the requester and the users in `member_ids`. Users in `member_ids` must have project access. Private channels always get a new ID, so a retry creates another channel.",
         "category": "Tasks",
         "feature": "tasks",
-        "summary": "Resolve or create a channel",
-        "title": "Resolve or create a channel",
+        "summary": "Create a channel",
+        "title": "Create a channel",
         "required_scopes": ["task:write"],
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -1687,7 +1687,7 @@
         "superseded_by": ["context-wiki-page-update"]
     },
     "channel-list": {
-        "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions. A project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response carries `count` and `next`, and without `limit` you get every channel in one array.",
+        "description": "List channels the requester can access: public channels, their personal #me channel, and private channels they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `next`, `previous`, and `results`. Without `limit`, the response is an array of all accessible channels.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List channels",
