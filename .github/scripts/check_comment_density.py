@@ -33,8 +33,7 @@ SLASH_LANGS = {"ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "go", "kt", "java",
 SQL_LANGS = {"sql"}
 CODE_LANGS = HASH_LANGS | SLASH_LANGS | SQL_LANGS
 
-# Generated output and snapshots are not written by a person. Workflow YAML and
-# shell are left out because they need prose to be readable.
+# Workflow YAML and shell are left out because they need prose to be readable.
 EXCLUDED_PATHS = re.compile(
     r"(^\.github/|/generated/|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)"
 )

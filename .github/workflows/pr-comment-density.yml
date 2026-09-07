@@ -2,9 +2,6 @@ name: PR comment density
 
 # Reusable workflow, called by pr-housekeeping.yml on PR open and push.
 # Push-cancels-previous-push comes from the caller's concurrency group.
-#
-# Warn-only: when a large share of the added code lines are comments, it
-# adds a section to the shared CI report and clears it once the share drops.
 
 on:
     workflow_call:
@@ -31,8 +28,7 @@ jobs:
                       frontend/bin/ci-report
                   sparse-checkout-cone-mode: false
 
-            # The API diff is the PR compared with its merge base, so no history
-            # fetch is needed. It refuses very large diffs; those are skipped.
+            # The API diff needs no history fetch. It refuses very large diffs.
             - name: Fetch PR diff
               id: diff
               env:

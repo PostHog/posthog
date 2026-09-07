@@ -51,10 +51,8 @@ if [ -x .github/scripts/check-quill-agents-md.sh ]; then
     .github/scripts/check-quill-agents-md.sh || true
 fi
 
-# Same deal for a staged diff that is mostly comment lines: warn at the commit,
-# where trimming them is cheapest, using the classifier the PR check runs.
-# Run through bash rather than testing -x, so a checkout that lost the
-# executable bit still runs the check.
+# Same deal for a comment-heavy staged diff. Run through bash: the script lands
+# without its executable bit.
 if [ -f .github/scripts/check-comment-density.sh ]; then
     bash .github/scripts/check-comment-density.sh || true
 fi
