@@ -100,6 +100,30 @@ describe("useChannelTaskMutations", () => {
     expect(invalidatedChannels()).toEqual(["dest", "loading", "source"]);
   });
 
+  // Only the two channel lists used to refresh, so an open task kept the space
+  // it left until the reader opened it again from the new space.
+  it("filing a task invalidates the caches that name its space", async () => {
+    const taskCacheKeys = [
+      ["tasks", "list", undefined],
+      ["tasks", "detail", "t1"],
+      ["channel-feed", "source"],
+      ["space-tree-tasks", "source"],
+      ["task-feed-results", "mine"],
+    ];
+    for (const queryKey of taskCacheKeys) {
+      queryClient.setQueryData(queryKey, []);
+    }
+    const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
+
+    await act(async () => {
+      await result.current.fileTask("dest", "t1");
+    });
+
+    for (const queryKey of taskCacheKeys) {
+      expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true);
+    }
+  });
+
   it("unfiling a task invalidates only the channel that listed it", async () => {
     const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
 

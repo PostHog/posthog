@@ -7,6 +7,7 @@ import {
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
@@ -21,6 +22,7 @@ import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectio
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -222,6 +224,15 @@ export function useSidebarBulkActions(
         const failedIds = taskIds.filter(
           (_, i) => results[i].status === "rejected",
         );
+        for (const [i, taskId] of taskIds.entries()) {
+          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            action_type: "file_task",
+            surface: "sidebar_bulk",
+            channel_id: channelId,
+            task_id: taskId,
+            success: results[i].status === "fulfilled",
+          });
+        }
         reconcileSelection(failedIds);
         report("filed", taskIds.length - failedIds.length, failedIds.length);
       } finally {

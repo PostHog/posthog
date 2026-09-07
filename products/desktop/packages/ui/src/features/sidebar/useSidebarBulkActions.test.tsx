@@ -9,6 +9,7 @@ const hoisted = vi.hoisted(() => ({
   setPinnedMany: vi.fn(),
   placeTasksInCommandCenter: vi.fn(),
   fileTask: vi.fn(),
+  track: vi.fn(),
   useChannels: vi.fn(),
   useFeatureFlag: vi.fn(),
   useTasks: vi.fn(),
@@ -55,6 +56,8 @@ vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: hoisted.toast }));
+
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: hoisted.track }));
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }));
 
@@ -359,6 +362,36 @@ describe("useSidebarBulkActions", () => {
       expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual(["t2"]),
     );
     expect(hoisted.toast.error).toHaveBeenCalledWith("1 filed, 1 failed");
+  });
+
+  // This surface reported nothing, so nobody could see how much it is used or
+  // how often it fails. A batch reports per session, not per batch.
+  it("reports each filing with the outcome that session got", async () => {
+    hoisted.fileTask.mockImplementation((_channelId: string, taskId: string) =>
+      taskId === "t2" ? Promise.reject(new Error("nope")) : Promise.resolve(),
+    );
+    const { result } = render();
+
+    await act(() => result.current.fileSelectedTo("c1"));
+
+    expect(
+      hoisted.track.mock.calls.map(([, properties]) => properties),
+    ).toEqual([
+      {
+        action_type: "file_task",
+        surface: "sidebar_bulk",
+        channel_id: "c1",
+        task_id: "t1",
+        success: true,
+      },
+      {
+        action_type: "file_task",
+        surface: "sidebar_bulk",
+        channel_id: "c1",
+        task_id: "t2",
+        success: false,
+      },
+    ]);
   });
 
   // `enabled: false` stops the fetch but still hands back whatever an ungated

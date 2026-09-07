@@ -58,6 +58,18 @@ function ChannelTaskDetailRoute() {
 
   const task = pickFreshestTask(fetched, initialTask);
 
+  // Filing an open task moves it to another space. This route names its space
+  // in the URL, so follow the task instead of claiming the space it left.
+  if (task?.channel && task.channel !== channelId) {
+    return (
+      <Navigate
+        replace
+        to="/spaces/$channelId/tasks/$taskId"
+        params={{ channelId: task.channel, taskId }}
+      />
+    );
+  }
+
   // While a cached/list copy exists, a 404 is NOT authoritative (optimistic
   // and cloud-pending tasks aren't returnable by the API yet — see the loader
   // comment), so only treat the task as gone when nothing cached is usable.
