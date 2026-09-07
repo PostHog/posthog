@@ -133,8 +133,10 @@ class QueryStatusError(APIException):
         *,
         code: str,
         error_category: Optional[QueryErrorCategory],
+        error_retryable: bool = False,
     ) -> None:
         self.error_category = error_category
+        self.error_retryable = error_retryable
         super().__init__(detail, code=code)
 
 
@@ -143,11 +145,13 @@ def _query_status_error(
     error_message: Optional[str],
     error_code: Optional[str],
     error_category: Optional[QueryErrorCategory],
+    error_retryable: bool = False,
 ) -> QueryStatusError:
     return QueryStatusError(
         error_message or "Query failed",
         code=error_code or "error",
         error_category=error_category,
+        error_retryable=error_retryable,
     )
 
 
@@ -478,6 +482,9 @@ class AssistantQueryExecutor:
                         error_code=query_status.get("error_code"),
                         error_category=(
                             internal_query_status.error_category if internal_query_status is not None else None
+                        ),
+                        error_retryable=(
+                            internal_query_status.error_retryable if internal_query_status is not None else False
                         ),
                     )
 

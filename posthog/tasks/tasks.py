@@ -393,6 +393,7 @@ def _process_query_task_failure(
         QueryNotFoundError,
         QueryStatusManager,
         _query_status_error_category,
+        _query_status_error_retryable,
     )
 
     bound = dict(zip(("team_id", "user_id", "query_id"), args))
@@ -414,7 +415,11 @@ def _process_query_task_failure(
         # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
         query_status.error_message = str(exc.detail)
     query_status.end_time = datetime.datetime.now(datetime.UTC)
-    manager.store_query_status(query_status, error_category=_query_status_error_category(exc))
+    manager.store_query_status(
+        query_status,
+        error_category=_query_status_error_category(exc),
+        error_retryable=_query_status_error_retryable(exc),
+    )
 
 
 @shared_task(

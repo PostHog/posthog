@@ -34,7 +34,14 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import CHQueryErrorUnknownIdentifier, ExposedCHQueryError, QueryErrorCategory
+from posthog.errors import (
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTableIsReadOnly,
+    CHQueryErrorUnknownIdentifier,
+    ExposedCHQueryError,
+    QueryErrorCategory,
+)
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -81,8 +88,12 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_internal_error_category_is_stored_outside_public_query_status(self):
-        self.manager.store_query_status(self.query_status, error_category=QueryErrorCategory.USER_ERROR)
+    def test_internal_error_metadata_is_stored_outside_public_query_status(self):
+        self.manager.store_query_status(
+            self.query_status,
+            error_category=QueryErrorCategory.USER_ERROR,
+            error_retryable=True,
+        )
 
         public_status = self.manager.get_query_status()
         internal_status = self.manager.get_internal_query_status()
@@ -90,6 +101,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertIsNone(public_status.error_code)
         self.assertEqual(internal_status.query_status, public_status)
         self.assertEqual(internal_status.error_category, QueryErrorCategory.USER_ERROR)
+        self.assertTrue(internal_status.error_retryable)
 
     def test_process_query_task_on_failure_marks_status_errored(self):
         from posthog.tasks.tasks import process_query_task
@@ -113,6 +125,7 @@ class TestQueryStatusManager(SimpleTestCase):
             self.manager.get_internal_query_status().error_category,
             QueryErrorCategory.RATE_LIMITED,
         )
+        self.assertTrue(self.manager.get_internal_query_status().error_retryable)
 
     @parameterized.expand(
         [
@@ -123,6 +136,25 @@ class TestQueryStatusManager(SimpleTestCase):
     )
     def test_query_status_error_category(self, _name, error, expected_category):
         self.assertEqual(client._query_status_error_category(error), expected_category)
+
+    @parameterized.expand(
+        [
+            ("s3_error", CHQueryErrorS3Error("S3 error", code=499), True),
+            (
+                "s3_file_changed",
+                CHQueryErrorS3FileChangedDuringRead("S3 file changed", code=499),
+                True,
+            ),
+            (
+                "table_is_read_only",
+                CHQueryErrorTableIsReadOnly("Table is read-only", code=242),
+                True,
+            ),
+            ("deterministic_user_error", CHQueryErrorUnknownIdentifier("bad", code=47), False),
+        ]
+    )
+    def test_query_status_error_retryability(self, _name, error, expected_retryable):
+        self.assertEqual(client._query_status_error_retryable(error), expected_retryable)
 
     @parameterized.expand(
         [
@@ -290,6 +322,32 @@ class TestExecuteProcessQuery(TestCase):
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         self.assertEqual(mock_capture_exception.called, should_capture)
+
+    @parameterized.expand(
+        [
+            ("s3_error", CHQueryErrorS3Error("S3 error", code=499)),
+            (
+                "s3_file_changed",
+                CHQueryErrorS3FileChangedDuringRead("S3 file changed", code=499),
+            ),
+            (
+                "table_is_read_only",
+                CHQueryErrorTableIsReadOnly("Table is read-only", code=242),
+            ),
+        ]
+    )
+    def test_execute_process_query_marks_transient_clickhouse_errors_retryable(self, _name, error):
+        self.manager.store_query_status(
+            QueryStatus(id=self.query_id, team_id=self.team.id, complete=False, error=False)
+        )
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=error):
+            execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        internal_status = self.manager.get_internal_query_status()
+        self.assertTrue(internal_status.query_status.complete)
+        self.assertTrue(internal_status.query_status.error)
+        self.assertTrue(internal_status.error_retryable)
 
     def test_user_safe_error_without_code_preserves_existing_error_code(self):
         self.manager.store_query_status(

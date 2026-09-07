@@ -16,7 +16,7 @@ from posthog.schema import AssistantHogQLQuery
 from posthog.hogql.errors import InternalHogQLError
 
 from posthog.dataclasses import frozen
-from posthog.errors import InternalCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -98,7 +98,9 @@ _MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 QUERY_FAILED_PREFIX = "Query failed to run"
 
 # Per-step budgets keep unchanged capacity retries separate from LLM query repairs. The maximum
-# capacity backoff is 15 seconds, which stays below one query attempt's timeout.
+# pipeline-owned capacity backoff is 15 seconds, which stays below one query attempt's timeout.
+# Async query workers have their own retry schedule; an ambiguous timeout remains plan-invalidating
+# because it may also mean the query itself is chronically too slow.
 _MAX_QUERY_FIX_RETRIES = 2
 _MAX_TRANSIENT_QUERY_RETRIES = 2
 _TRANSIENT_QUERY_RETRY_BASE_DELAY_SECONDS = 5.0
@@ -139,6 +141,7 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
     categories: set[QueryErrorCategory] = set()
     has_clickhouse_user_error = False
     has_retryable_error = False
+    has_self_recoverable_error = False
     has_unknown_query_status_error = False
     has_unclassified_error = False
     has_internal_hogql_error = False
@@ -146,17 +149,22 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         if isinstance(current, MaxToolRetryableError):
             has_retryable_error = True
         if isinstance(current, QueryStatusError):
+            if current.error_retryable:
+                has_self_recoverable_error = True
             if current.error_category is None:
-                has_unknown_query_status_error = True
+                if not current.error_retryable:
+                    has_unknown_query_status_error = True
             else:
                 categories.add(current.error_category)
+        if isinstance(current, CH_TRANSIENT_ERRORS):
+            has_self_recoverable_error = True
         if isinstance(current, InternalHogQLError):
             has_internal_hogql_error = True
         if isinstance(current, Exception):
             category = classify_query_error(current)
             if category is not QueryErrorCategory.ERROR:
                 categories.add(category)
-            elif not isinstance(current, (MaxToolRetryableError, QueryStatusError)):
+            elif not isinstance(current, (MaxToolRetryableError, QueryStatusError, *CH_TRANSIENT_ERRORS)):
                 has_unclassified_error = True
             if isinstance(current, InternalCHQueryError) and category is QueryErrorCategory.USER_ERROR:
                 has_clickhouse_user_error = True
@@ -166,7 +174,7 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
     # Preserve a plan only when every classified failure is explicitly self-recoverable. Check this
     # before safe messages because capacity exceptions may be both user-safe and transient.
     if (
-        categories
+        (categories or has_self_recoverable_error)
         and categories <= _SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES
         and not has_unknown_query_status_error
         and not has_unclassified_error

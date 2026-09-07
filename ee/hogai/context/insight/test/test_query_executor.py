@@ -112,6 +112,17 @@ def test_query_status_error_preserves_public_code_and_typed_category(
     assert error.error_category is error_category
 
 
+def test_query_status_error_preserves_internal_retryability() -> None:
+    error = _query_status_error(
+        error_message=None,
+        error_code=None,
+        error_category=None,
+        error_retryable=True,
+    )
+
+    assert error.error_retryable is True
+
+
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -473,6 +484,33 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(context.exception.__context__.get_codes(), "error")
         self.assertEqual(context.exception.__context__.error_category, QueryErrorCategory.USER_ERROR)
         self.assertEqual(mock_get_internal_query_status.call_count, 1)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_internal_query_status")
+    async def test_async_query_polling_preserves_internal_retryability(
+        self, mock_get_internal_query_status, mock_process_query
+    ):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_internal_query_status.return_value = InternalQueryStatus(
+            query_status=QueryStatus(
+                id="test-query-id",
+                team_id=self.team.pk,
+                complete=True,
+                error=True,
+            ),
+            error_category=None,
+            error_retryable=True,
+        )
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(query)
+
+        self.assertIsInstance(context.exception.__context__, QueryStatusError)
+        assert isinstance(context.exception.__context__, QueryStatusError)
+        self.assertTrue(context.exception.__context__.error_retryable)
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

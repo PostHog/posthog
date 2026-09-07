@@ -17,6 +17,8 @@ from posthog.hogql.errors import (
 )
 
 from posthog.errors import (
+    CHQueryErrorS3Error,
+    CHQueryErrorTableIsReadOnly,
     CHQueryErrorUnknownFunction,
     CHQueryErrorUnknownIdentifier,
     ExposedCHQueryError,
@@ -509,6 +511,11 @@ async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_t
     [
         pytest.param(ClickHouseAtCapacity(), id="clickhouse_at_capacity"),
         pytest.param(ClickHouseClusterMemoryLimitExceeded(), id="cluster_memory_limit"),
+        pytest.param(CHQueryErrorS3Error("S3 error", code=499), id="s3_error"),
+        pytest.param(
+            CHQueryErrorTableIsReadOnly("Table is read-only", code=242),
+            id="table_is_read_only",
+        ),
         pytest.param(
             _query_status_error(
                 error_message=None,
@@ -516,6 +523,15 @@ async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_t
                 error_category=QueryErrorCategory.RATE_LIMITED,
             ),
             id="async_rate_limited_status",
+        ),
+        pytest.param(
+            _query_status_error(
+                error_message=None,
+                error_code=None,
+                error_category=None,
+                error_retryable=True,
+            ),
+            id="async_retryable_status",
         ),
     ],
 )

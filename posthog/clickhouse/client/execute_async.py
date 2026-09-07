@@ -21,7 +21,7 @@ from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
-from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 _INTERNAL_ERROR_CATEGORY_KEY = "_error_category"
+_INTERNAL_ERROR_RETRYABLE_KEY = "_error_retryable"
 
 CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
 
@@ -71,10 +72,15 @@ def _query_status_error_category(err: Exception) -> Optional[QueryErrorCategory]
     return error_category if error_category is not QueryErrorCategory.ERROR else None
 
 
+def _query_status_error_retryable(err: Exception) -> bool:
+    return isinstance(err, (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded))
+
+
 @frozen
 class InternalQueryStatus:
     query_status: QueryStatus
     error_category: Optional[QueryErrorCategory]
+    error_retryable: bool = False
 
 
 class QueryStatusManager:
@@ -107,11 +113,17 @@ class QueryStatusManager:
         return f"{self.KEY_PREFIX_RUNNING_QUERIES}:{self.team_id}"
 
     def store_query_status(
-        self, query_status: QueryStatus, *, error_category: Optional[QueryErrorCategory] = None
+        self,
+        query_status: QueryStatus,
+        *,
+        error_category: Optional[QueryErrorCategory] = None,
+        error_retryable: bool = False,
     ) -> None:
         query_status_data = query_status.model_dump(exclude={"clickhouse_query_progress"})
         if error_category is not None:
             query_status_data[_INTERNAL_ERROR_CATEGORY_KEY] = error_category.value
+        if error_retryable:
+            query_status_data[_INTERNAL_ERROR_RETRYABLE_KEY] = True
         value = SafeJSONRenderer().render(query_status_data)
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
             seconds=self.STATUS_TTL_SECONDS
@@ -194,7 +206,11 @@ class QueryStatusManager:
             error_category = QueryErrorCategory(raw_error_category) if isinstance(raw_error_category, str) else None
         except ValueError:
             error_category = None
-        return InternalQueryStatus(query_status=query_status, error_category=error_category)
+        return InternalQueryStatus(
+            query_status=query_status,
+            error_category=error_category,
+            error_retryable=loaded.get(_INTERNAL_ERROR_RETRYABLE_KEY) is True,
+        )
 
     def delete_query_status(self) -> None:
         logger.info("Deleting redis query key %s", self.results_key)
@@ -303,6 +319,7 @@ def execute_process_query(
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     error_category: Optional[QueryErrorCategory] = None
+    error_retryable = False
     try:
         results = process_query_dict(
             team=team,
@@ -347,6 +364,7 @@ def execute_process_query(
             if (error_code := _query_status_error_code(err)) is not None:
                 query_status.error_code = error_code
         error_category = _query_status_error_category(err)
+        error_retryable = _query_status_error_retryable(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
@@ -355,7 +373,11 @@ def execute_process_query(
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
-        manager.store_query_status(query_status, error_category=error_category)
+        manager.store_query_status(
+            query_status,
+            error_category=error_category,
+            error_retryable=error_retryable,
+        )
         cache_key = None
         try:
             if query_status.results:
