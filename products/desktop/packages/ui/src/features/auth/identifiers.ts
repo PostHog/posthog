@@ -1,4 +1,3 @@
-import type { DeploymentTarget } from "@posthog/core/auth/schemas";
 import type { CloudRegion } from "@posthog/shared";
 
 /**
@@ -9,7 +8,7 @@ import type { CloudRegion } from "@posthog/shared";
  * features migrate, then shrink this port.
  */
 export interface IAuthSideEffects {
-  onAuthSuccess(region: DeploymentTarget, projectId: number | null): void;
+  onAuthSuccess(region: CloudRegion, projectId: number | null): void;
   beforeProjectSwitch(): void;
   onProjectSelected(): Promise<void>;
   onLogout(previousRegion: CloudRegion | null): Promise<void>;

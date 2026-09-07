@@ -134,18 +134,9 @@ export const suspensions = sqliteTable("suspensions", {
 export const authSessions = sqliteTable("auth_sessions", {
   id: integer().primaryKey(),
   refreshTokenEncrypted: text().notNull(),
-  cloudRegion: text({ enum: ["us", "eu", "dev", "dev-cloud"] }).notNull(),
-  // Serialized deployment target: an ordinary region, or "preview" for a
-  // desktop-preview deployment whose origin lives in the build manifest.
-  deploymentTarget: text({
+  cloudRegion: text({
     enum: ["us", "eu", "dev", "dev-cloud", "preview"],
-  })
-    .notNull()
-    .default("us"),
-  // Deployment identity recorded at sign-in for a preview session; null for
-  // ordinary regions. A changed value means the stored refresh token belongs
-  // to a replaced backend and must not be reused.
-  deploymentId: text(),
+  }).notNull(),
   selectedProjectId: integer(),
   scopeVersion: integer().notNull(),
   createdAt: createdAt(),
@@ -186,7 +177,9 @@ export const authPreferences = sqliteTable(
   "auth_preferences",
   {
     accountKey: text().notNull(),
-    cloudRegion: text({ enum: ["us", "eu", "dev", "dev-cloud"] }).notNull(),
+    cloudRegion: text({
+      enum: ["us", "eu", "dev", "dev-cloud", "preview"],
+    }).notNull(),
     lastSelectedProjectId: integer(),
     lastSelectedOrgId: text(),
     createdAt: createdAt(),
@@ -204,7 +197,9 @@ export const authOrgProjectPreferences = sqliteTable(
   "auth_org_project_preferences",
   {
     accountKey: text().notNull(),
-    cloudRegion: text({ enum: ["us", "eu", "dev", "dev-cloud"] }).notNull(),
+    cloudRegion: text({
+      enum: ["us", "eu", "dev", "dev-cloud", "preview"],
+    }).notNull(),
     orgId: text().notNull(),
     lastSelectedProjectId: integer().notNull(),
     createdAt: createdAt(),

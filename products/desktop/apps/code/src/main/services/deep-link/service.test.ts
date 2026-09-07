@@ -11,7 +11,7 @@ const mockAppLifecycle = vi.hoisted(() => ({
 // Preview identity state for the module under test; null by default so the
 // ordinary-build behavior is what the rest of this file exercises.
 const mockPreviewIdentity = vi.hoisted(() => ({
-  current: null as { scheme: string } | null,
+  current: null as { slug: string } | null,
 }));
 
 vi.mock("../../utils/logger.js", () => ({
@@ -93,7 +93,7 @@ describe("DeepLinkService", () => {
     describe("preview builds", () => {
       it("registers only the preview scheme", () => {
         mockPreviewIdentity.current = {
-          scheme: "posthog-code-preview-pr-123",
+          slug: "posthog-code-preview-pr-123",
         };
 
         service.registerProtocol();
@@ -108,7 +108,7 @@ describe("DeepLinkService", () => {
 
       it("does not claim production or legacy callbacks", () => {
         mockPreviewIdentity.current = {
-          scheme: "posthog-code-preview-pr-123",
+          slug: "posthog-code-preview-pr-123",
         };
 
         service.registerProtocol();
@@ -124,7 +124,7 @@ describe("DeepLinkService", () => {
 
       it("handles its own OAuth callback scheme", () => {
         mockPreviewIdentity.current = {
-          scheme: "posthog-code-preview-pr-123",
+          slug: "posthog-code-preview-pr-123",
         };
         const handler = vi.fn(() => true);
         service.registerProtocol();

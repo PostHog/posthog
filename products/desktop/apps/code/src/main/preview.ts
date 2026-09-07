@@ -5,7 +5,7 @@
  * `__DESKTOP_PREVIEW_MANIFEST__` (see electron.vite.config.ts and
  * scripts/preview-config.mts). This module turns that constant into the
  * host-level state bootstrap and the platform adapters read, and is the one
- * place that decides "is this a preview build" (`getPreviewManifest()`).
+ * place that decides "is this a preview build" (`isPreviewBuild()`).
  *
  * Preview builds stay packaged builds: `app.isPackaged` is true, dev-mode CDP
  * stays off, and no helper flips to development mode. Ordinary builds get
@@ -17,6 +17,7 @@ import {
   type DesktopPreviewManifest,
   desktopPreviewIdentity,
   parseDesktopPreviewManifest,
+  registerPreviewDeployment,
 } from "@posthog/shared";
 
 // Inlined by electron-vite `define`; an ordinary build compiles to null.
@@ -28,11 +29,6 @@ type ResolvedPreview = {
 };
 
 let cached: ResolvedPreview | null | undefined;
-
-export function getPreviewManifest(): DesktopPreviewManifest | null {
-  const resolved = resolve();
-  return resolved ? resolved.manifest : null;
-}
 
 export function getPreviewIdentity(): DesktopPreviewIdentity | null {
   const resolved = resolve();
@@ -58,6 +54,7 @@ function resolve(): ResolvedPreview | null {
   // Fail closed: an invalid inlined manifest means the packaging step and the
   // build config disagree, which must never produce a half-preview app.
   const manifest = parseDesktopPreviewManifest(raw);
+  registerPreviewDeployment(manifest);
   cached = { manifest, identity: desktopPreviewIdentity(manifest) };
   return cached;
 }

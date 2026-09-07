@@ -144,6 +144,5 @@
     "superjson": "catalog:",
     "zod": "^4.4.3",
     "zustand": "^4.5.0"
-  },
-  "desktopPreviewConfigVersion": 1
+  }
 }

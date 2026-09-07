@@ -10,10 +10,7 @@ import { defineConfig } from "electron-vite";
 import { loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { buildExternals } from "./runtime-dependencies";
-import {
-  assertOrdinaryBuild,
-  loadPreviewBuildConfig,
-} from "./scripts/preview-config.mts";
+import { loadPreviewManifest } from "./scripts/preview-config.mts";
 import {
   createForceDevModeDefine,
   createPosthogPlugin,
@@ -92,9 +89,11 @@ export default defineConfig(({ mode }) => {
   const isDev = mode === "development";
   // Preview builds supply a validated manifest; an ordinary build fails closed
   // if one is present (a release build must never bake preview configuration).
-  const preview = loadPreviewBuildConfig();
-  if (isDev || mode === "test") {
-    assertOrdinaryBuild(preview);
+  const preview = loadPreviewManifest();
+  if (preview && (isDev || mode === "test")) {
+    throw new Error(
+      "Preview configuration was supplied to a non-preview build; refusing to bake it.",
+    );
   }
   if (preview) {
     env.VITE_POSTHOG_API_KEY = "";
@@ -110,9 +109,7 @@ export default defineConfig(({ mode }) => {
             JSON.stringify(""),
         }
       : {}),
-    __DESKTOP_PREVIEW_MANIFEST__: JSON.stringify(
-      preview ? preview.manifest : null,
-    ),
+    __DESKTOP_PREVIEW_MANIFEST__: JSON.stringify(preview),
   };
 
   return {

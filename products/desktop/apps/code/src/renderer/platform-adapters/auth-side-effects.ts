@@ -1,4 +1,3 @@
-import type { DeploymentTarget } from "@posthog/core/auth/schemas";
 import type { CloudRegion } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
@@ -26,7 +25,7 @@ export class RendererAuthSideEffects implements IAuthSideEffects {
     private readonly browserTabsClient: BrowserTabsClient,
   ) {}
 
-  onAuthSuccess(region: DeploymentTarget, projectId: number | null): void {
+  onAuthSuccess(region: CloudRegion, projectId: number | null): void {
     resetInboxReportActionDrafts();
     void refreshAuthStateQuery();
     useAuthUiStateStore.getState().clearStaleRegion();

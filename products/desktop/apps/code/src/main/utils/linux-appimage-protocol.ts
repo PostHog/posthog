@@ -123,7 +123,7 @@ function stageAppImageIcon(basename: string): string | undefined {
 export async function registerAppImageSchemes(
   schemes: string[],
   identity = {
-    userDataDirName: DESKTOP_FILE_BASENAME,
+    slug: DESKTOP_FILE_BASENAME,
     productName: PRODUCT_NAME,
   },
 ): Promise<void> {
@@ -135,12 +135,12 @@ export async function registerAppImageSchemes(
   const applicationsDir = path.join(os.homedir(), ".local/share/applications");
   const desktopFilePath = path.join(
     applicationsDir,
-    `${identity.userDataDirName}.desktop`,
+    `${identity.slug}.desktop`,
   );
 
   try {
     mkdirSync(applicationsDir, { recursive: true });
-    const iconPath = stageAppImageIcon(identity.userDataDirName);
+    const iconPath = stageAppImageIcon(identity.slug);
     writeFileSync(
       desktopFilePath,
       buildAppImageDesktopEntry({
@@ -168,7 +168,7 @@ export async function registerAppImageSchemes(
   for (const scheme of schemes) {
     await runXdg("xdg-mime", [
       "default",
-      `${identity.userDataDirName}.desktop`,
+      `${identity.slug}.desktop`,
       `x-scheme-handler/${scheme}`,
     ]);
   }

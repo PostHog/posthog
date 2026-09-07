@@ -38,7 +38,7 @@ export class DeepLinkService implements IDeepLinkRegistry {
   private schemes(): string[] {
     return getDeeplinkProtocolOptions(
       isDevBuild(),
-      getPreviewIdentity()?.scheme ?? null,
+      getPreviewIdentity()?.slug ?? null,
     );
   }
 

@@ -19,7 +19,7 @@ function getDeepLinkService(): DeepLinkService {
 function findDeepLinkUrlInArgs(args: string[]): string | undefined {
   const schemes = getDeeplinkProtocolOptions(
     isDevBuild(),
-    getPreviewIdentity()?.scheme ?? null,
+    getPreviewIdentity()?.slug ?? null,
   );
   const prefixes = schemes.map((scheme) => `${scheme}://`);
   return args.find((arg) => prefixes.some((p) => arg.startsWith(p)));

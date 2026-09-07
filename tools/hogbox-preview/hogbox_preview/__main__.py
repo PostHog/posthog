@@ -27,7 +27,7 @@ from hogland import APIError, Hogland
 
 from . import timing
 from .hogland_backend import HoglandBackend
-from .stack import DesktopProfileConfig, PostHogPreviewStack
+from .stack import PostHogPreviewStack
 
 DEFAULT_HOST = os.environ.get("HOG_HOST", "https://hogland.hedgehog-kitefin.ts.net")
 
@@ -49,15 +49,7 @@ def build_backend(args: argparse.Namespace) -> HoglandBackend:
 
 
 def build_stack(backend: HoglandBackend, args: argparse.Namespace) -> PostHogPreviewStack:
-    desktop_profile = None
-    if getattr(args, "profile", None) == "desktop":
-        commit_sha = getattr(args, "commit_sha", None)
-        if not commit_sha:
-            raise SystemExit("--profile desktop requires --commit-sha (the resolved PR head SHA)")
-        desktop_profile = DesktopProfileConfig(
-            pr_number=int(args.name.rsplit("preview-pr-", 1)[-1]),
-            commit_sha=commit_sha,
-        )
+    desktop = getattr(args, "profile", None) == "desktop"
     return PostHogPreviewStack(
         backend,
         branch=getattr(args, "branch", None),
@@ -65,7 +57,7 @@ def build_stack(backend: HoglandBackend, args: argparse.Namespace) -> PostHogPre
         seed_demo_data=not getattr(args, "no_seed", False),
         reset_db=getattr(args, "reset_db", False),
         frontend_dist_tar=getattr(args, "frontend_dist", None),
-        desktop_profile=desktop_profile,
+        desktop_pr_number=int(args.name.rsplit("preview-pr-", 1)[-1]) if desktop else None,
     )
 
 
@@ -78,22 +70,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     # it as absent rather than rendering an admin link to /pens/None.
     print(f"pen_id={backend.pen_id or ''}")
     print(f"url={url}")
-    if getattr(args, "profile", None) == "desktop":
-        # Versioned JSON result for the desktop orchestration (one line, keyed)
-        # rather than scraping the key=value lines or PR comments. The desktop
-        # workflow consumes this; the key=value contract above is unchanged for
-        # the ordinary preview flow.
-        result = {
-            "schemaVersion": 1,
-            "kind": "hogbox-desktop-preview-result",
-            "prNumber": stack.desktop_profile.pr_number if stack.desktop_profile else None,
-            "commitSha": stack.desktop_profile.commit_sha if stack.desktop_profile else None,
-            "url": url,
-            "boxId": backend.box_id,
-            "penId": backend.pen_id,
-            "desktopReady": True,
-        }
-        print("desktop_result=" + json.dumps(result))
+    gateway_url = stack.desktop_gateway_url(url)
+    if gateway_url:
+        print(f"gateway_url={gateway_url}")
     if args.destroy:
         backend.destroy()
         print(f"destroyed {backend.box_id}")
@@ -252,12 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         "--profile",
         default=None,
         choices=["desktop"],
-        help="preview profile: 'desktop' adds the OAuth app + tester seed, the deployment metadata document, and the desktop readiness gate",
-    )
-    up.add_argument(
-        "--commit-sha",
-        default=None,
-        help="exact PR head SHA the box must run (required with --profile desktop; the readiness gate fails for any other value)",
+        help="preview profile: 'desktop' adds the OAuth app + tester seed, an in-box LLM gateway on the box's Bedrock credentials, and the desktop readiness gate (pass the PR head SHA as --branch)",
     )
     up.set_defaults(func=cmd_up)
 
@@ -269,7 +243,6 @@ def main(argv: list[str] | None = None) -> int:
         help="path to a gzipped tar of the prebuilt frontend/dist to serve (built on the CI runner)",
     )
     sf.add_argument("--profile", choices=["desktop"], default=None)
-    sf.add_argument("--commit-sha", default=None)
     sf.set_defaults(func=cmd_swap_frontend)
 
     cr = sub.add_parser("create", help="provision the box only")

@@ -1,3 +1,7 @@
+import {
+  parseDesktopPreviewManifest,
+  registerPreviewDeployment,
+} from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   getGatewayUsageUrl,
@@ -172,6 +176,33 @@ describe("getLlmGatewayUrl", () => {
     expect(() => getLlmGatewayUrl("https://preview.example.com")).toThrow(
       "Agent model calls are unavailable",
     );
+  });
+
+  it("routes a registered preview backend to its own gateway", () => {
+    const manifest = {
+      schemaVersion: 1,
+      kind: "desktop-preview",
+      repository: "PostHog/posthog",
+      prNumber: 123,
+      commitSha: "1".repeat(40),
+      backendOrigin: "https://preview.example.com",
+      gatewayBaseUrl: "https://preview.example.com/llm-gateway",
+      oauthClientId: "example-public-client-id-1234",
+    };
+    try {
+      registerPreviewDeployment(parseDesktopPreviewManifest(manifest));
+      expect(getLlmGatewayUrl("https://preview.example.com")).toBe(
+        "https://preview.example.com/llm-gateway/posthog_code",
+      );
+      registerPreviewDeployment(
+        parseDesktopPreviewManifest({ ...manifest, gatewayBaseUrl: null }),
+      );
+      expect(() => getLlmGatewayUrl("https://preview.example.com")).toThrow(
+        "no LLM gateway",
+      );
+    } finally {
+      registerPreviewDeployment(null);
+    }
   });
 
   it("uses the PostHog AI product route when requested", () => {

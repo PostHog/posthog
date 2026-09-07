@@ -1,4 +1,5 @@
 import type { Adapter } from "./adapter";
+import { getPreviewDeployment } from "./desktop-preview";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
 import { modelHarnessMeta, restrictedModelMeta } from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
@@ -121,6 +122,17 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
     gatewayBaseUrl = `${url.protocol}//host.docker.internal:3308`;
   } else if (url.hostname === "app.dev.posthog.dev") {
     gatewayBaseUrl = "https://gateway.dev.posthog.dev";
+  } else if (
+    getPreviewDeployment() &&
+    url.origin === getPreviewDeployment()?.backendOrigin
+  ) {
+    const gateway = getPreviewDeployment()?.gatewayBaseUrl;
+    if (!gateway) {
+      throw new Error(
+        "Agent model calls are unavailable in this preview because its backend has no LLM gateway.",
+      );
+    }
+    gatewayBaseUrl = gateway;
   } else {
     const region = url.hostname.match(/^(us|eu)\.posthog\.com$/)?.[1];
     if (!region) {

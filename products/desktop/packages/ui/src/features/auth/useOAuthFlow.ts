@@ -1,11 +1,6 @@
 import { mapAuthErrorMessage } from "@posthog/core/auth/authErrors";
-import type { DeploymentTarget } from "@posthog/core/auth/schemas";
-import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import {
-  PREVIEW_DEPLOYMENT,
-  type PreviewDeploymentInfo,
-} from "@posthog/platform/preview-deployment";
+import { type CloudRegion, getPreviewDeployment } from "@posthog/shared";
 import { useState } from "react";
 import { useAuthUiStateStore } from "./authUiStateStore";
 import { useLoginMutation } from "./useAuthMutations";
@@ -13,11 +8,8 @@ import { useLoginMutation } from "./useAuthMutations";
 export function useOAuthFlow() {
   const hostClient = useHostTRPCClient();
   const staleRegion = useAuthUiStateStore((s) => s.staleRegion);
-  const preview = useService<PreviewDeploymentInfo | null>(PREVIEW_DEPLOYMENT);
-  // A preview build has exactly one deployment, so the sign-in target is fixed
-  // and the region picker is hidden (see OAuthControls).
-  const [region, setRegion] = useState<DeploymentTarget>(
-    preview ? "preview" : (staleRegion ?? "us"),
+  const [region, setRegion] = useState<CloudRegion>(
+    getPreviewDeployment() ? "preview" : (staleRegion ?? "us"),
   );
   const loginMutation = useLoginMutation();
 
@@ -25,7 +17,7 @@ export function useOAuthFlow() {
     loginMutation.mutate(region);
   };
 
-  const handleRegionChange = (value: DeploymentTarget) => {
+  const handleRegionChange = (value: CloudRegion) => {
     setRegion(value);
     loginMutation.reset();
   };

@@ -2,13 +2,15 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { decidePreview } = require('./desktop-preview-decision')
 
-const skip = { build: false, desktop: false, teardown: false, retireDesktop: false }
+const skip = { build: false, desktop: false, installers: false, teardown: false, retireDesktop: false }
 const build = { ...skip, build: true }
-const desktop = { ...build, desktop: true }
+const desktop = { ...build, desktop: true, installers: true }
 const teardown = { ...skip, teardown: true }
 const cases = [
     ['ordinary PR', {}, skip],
     ['desktop-only draft push', { labels: ['desktop-preview'] }, desktop],
+    ['backend-only push keeps the installers', { labels: ['desktop-preview'], desktopChanged: false }, { ...desktop, installers: false }],
+    ['desktop label added without desktop changes', { action: 'labeled', label: 'desktop-preview', labels: ['desktop-preview'], desktopChanged: false }, { ...desktop, installers: false }],
     ['desktop label added', { action: 'labeled', label: 'desktop-preview', labels: ['desktop-preview'] }, desktop],
     ['hogbox opt-in', { labels: ['hogbox-preview'] }, build],
     ['frontend auto-preview', { autoPreviewEligible: true }, build],

@@ -1,5 +1,5 @@
-import type { AuthDeploymentTarget, CloudRegion } from "./regions";
-import { isPreviewTarget } from "./regions";
+import { requirePreviewDeployment } from "./desktop-preview";
+import type { CloudRegion } from "./regions";
 
 export const POSTHOG_US_CLIENT_ID = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W";
 export const POSTHOG_EU_CLIENT_ID = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9";
@@ -257,18 +257,7 @@ export function getOauthClientIdFromRegion(region: CloudRegion): string {
       return POSTHOG_DEV_CLIENT_ID;
     case "dev-cloud":
       return POSTHOG_DEV_CLOUD_CLIENT_ID;
+    case "preview":
+      return requirePreviewDeployment().oauthClientId;
   }
-}
-
-/**
- * The OAuth client id for a deployment target. A preview target resolves from
- * its manifest; ordinary regions keep their fixed client ids.
- */
-export function getOauthClientIdFromTarget(
-  target: AuthDeploymentTarget,
-): string {
-  if (isPreviewTarget(target)) {
-    return target.preview.oauthClientId;
-  }
-  return getOauthClientIdFromRegion(target);
 }

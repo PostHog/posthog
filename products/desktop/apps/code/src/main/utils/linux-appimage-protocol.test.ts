@@ -160,7 +160,7 @@ describe("registerAppImageSchemes", () => {
 it("registers preview AppImages without overwriting the production desktop entry", async () => {
   process.env.APPIMAGE = "/home/test/preview.AppImage";
   const identity = {
-    userDataDirName: "posthog-code-preview-pr-123",
+    slug: "posthog-code-preview-pr-123",
     productName: "PostHog Preview PR 123",
   };
   await registerAppImageSchemes(["posthog-code-preview-pr-123"], identity);

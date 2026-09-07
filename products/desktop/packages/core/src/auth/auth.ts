@@ -5,18 +5,15 @@ import {
   POWER_MANAGER_SERVICE,
 } from "@posthog/platform/power-manager";
 import {
-  type AuthDeploymentTarget,
   type BackoffOptions,
   type CloudRegion,
   DesktopPreviewConfigError,
-  desktopPreviewDeploymentId,
-  getCloudUrlFromTarget,
-  isPreviewTarget,
+  getCloudUrlFromRegion,
+  getPreviewDeployment,
   NotAuthenticatedError,
   OAUTH_SCOPE_VERSION,
   sleepWithBackoff,
   TypedEventEmitter,
-  targetRegionKey,
   withTimeout,
 } from "@posthog/shared";
 import { inject, injectable, postConstruct, preDestroy } from "inversify";
@@ -24,11 +21,9 @@ import {
   AUTH_CONNECTIVITY,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
-  AUTH_PREVIEW_DEPLOYMENT,
   AUTH_SESSION_STORE,
   AUTH_TOKEN_CIPHER,
   AUTH_TOKEN_OVERRIDE,
-  type AuthPreviewDeployment,
   type IAuthConnectivity,
   type IAuthOAuthFlowService,
   type IAuthPreferenceStore,
@@ -40,7 +35,6 @@ import {
   type AuthServiceEvents,
   type AuthState,
   type AuthTokenResponse,
-  type DeploymentTarget,
   type DesktopAccess,
   desktopAccessResponseSchema,
   findOrgForProject,
@@ -64,10 +58,6 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-import { checkPreviewRevision } from "./previewRevision";
-
-export type { AuthPreviewDeployment } from "./identifiers";
-
 interface InMemorySession {
   accountKey: string | null;
   accessToken: string;
@@ -75,7 +65,6 @@ interface InMemorySession {
   refreshToken: string | null;
   sessionType: "persistent" | "impersonated";
   cloudRegion: CloudRegion;
-  deploymentTarget: DeploymentTarget;
   orgProjectsMap: OrgProjectsMap;
   currentOrgId: string | null;
   currentProjectId: number | null;
@@ -86,13 +75,11 @@ interface InMemorySession {
 interface StoredSessionInput {
   refreshToken: string;
   cloudRegion: CloudRegion;
-  deploymentTarget: DeploymentTarget;
   selectedProjectId: number | null;
 }
 
 interface TokenResponseOptions {
   cloudRegion: CloudRegion;
-  deploymentTarget: DeploymentTarget;
   selectedProjectId: number | null;
   fallbackRefreshToken?: string;
 }
@@ -103,7 +90,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     status: "anonymous",
     bootstrapComplete: false,
     cloudRegion: null,
-    deploymentTarget: null,
     orgProjectsMap: {},
     currentOrgId: null,
     currentProjectId: null,
@@ -145,10 +131,19 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     private readonly logger: RootLogger,
     @inject(AUTH_TOKEN_OVERRIDE)
     private readonly tokenOverride: string | null,
-    @inject(AUTH_PREVIEW_DEPLOYMENT)
-    private readonly previewDeployment: AuthPreviewDeployment,
   ) {
     super();
+  }
+  private isRegionAllowed(region: CloudRegion): boolean {
+    return (region === "preview") === (getPreviewDeployment() !== null);
+  }
+  private assertRegionAllowed(region: CloudRegion): void {
+    if (this.isRegionAllowed(region)) return;
+    throw new DesktopPreviewConfigError(
+      getPreviewDeployment()
+        ? "Preview builds can only sign in to their preview backend."
+        : "This build has no preview deployment to sign in to.",
+    );
   }
   async initialize(): Promise<void> {
     if (this.initializePromise) {
@@ -161,96 +156,38 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   getState(): AuthState {
     return { ...this.state };
   }
-  /**
-   * Resolve the deployment a target names. `"preview"` requires this build to
-   * carry a validated preview manifest and never resolves to an ordinary
-   * region; an ordinary region is returned unchanged in ordinary builds.
-   */
-  private resolveTarget(target: DeploymentTarget): AuthDeploymentTarget {
-    if (target === "preview") {
-      if (!this.previewDeployment) {
-        throw new DesktopPreviewConfigError(
-          "This build has no preview deployment configuration; " +
-            "the preview target cannot resolve a backend",
-        );
-      }
-      return { preview: this.previewDeployment };
-    }
-    if (this.previewDeployment) {
-      throw new DesktopPreviewConfigError(
-        "Preview builds can only sign in to their preview backend.",
-      );
-    }
-    return target;
-  }
-
-  /**
-   * The API origin for a session. A preview session resolves from the injected
-   * manifest; an ordinary session keeps its region URL.
-   */
-  private sessionApiHost(session: InMemorySession): string {
-    return this.deploymentApiHost(session.deploymentTarget);
-  }
-
-  private deploymentApiHost(target: DeploymentTarget): string {
-    return getCloudUrlFromTarget(this.resolveTarget(target));
-  }
-
-  private previewCheckedAt = 0;
-  private previewCheck: Promise<void> | null = null;
-
-  private async verifyPreview(): Promise<void> {
-    if (!this.previewDeployment || Date.now() - this.previewCheckedAt < 30_000)
-      return;
-    if (!this.previewCheck) {
-      this.previewCheck = checkPreviewRevision(this.previewDeployment)
-        .then(() => {
-          this.previewCheckedAt = Date.now();
-        })
-        .finally(() => {
-          this.previewCheck = null;
-        });
-    }
-    await this.previewCheck;
-  }
-
-  async login(region: DeploymentTarget): Promise<AuthState> {
-    const target = this.resolveTarget(region);
-    await this.verifyPreview();
+  async login(region: CloudRegion): Promise<AuthState> {
+    this.assertRegionAllowed(region);
     this.sessionGeneration += 1;
     const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
-      () => this.oauthFlow.startFlow(target),
-      target,
+      () => this.oauthFlow.startFlow(region),
+      region,
       "OAuth flow failed",
       sessionGeneration,
     );
     return this.getState();
   }
-  async signup(region: DeploymentTarget): Promise<AuthState> {
-    const target = this.resolveTarget(region);
-    await this.verifyPreview();
+  async signup(region: CloudRegion): Promise<AuthState> {
+    this.assertRegionAllowed(region);
     this.sessionGeneration += 1;
     const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
-      () => this.oauthFlow.startSignupFlow(target),
-      target,
+      () => this.oauthFlow.startSignupFlow(region),
+      region,
       "Signup failed",
       sessionGeneration,
     );
     return this.getState();
   }
   async getValidAccessToken(): Promise<ValidAccessTokenOutput> {
-    await this.verifyPreview();
     const override = this.tokenOverride;
     if (override) {
       await this.initialize();
-      const target =
-        this.session?.deploymentTarget ??
-        (this.previewDeployment ? "preview" : "us");
+      const region = this.session?.cloudRegion ?? "us";
       return {
         accessToken: override,
-        apiHost: getCloudUrlFromTarget(this.resolveTarget(target)),
+        apiHost: getCloudUrlFromRegion(region),
       };
     }
 
@@ -259,7 +196,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const session = await this.ensureValidSession();
     return {
       accessToken: session.accessToken,
-      apiHost: this.sessionApiHost(session),
+      apiHost: getCloudUrlFromRegion(session.cloudRegion),
     };
   }
   async getOAuthCredentials(): Promise<{
@@ -268,11 +205,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     expires: number;
     region: CloudRegion;
   } | null> {
-    if (this.previewDeployment) {
-      throw new DesktopPreviewConfigError(
-        "Agent model calls are unavailable in preview builds. Use a regular desktop build to run agents.",
-      );
-    }
     if (this.tokenOverride) return null;
     await this.initialize();
     const session = await this.ensureValidSession();
@@ -284,16 +216,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     };
   }
   async refreshAccessToken(): Promise<ValidAccessTokenOutput> {
-    await this.verifyPreview();
     const override = this.tokenOverride;
     if (override) {
       await this.initialize();
-      const target =
-        this.session?.deploymentTarget ??
-        (this.previewDeployment ? "preview" : "us");
+      const region = this.session?.cloudRegion ?? "us";
       return {
         accessToken: override,
-        apiHost: getCloudUrlFromTarget(this.resolveTarget(target)),
+        apiHost: getCloudUrlFromRegion(region),
       };
     }
 
@@ -302,7 +231,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const session = await this.ensureValidSession(true);
     return {
       accessToken: session.accessToken,
-      apiHost: this.sessionApiHost(session),
+      apiHost: getCloudUrlFromRegion(session.cloudRegion),
     };
   }
   async invalidateAccessTokenForTest(): Promise<void> {
@@ -421,7 +350,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     await this.patchCurrentOrganization(orgId);
     const refreshedProjects = await this.fetchOrgProjects(
       session.accessToken,
-      session.deploymentTarget,
+      session.cloudRegion,
       orgId,
     );
     if (!refreshedProjects) {
@@ -505,7 +434,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         {
           refreshToken: nextSession.refreshToken,
           cloudRegion: nextSession.cloudRegion,
-          deploymentTarget: nextSession.deploymentTarget,
           selectedProjectId: next.currentProjectId,
         },
         () => this.sessionGeneration === sessionGeneration,
@@ -567,43 +495,28 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     return { currentOrgId, currentProjectId };
   }
   async logout(): Promise<AuthState> {
-    const { cloudRegion, deploymentTarget, currentProjectId } = this.state;
+    const { cloudRegion, currentProjectId } = this.state;
 
     this.sessionGeneration += 1;
     this.authSession.clearCurrent();
     this.clearImpersonationExpiryTimer();
     this.session = null;
     this.refusedRefresh = null;
-    this.setAnonymousState({
-      cloudRegion,
-      deploymentTarget,
-      currentProjectId,
-    });
+    this.setAnonymousState({ cloudRegion, currentProjectId });
     return this.getState();
   }
-  private async executeAuthenticatedFetch(
+  private executeAuthenticatedFetch(
     fetchImpl: FetchLike,
     input: string | Request,
     init: RequestInit,
     accessToken: string,
   ): Promise<Response> {
-    if (
-      this.previewDeployment &&
-      new URL(typeof input === "string" ? input : input.url).origin !==
-        this.previewDeployment.backendOrigin
-    ) {
-      throw new DesktopPreviewConfigError(
-        "Preview credentials can only be sent to the preview backend.",
-      );
-    }
-    await this.verifyPreview();
     const headers = new Headers(init.headers);
     headers.set("authorization", `Bearer ${accessToken}`);
 
     return fetchImpl(input, {
       ...init,
       headers,
-      ...(this.previewDeployment ? { redirect: "error" as const } : {}),
       signal: init.signal ?? AbortSignal.timeout(AUTH_FETCH_TIMEOUT_MS),
     });
   }
@@ -620,7 +533,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       this.setAnonymousState({
         bootstrapComplete: true,
         cloudRegion: stored.cloudRegion,
-        deploymentTarget: stored.deploymentTarget ?? stored.cloudRegion,
         currentProjectId: stored.selectedProjectId,
         needsScopeReauth: true,
       });
@@ -671,7 +583,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       status: "restoring",
       bootstrapComplete,
       cloudRegion: storedSession.cloudRegion,
-      deploymentTarget: storedSession.deploymentTarget,
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: storedSession.selectedProjectId,
@@ -781,7 +692,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return {
         refreshToken: this.session.refreshToken,
         cloudRegion: this.session.cloudRegion,
-        deploymentTarget: this.session.deploymentTarget,
         selectedProjectId: this.session.currentProjectId,
       };
     }
@@ -832,10 +742,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       attempt < AuthService.REFRESH_MAX_ATTEMPTS;
       attempt++
     ) {
-      await this.verifyPreview();
       const result = await this.oauthFlow.refreshToken(
         input.refreshToken,
-        this.resolveTarget(input.deploymentTarget),
+        input.cloudRegion,
       );
 
       if (result.success && result.data) {
@@ -854,7 +763,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         this.session = null;
         this.setAnonymousState({
           cloudRegion: input.cloudRegion,
-          deploymentTarget: input.deploymentTarget,
           currentProjectId: input.selectedProjectId,
         });
         // Last, so a throwing teardown leaves no refusal over a live-looking session.
@@ -907,7 +815,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgNames,
     } = await this.fetchUserContext(
       tokenResponse.access_token,
-      options.deploymentTarget,
+      options.cloudRegion,
     );
 
     let currentOrgId = userOrgId;
@@ -922,7 +830,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       ({ map: orgProjectsMap, incomplete: orgProjectsIncomplete } =
         await this.buildScopedTeamProjectsMap(
           tokenResponse.access_token,
-          options.deploymentTarget,
+          options.cloudRegion,
           scopedTeamIds,
           orgNames,
         ));
@@ -942,7 +850,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       ({ map: orgProjectsMap, incomplete: orgProjectsIncomplete } =
         await this.buildOrgProjectsMap(
           tokenResponse.access_token,
-          options.deploymentTarget,
+          options.cloudRegion,
           orgIdsToFetch,
           this.session?.orgProjectsMap ?? {},
         ));
@@ -976,7 +884,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       refreshToken,
       sessionType: refreshToken ? "persistent" : "impersonated",
       cloudRegion: options.cloudRegion,
-      deploymentTarget: options.deploymentTarget,
       orgProjectsMap,
       currentOrgId: selection.currentOrgId,
       currentProjectId: selection.currentProjectId,
@@ -1012,7 +919,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   private async buildOrgProjectsMap(
     accessToken: string,
-    deploymentTarget: DeploymentTarget,
+    cloudRegion: CloudRegion,
     orgIds: string[],
     previousMap: OrgProjectsMap,
   ): Promise<{ map: OrgProjectsMap; incomplete: boolean }> {
@@ -1021,7 +928,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgIds.map(async (orgId): Promise<[string, OrgProjects]> => {
         const { org, transient } = await this.fetchOrgWithProjects(
           accessToken,
-          deploymentTarget,
+          cloudRegion,
           orgId,
         );
         if (org) {
@@ -1042,11 +949,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   private async buildScopedTeamProjectsMap(
     accessToken: string,
-    deploymentTarget: DeploymentTarget,
+    cloudRegion: CloudRegion,
     teamIds: number[],
     orgNames: Record<string, string>,
   ): Promise<{ map: OrgProjectsMap; incomplete: boolean }> {
-    const apiHost = this.deploymentApiHost(deploymentTarget);
+    const apiHost = getCloudUrlFromRegion(cloudRegion);
     let incomplete = false;
     const results = await Promise.all(
       teamIds.map(async (teamId) => {
@@ -1104,19 +1011,19 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   private async fetchOrgProjects(
     accessToken: string,
-    deploymentTarget: DeploymentTarget,
+    cloudRegion: CloudRegion,
     orgId: string,
   ): Promise<{ id: number; name: string }[] | null> {
     const { org } = await this.fetchOrgWithProjects(
       accessToken,
-      deploymentTarget,
+      cloudRegion,
       orgId,
     );
     return org?.projects ?? null;
   }
   private async fetchOrgWithProjects(
     accessToken: string,
-    deploymentTarget: DeploymentTarget,
+    cloudRegion: CloudRegion,
     orgId: string,
   ): Promise<{ org: OrgProjects | null; transient: boolean }> {
     for (
@@ -1126,7 +1033,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     ) {
       const result = await this.fetchOrgWithProjectsOnce(
         accessToken,
-        deploymentTarget,
+        cloudRegion,
         orgId,
       );
       if (result.ok) {
@@ -1152,12 +1059,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   private async fetchOrgWithProjectsOnce(
     accessToken: string,
-    deploymentTarget: DeploymentTarget,
+    cloudRegion: CloudRegion,
     orgId: string,
   ): Promise<
     { ok: true; data: OrgProjects } | { ok: false; retryable: boolean }
   > {
-    const apiHost = this.deploymentApiHost(deploymentTarget);
+    const apiHost = getCloudUrlFromRegion(cloudRegion);
     try {
       const res = await this.executeAuthenticatedFetch(
         fetch,
@@ -1193,7 +1100,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       data?: AuthTokenResponse;
       error?: string;
     }>,
-    target: AuthDeploymentTarget,
+    region: CloudRegion,
     fallbackError: string,
     sessionGeneration: number,
   ): Promise<void> {
@@ -1203,12 +1110,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     }
 
     const session = await this.createSessionFromTokenResponse(result.data, {
-      // The preview deployment has no ordinary region; `cloudRegion` is the
-      // legacy serialized field, so a preview session records the target
-      // separately and the region field carries a placeholder that no code
-      // resolves (all URL resolution goes through deploymentTarget).
-      cloudRegion: isPreviewTarget(target) ? "us" : target,
-      deploymentTarget: targetRegionKey(target),
+      cloudRegion: region,
       selectedProjectId: this.state.currentProjectId,
     });
     await this.syncAuthenticatedSession(session, sessionGeneration);
@@ -1225,7 +1127,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         {
           refreshToken: session.refreshToken,
           cloudRegion: session.cloudRegion,
-          deploymentTarget: session.deploymentTarget,
           selectedProjectId: session.currentProjectId,
         },
         () => this.sessionGeneration === sessionGeneration,
@@ -1248,7 +1149,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       status: "authenticated",
       bootstrapComplete: true,
       cloudRegion: session.cloudRegion,
-      deploymentTarget: session.deploymentTarget,
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
@@ -1275,7 +1175,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     input: {
       refreshToken: string;
       cloudRegion: CloudRegion;
-      deploymentTarget: DeploymentTarget;
       selectedProjectId: number | null;
     },
     shouldSave: () => boolean = () => true,
@@ -1289,11 +1188,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     this.authSession.saveCurrent({
       refreshTokenEncrypted,
       cloudRegion: input.cloudRegion,
-      deploymentTarget: input.deploymentTarget,
-      deploymentId:
-        input.deploymentTarget === "preview" && this.previewDeployment
-          ? desktopPreviewDeploymentId(this.previewDeployment)
-          : null,
       selectedProjectId: input.selectedProjectId ?? priorSelected,
       scopeVersion: OAUTH_SCOPE_VERSION,
     });
@@ -1335,7 +1229,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   private async fetchUserContext(
     accessToken: string,
-    deploymentTarget: DeploymentTarget,
+    cloudRegion: CloudRegion,
   ): Promise<{
     accountKey: string | null;
     currentOrgId: string | null;
@@ -1344,7 +1238,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     try {
       const response = await this.executeAuthenticatedFetch(
         fetch,
-        `${this.deploymentApiHost(deploymentTarget)}/api/users/@me/`,
+        `${getCloudUrlFromRegion(cloudRegion)}/api/users/@me/`,
         {},
         accessToken,
       );
@@ -1401,7 +1295,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       Partial<AuthState>,
       | "bootstrapComplete"
       | "cloudRegion"
-      | "deploymentTarget"
       | "currentProjectId"
       | "needsScopeReauth"
       | "sessionEndReason"
@@ -1411,7 +1304,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       status: "anonymous",
       bootstrapComplete: partial.bootstrapComplete ?? true,
       cloudRegion: partial.cloudRegion ?? null,
-      deploymentTarget: partial.deploymentTarget ?? null,
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: partial.currentProjectId ?? null,
@@ -1498,7 +1390,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return { projectId, status: "error", reason: null };
     }
 
-    const url = `${this.sessionApiHost(session)}/api/projects/${projectId}/desktop/access/`;
+    const url = `${getCloudUrlFromRegion(session.cloudRegion)}/api/projects/${projectId}/desktop/access/`;
 
     try {
       const response = await this.executeAuthenticatedFetch(
@@ -1600,7 +1492,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     this.refusedRefresh = null;
     this.setAnonymousState({
       cloudRegion: session.cloudRegion,
-      deploymentTarget: session.deploymentTarget,
       currentProjectId: session.currentProjectId,
       sessionEndReason: "impersonation_expired",
     });
@@ -1612,27 +1503,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const stored = this.authSession.getCurrent();
     if (!stored) return null;
 
-    // A stored preview session belongs to the deployment recorded at sign-in.
-    // A changed origin or client id means the box was replaced behind the
-    // stable URL: the old refresh token belongs to a different backend, so
-    // drop it and ask for a fresh sign-in rather than present it to the new
-    // deployment. An ordinary build with a stored preview session (or vice
-    // versa) is the same mismatch.
-    if (stored.deploymentTarget === "preview") {
-      const expected = this.previewDeployment
-        ? desktopPreviewDeploymentId(this.previewDeployment)
-        : null;
-      if (!expected || stored.deploymentId !== expected) {
-        this.logger.warn(
-          "Stored preview session targets a different deployment; requiring sign-in",
-        );
-        this.authSession.clearCurrent();
-        return null;
-      }
-    } else if (this.previewDeployment) {
-      // A preview build never resumes an ordinary-region session.
+    if (!this.isRegionAllowed(stored.cloudRegion)) {
       this.logger.warn(
-        "Preview build refusing to resume an ordinary-region session",
+        "Stored session targets a region this build cannot use; requiring sign-in",
       );
       this.authSession.clearCurrent();
       return null;
@@ -1646,7 +1519,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     return {
       refreshToken,
       cloudRegion: stored.cloudRegion,
-      deploymentTarget: stored.deploymentTarget ?? stored.cloudRegion,
       selectedProjectId: stored.selectedProjectId,
     };
   }
@@ -1731,7 +1603,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         );
         ({ map, incomplete } = await this.buildScopedTeamProjectsMap(
           session.accessToken,
-          session.deploymentTarget,
+          session.cloudRegion,
           session.scopedTeamIds,
           knownOrgNames,
         ));
@@ -1739,7 +1611,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         const orgIds = Object.keys(session.orgProjectsMap);
         ({ map, incomplete } = await this.buildOrgProjectsMap(
           session.accessToken,
-          session.deploymentTarget,
+          session.cloudRegion,
           orgIds,
           session.orgProjectsMap,
         ));

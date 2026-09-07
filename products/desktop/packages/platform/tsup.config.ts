@@ -27,7 +27,6 @@ export default defineConfig({
     "src/app-metrics.ts",
     "src/dev-host-actions.ts",
     "src/disk-cache.ts",
-    "src/preview-deployment.ts",
   ],
   format: ["esm"],
   dts: true,

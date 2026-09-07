@@ -45,7 +45,7 @@ const previewIdentity = getPreviewIdentity();
 
 // Set app name for single-instance lock, crashReporter, etc
 const appName = previewIdentity
-  ? previewIdentity.userDataDirName
+  ? previewIdentity.slug
   : isDev
     ? "posthog-code-dev"
     : "posthog-code";

@@ -1,15 +1,11 @@
-import type { DeploymentTarget } from "@posthog/core/auth/schemas";
-import { useService } from "@posthog/di/react";
-import {
-  PREVIEW_DEPLOYMENT,
-  type PreviewDeploymentInfo,
-} from "@posthog/platform/preview-deployment";
+import { type CloudRegion, getPreviewDeployment } from "@posthog/shared";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Callout, Spinner } from "@radix-ui/themes";
 import { RegionSelect } from "./RegionSelect";
 import { useOAuthFlow } from "./useOAuthFlow";
 
 interface OAuthControlsProps {
-  onAuthInitiated?: (region: DeploymentTarget) => void;
+  onAuthInitiated?: (region: CloudRegion) => void;
   /** Defaults to the dev build, where development targets are available. */
   includeDevRegion?: boolean;
 }
@@ -18,7 +14,7 @@ export function OAuthControls({
   onAuthInitiated,
   includeDevRegion = import.meta.env.DEV,
 }: OAuthControlsProps = {}) {
-  const preview = useService<PreviewDeploymentInfo | null>(PREVIEW_DEPLOYMENT);
+  const preview = getPreviewDeployment();
   const {
     region,
     handleAuth,
@@ -71,23 +67,16 @@ export function OAuthControls({
       </button>
 
       {preview ? (
-        // A preview build signs in to exactly one deployment: the isolated
-        // backend this installer was built for. No region picker, so nobody
-        // can point this app at production projects.
-        <div className="flex flex-col items-center gap-1">
-          <span className="text-(--gray-11) text-xs">
-            Preview deployment: {preview.label}
-          </span>
-          <span className="text-(--gray-10) text-xs">
-            Connects only to this pull request's backend.
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={() => void openExternalUrl(preview.backendOrigin)}
+          className="self-center rounded-(--radius-3) border border-(--gray-6) px-2 py-1 text-(--gray-10) text-xs transition-colors hover:text-(--gray-12)"
+        >
+          Preview PR {preview.prNumber} · {preview.commitSha.slice(0, 7)}
+        </button>
       ) : (
         <RegionSelect
-          // In the non-preview branch the region state can only hold an
-          // ordinary region: `useOAuthFlow` seeds "preview" only when a
-          // preview deployment is bound, and the picker is the only writer.
-          region={region === "preview" ? "us" : region}
+          region={region}
           onRegionChange={handleRegionChange}
           disabled={isPending}
           includeDevRegion={includeDevRegion}

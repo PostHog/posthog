@@ -3,11 +3,10 @@ import type { IPowerManager } from "@posthog/platform/power-manager";
 import {
   type CloudRegion,
   DesktopPreviewConfigError,
-  type DesktopPreviewManifest,
-  desktopPreviewDeploymentId,
   NotAuthenticatedError,
   OAUTH_SCOPE_VERSION,
   parseDesktopPreviewManifest,
+  registerPreviewDeployment,
 } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth";
@@ -146,8 +145,6 @@ describe("AuthService", () => {
     sessionPort.saveCurrent({
       refreshTokenEncrypted: overrides.refreshToken ?? "stored-refresh-token",
       cloudRegion: overrides.cloudRegion ?? "us",
-      deploymentTarget: overrides.cloudRegion ?? "us",
-      deploymentId: null,
       selectedProjectId: overrides.selectedProjectId ?? null,
       scopeVersion: overrides.scopeVersion ?? OAUTH_SCOPE_VERSION,
     });
@@ -185,16 +182,6 @@ describe("AuthService", () => {
       "fetch",
       vi.fn(async (input: string | Request) => {
         const url = typeof input === "string" ? input : input.url;
-        if (url.endsWith("/static/desktop-preview/deployment.json")) {
-          return new Response(
-            JSON.stringify({
-              schemaVersion: 1,
-              prNumber: 123,
-              commitSha: "1".repeat(40),
-              deploymentGeneration: 1,
-            }),
-          );
-        }
 
         if (url.includes("/api/users/@me/")) {
           if (accountKey === null) {
@@ -236,9 +223,7 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(
-    previewDeployment: DesktopPreviewManifest | null = null,
-  ): AuthService {
+  function createService(): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
@@ -248,7 +233,6 @@ describe("AuthService", () => {
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
       null,
-      previewDeployment,
     );
   }
 
@@ -275,7 +259,6 @@ describe("AuthService", () => {
       status: "anonymous",
       bootstrapComplete: true,
       cloudRegion: null,
-      deploymentTarget: null,
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: null,
@@ -485,7 +468,6 @@ describe("AuthService", () => {
       status: "anonymous",
       bootstrapComplete: true,
       cloudRegion: "us",
-      deploymentTarget: "us",
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: 123,
@@ -840,7 +822,6 @@ describe("AuthService", () => {
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
       null,
-      null,
     );
 
     // Initialize once while the session store is empty so login/selectProject
@@ -908,7 +889,6 @@ describe("AuthService", () => {
       gatedCipher,
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
-      null,
       null,
     );
     service.init();
@@ -1025,7 +1005,6 @@ describe("AuthService", () => {
       gatedCipher,
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
-      null,
       null,
     );
     service.init();
@@ -2555,23 +2534,6 @@ describe("AuthService", () => {
     });
   });
 
-  it.each(["eu", "dev", "dev-cloud"] as const)(
-    "restores legacy %s sessions using their saved region",
-    async (region) => {
-      sessionPort.getCurrent = () => ({
-        refreshTokenEncrypted: "old-token",
-        cloudRegion: region,
-        selectedProjectId: null,
-        scopeVersion: OAUTH_SCOPE_VERSION,
-      });
-      oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
-      stubAuthFetch();
-      await service.initialize();
-      expect(oauthFlow.refreshToken).toHaveBeenCalledWith("old-token", region);
-      expect(service.getState().deploymentTarget).toBe(region);
-    },
-  );
-
   describe("preview deployment", () => {
     const previewManifest = parseDesktopPreviewManifest({
       schemaVersion: 1,
@@ -2580,40 +2542,16 @@ describe("AuthService", () => {
       prNumber: 123,
       commitSha: "1111111111111111111111111111111111111111",
       backendOrigin: "https://preview.example.com",
+      gatewayBaseUrl: "https://preview.example.com/llm-gateway",
       oauthClientId: "example-public-client-id-1234",
     });
 
-    beforeEach(() => {
-      sessionPort.saveCurrent = vi.fn(
-        (input: PersistAuthSessionRecord) => input,
-      );
+    afterEach(() => {
+      registerPreviewDeployment(null);
     });
 
-    it("resolves the preview target from the injected manifest", async () => {
-      service = createService(previewManifest);
-      oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
-      stubAuthFetch();
-
-      await service.initialize();
-      await service.login("preview");
-
-      expect(oauthFlow.startFlow).toHaveBeenCalledWith({
-        preview: previewManifest,
-      });
-      expect(service.getState().deploymentTarget).toBe("preview");
-    });
-
-    it("throws a named configuration error for the preview target without a manifest", async () => {
-      service = createService(null);
-
-      await expect(service.login("preview")).rejects.toThrow(
-        DesktopPreviewConfigError,
-      );
-      expect(oauthFlow.startFlow).not.toHaveBeenCalled();
-    });
-
-    it("never resolves a preview session to a production URL", async () => {
-      service = createService(previewManifest);
+    it("signs in to the preview region and resolves its backend origin", async () => {
+      registerPreviewDeployment(previewManifest);
       oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
       stubAuthFetch();
 
@@ -2621,125 +2559,40 @@ describe("AuthService", () => {
       await service.login("preview");
       const token = await service.getValidAccessToken();
 
+      expect(oauthFlow.startFlow).toHaveBeenCalledWith("preview");
       expect(token.apiHost).toBe("https://preview.example.com");
-      expect(token.apiHost).not.toContain("posthog.com");
+      expect(service.getState().cloudRegion).toBe("preview");
     });
 
-    it("blocks production sign-in and gateway credentials in preview builds", async () => {
-      service = createService(previewManifest);
+    it("refuses regions that belong to the other kind of build", async () => {
+      registerPreviewDeployment(previewManifest);
       await expect(service.login("us")).rejects.toThrow(
-        "Preview builds can only",
+        DesktopPreviewConfigError,
       );
-      await expect(service.getOAuthCredentials()).rejects.toThrow(
-        "Agent model calls are unavailable",
-      );
-      expect(oauthFlow.startFlow).not.toHaveBeenCalled();
-    });
 
-    it("keeps organization switching on the preview and refuses foreign authenticated requests", async () => {
-      service = createService(previewManifest);
-      oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
-      stubAuthFetch({
-        orgs: {
-          "org-1": { name: "First", projects: [{ id: 42, name: "One" }] },
-          "org-2": { name: "Second", projects: [{ id: 43, name: "Two" }] },
-        },
-      });
-      await service.initialize();
-      await service.login("preview");
-      await service.switchOrg("org-1");
-      expect(service.getState().currentOrgId).toBe("org-1");
-      const calls = vi.mocked(fetch).mock.calls;
-      expect(
-        calls.every(([url]) =>
-          String(url).startsWith(previewManifest.backendOrigin),
-        ),
-      ).toBe(true);
-      const foreignFetch = vi.fn();
-      await expect(
-        service.authenticatedFetch(
-          foreignFetch,
-          "https://us.posthog.com/api/users/@me/",
-        ),
-      ).rejects.toThrow("Preview credentials can only");
-      expect(foreignFetch).not.toHaveBeenCalled();
-    });
-
-    it("checks the served revision before starting OAuth", async () => {
-      service = createService(previewManifest);
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              schemaVersion: 1,
-              prNumber: 123,
-              commitSha: "2".repeat(40),
-              deploymentGeneration: 2,
-            }),
-          ),
-        ),
-      );
-      await expect(service.login("preview")).rejects.toThrow(
-        "Download the latest installer",
+      registerPreviewDeployment(null);
+      await expect(service.signup("preview")).rejects.toThrow(
+        DesktopPreviewConfigError,
       );
       expect(oauthFlow.startFlow).not.toHaveBeenCalled();
+      expect(oauthFlow.startSignupFlow).not.toHaveBeenCalled();
     });
 
-    it("records the deployment identity with the persisted session", async () => {
-      service = createService(previewManifest);
-      oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
-      stubAuthFetch();
-
-      await service.initialize();
-      await service.login("preview");
-
-      expect(sessionPort.saveCurrent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          deploymentTarget: "preview",
-          deploymentId: desktopPreviewDeploymentId(previewManifest),
-        }),
-      );
-    });
-
-    it("discards a stored preview session when the deployment identity changed", async () => {
-      // A session persisted by a different deployment of the same PR (the box
-      // was replaced behind the stable URL) must not be refreshed against the
-      // new backend.
-      sessionPort.saveCurrent({
-        refreshTokenEncrypted: "encrypted",
+    it("does not resume a session stored by the other kind of build", async () => {
+      registerPreviewDeployment(previewManifest);
+      sessionPort.getCurrent = () => ({
+        refreshTokenEncrypted: "old-token",
         cloudRegion: "us",
-        deploymentTarget: "preview",
-        deploymentId: "https://old.example.com|other-client-id",
-        selectedProjectId: null,
+        selectedProjectId: 1,
         scopeVersion: OAUTH_SCOPE_VERSION,
       });
-      service = createService(previewManifest);
+      const clearCurrent = vi.spyOn(sessionPort, "clearCurrent");
 
       await service.initialize();
 
-      expect(service.getState()).toMatchObject({
-        status: "anonymous",
-        deploymentTarget: null,
-      });
+      expect(service.getState().status).toBe("anonymous");
       expect(oauthFlow.refreshToken).not.toHaveBeenCalled();
-    });
-
-    it("refuses to resume an ordinary-region session in a preview build", async () => {
-      sessionPort.saveCurrent({
-        refreshTokenEncrypted: "encrypted",
-        cloudRegion: "us",
-        deploymentTarget: "us",
-        deploymentId: null,
-        selectedProjectId: 123,
-        scopeVersion: OAUTH_SCOPE_VERSION,
-      });
-      service = createService(previewManifest);
-
-      await service.initialize();
-
-      expect(service.getState()).toMatchObject({ status: "anonymous" });
-      expect(oauthFlow.refreshToken).not.toHaveBeenCalled();
+      expect(clearCurrent).toHaveBeenCalled();
     });
   });
 });

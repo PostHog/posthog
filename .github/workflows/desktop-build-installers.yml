@@ -56,7 +56,6 @@ env:
     # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
-    POSTHOG_DESKTOP_BUILD_KIND: ${{ inputs.build_kind }}
     POSTHOG_DESKTOP_PREVIEW_PR: ${{ inputs.pr_number }}
     POSTHOG_DESKTOP_PREVIEW_SHA: ${{ inputs.source_sha }}
 
@@ -199,6 +198,8 @@ jobs:
             - name: Verify package
               env:
                   MATRIX_ARCH: ${{ matrix.arch }}
+                  BUILD_KIND: ${{ inputs.build_kind }}
+                  PREVIEW_PRODUCT_NAME: ${{ inputs.build_kind == 'preview' && format('PostHog Preview PR {0}', inputs.pr_number) || '' }}
               run: |
                   if [[ "$MATRIX_ARCH" == "arm64" ]]; then
                     APP_BUNDLE="apps/code/out/mac-arm64/PostHog.app"
@@ -244,8 +245,6 @@ jobs:
                     fi
                     echo "OK: $bin"
                   done
-                  BUILD_KIND: ${{ inputs.build_kind }}
-                  PREVIEW_PRODUCT_NAME: ${{ inputs.build_kind == 'preview' && format('PostHog Preview PR {0}', inputs.pr_number) || '' }}
 
             - name: Install Playwright
               run: pnpm --filter code exec playwright install

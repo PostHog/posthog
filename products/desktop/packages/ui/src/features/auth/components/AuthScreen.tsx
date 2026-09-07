@@ -2,7 +2,6 @@ import { SignInCard } from "@posthog/ui/features/auth/SignInCard";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { useAuthStateValue } from "../store";
 import { AffirmationButton } from "./AffirmationButton";
-import { PreviewBadge } from "./PreviewBadge";
 
 interface AuthScreenProps {
   onOpenSupport: () => void;
@@ -12,12 +11,7 @@ export function AuthScreen({ onOpenSupport }: AuthScreenProps) {
   const sessionEndReason = useAuthStateValue((state) => state.sessionEndReason);
   return (
     <FullScreenLayout
-      footerLeft={
-        <div className="flex items-center gap-3">
-          <AffirmationButton onOpenSupport={onOpenSupport} />
-          <PreviewBadge />
-        </div>
-      }
+      footerLeft={<AffirmationButton onOpenSupport={onOpenSupport} />}
     >
       <div className="flex h-full items-center justify-center px-12">
         <div className="flex h-full w-full max-w-[480px] flex-col items-center pt-[24px] pb-[40px]">

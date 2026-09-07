@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertNoPreviewConfig,
   DesktopPreviewConfigError,
   desktopPreviewIdentity,
   parseDesktopPreviewManifest,
-  previewDeploymentMetadataSchema,
 } from "./desktop-preview";
 
 // Synthetic example from reserved domains; no real host or credential.
@@ -15,6 +13,7 @@ const validManifest = {
   prNumber: 123,
   commitSha: "1111111111111111111111111111111111111111",
   backendOrigin: "https://preview.example.com",
+  gatewayBaseUrl: "https://preview.example.com/llm-gateway/",
   oauthClientId: "example-public-client-id-1234",
 };
 
@@ -23,6 +22,27 @@ describe("parseDesktopPreviewManifest", () => {
     const parsed = parseDesktopPreviewManifest(validManifest);
     expect(parsed.prNumber).toBe(123);
     expect(parsed.backendOrigin).toBe("https://preview.example.com");
+    expect(parsed.gatewayBaseUrl).toBe(
+      "https://preview.example.com/llm-gateway",
+    );
+  });
+
+  it("accepts a preview without a gateway", () => {
+    const parsed = parseDesktopPreviewManifest({
+      ...validManifest,
+      gatewayBaseUrl: null,
+    });
+    expect(parsed.gatewayBaseUrl).toBeNull();
+  });
+
+  it.each([
+    "http://preview.example.com/llm-gateway",
+    "https://user:pw@preview.example.com/llm-gateway",
+    "https://preview.example.com/llm-gateway?x=1",
+  ])("rejects the gateway URL %s", (gatewayBaseUrl) => {
+    expect(() =>
+      parseDesktopPreviewManifest({ ...validManifest, gatewayBaseUrl }),
+    ).toThrow(DesktopPreviewConfigError);
   });
 
   it("rejects an unknown schema version", () => {
@@ -115,11 +135,12 @@ describe("desktopPreviewIdentity", () => {
     const identity = desktopPreviewIdentity(
       parseDesktopPreviewManifest(validManifest),
     );
-    expect(identity.productName).toBe("PostHog Preview PR 123");
-    expect(identity.appId).toBe("com.posthog.array.preview.pr123");
-    expect(identity.scheme).toBe("posthog-code-preview-pr-123");
-    expect(identity.redirectUri).toBe("posthog-code-preview-pr-123://callback");
-    expect(identity.userDataDirName).toBe("posthog-code-preview-pr-123");
+    expect(identity).toEqual({
+      productName: "PostHog Preview PR 123",
+      appId: "com.posthog.array.preview.pr123",
+      slug: "posthog-code-preview-pr-123",
+      fileName: "PostHog-Preview-PR-123",
+    });
   });
 
   it("derives a distinct identity for a different PR", () => {
@@ -129,50 +150,7 @@ describe("desktopPreviewIdentity", () => {
     const b = desktopPreviewIdentity(
       parseDesktopPreviewManifest({ ...validManifest, prNumber: 124 }),
     );
-    expect(b.scheme).not.toBe(a.scheme);
+    expect(b.slug).not.toBe(a.slug);
     expect(b.appId).not.toBe(a.appId);
-    expect(b.redirectUri).not.toBe(a.redirectUri);
-  });
-});
-
-describe("assertNoPreviewConfig", () => {
-  it("passes when no preview manifest is supplied", () => {
-    expect(() => assertNoPreviewConfig(null)).not.toThrow();
-  });
-
-  it("fails closed when a release build receives preview configuration", () => {
-    expect(() =>
-      assertNoPreviewConfig(parseDesktopPreviewManifest(validManifest)),
-    ).toThrow(DesktopPreviewConfigError);
-  });
-});
-
-describe("previewDeploymentMetadataSchema", () => {
-  it("accepts the served metadata document shape", () => {
-    const parsed = previewDeploymentMetadataSchema.safeParse({
-      schemaVersion: 1,
-      prNumber: 123,
-      commitSha: "1111111111111111111111111111111111111111",
-      deploymentGeneration: 4,
-    });
-    expect(parsed.success).toBe(true);
-  });
-
-  it("rejects a stale document that carries the SPA instead of JSON", () => {
-    const parsed = previewDeploymentMetadataSchema.safeParse(
-      "<!doctype html><html></html>",
-    );
-    expect(parsed.success).toBe(false);
-  });
-
-  it("rejects unexpected fields in the metadata document", () => {
-    const parsed = previewDeploymentMetadataSchema.safeParse({
-      schemaVersion: 1,
-      prNumber: 123,
-      commitSha: "1111111111111111111111111111111111111111",
-      deploymentGeneration: 4,
-      extra: true,
-    });
-    expect(parsed.success).toBe(false);
   });
 });

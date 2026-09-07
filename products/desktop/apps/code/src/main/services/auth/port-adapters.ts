@@ -15,7 +15,7 @@ import type {
 } from "@posthog/core/auth/oauth.schemas";
 import { OAUTH_SERVICE } from "@posthog/core/oauth/identifiers";
 import type { OAuthService } from "@posthog/core/oauth/oauth";
-import type { AuthDeploymentTarget, CloudRegion } from "@posthog/shared";
+import type { CloudRegion } from "@posthog/shared";
 import type { IAuthPreferenceRepository } from "@posthog/workspace-server/db/repositories/auth-preference-repository";
 import type { IAuthSessionRepository } from "@posthog/workspace-server/db/repositories/auth-session-repository";
 import { inject, injectable } from "inversify";
@@ -43,19 +43,19 @@ export class OAuthFlowPortAdapter implements IAuthOAuthFlowService {
     private readonly oauth: OAuthService,
   ) {}
 
-  startFlow(target: AuthDeploymentTarget): Promise<StartFlowOutput> {
-    return this.oauth.startFlow(target);
+  startFlow(region: CloudRegion): Promise<StartFlowOutput> {
+    return this.oauth.startFlow(region);
   }
 
-  startSignupFlow(target: AuthDeploymentTarget): Promise<StartFlowOutput> {
-    return this.oauth.startSignupFlow(target);
+  startSignupFlow(region: CloudRegion): Promise<StartFlowOutput> {
+    return this.oauth.startSignupFlow(region);
   }
 
   refreshToken(
     refreshToken: string,
-    target: AuthDeploymentTarget,
+    region: CloudRegion,
   ): Promise<RefreshTokenOutput> {
-    return this.oauth.refreshToken(refreshToken, target);
+    return this.oauth.refreshToken(refreshToken, region);
   }
 
   cancelFlow(): CancelFlowOutput {
@@ -78,8 +78,6 @@ export class AuthSessionPortAdapter implements IAuthSessionStore {
     return {
       refreshTokenEncrypted: row.refreshTokenEncrypted,
       cloudRegion: row.cloudRegion,
-      deploymentTarget: row.deploymentTarget,
-      deploymentId: row.deploymentId,
       selectedProjectId: row.selectedProjectId,
       scopeVersion: row.scopeVersion,
     };

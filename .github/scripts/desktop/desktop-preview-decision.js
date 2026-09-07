@@ -1,8 +1,17 @@
 const PREVIEW_LABELS = ['hogbox-preview', 'desktop-preview', 'no-preview']
 const BOT_LOGIN_PATTERN = /^(dependabot|renovate|github-actions|snyk-bot|posthog-bot|mendral-app|greptileai|coderabbitai|sentry-io)\b/i
 
-function decidePreview({ event, action, pr, repository, labels, label, autoPreviewEligible = false }) {
-    const skip = { build: false, desktop: false, teardown: false, retireDesktop: false }
+function decidePreview({
+    event,
+    action,
+    pr,
+    repository,
+    labels,
+    label,
+    autoPreviewEligible = false,
+    desktopChanged = true,
+}) {
+    const skip = { build: false, desktop: false, installers: false, teardown: false, retireDesktop: false }
     if (pr.head?.repo?.full_name !== repository || pr.state === 'closed') {
         return skip
     }
@@ -32,7 +41,8 @@ function decidePreview({ event, action, pr, repository, labels, label, autoPrevi
     if (action === 'ready_for_review' && (desktop || labels.includes('hogbox-preview'))) {
         return skip
     }
-    return { ...skip, build: manual || backend, desktop: (manual || backend) && desktop }
+    const build = manual || backend
+    return { ...skip, build, desktop: build && desktop, installers: build && desktop && desktopChanged }
 }
 
 module.exports = { decidePreview }

@@ -1,15 +1,14 @@
 # Desktop PR previews
 
-Add `desktop-preview` to an open, same-repository PR to build desktop installers connected to that PR’s isolated backend.
+Add `desktop-preview` to an open, same-repository PR to build desktop installers connected to that PR's isolated backend.
 Draft PRs support this label too.
-The backend and installers use the same pinned commit.
 The provisioning controller runs from the default branch, so this infrastructure must land on master before other branches can use it.
 
 ## Test a PR
 
 1. Connect to the PostHog VPN.
 2. Add `desktop-preview` to the PR and wait for its preview comment.
-3. Download an installer for your platform from the linked workflow artifacts.
+3. Download an installer for your platform from the linked workflow run.
 4. Sign in with `desktop-tester-1@example.com` or `desktop-tester-2@example.com`, using password `posthog-desktop-preview`.
 
 Both test accounts share an isolated organization and project.
@@ -23,14 +22,28 @@ If macOS blocks the app, replace `123` with your PR number and run:
 xattr -dr com.apple.quarantine "/Applications/PostHog Preview PR 123.app"
 ```
 
+## What a push does
+
+The backend follows every push: the box behind the stable URL is replaced with the PR's new commit.
+Installers rebuild only when the push touches `products/desktop/**` or the installer workflow.
+A backend-only push keeps the installer you already have, and the preview comment keeps linking it.
+The desktop app tolerates a backend that is newer than the installer, the same way the released app tolerates backend deploys.
+
+## Agents in a preview
+
+The preview runs its own LLM gateway inside the box, next to Django.
+Every hogbox gets renewable AWS credentials from hogland, so the gateway serves Claude models through Bedrock with no provider keys and no shared PostHog key.
+The gateway validates the preview's own tokens against the box's Postgres, so each tester keeps their own identity.
+A proxy on the preview URL serves the gateway under `/llm-gateway`.
+Only Claude models work in a preview. Codex and other providers do not.
+
 ## Preview limits
 
-- Agent model calls are unavailable. Preview credentials cannot fall back to a production gateway.
 - Automatic updates and product analytics are disabled.
-- The backend can sleep when idle. Open its URL in your browser to wake it before retrying login.
-- Download a new installer after pushing to the PR. Authenticated requests verify the backend revision, caching a successful check for up to 30 seconds.
-- Backend replacement can reset test data and sessions. An installer for a different backend origin or OAuth client requires a new sign-in.
-- Workflow artifacts expire after seven days. Preview features that need additional services are unsupported until their provisioning is implemented.
+- The backend can sleep when idle. The first request wakes it, which can take a minute.
+- Backend replacement can reset test data and sessions, so you may need to sign in again after a push.
+- Workflow artifacts expire after seven days. Re-add the label to build fresh installers.
+- Model calls in a preview cost hogland's Bedrock account, the same as agent boxes.
 
 The desktop profile sets `DESKTOP_PREVIEW=1` to let its synthetic accounts pass the desktop billing gate.
 This default-off setting applies only when `CLOUD_DEPLOYMENT` is unset or `LOCAL`; hosted cloud deployments ignore it.
@@ -54,21 +67,23 @@ Closing the PR also tears it down through the existing PR cleanup workflow.
 
 ## Build contract
 
-`POSTHOG_DESKTOP_BUILD_KIND=preview` requires `POSTHOG_DESKTOP_PREVIEW_CONFIG` to point to a public JSON manifest.
+A build is a preview build when `POSTHOG_DESKTOP_PREVIEW_CONFIG` points to a public JSON manifest.
 `POSTHOG_DESKTOP_PREVIEW_PR` and `POSTHOG_DESKTOP_PREVIEW_SHA` must match that manifest.
-The manifest contains its schema version, repository, PR number, commit SHA, HTTPS backend origin, and public OAuth client ID.
-Unknown fields, URL credentials, unsupported schemas, and mismatched build identities fail validation.
+The manifest contains its schema version, repository, PR number, commit SHA, HTTPS backend origin, LLM gateway base URL (or null), and public OAuth client ID.
+Unknown fields, URL credentials, non-HTTPS URLs, unsupported schemas, and mismatched build identities fail validation.
 Ordinary builds reject preview input.
 
-The backend publishes `/static/desktop-preview/deployment.json` before starting its web process.
-Readiness requires a real tester login, PKCE authorization and token exchange, an authenticated user read, and desktop project access.
-Branches without `desktopPreviewConfigVersion: 1` in the desktop app package must update from master before building previews.
+Inside the app the preview backend is the `preview` region.
+Each process registers the inlined manifest at startup, so the region resolves its URL, OAuth client ID, and gateway the same way `us` and `eu` do.
+A preview build signs in to the `preview` region only, and an ordinary build never does.
+
+Readiness requires a real tester login, PKCE authorization and token exchange, an authenticated user read, desktop project access, and a gateway liveness check through the proxy.
 
 ## Implementation
 
-- Manifest and application identity: `packages/shared/src/desktop-preview.ts`
+- Manifest, region registry, and application identity: `packages/shared/src/desktop-preview.ts`, `regions.ts`, `urls.ts`, `oauth.ts`
 - Build validation: `apps/code/scripts/preview-config.mts`
-- Authentication and revision verification: `packages/core/src/auth/`
-- Provisioning: `tools/hogbox-preview/hogbox_preview/desktop_profile.py` and `stack.py`
+- Region guard: `packages/core/src/auth/auth.ts`
+- Provisioning, gateway, and proxy: `tools/hogbox-preview/hogbox_preview/desktop_profile.py` and `stack.py`
 - Lifecycle: `.github/scripts/desktop/desktop-preview-decision.js` and `.github/workflows/hogbox-preview-env.yml`
 - Packaging: `.github/workflows/desktop-build-installers.yml`

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import json
-
-DESKTOP_PREVIEW_SCHEMA_VERSION = 1
 DESKTOP_OAUTH_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 DESKTOP_TESTER_EMAILS = ["desktop-tester-1@example.com", "desktop-tester-2@example.com"]
 DESKTOP_TESTER_PASSWORD = "posthog-desktop-preview"
+LLM_GATEWAY_IMAGE = "ghcr.io/posthog/posthog/llm-gateway:master"
+LLM_GATEWAY_PATH_PREFIX = "/llm-gateway"
+PROXY_IMAGE = "caddy:2.10-alpine"
+# hogpanion's bedrock feature serves renewable AWS credentials here inside every box.
+BEDROCK_CREDENTIALS_URL = "http://127.0.0.1:8181/credentials"
+BEDROCK_REGION = "us-east-1"
 
 
 class DesktopPreviewError(RuntimeError):
@@ -63,18 +66,7 @@ print("DESKTOP_SEED_OK")
 """
 
 
-def build_deployment_metadata_document(*, pr_number: int, commit_sha: str, deployment_generation: int) -> str:
-    return json.dumps(
-        {
-            "schemaVersion": DESKTOP_PREVIEW_SCHEMA_VERSION,
-            "prNumber": pr_number,
-            "commitSha": commit_sha,
-            "deploymentGeneration": deployment_generation,
-        }
-    )
-
-
-def build_desktop_readiness_script(*, pr_number: int, web_port: int, commit_sha: str) -> str:
+def build_desktop_readiness_script(*, pr_number: int, web_port: int) -> str:
     # Probe inside the guest to avoid depending on its ability to reach the VPN edge.
     return f"""
 import base64
@@ -106,9 +98,6 @@ def request(path, data=None, token=None, form=False):
 def read_json(path, **kwargs):
     return json.loads(request(path, **kwargs))
 
-metadata = read_json("/static/desktop-preview/deployment.json")
-if metadata.get("schemaVersion") != 1 or metadata.get("prNumber") != {pr_number} or metadata.get("commitSha") != {commit_sha!r}:
-    raise RuntimeError("Deployment metadata does not match the installer")
 request("/login")
 read_json("/api/login/", data={{"email": {DESKTOP_TESTER_EMAILS[0]!r}, "password": {DESKTOP_TESTER_PASSWORD!r}}})
 project = read_json("/api/projects/@current/")
@@ -140,3 +129,50 @@ if access.get("allowed") is not True:
     raise RuntimeError("Desktop access denied: " + str(access.get("reason")))
 print("DESKTOP_READY_OK")
 """
+
+
+def build_gateway_compose_lines(*, web_port: int) -> list[str]:
+    # The box exposes one HTTP port. A proxy takes it over from web and routes the
+    # gateway under a path prefix, so the installer needs no second hostname.
+    # Both containers use the host network: hogpanion serves renewable Bedrock
+    # credentials on the guest loopback only, and the proxy reaches web through
+    # its published host port.
+    web_host_port = web_port + 1
+    caddyfile = [
+        f":{web_port} {{",
+        f"  handle_path {LLM_GATEWAY_PATH_PREFIX}/* {{",
+        "    reverse_proxy 127.0.0.1:8080 {",
+        "      header_up x-posthog-provider bedrock",
+        "      flush_interval -1",
+        "    }",
+        "  }",
+        "  handle {",
+        f"    reverse_proxy 127.0.0.1:{web_host_port}",
+        "  }",
+        "}",
+    ]
+    return [
+        "  web:",
+        "    ports: !override",
+        f"      - {web_host_port}:8000",
+        "  desktop-preview-proxy:",
+        f"    image: {PROXY_IMAGE}",
+        "    restart: always",
+        "    network_mode: host",
+        "    entrypoint: sh",
+        '    command: -c \'printf "%s" "$$CADDYFILE" > /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile\'',
+        "    environment:",
+        "      CADDYFILE: |",
+        *[f"        {line}" for line in caddyfile],
+        "  llm-gateway:",
+        f"    image: {LLM_GATEWAY_IMAGE}",
+        "    restart: always",
+        "    network_mode: host",
+        "    environment:",
+        "      - DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog",
+        f"      - POSTHOG_API_BASE_URL=http://localhost:{web_host_port}",
+        f"      - BEDROCK_REGION_NAME={BEDROCK_REGION}",
+        f"      - AWS_REGION={BEDROCK_REGION}",
+        f"      - AWS_CONTAINER_CREDENTIALS_FULL_URI={BEDROCK_CREDENTIALS_URL}",
+        "      - METRICS_ENABLED=false",
+    ]

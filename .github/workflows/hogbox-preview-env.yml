@@ -132,6 +132,7 @@ jobs:
             build: ${{ steps.decide.outputs.build }}
             teardown: ${{ steps.decide.outputs.teardown }}
             desktop: ${{ steps.decide.outputs.desktop }}
+            installers: ${{ steps.decide.outputs.installers }}
             retire_desktop: ${{ steps.decide.outputs.retire_desktop }}
         steps:
             # The desktop decision table runs from the TRUSTED default branch
@@ -167,14 +168,30 @@ jobs:
                           });
                           autoPreviewEligible = files.some(f => /^frontend\/|^products\/[^/]+\/frontend\/|^common\/esbuilder\//.test(f.filename));
                       }
+                      // A push that touches no desktop code keeps the installed
+                      // preview app valid: only the backend behind the stable URL
+                      // changes. Any failure to compare falls back to rebuilding.
+                      let desktopChanged = true;
+                      if (action === 'synchronize' && context.payload.before) {
+                          try {
+                              const { data: cmp } = await github.rest.repos.compareCommits({
+                                  ...context.repo, base: context.payload.before, head: pr.head.sha,
+                              });
+                              desktopChanged = (cmp.files ?? []).some(f =>
+                                  /^products\/desktop\/|^\.github\/workflows\/desktop-build-installers\.yml$/.test(f.filename));
+                          } catch (error) {
+                              core.info(`compare failed (${error.message}); rebuilding installers`);
+                          }
+                      }
                       const decision = decidePreview({
                           event: context.eventName, action, pr, repository: `${context.repo.owner}/${context.repo.repo}`,
-                          labels, label, autoPreviewEligible,
+                          labels, label, autoPreviewEligible, desktopChanged,
                       });
                       core.info(JSON.stringify(decision));
                       core.setOutput('sha', pr.head.sha);
                       core.setOutput('build', decision.build);
                       core.setOutput('desktop', decision.desktop);
+                      core.setOutput('installers', decision.installers);
                       core.setOutput('teardown', decision.teardown);
                       core.setOutput('retire_desktop', decision.retireDesktop);
 
@@ -392,7 +409,7 @@ jobs:
         outputs:
             url: ${{ steps.build.outputs.url }}
             desktop_ready: ${{ steps.desktop.outputs.ready }}
-            head_sha: ${{ needs.decide.outputs.sha }}
+            desktop_gateway: ${{ steps.desktop.outputs.gateway }}
         permissions:
             contents: read
             id-token: write # mint OIDC for the tailnet join AND the hogplane token
@@ -484,35 +501,9 @@ jobs:
               with:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
-            # Read the source support marker from the resolved SHA as DATA
-            # (never execute PR code here): a branch without the desktop
-            # preview infrastructure must get a clear message, not a
-            # misconfigured build.
-            - name: Check source desktop-preview support
-              id: support
-              if: steps.uv.outcome == 'success' && needs.decide.outputs.desktop == 'true'
-              continue-on-error: true
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
-              with:
-                  script: |
-                      const sha = process.env.HEAD_SHA;
-                      const { data: pkg } = await github.rest.repos.getContent({
-                          ...context.repo,
-                          path: 'products/desktop/apps/code/package.json',
-                          ref: sha,
-                      });
-                      const parsed = JSON.parse(Buffer.from(pkg.content, 'base64').toString('utf8'));
-                      const supported = parsed.desktopPreviewConfigVersion === 1;
-                      core.setOutput('supported', supported ? 'true' : 'false');
-                      if (!supported) {
-                          core.setFailed('This branch predates the desktop preview infrastructure. Update the branch with the desktop preview infrastructure (merge master), then re-apply the label.');
-                      }
-              env:
-                  HEAD_SHA: ${{ needs.decide.outputs.sha }}
-
             - name: Bring up preview
               id: build
-              if: steps.uv.outcome == 'success' && (needs.decide.outputs.desktop != 'true' || steps.support.outputs.supported == 'true')
+              if: steps.uv.outcome == 'success'
               continue-on-error: true
               env:
                   DESKTOP: ${{ needs.decide.outputs.desktop }}
@@ -526,14 +517,13 @@ jobs:
                   # streams `[hogbox-preview +NNNs] <stage>` lines to STDERR for
                   # per-stage visibility; stdout stays the url=/box_id=/pen_id= contract.
                   #
-                  # The desktop profile (--profile desktop --commit-sha) additionally
-                  # seeds the OAuth app + testers, publishes the deployment metadata
-                  # document, and gates on authenticated desktop readiness — and the
-                  # tool verifies in-box that the checkout is exactly HEAD_SHA, so
-                  # backend, manifest, and installers share one revision.
+                  # The desktop profile additionally seeds the OAuth app + testers,
+                  # starts an in-box LLM gateway on the box's own Bedrock credentials,
+                  # and gates on authenticated desktop readiness. It prints
+                  # gateway_url= next to url= when it comes up.
                   profile_args=()
-                  if [ "$DESKTOP" = "true" ] && [ -n "$HEAD_SHA" ]; then
-                    profile_args=(--profile desktop --commit-sha "$HEAD_SHA")
+                  if [ "$DESKTOP" = "true" ]; then
+                    profile_args=(--profile desktop)
                   fi
                   out=$(uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 \
                     python -m hogbox_preview \
@@ -548,7 +538,7 @@ jobs:
                     echo "url=$(echo "$out" | sed -n 's/^url=//p')"
                     echo "box_id=$(echo "$out" | sed -n 's/^box_id=//p')"
                     echo "pen_id=$(echo "$out" | sed -n 's/^pen_id=//p')"
-                    echo "desktop_result=$(echo "$out" | sed -n 's/^desktop_result=//p')"
+                    echo "gateway_url=$(echo "$out" | sed -n 's/^gateway_url=//p')"
                   } >> "$GITHUB_OUTPUT"
               working-directory: tools/hogbox-preview
 
@@ -618,11 +608,10 @@ jobs:
               working-directory: tools/hogbox-preview
               env:
                   DESKTOP: ${{ needs.decide.outputs.desktop }}
-                  HEAD_SHA: ${{ needs.decide.outputs.sha }}
               run: |
                   profile_args=()
                   if [ "$DESKTOP" = true ]; then
-                    profile_args=(--profile desktop --commit-sha "$HEAD_SHA")
+                    profile_args=(--profile desktop)
                   fi
                   # Lay the freshly-built dist over the running box + re-collectstatic.
                   # Resolves the live box by pen name (preview-pr-<n>) — no restore.
@@ -663,27 +652,21 @@ jobs:
               env:
                   BRING_UP: ${{ steps.outcome.outputs.ok }}
                   HEAD_SHA: ${{ needs.decide.outputs.sha }}
-                  DESKTOP_RESULT: ${{ steps.build.outputs.desktop_result }}
                   URL: ${{ steps.build.outputs.url }}
+                  GATEWAY_URL: ${{ steps.build.outputs.gateway_url }}
               run: |
                   ready=false
-                  if [ "$BRING_UP" = true ] && [ -n "$DESKTOP_RESULT" ]; then
+                  if [ "$BRING_UP" = true ] && [ -n "$URL" ]; then
                     python3 - <<'PYEOF'
-                  import json, os, sys
-                  result = json.loads(os.environ["DESKTOP_RESULT"])
-                  url = os.environ["URL"]
-                  sha = os.environ["HEAD_SHA"]
-                  pr = os.environ["PR"]
-                  assert result["url"] == url, "result URL mismatch"
-                  assert result["commitSha"] == sha, "result SHA mismatch"
-                  assert result["desktopReady"], "desktop readiness not confirmed"
+                  import json, os
                   manifest = {
                       "schemaVersion": 1,
                       "kind": "desktop-preview",
                       "repository": "PostHog/posthog",
-                      "prNumber": int(pr),
-                      "commitSha": sha,
-                      "backendOrigin": url.rstrip("/"),
+                      "prNumber": int(os.environ["PR"]),
+                      "commitSha": os.environ["HEAD_SHA"],
+                      "backendOrigin": os.environ["URL"].rstrip("/"),
+                      "gatewayBaseUrl": os.environ.get("GATEWAY_URL") or None,
                       "oauthClientId": "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
                   }
                   with open(os.environ["RUNNER_TEMP"] + "/desktop-preview.json", "w") as f:
@@ -692,6 +675,7 @@ jobs:
                     ready=true
                   fi
                   echo "ready=$ready" >> "$GITHUB_OUTPUT"
+                  echo "gateway=$([ -n "$GATEWAY_URL" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
             - name: Upload desktop preview manifest
               if: steps.desktop.outputs.ready == 'true'
@@ -808,7 +792,7 @@ jobs:
     desktop-installers:
         name: '[Optional] build desktop preview installers'
         needs: [decide, deploy]
-        if: ${{ !cancelled() && needs.decide.outputs.desktop == 'true' && needs.deploy.outputs.desktop_ready == 'true' }}
+        if: ${{ !cancelled() && needs.decide.outputs.installers == 'true' && needs.deploy.outputs.desktop_ready == 'true' }}
         concurrency:
             group: desktop-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
             cancel-in-progress: true
@@ -817,7 +801,7 @@ jobs:
             build_kind: preview
             desktop_preview_manifest_artifact: hogbox-desktop-preview-manifest
             pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
-            source_sha: ${{ needs.deploy.outputs.head_sha }}
+            source_sha: ${{ needs.decide.outputs.sha }}
         secrets: inherit
         permissions:
             contents: read
@@ -843,6 +827,9 @@ jobs:
               env:
                   SHA: ${{ needs.decide.outputs.sha }}
                   URL: ${{ needs.deploy.outputs.url }}
+                  BACKEND_READY: ${{ needs.deploy.outputs.desktop_ready }}
+                  GATEWAY: ${{ needs.deploy.outputs.desktop_gateway }}
+                  INSTALLERS_REQUESTED: ${{ needs.decide.outputs.installers }}
                   MACOS: ${{ needs.desktop-installers.outputs.macos || 'skipped' }}
                   WINDOWS: ${{ needs.desktop-installers.outputs.windows || 'skipped' }}
                   LINUX: ${{ needs.desktop-installers.outputs.linux || 'skipped' }}
@@ -853,34 +840,51 @@ jobs:
                       if (current.state !== 'open' || current.head.sha !== process.env.SHA ||
                           !current.labels.some(l => l.name === 'desktop-preview') ||
                           current.labels.some(l => l.name === 'no-preview')) return;
-                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                      const rows = [
-                          ['macOS (arm64 + x64)', process.env.MACOS],
-                          ['Windows x64', process.env.WINDOWS],
-                          ['Linux (x64 + arm64)', process.env.LINUX],
-                      ];
-                      const platform = (r) => r[1] === 'success' ? '✅ built' : (r[1] === 'skipped' ? '— skipped' : `❌ ${r[1]}`);
-                      const allOk = rows.every(r => r[1] === 'success');
-                      const anyOk = rows.some(r => r[1] === 'success');
                       const marker = '<!-- desktop-preview-comment -->';
+                      // The last installer build is kept in the comment so a backend-only
+                      // push, which rebuilds no installers, still links the ones testers have.
+                      const stateRe = /<!-- desktop-preview-installers (\{.*?\}) -->/;
+                      const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pr });
+                      const ex = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      let installers = null;
+                      if (process.env.INSTALLERS_REQUESTED === 'true') {
+                          installers = { runUrl, sha: process.env.SHA, macos: process.env.MACOS, windows: process.env.WINDOWS, linux: process.env.LINUX };
+                      } else {
+                          const previous = ex?.body.match(stateRe);
+                          if (previous) installers = JSON.parse(previous[1]);
+                      }
+                      const rows = installers ? [
+                          ['macOS (arm64 + x64)', installers.macos],
+                          ['Windows x64', installers.windows],
+                          ['Linux (x64 + arm64)', installers.linux],
+                      ] : [];
+                      const platform = (r) => r[1] === 'success' ? '✅ built' : (r[1] === 'skipped' ? '— skipped' : `❌ ${r[1]}`);
+                      const allOk = rows.length > 0 && rows.every(r => r[1] === 'success');
+                      const anyOk = rows.some(r => r[1] === 'success');
+                      const backendOk = process.env.BACKEND_READY === 'true';
+                      const status = !backendOk ? '❌ backend failed' : !installers ? '⏳ backend ready, no installers yet' : allOk ? '✅ ready' : anyOk ? '⚠️ partially built' : '❌ installer build failed';
+                      const installerSection = installers
+                          ? `**[Download installers from run ${installers.runUrl.split('/').pop()}](${installers.runUrl}#artifacts)** (built from ${installers.sha.slice(0, 7)}; requires repo access, expires in 7 days).\n\n` +
+                            `| Platform | Status |\n|--|--|\n` + rows.map(r => `| ${r[0]} | ${platform(r)} |`).join('\n') + `\n\n`
+                          : `No installers have been built for this preview yet. Push a change under \`products/desktop/\` or re-add the \`desktop-preview\` label to build them.\n\n`;
+                      const agents = process.env.GATEWAY === 'true'
+                          ? `Agents run through this preview's own LLM gateway on Bedrock. Claude models only.`
+                          : `Agent model calls are unavailable in this preview: its gateway did not start.`;
                       const body =
-                          `${marker}\n### 🖥️ Desktop preview &middot; ${allOk ? '✅ ready' : anyOk ? '⚠️ partially built' : '❌ build failed'}\n\n` +
-                          (process.env.URL ? `Backend: ${process.env.URL} (VPN required).\n\n` : '') +
+                          `${marker}\n` + (installers ? `<!-- desktop-preview-installers ${JSON.stringify(installers)} -->\n` : '') +
+                          `### 🖥️ Desktop preview &middot; ${status}\n\n` +
+                          (process.env.URL ? `Backend: ${process.env.URL} (VPN required), running ${process.env.SHA.slice(0, 7)}.\n\n` : '') +
                           `Sign in with \`desktop-tester-1@example.com\` or \`desktop-tester-2@example.com\`, password \`posthog-desktop-preview\`.\n\n` +
-                          `Agent model calls are unavailable in previews.\n\n` +
-                          `**[Download artifacts from this run](${runUrl}#artifacts)**. Artifacts require repo access and expire in 7 days.\n\n` +
-                          `| Platform | Status |\n|--|--|\n` +
-                          rows.map(r => `| ${r[0]} | ${platform(r)} |`).join('\n') +
-                          `\n\n` +
+                          `${agents}\n\n` +
+                          installerSection +
                           `The macOS builds are **signed but not notarized**. Clear the quarantine flag once:\n\n` +
                           '```sh\n' +
                           `xattr -dr com.apple.quarantine \"/Applications/PostHog Preview PR ${pr}.app\"` +
                           '\n```\n\n' +
-                          `After a push, download a fresh installer. The old one reports that the backend moved. ` +
-                          `Backend test data and sessions can reset.\n\n` +
+                          `Pushes that touch only backend code update the backend in place; installers rebuild when desktop code changes. ` +
+                          `Backend test data and sessions can reset on a push.\n\n` +
                           `<sub>Preview installers have automatic updates and product analytics disabled.</sub>`;
-                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
-                      const ex = comments.find(c => c.body.includes(marker));
                       if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
                       else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
 

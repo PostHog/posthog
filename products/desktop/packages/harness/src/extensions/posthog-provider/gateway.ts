@@ -1,8 +1,8 @@
-import type { CloudRegion } from "@posthog/shared";
+import { type CloudRegion, getPreviewDeployment } from "@posthog/shared";
 
 export const GATEWAY_PRODUCT = "posthog_code";
 
-const GATEWAY_HOSTS: Record<CloudRegion, string> = {
+const GATEWAY_HOSTS: Record<Exclude<CloudRegion, "preview">, string> = {
   us: "https://gateway.us.posthog.com",
   eu: "https://gateway.eu.posthog.com",
   dev: "http://localhost:3308",
@@ -10,7 +10,16 @@ const GATEWAY_HOSTS: Record<CloudRegion, string> = {
 };
 
 export function getGatewayBaseUrl(region: CloudRegion): string {
-  return GATEWAY_HOSTS[region];
+  if (region !== "preview") {
+    return GATEWAY_HOSTS[region];
+  }
+  const gateway = getPreviewDeployment()?.gatewayBaseUrl;
+  if (!gateway) {
+    throw new Error(
+      "Agent model calls are unavailable in this preview because its backend has no LLM gateway.",
+    );
+  }
+  return gateway;
 }
 
 export function getLlmGatewayUrl(region: CloudRegion): string {

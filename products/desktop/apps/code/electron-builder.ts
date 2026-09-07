@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
+import { desktopPreviewIdentity } from "@posthog/shared";
 import type { Configuration } from "electron-builder";
 import { asarUnpackGlobs, packagedFileGlobs } from "./runtime-dependencies";
 import beforePack from "./scripts/before-pack";
-import { loadPreviewBuildConfig } from "./scripts/preview-config.mts";
+import { loadPreviewManifest } from "./scripts/preview-config.mts";
 
 const require = createRequire(import.meta.url);
 
@@ -11,13 +12,14 @@ const skipNotarize =
 
 // Preview packaging: one identity per PR, no updater feed. An ordinary build
 // fails closed when preview configuration is present.
-const preview = loadPreviewBuildConfig();
+const manifest = loadPreviewManifest();
+const preview = manifest ? desktopPreviewIdentity(manifest) : null;
 
 const config: Configuration = {
   // Original release bundle id; changing it breaks existing installs' data dir and Keychain entries.
-  appId: preview ? preview.identity.appId : "com.posthog.array",
-  productName: preview ? preview.identity.productName : "PostHog",
-  executableName: preview ? preview.identity.executableName : "PostHog",
+  appId: preview ? preview.appId : "com.posthog.array",
+  productName: preview ? preview.productName : "PostHog",
+  executableName: preview ? preview.fileName : "PostHog",
 
   directories: {
     output: "out",
@@ -68,15 +70,15 @@ const config: Configuration = {
 
   protocols: [
     {
-      name: preview ? preview.identity.productName : "PostHog",
-      schemes: preview ? [preview.identity.scheme] : ["posthog-code"],
+      name: preview ? preview.productName : "PostHog",
+      schemes: preview ? [preview.slug] : ["posthog-code"],
     },
   ],
 
   mac: {
     target: ["dmg", "zip"],
     artifactName: preview
-      ? `${preview.identity.artifactPrefix}-\${version}-\${arch}-mac.\${ext}`
+      ? `${preview.fileName}-\${version}-\${arch}-mac.\${ext}`
       : // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
         "PostHog-Desktop-${version}-${arch}-mac.${ext}",
     icon: "build/app-icon.icns",
@@ -111,7 +113,7 @@ const config: Configuration = {
   win: {
     target: ["nsis"],
     artifactName: preview
-      ? `${preview.identity.artifactPrefix}-\${version}-\${arch}-win.\${ext}`
+      ? `${preview.fileName}-\${version}-\${arch}-win.\${ext}`
       : // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
         "PostHog-Desktop-${version}-${arch}-win.${ext}",
     // electron-builder generates the multi-size .ico from this 1024px PNG; a real
@@ -127,24 +129,24 @@ const config: Configuration = {
   linux: {
     target: ["AppImage", "deb", "rpm"],
     artifactName: preview
-      ? `${preview.identity.artifactPrefix}-\${version}-\${arch}-linux.\${ext}`
+      ? `${preview.fileName}-\${version}-\${arch}-linux.\${ext}`
       : // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
         "PostHog-Desktop-${version}-${arch}-linux.${ext}",
     icon: "build/app-icon.png",
     category: "Development",
     mimeTypes: preview
-      ? [`x-scheme-handler/${preview.identity.scheme}`]
+      ? [`x-scheme-handler/${preview.slug}`]
       : ["x-scheme-handler/posthog-code"],
   },
 
   deb: {
-    packageName: preview ? preview.identity.userDataDirName : "posthog-code",
+    packageName: preview ? preview.slug : "posthog-code",
     maintainer: "PostHog <eng@posthog.com>",
     packageCategory: "devel",
   },
 
   rpm: {
-    packageName: preview ? preview.identity.userDataDirName : "posthog-code",
+    packageName: preview ? preview.slug : "posthog-code",
   },
 
   // Installs built from this config poll the CloudFront-fronted update feed

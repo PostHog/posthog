@@ -136,32 +136,34 @@ Access is **tailnet-only** (PostHog VPN) — internal reviewers, no public URL.
 
 ## Desktop preview profile
 
-`--profile desktop` (with `--commit-sha`, the resolved PR head SHA) turns a
-preview into one the PostHog Desktop preview installers can use:
+`--profile desktop` turns a preview into one the PostHog Desktop preview
+installers can use (pass the resolved PR head SHA as `--branch`, so a
+concurrent push cannot change the backend revision while installers build):
 
-- Checks out the immutable `--commit-sha`, so a concurrent push cannot change
-  the backend revision while installers build.
 - Seeds a public OAuth application (the development "Array" client id) with the
   PR's `posthog-code-preview-pr-<n>://callback` redirect URI, a scope ceiling
   that covers the desktop client's explicit scope list, and two synthetic tester
   accounts in a shared synthetic organization. Idempotent: re-running never
   duplicates apps or users.
-- Serves `/static/desktop-preview/deployment.json` (PR, exact backend SHA,
-  deployment generation) so an installed app can detect a backend replacement.
+- Runs the LLM gateway image inside the box on the host network, against the
+  box's own Postgres and the renewable Bedrock credentials hogpanion serves on
+  `127.0.0.1:8181`. A Caddy proxy on the exposed web port routes
+  `/llm-gateway/*` to it with `x-posthog-provider: bedrock`, and everything
+  else to web. Preview installers run agents through `<url>/llm-gateway`
+  (Claude models only). No provider keys and no shared PostHog key.
 - Gates readiness on authenticated probes — tester login, the OAuth authorize
   round-trip with the preview client id and redirect URI, `/api/users/@me/`,
-  and the desktop access endpoint — instead of the bare `/_health`.
-- Prints a versioned single-line JSON result (`desktop_result=…`) alongside the
-  `url=`/`box_id=`/`pen_id=` contract, so the desktop workflow never scrapes
-  logs or comments.
+  the desktop access endpoint, and the gateway's liveness through the proxy —
+  instead of the bare `/_health`.
+- Prints `gateway_url=` next to the `url=`/`box_id=`/`pen_id=` contract.
 
 The desktop profile sets `DESKTOP_PREVIEW=1` on its web container. This flag
 allows authenticated synthetic testers through the desktop billing gate without
 cloud billing accounts. It defaults to false and has no effect when
 `CLOUD_DEPLOYMENT` names a hosted environment. `DEBUG` remains off.
 
-Deferred `swap-frontend` calls must also pass `--profile desktop --commit-sha
-<sha>` to preserve the metadata mount and the preview access setting.
+Deferred `swap-frontend` calls must also pass `--profile desktop`, because the
+swap rewrites the compose override and `up_web` recreates web from it.
 
 The desktop identity (`posthog-code-preview-pr-<n>`, app id, redirect URI) is
 derived from the PR number and must stay byte-compatible with

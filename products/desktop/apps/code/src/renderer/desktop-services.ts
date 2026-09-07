@@ -60,10 +60,6 @@ import {
   NOTIFICATIONS_SERVICE,
   type NotificationTarget,
 } from "@posthog/platform/notifications";
-import {
-  PREVIEW_DEPLOYMENT,
-  type PreviewDeploymentInfo,
-} from "@posthog/platform/preview-deployment";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
 import {
   type Adapter,
@@ -129,7 +125,7 @@ import { ELEVENLABS_API_KEY_STORE_KEY } from "@posthog/workspace-server/services
 import { container } from "@renderer/di/container";
 import { RendererAuthSideEffects } from "@renderer/platform-adapters/auth-side-effects";
 import { desktopDiskCacheImages } from "@renderer/platform-adapters/desktop-disk-cache-images";
-import { resolveRendererPreviewDeployment } from "@renderer/platform-adapters/desktop-preview-deployment";
+import "@renderer/platform-adapters/desktop-preview-deployment";
 import { gitCacheKeyProvider } from "@renderer/platform-adapters/git-cache-keys";
 import { RendererHedgehogModeHost } from "@renderer/platform-adapters/hedgehog-mode-host";
 import { setupStore } from "@renderer/platform-adapters/setup";
@@ -451,9 +447,6 @@ container
 
 container.bind(SETUP_STORE).toConstantValue(setupStore);
 
-container
-  .bind<PreviewDeploymentInfo | null>(PREVIEW_DEPLOYMENT)
-  .toConstantValue(resolveRendererPreviewDeployment());
 container
   .bind(HOST_CAPABILITIES)
   .toConstantValue({ localWorkspaces: true } satisfies HostCapabilities);
