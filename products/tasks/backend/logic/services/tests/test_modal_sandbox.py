@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InternalError as ModalInternalError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
@@ -22,6 +23,7 @@ from requests.exceptions import ConnectionError, Timeout
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxProvisionError,
@@ -460,6 +462,26 @@ class TestModalSandboxAgentServer:
 
         with pytest.raises(RuntimeError, match="Sandbox not in running state"):
             mock_sandbox.get_connect_credentials()
+
+    @parameterized.expand(
+        [
+            ("modal_internal_error", ModalInternalError("please contact support@modal.com"), False),
+            ("unexpected_error", RuntimeError("boom"), True),
+        ]
+    )
+    def test_destroy_skips_capture_for_transient_faults(
+        self, _name: str, terminate_error: Exception, expect_capture: bool
+    ):
+        modal_sandbox = MagicMock()
+        modal_sandbox.terminate.side_effect = terminate_error
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
+            sandbox = ModalSandbox(sandbox=modal_sandbox, config=SandboxConfig(name="test-sandbox"))
+
+        with patch("products.tasks.backend.exceptions.capture_exception") as capture_exception:
+            with pytest.raises(SandboxCleanupError):
+                sandbox.destroy()
+
+        assert capture_exception.called == expect_capture
 
     @pytest.mark.parametrize("method_name", ["execute", "execute_stream"])
     def test_execution_redacts_event_ingest_token_from_error_context(self, mock_sandbox: Any, method_name: str):
