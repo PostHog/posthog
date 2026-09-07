@@ -199,6 +199,7 @@ export const sessionStoreSetters = {
       output?: Record<string, unknown> | null;
       errorMessage?: string | null;
       branch?: string | null;
+      sandboxAlive?: boolean | null;
     },
   ) => {
     sessionStore.setState((state) => {
@@ -219,6 +220,10 @@ export const sessionStoreSetters = {
       if (fields.errorMessage !== undefined)
         session.cloudErrorMessage = fields.errorMessage;
       if (fields.branch !== undefined) session.cloudBranch = fields.branch;
+      // Absent means "unchanged" — the stream only carries a value when the
+      // engine has one, so keep the last known aliveness across quiet updates.
+      if (fields.sandboxAlive !== undefined)
+        session.sandboxAlive = fields.sandboxAlive;
     });
   },
 
