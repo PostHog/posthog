@@ -15,7 +15,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, InsightType } from '~/types'
 
 import { DashboardSqlChartType, DashboardSqlDisplayOptions } from './DashboardSqlDisplayOptions'
 
@@ -35,7 +35,10 @@ function productAnalyticsChartPicker(query: Node | null, canPersist: boolean): P
     if (isTrendsQuery(query.source) || isStickinessQuery(query.source)) {
         return 'chart-filter'
     }
-    return isRetentionQuery(query.source) ? 'retention' : null
+    if (isRetentionQuery(query.source)) {
+        return query.vizSpecificOptions?.[InsightType.RETENTION]?.hideLineGraph ? null : 'retention'
+    }
+    return null
 }
 
 export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): DataVisualizationNode | null {

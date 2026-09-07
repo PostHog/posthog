@@ -5,14 +5,16 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 import { createElement } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItems, LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { DataVisualizationNode, FunnelsQuery, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, InsightShortId, RetentionDashboardDisplayType } from '~/types'
+import { ChartDisplayType, InsightShortId, InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { sqlQueryForVisualizationPicker, useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
 
@@ -61,6 +63,15 @@ describe('dashboardVisualizationOptions', () => {
         source: { kind: NodeKind.RetentionQuery, retentionFilter: {} },
     } as unknown as InsightVizNode
 
+    const retentionQueryWithoutGraph = {
+        kind: NodeKind.InsightVizNode,
+        vizSpecificOptions: { [InsightType.RETENTION]: { hideLineGraph: true } },
+        source: {
+            kind: NodeKind.RetentionQuery,
+            retentionFilter: {},
+        },
+    } as unknown as InsightVizNode
+
     const funnelsQuery = {
         kind: NodeKind.InsightVizNode,
         source: { kind: NodeKind.FunnelsQuery, series: [] } as FunnelsQuery,
@@ -73,11 +84,18 @@ describe('dashboardVisualizationOptions', () => {
         persistDisplayOptions: jest.fn(),
     } as const
 
-    function renderProductAnalyticsChartPicker(query: InsightVizNode): {
+    function renderProductAnalyticsChartPicker(
+        query: InsightVizNode,
+        featureFlags: string[] = []
+    ): {
         container: HTMLElement
         vizDataLogic: ReturnType<typeof insightVizDataLogic.build>
     } {
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags(
+            featureFlags,
+            Object.fromEntries(featureFlags.map((featureFlag) => [featureFlag, true]))
+        )
         const insightProps = {
             dashboardItemId: 'dashboard-chart-picker' as InsightShortId,
             query,
@@ -144,6 +162,12 @@ describe('dashboardVisualizationOptions', () => {
             { label: 'Trends', query: trendsQuery, canPersist: true, expected: true },
             { label: 'Stickiness', query: stickinessQuery, canPersist: true, expected: true },
             { label: 'Retention', query: retentionQuery, canPersist: true, expected: true },
+            {
+                label: 'Retention with its graph hidden',
+                query: retentionQueryWithoutGraph,
+                canPersist: true,
+                expected: false,
+            },
             { label: 'Funnels', query: funnelsQuery, canPersist: true, expected: false },
             { label: 'read-only Trends', query: trendsQuery, canPersist: false, expected: false },
         ])('shows the editor picker for $label: $expected', ({ query, canPersist, expected }) => {
@@ -188,18 +212,27 @@ describe('dashboardVisualizationOptions', () => {
             expect(container.querySelector('[data-attr="chart-filter"]')).toHaveClass('LemonButton--full-width')
         })
 
-        it('shows the retention graph after selecting its chart type on a dashboard', async () => {
+        it('shows the retention graph after selecting its active chart type on a dashboard', async () => {
             const { container, vizDataLogic } = renderProductAnalyticsChartPicker(retentionQuery)
 
             await userEvent.click(container.querySelector('[data-attr="chart-filter"]') as HTMLElement)
-            await userEvent.click(screen.getByText('Bar chart'))
+            const matches = screen.getAllByText('Line chart')
+            await userEvent.click(matches[matches.length - 1])
 
             await waitFor(() =>
                 expect(vizDataLogic.values.retentionFilter).toMatchObject({
-                    display: ChartDisplayType.ActionsBar,
+                    display: ChartDisplayType.ActionsLineGraph,
                     dashboardDisplay: RetentionDashboardDisplayType.GraphOnly,
                 })
             )
+        })
+
+        it('disables box plots when the series has no numeric property', async () => {
+            const { container } = renderProductAnalyticsChartPicker(trendsQuery, [FEATURE_FLAGS.BOX_PLOT_INSIGHT])
+
+            await userEvent.click(container.querySelector('[data-attr="chart-filter"]') as HTMLElement)
+
+            expect(screen.getByText('Box plot').closest('button')).toHaveAttribute('aria-disabled', 'true')
         })
     })
 

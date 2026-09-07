@@ -57,21 +57,23 @@ export function RetentionChartPicker({
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const selectChart = (value: ChartDisplayType): void => {
+        updateInsightFilter({
+            display: value,
+            ...(showGraphOnDashboard &&
+            (!retentionFilter?.dashboardDisplay ||
+                retentionFilter.dashboardDisplay === RetentionDashboardDisplayType.TableOnly)
+                ? { dashboardDisplay: RetentionDashboardDisplayType.GraphOnly }
+                : {}),
+        })
+    }
 
     return (
         <LemonSelect
             key="2"
             value={retentionFilter?.display || ChartDisplayType.ActionsLineGraph}
-            onChange={(value) => {
-                updateInsightFilter({
-                    display: value,
-                    ...(showGraphOnDashboard &&
-                    (!retentionFilter?.dashboardDisplay ||
-                        retentionFilter.dashboardDisplay === RetentionDashboardDisplayType.TableOnly)
-                        ? { dashboardDisplay: RetentionDashboardDisplayType.GraphOnly }
-                        : {}),
-                })
-            }}
+            onChange={showGraphOnDashboard ? undefined : selectChart}
+            onSelect={showGraphOnDashboard ? selectChart : undefined}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}

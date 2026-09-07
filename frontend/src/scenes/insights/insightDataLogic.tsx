@@ -814,29 +814,32 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.persistDisplayOptionsSettled()
                 return
             }
+            const refreshResults = values.savedInsight.query
+                ? !compareQuery(query, values.savedInsight.query, { ignoreVisualizationOnlyChanges: true })
+                : false
             try {
                 // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
                 // only cancels concurrent saves for this insight without affecting unrelated tiles.
                 await breakpoint(700)
-                // A superseded save stops reading its response, but the PATCH it already sent
-                // keeps running. Two overlapping PATCHes can commit in either order, so the older
-                // query can land last and quietly undo the newer one. Wait for the request in
-                // flight before sending this one. Once that request settles, the await is free.
+                // Breakpoints cannot cancel PATCHes that have already started, so serialize them per insight.
                 await cache.displayOptionsSave
                 breakpoint()
                 const save = insightsApi.update(insightId, { query })
-                // Resolve for the next save whether this request succeeds or fails, because it
-                // only needs to know that the request finished.
+                // The next save only needs to know when this request finishes.
                 cache.displayOptionsSave = save.catch(() => undefined)
                 const updatedItem = await save
                 // Drop the response if a newer save started while this request was in flight.
                 await breakpoint(0)
                 actions.renameInsightSuccess(updatedItem)
+                if (refreshResults) {
+                    props.refreshAfterDisplayOptionsChange?.(updatedItem)
+                }
                 actions.persistDisplayOptionsSettled()
                 lemonToast.success('Insight updated')
             } catch (e) {
                 // A breakpoint means a newer save superseded this one, and that save owns the state.
                 if (!isBreakpoint(e as Error)) {
+                    breakpoint()
                     actions.syncQueryFromProps(values.savedInsight.query ?? null)
                     actions.persistDisplayOptionsSettled()
                     lemonToast.error('Failed to update insight')

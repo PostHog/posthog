@@ -605,6 +605,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         refresh={
                                             refreshDashboardTile ? () => refreshDashboardTile({ tile }) : undefined
                                         }
+                                        refreshAfterDisplayOptionsChange={
+                                            refreshDashboardTile
+                                                ? (updatedInsight) =>
+                                                      refreshDashboardTile({
+                                                          tile: { ...tile, insight: updatedInsight },
+                                                      })
+                                                : undefined
+                                        }
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}

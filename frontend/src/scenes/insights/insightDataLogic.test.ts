@@ -535,16 +535,22 @@ describe('insightDataLogic', () => {
 
         let logic: ReturnType<typeof insightDataLogic.build>
         let patchSpy: jest.Mock
+        let refreshAfterDisplayOptionsChange: jest.Mock
 
         beforeEach(() => {
-            patchSpy = jest.fn().mockResolvedValue([200, { id: insightId, short_id: Insight42, query: updatedQuery }])
+            patchSpy = jest.fn(async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, any>
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
             useMocks({
                 patch: { '/api/environments/:team_id/insights/:id': patchSpy },
             })
 
+            refreshAfterDisplayOptionsChange = jest.fn()
             const props = {
                 dashboardItemId: Insight42,
                 cachedInsight: { id: insightId, short_id: Insight42, query: baseQuery } as any,
+                refreshAfterDisplayOptionsChange,
             }
             insightsModel.mount()
             insightLogic(props).mount()
@@ -562,7 +568,26 @@ describe('insightDataLogic', () => {
             await expectation.toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
 
             expect(patchSpy).toHaveBeenCalledTimes(1)
+            expect(refreshAfterDisplayOptionsChange).not.toHaveBeenCalled()
             expect(logic.values.savingDisplayOptions).toBe(false)
+        })
+
+        it('refreshes dashboard data when the chart needs a different result shape', async () => {
+            const cumulativeQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    trendsFilter: { display: ChartDisplayType.ActionsLineGraphCumulative },
+                } as TrendsQuery,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(cumulativeQuery)
+            }).toFinishAllListeners()
+
+            expect(refreshAfterDisplayOptionsChange).toHaveBeenCalledWith(
+                expect.objectContaining({ query: cumulativeQuery })
+            )
         })
 
         it('collapses multiple rapid dispatches into a single PATCH', async () => {
@@ -667,6 +692,58 @@ describe('insightDataLogic', () => {
 
             expect(logic.values.query).toEqual(baseQuery)
             expect(logic.values.savingDisplayOptions).toBe(false)
+        })
+
+        it('does not roll back a newer edit when the previous save fails', async () => {
+            const laterQuery: InsightVizNode = {
+                ...updatedQuery,
+                source: {
+                    ...updatedQuery.source,
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                } as TrendsQuery,
+            }
+            let failFirstPatch: () => void = () => {}
+            let markFirstPatchSent: () => void = () => {}
+            let markSecondPatchSent: () => void = () => {}
+            let releaseSecondPatch: () => void = () => {}
+            const firstPatchSent = new Promise<void>((resolve) => {
+                markFirstPatchSent = resolve
+            })
+            const firstPatchHeld = new Promise<[number, { detail: string }]>((resolve) => {
+                failFirstPatch = () => resolve([500, { detail: 'Save failed' }])
+            })
+            const secondPatchSent = new Promise<void>((resolve) => {
+                markSecondPatchSent = resolve
+            })
+            const secondPatchHeld = new Promise<void>((resolve) => {
+                releaseSecondPatch = resolve
+            })
+
+            patchSpy.mockImplementationOnce(async () => {
+                markFirstPatchSent()
+                return await firstPatchHeld
+            })
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, any>
+                markSecondPatchSent()
+                await secondPatchHeld
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+
+            logic.actions.setQuery(updatedQuery)
+            logic.actions.persistDisplayOptions(updatedQuery)
+            await firstPatchSent
+
+            logic.actions.setQuery(laterQuery)
+            logic.actions.persistDisplayOptions(laterQuery)
+            failFirstPatch()
+            await secondPatchSent
+
+            expect(logic.values.query).toEqual(laterQuery)
+            expect(logic.values.savingDisplayOptions).toBe(true)
+
+            releaseSecondPatch()
+            await expectLogic(logic).toFinishAllListeners()
         })
     })
 

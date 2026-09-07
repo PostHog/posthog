@@ -84,6 +84,7 @@ interface InsightMetaProps extends Pick<
     | 'removeFromDashboard'
     | 'deleteWithUndo'
     | 'refresh'
+    | 'refreshAfterDisplayOptionsChange'
     | 'loading'
     | 'loadingQueued'
     | 'rename'
@@ -125,6 +126,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
     rename,
@@ -156,6 +158,7 @@ export function InsightMeta({
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
         setQuery: persistDisplayOptions,
+        refreshAfterDisplayOptionsChange,
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))

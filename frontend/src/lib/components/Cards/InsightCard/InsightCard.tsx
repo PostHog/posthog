@@ -172,6 +172,7 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
+    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
     /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
@@ -233,6 +234,7 @@ function InsightCardInternal(
         queryId,
         timedOut,
         highlighted,
+        refreshAfterDisplayOptionsChange,
         showResizeHandles,
         isResizing,
         showEditingControls,
@@ -302,8 +304,9 @@ function InsightCardInternal(
             cachedInsight: insight,
             loadPriority,
             doNotLoad,
+            refreshAfterDisplayOptionsChange,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad]
+        [insight, dashboardId, loadPriority, doNotLoad, refreshAfterDisplayOptionsChange]
     )
 
     const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
@@ -452,6 +455,7 @@ function InsightCardInternal(
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
                         persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
+                        refreshAfterDisplayOptionsChange={refreshAfterDisplayOptionsChange}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
