@@ -3773,8 +3773,8 @@ class TestInlineScanAction(_VisionAPITestCase):
     def test_a_fully_refused_scan_still_reports_the_request(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # A batch where nothing starts mints no scanner and used to return before reporting anything, so
-        # the refused requests were missing from the request count and every rate built on it was biased.
+        # A batch where nothing starts mints no scanner, but the request still happened. The endpoint must
+        # report it, or the refused batches drop out of the request count and bias every rate built on it.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
