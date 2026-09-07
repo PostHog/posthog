@@ -158,6 +158,20 @@ interface ErrorTrackingExtra {
   fingerprint?: string;
 }
 
+interface ScannerFindingExtra {
+  scanner_name?: string;
+  session_id?: string;
+  problem_type?: string;
+  start_time?: number;
+  end_time?: number;
+  exported_asset_id?: number;
+  distinct_id?: string;
+  recording_start_time?: string;
+  recording_end_time?: string;
+  recording_duration?: number;
+  recording_active_seconds?: number;
+}
+
 function resolveLabels(
   raw: GitHubIssueExtra["labels"],
 ): { name: string; color?: string }[] {
@@ -249,6 +263,12 @@ function isSessionExtra(
   extra: Record<string, unknown>,
 ): extra is Record<string, unknown> & SessionProblemExtra {
   return "session_id" in extra && "segment_title" in extra;
+}
+
+function isScannerFindingExtra(
+  extra: Record<string, unknown>,
+): extra is Record<string, unknown> & ScannerFindingExtra {
+  return "session_id" in extra && "scanner_name" in extra;
 }
 
 function isErrorTrackingExtra(
@@ -541,6 +561,17 @@ function formatSessionDuration(seconds: number): string {
   return remainMins > 0 ? `${hrs}h ${remainMins}m` : `${hrs}h`;
 }
 
+function colonOffset(seconds: number): string {
+  const total = Math.round(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  const hrs = Math.floor(mins / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return hrs > 0
+    ? `${pad(hrs)}:${pad(mins % 60)}:${pad(secs)}`
+    : `${pad(mins)}:${pad(secs)}`;
+}
+
 function SessionProblemSignalCard({
   signal,
   extra,
@@ -729,6 +760,72 @@ function SessionRecordingVideo({
       {playerUrl && (
         <RecordingPlayerLink url={playerUrl} label="Open full recording" />
       )}
+    </Box>
+  );
+}
+
+function ScannerFindingSignalCard({
+  signal,
+  extra,
+  verified,
+  codePaths,
+  dataQueried,
+}: {
+  signal: Signal;
+  extra: ScannerFindingExtra;
+  verified?: boolean;
+  codePaths?: string[];
+  dataQueried?: string;
+}) {
+  return (
+    <Box className="min-w-0 overflow-hidden rounded-(--radius-2) border border-(--gray-6) bg-gray-1 p-3">
+      <SignalCardHeader signal={signal} verified={verified} />
+      {extra.scanner_name && (
+        <Text mt="1" className="font-medium text-[14px] text-gray-11" as="p">
+          {extra.scanner_name}
+        </Text>
+      )}
+      <CollapsibleBody body={signal.content} />
+
+      {extra.session_id && (
+        <SessionRecordingVideo
+          exportedAssetId={extra.exported_asset_id}
+          sessionId={extra.session_id}
+          seekSeconds={extra.start_time}
+        />
+      )}
+
+      <Flex
+        align="center"
+        gap="2"
+        wrap="wrap"
+        mt="2"
+        className="text-[12px] text-gray-10"
+      >
+        {extra.distinct_id && (
+          <Text className="font-mono text-[12px]">
+            {extra.distinct_id.slice(0, 10)}…
+          </Text>
+        )}
+        {extra.start_time != null && extra.end_time != null && (
+          <>
+            <span>·</span>
+            <span>
+              {colonOffset(extra.start_time)} – {colonOffset(extra.end_time)}
+            </span>
+          </>
+        )}
+        {extra.recording_duration != null && (
+          <>
+            <span>·</span>
+            <span>
+              {formatSessionDuration(extra.recording_duration)} session
+            </span>
+          </>
+        )}
+      </Flex>
+      <CodePathsCollapsible paths={codePaths ?? []} />
+      <DataQueriedCollapsible text={dataQueried ?? ""} />
     </Box>
   );
 }
@@ -939,6 +1036,19 @@ export function SignalCard({
   if (signal.source_product === "session_replay" && isSessionExtra(extra)) {
     content = (
       <SessionProblemSignalCard
+        signal={signal}
+        extra={extra}
+        verified={verified}
+        codePaths={codePaths}
+        dataQueried={dataQueried}
+      />
+    );
+  } else if (
+    signal.source_product === "replay_vision" &&
+    isScannerFindingExtra(extra)
+  ) {
+    content = (
+      <ScannerFindingSignalCard
         signal={signal}
         extra={extra}
         verified={verified}
