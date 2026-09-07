@@ -160,8 +160,8 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'earlyData', 'mcpEarlyDataLogic']),
     connect(() => ({
         values: [mcpAnalyticsOnboardingLogic, ['signals'], teamLogic, ['currentProjectId']],
-        // loadSignals is dispatched from refreshAll so the summary's totalCalls
-        // (max of both sources) advances together with the overview.
+        // Refresh the lifetime signal with the overview so first-call copy can
+        // advance even after the onboarding signal poll stops.
         actions: [mcpAnalyticsOnboardingLogic, ['loadSignals']],
     })),
     connect(() => ({
