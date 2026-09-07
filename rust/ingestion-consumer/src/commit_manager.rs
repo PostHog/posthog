@@ -1,214 +1,84 @@
-//! Offset commits for the ingestion consumer. Frontiers arrive one partition
-//! at a time as work completes; the manager checks each against the commit
-//! sentinel at once and commits the latest per partition on an interval, so
-//! the commit rate is bounded by the interval rather than by how often
-//! frontiers move.
+//! Offset commits for the ingestion consumer. The consumer hands over each
+//! partition's frontier as it takes it from the ledger and ticks the manager
+//! from its wake-up timer. The manager decides when the interval has elapsed
+//! and answers with the offsets to commit, the latest per partition, in one
+//! batch. The consumer commits them. The commit rate is bounded by the
+//! interval rather than by how often frontiers move.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Offset, TopicPartition};
-use lifecycle::Handle;
-use metrics::counter;
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
-use rdkafka::TopicPartitionList;
-use tokio::task::JoinHandle;
-use tracing::warn;
 
-use crate::commit_sentinel::CommitSentinel;
-use crate::order_sentinel::{OffsetSpan, SentinelContext};
+use crate::order_sentinel::OffsetSpan;
 
-/// How often the commit monitor fetches the group's broker-committed offsets.
-const COMMIT_MONITOR_INTERVAL: Duration = Duration::from_secs(30);
-
-/// The next-to-read offset each partition is ready to commit, awaiting the
-/// next flush. Shared with the consumer's [`SentinelContext`], which drops a
-/// partition's entry when the partition leaves the assignment: a commit
-/// issued for a partition another member now owns could move the group's
-/// offset back behind that member's progress.
 #[derive(Default)]
-pub struct PendingCommits {
-    next_to_read: Mutex<HashMap<TopicPartition, Offset>>,
+struct State {
+    /// The next-to-read offset each partition is ready to commit. Frontiers
+    /// only move forward, so the latest one covers every earlier one.
+    pending: HashMap<TopicPartition, Offset>,
+    /// When the last commit went out; `None` before the first.
+    last_commit: Option<Instant>,
 }
 
-impl PendingCommits {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Replace the partition's pending offset. Frontiers only move forward,
-    /// so the latest one covers every earlier one.
-    fn record(&self, topic_partition: &TopicPartition, next_to_read: Offset) {
-        self.next_to_read
-            .lock()
-            .unwrap()
-            .insert(topic_partition.clone(), next_to_read);
-    }
-
-    /// Drop the pending offsets of partitions leaving the assignment.
-    pub fn forget_partitions<'a>(
-        &self,
-        topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
-    ) {
-        let mut pending = self.next_to_read.lock().unwrap();
-        for (topic, partition) in topic_partitions {
-            pending.remove(&TopicPartition::new(topic, partition));
-        }
-    }
-
-    /// Take everything pending, leaving nothing behind.
-    fn take(&self) -> HashMap<TopicPartition, Offset> {
-        std::mem::take(&mut *self.next_to_read.lock().unwrap())
-    }
-}
-
-/// Submits offset commits for the consumer and verifies they land.
-pub(crate) struct CommitManager {
-    consumer: Arc<StreamConsumer<SentinelContext>>,
-    /// Validates commit contiguity/monotonicity per partition. Shared with the
-    /// consumer's [`SentinelContext`], which resets baselines on rebalance.
-    sentinel: Arc<CommitSentinel>,
-    pending: Arc<PendingCommits>,
+/// Hands out the pending offsets at most once per `interval`. Holds no I/O:
+/// the consumer commits what it is given.
+pub struct CommitManager {
+    state: Mutex<State>,
     interval: Duration,
 }
 
 impl CommitManager {
-    pub(crate) fn new(consumer: Arc<StreamConsumer<SentinelContext>>, interval: Duration) -> Self {
-        let sentinel = consumer.context().commit_sentinel();
-        let pending = consumer.context().pending_commits();
+    pub fn new(interval: Duration) -> Self {
         Self {
-            consumer,
-            sentinel,
-            pending,
+            state: Mutex::new(State::default()),
             interval,
         }
     }
 
     /// A partition's frontier moved: `span` is the work now ready to commit,
-    /// last-processed, in the representation the sentinel checks. The check
-    /// runs here, so a violation is attributed to the work that caused it;
-    /// the commit itself waits for the next flush.
-    pub(crate) fn on_frontier(&self, topic_partition: &TopicPartition, span: OffsetSpan) {
-        self.sentinel.check_commit([(topic_partition, &span)]);
-        self.pending.record(topic_partition, Offset(span.last + 1));
+    /// last-processed.
+    pub fn on_frontier(&self, topic_partition: &TopicPartition, span: OffsetSpan) {
+        self.state
+            .lock()
+            .unwrap()
+            .pending
+            .insert(topic_partition.clone(), Offset(span.last + 1));
     }
 
-    /// Commit every pending frontier in one call. Nothing pending commits
-    /// nothing.
-    pub(crate) fn flush(&self) -> anyhow::Result<()> {
-        let pending = self.pending.take();
-        if pending.is_empty() {
-            return Ok(());
+    /// Drop the pending offsets of partitions leaving the assignment. A
+    /// commit issued for a partition another member now owns could move the
+    /// group's offset back behind that member's progress.
+    pub fn forget_partitions<'a>(
+        &self,
+        topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        for (topic, partition) in topic_partitions {
+            state.pending.remove(&TopicPartition::new(topic, partition));
         }
-        let mut tpl = TopicPartitionList::new();
-        for (topic_partition, next_to_read) in &pending {
-            tpl.add_partition_offset(
-                &topic_partition.topic,
-                topic_partition.partition,
-                rdkafka::Offset::Offset(next_to_read.0),
-            )?;
+    }
+
+    /// One tick of the consumer's wake-up timer. The offsets to commit now,
+    /// at most once per interval; `None` when nothing is due.
+    pub fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        let mut state = self.state.lock().unwrap();
+        let inside_interval = state
+            .last_commit
+            .is_some_and(|last| now < last + self.interval);
+        // An idle tick does not start an interval, so a frontier arriving
+        // after a quiet spell goes out on the next tick.
+        if inside_interval || state.pending.is_empty() {
+            return None;
         }
-        self.consumer.commit(&tpl, CommitMode::Async)?;
-        counter!("ingestion_consumer_offset_commits_total").increment(1);
-        Ok(())
+        state.last_commit = Some(now);
+        Some(std::mem::take(&mut state.pending))
     }
 
-    /// Flush on the interval until shutdown. A failed commit fails the
-    /// process, as it would have when the consumer loop committed inline.
-    /// Aborted when the guard drops.
-    pub(crate) fn spawn_flusher(self: &Arc<Self>, handle: Handle) -> AbortOnDrop {
-        let manager = Arc::clone(self);
-        AbortOnDrop(tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = handle.shutdown_recv() => return,
-                    _ = tokio::time::sleep(manager.interval) => {}
-                }
-                if let Err(err) = manager.flush() {
-                    handle.signal_failure(format!("Offset commit failed: {err:#}"));
-                    return;
-                }
-            }
-        }))
-    }
-
-    /// Verify async commits actually land: librdkafka drops the result of
-    /// manual async commits (see the note on [`SentinelContext`]), so a task
-    /// polls the broker's committed offsets instead. Aborted when the guard
-    /// drops, so a consumer torn down mid-test doesn't keep the rdkafka
-    /// client alive.
-    pub(crate) fn spawn_monitor(&self, handle: Handle) -> AbortOnDrop {
-        AbortOnDrop(tokio::spawn(run_commit_monitor(
-            Arc::clone(&self.consumer),
-            Arc::clone(&self.sentinel),
-            handle,
-        )))
-    }
-}
-
-/// Aborts the wrapped task when dropped, covering every `process()` exit path.
-pub(crate) struct AbortOnDrop(JoinHandle<()>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// Periodically fetch the broker's committed offsets for the current
-/// assignment (an OffsetFetch round trip) and feed them to the commit
-/// sentinel, which compares them against attempted commits and stamps the
-/// last-successful-commit gauge on progress.
-async fn run_commit_monitor(
-    consumer: Arc<StreamConsumer<SentinelContext>>,
-    sentinel: Arc<CommitSentinel>,
-    handle: Handle,
-) {
-    loop {
-        tokio::select! {
-            _ = handle.shutdown_recv() => return,
-            _ = tokio::time::sleep(COMMIT_MONITOR_INTERVAL) => {}
-        }
-
-        let fetch_consumer = Arc::clone(&consumer);
-        // assignment() and committed_offsets() block on librdkafka.
-        let fetched = tokio::task::spawn_blocking(move || {
-            let assignment = fetch_consumer.assignment()?;
-            if assignment.count() == 0 {
-                return Ok(None);
-            }
-            fetch_consumer
-                .committed_offsets(assignment, Duration::from_secs(5))
-                .map(Some)
-        })
-        .await;
-
-        match fetched {
-            Ok(Ok(Some(committed))) => {
-                let observed: Vec<(String, i32, i64)> = committed
-                    .elements()
-                    .iter()
-                    .filter_map(|e| match e.offset() {
-                        rdkafka::Offset::Offset(offset) => {
-                            Some((e.topic().to_string(), e.partition(), offset))
-                        }
-                        // Invalid = no offset stored for the partition yet.
-                        _ => None,
-                    })
-                    .collect();
-                sentinel.observe_broker_committed(observed);
-            }
-            Ok(Ok(None)) => {} // no assignment yet (e.g. before first rebalance)
-            Ok(Err(err)) => {
-                counter!("ingestion_consumer_commit_monitor_errors_total").increment(1);
-                warn!(error = %err, "Commit monitor failed to fetch committed offsets");
-            }
-            Err(err) => {
-                counter!("ingestion_consumer_commit_monitor_errors_total").increment(1);
-                warn!(error = %err, "Commit monitor task join error");
-            }
-        }
+    /// Everything ready to commit, regardless of the interval.
+    pub fn drain(&self) -> HashMap<TopicPartition, Offset> {
+        std::mem::take(&mut self.state.lock().unwrap().pending)
     }
 }
 
@@ -216,34 +86,91 @@ async fn run_commit_monitor(
 mod tests {
     use super::*;
 
+    const INTERVAL: Duration = Duration::from_millis(500);
+
     fn tp(partition: i32) -> TopicPartition {
         TopicPartition::new("events", partition)
     }
 
-    #[test]
-    fn the_latest_frontier_per_partition_is_what_flushes() {
-        let pending = PendingCommits::new();
-        pending.record(&tp(0), Offset(10));
-        pending.record(&tp(1), Offset(20));
-        pending.record(&tp(0), Offset(12));
-
-        let taken = pending.take();
-        assert_eq!(taken.len(), 2);
-        assert_eq!(taken[&tp(0)], Offset(12));
-        assert_eq!(taken[&tp(1)], Offset(20));
-        assert!(pending.take().is_empty(), "a take leaves nothing behind");
+    fn span(first: i64, last: i64) -> OffsetSpan {
+        OffsetSpan { first, last }
     }
 
     #[test]
-    fn a_forgotten_partition_has_nothing_to_flush() {
-        let pending = PendingCommits::new();
-        pending.record(&tp(0), Offset(10));
-        pending.record(&tp(1), Offset(20));
+    fn the_first_tick_with_a_pending_frontier_commits_at_once() {
+        let manager = CommitManager::new(INTERVAL);
+        manager.on_frontier(&tp(0), span(0, 9));
 
-        pending.forget_partitions([("events", 0)]);
+        let offsets = manager.try_commit(Instant::now()).expect("due");
+        assert_eq!(
+            offsets,
+            HashMap::from([(tp(0), Offset(10))]),
+            "next to read, past the span"
+        );
+    }
 
-        let taken = pending.take();
-        assert_eq!(taken.len(), 1);
-        assert_eq!(taken[&tp(1)], Offset(20));
+    #[test]
+    fn the_latest_frontier_per_partition_is_what_commits() {
+        let manager = CommitManager::new(INTERVAL);
+        manager.on_frontier(&tp(0), span(0, 9));
+        manager.on_frontier(&tp(1), span(0, 19));
+        manager.on_frontier(&tp(0), span(10, 11));
+
+        let offsets = manager.try_commit(Instant::now()).expect("due");
+        assert_eq!(
+            offsets,
+            HashMap::from([(tp(0), Offset(12)), (tp(1), Offset(20))])
+        );
+    }
+
+    #[test]
+    fn a_tick_inside_the_interval_commits_nothing_and_keeps_the_frontier() {
+        let manager = CommitManager::new(INTERVAL);
+        let start = Instant::now();
+        manager.on_frontier(&tp(0), span(0, 9));
+        manager.try_commit(start).expect("due");
+        manager.on_frontier(&tp(1), span(0, 19));
+
+        assert!(manager.try_commit(start + INTERVAL / 2).is_none());
+        assert_eq!(
+            manager.try_commit(start + INTERVAL).expect("due again"),
+            HashMap::from([(tp(1), Offset(20))])
+        );
+    }
+
+    #[test]
+    fn an_idle_tick_does_not_start_an_interval() {
+        let manager = CommitManager::new(INTERVAL);
+        let start = Instant::now();
+
+        assert!(manager.try_commit(start).is_none());
+        manager.on_frontier(&tp(0), span(0, 9));
+
+        assert!(manager
+            .try_commit(start + Duration::from_millis(1))
+            .is_some());
+    }
+
+    #[test]
+    fn a_drain_ignores_the_interval() {
+        let manager = CommitManager::new(INTERVAL);
+        let start = Instant::now();
+        manager.on_frontier(&tp(0), span(0, 9));
+        manager.try_commit(start).expect("due");
+        manager.on_frontier(&tp(1), span(0, 19));
+
+        assert_eq!(manager.drain(), HashMap::from([(tp(1), Offset(20))]));
+        assert!(manager.drain().is_empty(), "a drain leaves nothing behind");
+    }
+
+    #[test]
+    fn a_forgotten_partition_is_not_committed() {
+        let manager = CommitManager::new(INTERVAL);
+        manager.on_frontier(&tp(0), span(0, 9));
+        manager.on_frontier(&tp(1), span(0, 19));
+
+        manager.forget_partitions([("events", 0)]);
+
+        assert_eq!(manager.drain(), HashMap::from([(tp(1), Offset(20))]));
     }
 }

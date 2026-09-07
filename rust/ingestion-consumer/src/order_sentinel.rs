@@ -25,13 +25,14 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::commit_manager::PendingCommits;
+use crate::commit_manager::CommitManager;
 use crate::commit_sentinel::CommitSentinel;
 use crate::types::SerializedKafkaMessage;
 use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger};
@@ -321,10 +322,10 @@ pub struct SentinelContext {
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
-    /// Frontiers awaiting the commit manager's next flush. Owned here so the
-    /// rebalance callbacks drop a departing partition's frontier before the
-    /// flush can commit it under another owner.
-    pending_commits: Arc<PendingCommits>,
+    /// Holds the frontiers awaiting the next commit. Owned here so the
+    /// rebalance callbacks drop a departing partition's frontier before a
+    /// commit can carry it under another owner.
+    commit_manager: Arc<CommitManager>,
     /// Advanced once per assignment callback; the gRPC transport stamps it
     /// on sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances. Distinct from the offset ledger's generations, which move
@@ -337,13 +338,13 @@ impl SentinelContext {
         commit_sentinel: Arc<CommitSentinel>,
         key_sentinel: Arc<KeyOrderSentinel>,
         topic_offset_ledger: Arc<TopicOffsetLedger>,
-        pending_commits: Arc<PendingCommits>,
+        commit_manager: Arc<CommitManager>,
     ) -> Self {
         Self {
             commit_sentinel,
             key_sentinel,
             topic_offset_ledger,
-            pending_commits,
+            commit_manager,
             assignment_epoch: None,
         }
     }
@@ -354,14 +355,15 @@ impl SentinelContext {
         self.assignment_epoch = Some(epoch);
     }
 
-    /// A context with its own free-standing sentinels and ledger, for tests
-    /// and tools that build the Kafka consumer separately from the dispatcher.
-    pub fn detached() -> Self {
+    /// A context with its own free-standing sentinels, ledger, and commit
+    /// manager, for tests and tools that build the Kafka consumer separately
+    /// from the dispatcher.
+    pub fn detached(commit_interval: Duration) -> Self {
         Self::new(
             Arc::new(CommitSentinel::new()),
             Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
-            Arc::new(PendingCommits::new()),
+            Arc::new(CommitManager::new(commit_interval)),
         )
     }
 
@@ -373,8 +375,8 @@ impl SentinelContext {
         Arc::clone(&self.topic_offset_ledger)
     }
 
-    pub fn pending_commits(&self) -> Arc<PendingCommits> {
-        Arc::clone(&self.pending_commits)
+    pub fn commit_manager(&self) -> Arc<CommitManager> {
+        Arc::clone(&self.commit_manager)
     }
 
     /// Start a new ledger generation for every partition in `tpl`, dropping
@@ -383,7 +385,7 @@ impl SentinelContext {
         let elements = tpl.elements();
         self.topic_offset_ledger
             .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
-        self.pending_commits
+        self.commit_manager
             .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
     }
 }

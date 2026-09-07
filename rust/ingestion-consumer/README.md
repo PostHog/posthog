@@ -33,8 +33,10 @@ The consumer holds the per-partition offset ledger from `common/kafka-consumer`,
 Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
 A partition that settles without a frontier is not committed and stays on its last commit.
 A batch with no frontier on any partition is not committed at all; `ingestion_consumer_commits_skipped_total{reason}` counts those, where `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
-Frontiers go to the commit manager (`commit_manager.rs`), which checks each against the commit sentinel as it arrives and commits the latest per partition every `CONSUMER_COMMIT_INTERVAL_MS` (default 500ms), so the commit rate is bounded by the interval rather than by how often frontiers move; the loop flushes once more on the way out.
-A partition that leaves the assignment drops its pending frontier with its ledger, so a late flush cannot commit under another owner.
+Each frontier the consumer takes is checked by the commit sentinel and handed to the commit manager (`commit_manager.rs`); the loop ticks the manager every 100ms and, at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500ms), the manager answers with the latest offset per partition and the consumer commits them in one call, so the commit rate is bounded by the interval rather than by how often frontiers move.
+The loop drains and commits once more on the way out.
+The commit manager holds no I/O: the consumer commits what it is given, and the commit monitor (`commit_monitor.rs`) reports the broker's committed offsets to the sentinel.
+A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
 The ledger emits its own metrics, so any consumer built on the crate reports the same series.
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 `kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.

@@ -447,7 +447,12 @@ fn make_kafka_consumer(
     group_id: &str,
     instance_id: Option<&str>,
 ) -> StreamConsumer<SentinelContext> {
-    make_kafka_consumer_with_context(topic, group_id, instance_id, SentinelContext::detached())
+    make_kafka_consumer_with_context(
+        topic,
+        group_id,
+        instance_id,
+        SentinelContext::detached(Duration::from_millis(100)),
+    )
 }
 
 /// Like `make_kafka_consumer`, under a context the test keeps a hand on.
@@ -618,7 +623,7 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let context = SentinelContext::detached();
+        let context = SentinelContext::detached(Duration::from_millis(100));
         let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
@@ -631,7 +636,6 @@ impl Harness {
                 batch_size: 50,
                 batch_size_bytes,
                 batch_timeout: Duration::from_millis(100),
-                commit_interval: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
@@ -693,7 +697,7 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let context = SentinelContext::detached();
+        let context = SentinelContext::detached(Duration::from_millis(100));
         self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
@@ -706,7 +710,6 @@ impl Harness {
                 batch_size: 50,
                 batch_size_bytes: 0,
                 batch_timeout: Duration::from_millis(100),
-                commit_interval: Duration::from_millis(100),
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
@@ -2558,7 +2561,6 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             batch_size: 50,
             batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
-            commit_interval: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
@@ -2666,7 +2668,6 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
             batch_size: 50,
             batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
-            commit_interval: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
@@ -2780,7 +2781,6 @@ async fn fenced_static_member_exits_on_fatal_error() {
             batch_size: 50,
             batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
-            commit_interval: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),

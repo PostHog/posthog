@@ -8,13 +8,16 @@ use common_kafka_consumer::{
 use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
+use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
+use tokio::time::{Interval, MissedTickBehavior};
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
-use crate::commit_manager::{CommitManager, PendingCommits};
+use crate::commit_manager::CommitManager;
+use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_sentinel::CommitSentinel;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
@@ -24,6 +27,12 @@ use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
+
+/// The consumer loop's wake-up timer while it waits on completions: the
+/// resolution at which it reports liveness and gives the commit manager a
+/// chance to commit. While it collects a poll, the batch timeout is the
+/// resolution.
+const TICK: Duration = Duration::from_millis(100);
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
 /// metrics. Per-partition facts live on [`PartitionDeliveries`].
@@ -190,9 +199,6 @@ pub struct IngestionConsumerOptions {
     /// See `Config::consumer_batch_size_kb`.
     pub batch_size_bytes: usize,
     pub batch_timeout: Duration,
-    /// How often frontiers ready to commit are committed. See
-    /// `Config::consumer_commit_interval_ms`.
-    pub commit_interval: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
     /// No-progress bound on flushing a batch's deferred groups, enforced by
@@ -221,7 +227,14 @@ pub struct IngestionConsumer {
     max_in_flight_batches: usize,
     handle: Handle,
     group_id: String,
+    /// Holds the frontiers awaiting the next commit and says when to commit.
+    /// Shared with the consumer's [`SentinelContext`], which drops a
+    /// departing partition's frontier on rebalance.
     commit_manager: Arc<CommitManager>,
+    /// Checks every frontier handed to the commit manager and confirms
+    /// commits land. Shared with the [`SentinelContext`], which resets its
+    /// baselines on rebalance.
+    commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// The per-partition offset ledger the commit path reads its frontiers
@@ -243,9 +256,11 @@ impl IngestionConsumer {
         options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
-        // Share the context's ledger so rebalance callbacks forget partitions
-        // on the same ledger the commit path settles against.
+        // Share the context's ledger, commit manager, and sentinel so rebalance
+        // callbacks forget partitions on the same ones the commit path uses.
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let commit_manager = consumer.context().commit_manager();
+        let commit_sentinel = consumer.context().commit_sentinel();
         let consumer = Arc::new(consumer);
         let (batcher, outputs) = Batcher::new(
             dispatcher,
@@ -254,10 +269,8 @@ impl IngestionConsumer {
             options.deferred_flush_timeout,
         );
         Self {
-            commit_manager: Arc::new(CommitManager::new(
-                Arc::clone(&consumer),
-                options.commit_interval,
-            )),
+            commit_manager,
+            commit_sentinel,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             consumer,
@@ -306,11 +319,14 @@ impl IngestionConsumer {
         let key_sentinel = batcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
+        let commit_manager = Arc::new(CommitManager::new(Duration::from_millis(
+            config.consumer_commit_interval_ms,
+        )));
         let mut context = SentinelContext::new(
-            commit_sentinel,
+            Arc::clone(&commit_sentinel),
             key_sentinel,
             Arc::clone(&topic_offset_ledger),
-            Arc::new(PendingCommits::new()),
+            Arc::clone(&commit_manager),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
@@ -328,10 +344,8 @@ impl IngestionConsumer {
         );
 
         Ok(Self {
-            commit_manager: Arc::new(CommitManager::new(
-                Arc::clone(&consumer),
-                Duration::from_millis(config.consumer_commit_interval_ms),
-            )),
+            commit_manager,
+            commit_sentinel,
             consumer,
             debug_recorder,
             topic_offset_ledger,
@@ -375,15 +389,21 @@ impl IngestionConsumer {
             workers: self.worker_urls.clone(),
         });
 
-        let _commit_monitor = self.commit_manager.spawn_monitor(self.handle.clone());
-        let _commit_flusher = self.commit_manager.spawn_flusher(self.handle.clone());
+        let _commit_monitor = spawn_commit_monitor(
+            Arc::clone(&self.consumer),
+            Arc::clone(&self.commit_sentinel),
+            self.handle.clone(),
+        );
 
         self.run(completions, errors).await;
 
-        // Frontiers handed over since the last flush are accepted work, and
+        // Frontiers handed over since the last commit are accepted work, and
         // neither a shutdown nor a failed batch should leave them to replay.
-        if let Err(err) = self.commit_manager.flush() {
-            warn!(error = %err, "Final offset commit failed");
+        let offsets = self.commit_manager.drain();
+        if !offsets.is_empty() {
+            if let Err(err) = self.commit_offsets(&offsets) {
+                warn!(error = %err, "Final offset commit failed");
+            }
         }
         info!("Consumer loop stopped");
     }
@@ -397,11 +417,23 @@ impl IngestionConsumer {
     ) {
         let mut in_flight_polls: VecDeque<InFlightPoll> = VecDeque::new();
         let mut accepting_new_batches = true;
+        let mut tick = tokio::time::interval(TICK);
+        tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         while accepting_new_batches || !in_flight_polls.is_empty() {
             // Consumer-level concurrency: how many Kafka batches are being
             // processed in parallel, bounded by `max_in_flight_batches`.
             gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
+
+            // Once per iteration rather than as a select arm below: a wake-up
+            // that won against `collect_batch` would drop a half-collected
+            // poll, and the next commit would then skip its offsets. A
+            // collection returns within the batch timeout, so the manager is
+            // never further than that from a tick.
+            if let Err(err) = self.tick() {
+                self.fail_batch_processing(err);
+                return;
+            }
 
             if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
                 tokio::select! {
@@ -439,13 +471,43 @@ impl IngestionConsumer {
             }
 
             if let Err(err) = self
-                .complete_oldest_poll(&mut in_flight_polls, &mut completions, &mut errors)
+                .complete_oldest_poll(
+                    &mut in_flight_polls,
+                    &mut completions,
+                    &mut errors,
+                    &mut tick,
+                )
                 .await
             {
                 self.fail_batch_processing(err);
                 return;
             }
         }
+    }
+
+    /// One wake-up: report liveness and commit whatever the manager says is
+    /// due.
+    fn tick(&self) -> anyhow::Result<()> {
+        self.handle.report_healthy();
+        if let Some(offsets) = self.commit_manager.try_commit(Instant::now()) {
+            self.commit_offsets(&offsets)?;
+        }
+        Ok(())
+    }
+
+    /// Submit each partition's next-to-read offset to Kafka, asynchronously.
+    fn commit_offsets(&self, offsets: &HashMap<TopicPartition, Offset>) -> anyhow::Result<()> {
+        let mut tpl = TopicPartitionList::new();
+        for (topic_partition, next_to_read) in offsets {
+            tpl.add_partition_offset(
+                &topic_partition.topic,
+                topic_partition.partition,
+                rdkafka::Offset::Offset(next_to_read.0),
+            )?;
+        }
+        self.consumer.commit(&tpl, CommitMode::Async)?;
+        counter!("ingestion_consumer_offset_commits_total").increment(1);
+        Ok(())
     }
 
     /// Submit one collected poll to the batcher and track it as in flight.
@@ -500,12 +562,12 @@ impl IngestionConsumer {
         in_flight_polls: &mut VecDeque<InFlightPoll>,
         completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
         errors: &mut mpsc::UnboundedReceiver<String>,
+        tick: &mut Interval,
     ) -> anyhow::Result<()> {
         if in_flight_polls.front().is_none() {
             return Ok(());
         }
 
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
         while !in_flight_polls
             .front()
             .expect("front is present")
@@ -520,7 +582,7 @@ impl IngestionConsumer {
                     Some(message) => anyhow::bail!(message),
                     None => anyhow::bail!("batcher error channel closed"),
                 },
-                _ = heartbeat.tick() => self.handle.report_healthy(),
+                _ = tick.tick() => self.tick()?,
             }
         }
 
@@ -748,6 +810,10 @@ impl IngestionConsumer {
                 continue;
             };
             self.topic_offset_ledger.take_frontier(topic_partition);
+            // Checked as it is handed over, so a violation is attributed to
+            // the work that caused it.
+            self.commit_sentinel
+                .check_commit([(topic_partition, &span)]);
             self.commit_manager.on_frontier(topic_partition, span);
             advanced += 1;
         }
