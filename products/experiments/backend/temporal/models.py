@@ -30,6 +30,16 @@ MAX_METRIC_ATTEMPTS = 8
 # exponential schedule.
 CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
 
+# How many calc activities one recalculation run keeps in flight.
+#
+# Nothing else bounds this fan-out. The per-org ClickHouse app-query limiter opts out inside Temporal
+# (`_is_in_temporal` in posthog/clickhouse/client/limit.py) because it expects a Temporal caller to cap its
+# own concurrency. An uncapped run therefore pushes the shared online cluster toward its at-capacity guard,
+# and every rejection costs the metric CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS plus one of MAX_METRIC_ATTEMPTS.
+# A large experiment can then spend its whole retry budget on backpressure and report healthy metrics as
+# failed. Sized so runs of 10 metrics or fewer, the large majority, dispatch exactly as before.
+MAX_CONCURRENT_METRICS_PER_RUN = 10
+
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
 RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
