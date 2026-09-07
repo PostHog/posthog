@@ -40,7 +40,7 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
 )
 from posthog.dataclasses import frozen
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.errors import CHQueryErrorSyntaxError, clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -295,6 +295,28 @@ def _llm_analytics_concurrency_slot(ch_user: ClickHouseUser, team_id: Optional[i
 
     with get_llm_analytics_rate_limiter().run(team_id=team_id):
         yield
+
+
+UNPARSABLE_SQL_CAPTURE_LIMIT = 20_000
+
+
+def _record_unparsable_sql(
+    err: CHQueryErrorSyntaxError, query: str, *, team_id: Optional[int], query_type: str
+) -> None:
+    """Keep the statement ClickHouse rejected, so the next occurrence is diagnosable.
+
+    The query goes in with its placeholders intact, before substitution: HogQL keeps user values in
+    `args`, and ClickHouse already stores the substituted text in `system.query_log`.
+    """
+    sql = query if len(query) <= UNPARSABLE_SQL_CAPTURE_LIMIT else f"{query[:UNPARSABLE_SQL_CAPTURE_LIMIT]}…"
+    err.generated_sql = sql
+    logger.error(
+        "ClickHouse could not parse the generated SQL",
+        generated_sql=sql,
+        clickhouse_message=err.message,
+        team_id=team_id,
+        query_type=query_type,
+    )
 
 
 @patchable
@@ -557,6 +579,8 @@ def sync_execute(
             chargeable=str(tags.chargeable or "0"),
         ).inc()
         err = wrap_clickhouse_query_error(e)
+        if isinstance(err, CHQueryErrorSyntaxError):
+            _record_unparsable_sql(err, query, team_id=team_id, query_type=query_type)
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
