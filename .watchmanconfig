@@ -8,6 +8,7 @@
         ".pytest_cache",
         ".dagster_home",
         ".posthog",
-        ".flox"
+        ".flox",
+        ".devenv"
     ]
 }

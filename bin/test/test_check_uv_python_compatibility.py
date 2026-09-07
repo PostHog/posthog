@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from bin.check_uv_python_compatibility import check_uv_python_compatibility, label_workflow_pins
+from bin.check_uv_python_compatibility import check_uv_python_compatibility, compare_env_pins, label_workflow_pins
 
 
 class TestCheckUvPythonCompatibility(unittest.TestCase):
@@ -58,6 +58,33 @@ class TestLabelWorkflowPins(unittest.TestCase):
         )
         self.assertEqual(missing, ["ci-b.yml"])
         self.assertEqual(set(locations), {"0.11.28", "0.10.2"})
+
+
+class TestCompareEnvPins(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("patch_drift_allowed", {"flox": "0.11.14", "devenv": "0.11.28"}, "0.11.30", []),
+            (
+                "devenv_behind_ci",
+                {"flox": "0.11.14", "devenv": "0.10.2"},
+                "0.11.28",
+                ["devenv uv 0.10.2 diverges from workflow pin 0.11.28"],
+            ),
+            (
+                "both_behind_ci",
+                {"flox": "0.10.2", "devenv": "0.10.2"},
+                "0.11.28",
+                [
+                    "flox uv 0.10.2 diverges from workflow pin 0.11.28",
+                    "devenv uv 0.10.2 diverges from workflow pin 0.11.28",
+                ],
+            ),
+            ("missing_env_pin_ignored", {"flox": "0.11.14", "devenv": None}, "0.11.28", []),
+            ("no_workflow_pin_skips", {"flox": "0.10.2", "devenv": "0.9.1"}, None, []),
+        ]
+    )
+    def test_divergence_messages(self, _name, env_pins, workflow_pin, expected):
+        self.assertEqual(compare_env_pins(env_pins, workflow_pin), expected)
 
 
 if __name__ == "__main__":

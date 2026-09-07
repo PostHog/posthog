@@ -1319,6 +1319,7 @@ class TestToolbox(unittest.TestCase):
         os.environ.pop("KUBE_CONTEXT", None)
         os.environ.pop("KUBE_NAMESPACE", None)
         os.environ.pop("FLOX_ENV", None)
+        os.environ.pop("DEVENV_ROOT", None)
 
     def test_main_jumphost_pool_dispatches_correct_kwargs(self):
         """--pool flags-cache-jumphost threads the jumphost app/claim labels into helpers."""
@@ -1394,6 +1395,7 @@ class TestToolbox(unittest.TestCase):
                 ):
                     os.environ.pop("KUBE_CONTEXT", None)
                     os.environ.pop("FLOX_ENV", None)
+                    os.environ.pop("DEVENV_ROOT", None)
                     if env_namespace is None:
                         os.environ.pop("KUBE_NAMESPACE", None)
                     with self.assertRaises(SystemExit):
@@ -1427,6 +1429,7 @@ class TestToolbox(unittest.TestCase):
         ):
             os.environ.pop("KUBE_NAMESPACE", None)
             os.environ.pop("FLOX_ENV", None)
+            os.environ.pop("DEVENV_ROOT", None)
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
@@ -1501,6 +1504,7 @@ class TestToolbox(unittest.TestCase):
             patch.dict(os.environ, {"KUBE_CONTEXT": "bogus"}, clear=False),
         ):
             os.environ.pop("FLOX_ENV", None)
+            os.environ.pop("DEVENV_ROOT", None)
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
 

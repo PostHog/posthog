@@ -35,7 +35,7 @@ try:
     import yaml
 except ImportError:
     print("ERROR: PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
-    print("  Or activate the flox environment first.", file=sys.stderr)
+    print("  Or activate the dev environment (flox or devenv) first.", file=sys.stderr)
     sys.exit(1)
 
 import sandbox_env

@@ -13,14 +13,18 @@ sync:
                 # Per-language deps -- OS-incompatible, prewarmed on remote AMI.
                 - 'node_modules'
                 - '.venv'
-                # PostHog's Python venv lives under `.flox/cache/venv` (flox), not
-                # `.venv`. Ignore only flox's machine-local subdirs (mirrors
-                # `.flox/.gitignore`); the tracked `.flox/env*` definition still
-                # syncs so dev-environment edits reach the box.
+                # PostHog's Python venv lives under `.flox/cache/venv` (flox) or
+                # `.devenv/state/venv` (devenv), not `.venv`. Ignore only flox's
+                # machine-local subdirs (mirrors `.flox/.gitignore`); the tracked
+                # `.flox/env*` definition still syncs so dev-environment edits
+                # reach the box. All of `.devenv` is generated, so it goes whole:
+                # devenv's definition lives in the tracked root-level devenv.*
+                # files instead.
                 - '.flox/cache'
                 - '.flox/run'
                 - '.flox/lib'
                 - '.flox/log'
+                - '.devenv'
                 - '**/__pycache__'
                 - '*.pyc'
                 - '*.egg-info'
