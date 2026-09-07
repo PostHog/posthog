@@ -46,7 +46,7 @@ function AlertPreviewChart({
         <div className="w-full h-24 flex flex-col">
             <LineChart
                 series={series}
-                labels={labels ?? series[0]?.data.map((_, index) => String(index)) ?? []}
+                labels={labels ?? series[0]?.data?.map((_, index) => String(index)) ?? []}
                 theme={theme}
                 config={{
                     hideXAxis: true,
@@ -104,16 +104,19 @@ export function AlertPreviewCard({
         !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
     )
     const checkPreviewValues = checkPreview?.values
-    const trendsBreakdownPreviews = trendsBreakdownSeries?.map(({ key, label, data }) => ({
-        key,
-        label,
-        data: deriveTrendsAlertPreviewSeries(
-            data,
-            trendsLabels ?? undefined,
-            alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
-            alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
-        ).values,
-    }))
+    // Trend results declare `data` as a required array, but breakdown rows can arrive without it.
+    const trendsBreakdownPreviews = trendsBreakdownSeries
+        ?.filter(({ data }) => Array.isArray(data))
+        .map(({ key, label, data }) => ({
+            key,
+            label,
+            data: deriveTrendsAlertPreviewSeries(
+                data,
+                trendsLabels ?? undefined,
+                alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
+                alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
+            ).values,
+        }))
     const breakdownPreviewValues = trendsBreakdownPreviews?.flatMap((series) => series.data) ?? []
     const breakdownUseLogScale = shouldUseLogScale(breakdownPreviewValues, referenceLines)
     const isUnconfiguredAbsoluteThreshold =
