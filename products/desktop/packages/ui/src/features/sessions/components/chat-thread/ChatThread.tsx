@@ -10,6 +10,7 @@ import {
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { resolveResultResourceUri } from "@posthog/core/mcp-apps/schemas";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -97,10 +98,7 @@ import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitAc
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
-import {
-  isMcpToolItem,
-  isPlanItem,
-} from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
+import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
@@ -224,16 +222,35 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
+ * A tool call whose resolved result carries a UI-app resource — one that mounts an interactive
+ * chart via `McpAppHost`. Checked on the *result*, not the tool's name or MCP-ness: Codex calls
+ * every underlying tool through one inline-exec wrapper (`POSTHOG_EXEC_TOOL_KEY`), so a name-based
+ * "is this MCP" check would match every one of a session's tool calls, not just the one that
+ * renders a chart. Before the call resolves there is nothing to check yet, so this reads false
+ * until the result carries a resource URI — which is also the earliest point a chart could exist.
+ */
+function hasUiAppResult(item: ConversationItem): boolean {
+  if (item.type !== "session_update") return false;
+  if (item.update.sessionUpdate !== "tool_call") return false;
+  const { toolCallId } = item.update;
+  const resolved = toolCallId
+    ? item.turnContext.toolCalls.get(toolCallId)
+    : undefined;
+  return resolveResultResourceUri(resolved?.rawOutput) !== undefined;
+}
+
+/**
  * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
  * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
  * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
  * thoughts ride along a run, they never make one.
  *
- * An MCP tool call never folds into a group, even alongside other tool calls: its result can
- * mount a UI-app iframe (`McpAppHost`), and the group collapses to a "Thinking…" marker while a
- * later tool in the run is still live, which would hide an already-rendered chart behind that
- * label. It flushes the run and renders on its own row instead, mirroring `isPlanItem`.
+ * A tool call that renders a chart (see {@link hasUiAppResult}) never folds into a group either,
+ * even alongside other tool calls: `ToolGroup`'s body is collapsed and unmounted by default (Base
+ * UI's Collapsible defaults `keepMounted` to `false`), so a chart nested inside one never renders
+ * until a person expands the group. It flushes the run and renders on its own row instead,
+ * mirroring `isPlanItem`.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
@@ -285,7 +302,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (isPlanItem(item) || isShowActionsItem(item) || isMcpToolItem(item)) {
+      if (isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item)) {
         flush();
         out.push(item);
         continue;

@@ -122,21 +122,25 @@ describe("groupToolRuns", () => {
     expect(out[1]).toMatchObject({ id: "action" });
   });
 
-  it("keeps an MCP tool call out of the chip so a mounted UI app never hides behind it", () => {
-    // Reproduces the bug: an MCP tool with a UI app (a rendered chart) sitting between
-    // other tool calls used to fold into the group, which collapses to "Thinking…" while
-    // a later tool in the run is still live — hiding the already-rendered chart.
-    const mcpCall = toolItem("chart", {
-      _meta: posthogToolMeta({
-        toolName: "posthog__query",
-        mcp: { server: "posthog", tool: "query" },
-      }),
+  it("keeps a chart-rendering tool call out of the chip so its UI app never hides behind it", () => {
+    // Reproduces the bug: a tool call whose result renders a chart, sitting between other tool
+    // calls, used to fold into the group, which collapses to "Thinking…" while a later tool in
+    // the run is still live — hiding the already-rendered chart.
+    const chartCall = toolItem("chart", { toolCallId: "chart" });
+    chartCall.turnContext.toolCalls.set("chart", {
+      toolCallId: "chart",
+      title: "chart",
+      kind: "execute",
+      status: "completed",
+      rawOutput: {
+        _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+      },
     });
 
     const out = groupToolRuns([
       toolItem("before-1"),
       toolItem("before-2"),
-      mcpCall,
+      chartCall,
       toolItem("after-1"),
       toolItem("after-2"),
     ]);
@@ -147,5 +151,33 @@ describe("groupToolRuns", () => {
       "tool_group",
     ]);
     expect(out[1]).toMatchObject({ id: "chart" });
+  });
+
+  it("still groups an MCP tool call whose result has no UI app", () => {
+    // Regression guard: Codex routes every underlying tool through one inline-exec wrapper, so a
+    // check keyed on "is this an MCP tool" (rather than "does its result render a chart") would
+    // pull every exec call out of grouping and leave the whole thread ungrouped and noisy.
+    const execCall = toolItem("exec", {
+      toolCallId: "exec",
+      _meta: posthogToolMeta({
+        toolName: "mcp__posthog__exec",
+        mcp: { server: "posthog", tool: "exec" },
+      }),
+    });
+    execCall.turnContext.toolCalls.set("exec", {
+      toolCallId: "exec",
+      title: "exec",
+      kind: "execute",
+      status: "completed",
+      rawOutput: { content: [{ type: "text", text: "no chart here" }] },
+    });
+
+    const out = groupToolRuns([
+      toolItem("before"),
+      execCall,
+      toolItem("after"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual(["tool_group"]);
   });
 });
