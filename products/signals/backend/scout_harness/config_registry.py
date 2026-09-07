@@ -154,18 +154,20 @@ def live_scout_skill_names(
     this set, so a config whose skill was deleted or superseded isn't run. Used on the wildcard
     (no-seed) dispatch path — a team that self-enrolled through the UI already has its configs, so
     the per-tick seed/reconcile is skipped and this cheap read is what still gates dispatch.
+
+    The config names go in as a subquery, and the holdback is applied as an `exclude` on the same
+    query, so the per-team gate stays one round trip. Keep it that way — this runs once per team
+    on every tick.
     """
-    config_names = set(SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
-    if withheld_skill_names:
-        config_names -= set(withheld_skill_names)
-    return set(
-        LLMSkill.objects.filter(
-            team_id=team_id,
-            name__in=config_names,
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", flat=True)
+    rows = LLMSkill.objects.filter(
+        team_id=team_id,
+        name__in=SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True),
+        is_latest=True,
+        deleted=False,
     )
+    if withheld_skill_names:
+        rows = rows.exclude(name__in=withheld_skill_names)
+    return set(rows.values_list("name", flat=True))
 
 
 def register_missing_configs(
