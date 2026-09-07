@@ -1208,9 +1208,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2023-01-01T01:01:00Z&before=2024-01-01T02:02:01Z"
         ).json()
-        # A probe window can cut the page short, so the page must still offer a `next` link and the
-        # pages together must cover every event in the requested range.
-        assert len(response["results"]) >= 50  # At least half_limit results
+        assert len(response["results"]) >= 50  # A probe window can cut the page short
         seen = len(response["results"])
         while response["next"]:
             response = self.client.get(response["next"]).json()

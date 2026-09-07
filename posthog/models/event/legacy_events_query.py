@@ -201,9 +201,7 @@ class LegacyEventsListQuery:
                 new_cache_data = {"window": successful_window, "result_count": len(rows)}
                 if new_cache_data != cached_data:
                     cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
-                # A probe window is narrower than the request's own range, so an exhausted window
-                # says nothing about older events still inside that range. Always report more, or
-                # the caller stops on a short page and loses the rest of the range.
+                # An exhausted probe window says nothing about older events still inside the range.
                 has_more = True
             elif applied_window is not None or not windows_to_try:
                 # Windows were applied but came up short, or there were none — run the full range.
