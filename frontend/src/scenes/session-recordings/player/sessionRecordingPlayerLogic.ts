@@ -53,7 +53,14 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+import {
+    AvailableFeature,
+    ExporterFormat,
+    HotKey,
+    RecordingSegment,
+    SessionPlayerData,
+    SessionPlayerState,
+} from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import {
@@ -91,6 +98,18 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
+
+/** The digit that prints the speed itself. Fractional and multi-digit speeds get no digit. */
+export const playbackSpeedHotkey = (speed: number): HotKey | undefined =>
+    Number.isInteger(speed) && speed >= 1 && speed <= 9 ? (`${speed}` as HotKey) : undefined
+
+/** Clamps at the ends of the list, so the slowest and fastest speeds are not stepped past. */
+export const stepPlaybackSpeed = (speed: number, direction: 1 | -1): number => {
+    const current = PLAYBACK_SPEEDS.indexOf(speed)
+    const next = (current === -1 ? PLAYBACK_SPEEDS.indexOf(1) : current) + direction
+    return PLAYBACK_SPEEDS[Math.min(Math.max(next, 0), PLAYBACK_SPEEDS.length - 1)]
+}
+
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 export const ONE_SECOND_MS = 1000
 
