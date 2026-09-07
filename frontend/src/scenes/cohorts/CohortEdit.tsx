@@ -1,6 +1,7 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { Suspense } from 'react'
 
 import {
     IconClock,
@@ -22,6 +23,7 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -30,6 +32,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
@@ -53,7 +56,6 @@ import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { newWorkflowLogic } from 'products/workflows/frontend/Workflows/newWorkflowLogic'
-import { NewWorkflowModal } from 'products/workflows/frontend/Workflows/NewWorkflowModal'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -66,6 +68,12 @@ import {
 } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+
+// The chooser loads the whole workflow template catalog as it mounts, and most people open a
+// cohort without messaging it, so keep both the code and the request behind the open state.
+const NewWorkflowModal = lazyWithRetry(() =>
+    import('products/workflows/frontend/Workflows/NewWorkflowModal').then((m) => ({ default: m.NewWorkflowModal }))
+)
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -206,6 +214,13 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showNewWorkflowModalForPrefill } = useActions(newWorkflowLogic)
+    const { newWorkflowModalVisible } = useValues(newWorkflowLogic)
+    const shouldRenderNewWorkflowModal = useKeepMountedWhileOpen(newWorkflowModalVisible)
+    const newWorkflowModal = shouldRenderNewWorkflowModal ? (
+        <Suspense fallback={null}>
+            <NewWorkflowModal />
+        </Suspense>
+    ) : null
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const workflowDisabledReason = cohortWorkflowDisabledReason(cohort)
@@ -228,7 +243,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     if (cohort.deleted) {
         return (
             <div>
-                <NewWorkflowModal />
+                {newWorkflowModal}
                 <CohortSceneMenuBar id={id} />
                 <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
                 <ScenePanel>
@@ -250,7 +265,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} />
-                <NewWorkflowModal />
+                {newWorkflowModal}
                 <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>
