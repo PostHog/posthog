@@ -682,6 +682,10 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             for outcome in (
                 "recovered",
                 "deadline",
+                "deadline_cancelled",
+                "deadline_replaced",
+                "deadline_invalid",
+                "deadline_workflow_changed",
                 "rpc_exhausted",
                 "cancelled",
                 "failed",
@@ -781,7 +785,10 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 assert response.json()["latest_run"]["id"] == str(run.id)
             else:
                 assert response.status_code == 503, response.content
-                assert response.json() == {
+                error_body = response.json()
+                retry_token = error_body.pop("retry_token", None)
+                assert bool(retry_token) is (outcome.startswith("deadline") or outcome == "rpc_exhausted")
+                assert error_body == {
                     "code": "warm_run_activation_unavailable",
                     "error": "Couldn't start this run yet. Please try again.",
                 }
@@ -790,14 +797,32 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 run.refresh_from_db()
                 assert bool(run.state.get("warm_activated")) is (outcome == "recovered")
                 assert bool(run.state.get("await_user_message")) is (outcome not in ("recovered", "not_awaiting"))
-            if outcome == "deadline":
+            if outcome.startswith("deadline"):
                 assert elapsed == 10
                 assert min(rpc_timeouts) == 0.25
                 assert len(rpc_timeouts) == 12
+                first_message = handle.signal.call_args.args
                 handle.signal.side_effect = None
-                retry = self.client.post(url, payload, format="json")
+                if outcome in ("deadline_cancelled", "deadline_replaced"):
+                    TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.CANCELLED)
+                if outcome == "deadline_replaced":
+                    TaskRun.objects.create(task=task, team=self.team, state=run.state, branch=run.branch)
+                    run_count += 1
+                if outcome == "deadline_invalid":
+                    retry_token += "invalid"
+                if outcome == "deadline_workflow_changed":
+                    TaskRun.update_state_atomic(run.id, updates={"workflow_id": "replacement-workflow"})
+                retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
+                if outcome != "deadline":
+                    assert retry.status_code == 503, retry.content
+                    assert "retry_token" not in retry.json()
+                    assert handle.signal.await_count == 12
+                    assert Task.objects.filter(team=self.team).count() == 1
+                    assert TaskRun.objects.filter(team=self.team).count() == run_count
+                    return
                 assert retry.status_code == (201 if endpoint == "create" else 200), retry.content
                 assert retry.json()["latest_run"]["id"] == str(run.id)
+                assert handle.signal.call_args.args == first_message
                 run.refresh_from_db()
                 assert [entry["id"] for entry in run.artifacts] == [artifact["id"]]
                 assert "await_user_message" not in run.state

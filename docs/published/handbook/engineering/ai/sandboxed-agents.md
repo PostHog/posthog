@@ -54,7 +54,7 @@ The agent inside the sandbox gets:
 ## Submitting to a prewarmed run
 
 New-chat creation and resumed runs can reuse an existing sandbox that is awaiting its first message.
-If its Temporal workflow is still starting, submission stays loading for up to 10 seconds.
+If its Temporal workflow is still starting, the backend waits for up to 10 seconds.
 Delivery starts immediately and retries only Temporal `NOT_FOUND`, after 250 ms, 500 ms, then 1-second delays.
 Each RPC uses the remaining monotonic deadline as its timeout. Retries retain the workflow ID, message, attachments, and message ID.
 Other RPC errors propagate without additional retries because delivery may already have occurred.
@@ -72,6 +72,10 @@ An exhausted deadline or unavailable run returns HTTP 503 from task creation or 
 
 An eligible run stays available for another submission. Timeout handling does not cancel it or create a replacement task or run.
 The composer keeps the draft and unsent context on failure; submitted attachments remain available for retry.
+
+After a confirmed startup timeout, the web composer automatically makes one additional request with a 10-second browser timeout. Loading stays continuous across both requests. The 503 response includes a short-lived `retry_token` only when delivery did not occur and the run remains eligible. The browser echoes it in `X-PostHog-Warm-Retry`, preserving the original request body. The backend binds this token to the original run and message ID, expires it after 60 seconds, and refuses a replacement if the target changed or ended. No JSON request fields change.
+
+Other failures, including transport timeouts and 503 responses without a retry token, receive no automatic resend. Unmounting stops the browser retry and ignores late completions. Browser cancellation does not prove backend execution stopped; exhaustion preserves the draft and context for a manual attempt.
 
 Deploy the backend before the frontend error handling. Existing clients already handle unsuccessful requests.
 Monitor submission latency and `task_warm_activation_unavailable` logs for recurrence.

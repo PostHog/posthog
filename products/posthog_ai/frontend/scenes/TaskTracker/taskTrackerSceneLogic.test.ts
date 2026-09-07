@@ -167,70 +167,95 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })
 
-    test('keeps loading, the draft, and unsent context until warm activation succeeds', async () => {
-        let finishActivation!: () => void
-        let requestStarted!: () => void
-        const started = new Promise<void>((resolve) => {
-            requestStarted = resolve
-        })
-        const response = new Promise<void>((resolve) => {
-            finishActivation = resolve
-        })
-        useMocks({
-            post: {
-                '/api/projects/:team/tasks/': async ({ request }) => {
-                    createBody = (await request.json()) as Record<string, unknown>
-                    requestStarted()
-                    await response
-                    return [
-                        503,
-                        {
-                            code: 'warm_run_activation_unavailable',
-                            error: "Couldn't start this run yet. Please try again.",
-                        },
-                    ]
+    test.each([false, true])(
+        'keeps loading, the draft, and unsent context until warm activation succeeds (automatic retry: %s)',
+        async (automaticRetry) => {
+            const requests: { body: Record<string, unknown>; token: string | null }[] = []
+            let finishActivation!: () => void
+            let requestStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            const response = new Promise<void>((resolve) => {
+                finishActivation = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, unknown>
+                        requests.push({ body: createBody, token: request.headers.get('X-PostHog-Warm-Retry') })
+                        if (automaticRetry && requests.length === 2) {
+                            return [201, { id: 'warm-task', latest_run: { id: 'warm-run' } }]
+                        }
+                        requestStarted()
+                        await response
+                        return [
+                            503,
+                            {
+                                code: 'warm_run_activation_unavailable',
+                                ...(automaticRetry ? { retry_token: 'synthetic-retry-token' } : {}),
+                                error: "Couldn't start this run yet. Please try again.",
+                            },
+                        ]
+                    },
                 },
-            },
-        })
-        const toast = jest.spyOn(lemonToast, 'error')
-        logic.mount()
-        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'sig', label: 'Signups' }])
-        logic.actions.setNewTaskData({ description: 'Inspect the example chart' })
-        logic.actions.submitNewTask()
-        await started
+            })
+            const toast = jest.spyOn(lemonToast, 'error')
+            logic.mount()
+            attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'sig', label: 'Signups' }])
+            logic.actions.setNewTaskData({ description: 'Inspect the example chart' })
+            logic.actions.submitNewTask()
+            await started
 
-        expect(logic.values.isSubmittingTask).toBe(true)
-        expect(logic.values.activeCreation).not.toBeNull()
-        expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
-        expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({})
-        const firstBody = createBody
+            expect(logic.values.isSubmittingTask).toBe(true)
+            expect(logic.values.activeCreation).not.toBeNull()
+            expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
+            expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({})
+            logic.actions.submitNewTask()
+            const firstBody = createBody
 
-        await expectLogic(logic, finishActivation).toFinishAllListeners()
+            await expectLogic(logic, finishActivation).toFinishAllListeners()
 
-        expect(logic.values.isSubmittingTask).toBe(false)
-        expect(logic.values.activeCreation).toBeNull()
-        expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
-        expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({})
-        expect(toast).toHaveBeenCalledWith("Couldn't start this run yet. Please try again.")
+            if (automaticRetry) {
+                expect(requests).toEqual([
+                    { body: firstBody, token: null },
+                    { body: firstBody, token: 'synthetic-retry-token' },
+                ])
+                expect(runBody).toBeNull()
+                expect(logic.values.activeCreation?.runId).toBe('warm-run')
+                expect(logic.values.isSubmittingTask).toBe(false)
+                expect(logic.values.newTaskData.description).toBe('')
+                expect(attachedContextLogic().values.sentContextKeysByTask['warm-task']).toEqual(['insight:sig'])
+                expect(toast).not.toHaveBeenCalled()
+                toast.mockRestore()
+                return
+            }
 
-        useMocks({
-            post: {
-                '/api/projects/:team/tasks/': async ({ request }) => {
-                    createBody = (await request.json()) as Record<string, unknown>
-                    return [201, { id: 'warm-task', latest_run: { id: 'warm-run' } }]
+            expect(logic.values.isSubmittingTask).toBe(false)
+            expect(logic.values.activeCreation).toBeNull()
+            expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
+            expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({})
+            expect(toast).toHaveBeenCalledWith("Couldn't start this run yet. Please try again.")
+
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, unknown>
+                        return [201, { id: 'warm-task', latest_run: { id: 'warm-run' } }]
+                    },
                 },
-            },
-        })
-        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+            })
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
 
-        expect(createBody).toEqual(firstBody)
-        expect(runBody).toBeNull()
-        expect(logic.values.activeCreation?.runId).toBe('warm-run')
-        expect(logic.values.isSubmittingTask).toBe(false)
-        expect(logic.values.newTaskData.description).toBe('')
-        expect(attachedContextLogic().values.sentContextKeysByTask['warm-task']).toEqual(['insight:sig'])
-        toast.mockRestore()
-    })
+            expect(createBody).toEqual(firstBody)
+            expect(runBody).toBeNull()
+            expect(logic.values.activeCreation?.runId).toBe('warm-run')
+            expect(logic.values.isSubmittingTask).toBe(false)
+            expect(logic.values.newTaskData.description).toBe('')
+            expect(attachedContextLogic().values.sentContextKeysByTask['warm-task']).toEqual(['insight:sig'])
+            toast.mockRestore()
+        }
+    )
 
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
