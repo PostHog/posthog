@@ -14,7 +14,6 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -168,7 +167,6 @@ export type ExperimentRecordingsEmptyAction =
     | 'retry_metric_filter'
     | 'clear_filters'
     | 'show_hidden'
-    | 'exposure_docs'
     | 'show_all_variants'
     | 'all_sessions'
 
@@ -194,12 +192,10 @@ export interface ExperimentRecordingsListEmptyContext {
  * shown: the tab has no way today to tell a project with replay switched off from an experiment
  * launched an hour ago, and both look like "this feature is broken" to whoever opened the tab.
  *
- * Replay being on with the run window inside retention leaves a residue, which the
- * `windowRecordingProbe` splits: a project that recorded nothing at all over the window
- * (`no_recordings_in_window`) against one that recorded sessions no exposed person owns
- * (`exposed_not_recorded`). `unknown_in_window` is what is left while the probe has not answered,
- * or when it was refused. Exposure linkage and the duration floor still live in there, which is why
- * the event carries `exposure_linkable` and the `duration_filter_*` properties alongside the reason.
+ * `unknown_in_window` is the residue: replay is on, the run window is inside retention, nothing
+ * narrowed the list, and it still matched nothing. Exposure linkage and the duration floor both
+ * live in there, which is why the event carries `exposure_linkable` and the `duration_filter_*`
+ * properties alongside the reason.
  */
 export enum ExperimentReplayListEmptyReason {
     /** The project does not record sessions, so no experiment on it can have any. */
@@ -209,13 +205,12 @@ export enum ExperimentReplayListEmptyReason {
     MetricFilterFailed = 'metric_filter_failed',
     /**
      * A metric filter narrowed the list and nothing survived it: the selected metrics resolved to
-     * an empty session set, or to sessions none of which has a recording. Resolved before the
-     * probe, which would otherwise find the project's other recordings and blame exposure.
+     * an empty session set, or to sessions none of which has a recording.
      */
     MetricFilterMatchedNothing = 'metric_filter_matched_nothing',
     /**
      * A filter added through the filter bar narrowed the list past the tab's own scoping, and
-     * nothing survived it. Resolved before the probe for the same reason as the metric filter.
+     * nothing survived it.
      */
     FiltersNarrowed = 'filters_narrowed',
     /**
@@ -227,28 +222,13 @@ export enum ExperimentReplayListEmptyReason {
     EndedPastRetention = 'ended_past_retention',
     /** Launched within the last few days, so recordings may not have been captured yet. */
     TooEarly = 'too_early',
-    /**
-     * The list is narrowed to one variant, and that variant has nothing. Decided before the probe,
-     * which counts recordings across the whole project: on a narrowed list it can only find the
-     * other variants' recordings, and `exposed_not_recorded` would then call them unexposed.
-     */
+    /** The list is narrowed to one variant, and that variant has nothing. */
     VariantHasNone = 'variant_has_none',
     /**
      * The list is narrowed to the sessions the exposure happened in, and that narrower set has
      * nothing. The same people can still own recordings of their other sessions.
      */
     InSessionHasNone = 'in_session_has_none',
-    /**
-     * The probe found no recording anywhere on the project over the run window. Replay is on, so
-     * capture is the thing to look at rather than how the experiment links to it.
-     */
-    NoRecordingsInWindow = 'no_recordings_in_window',
-    /**
-     * The probe found recordings over the run window, and the list still matched none of them, so
-     * no recording belongs to a person this experiment exposed.
-     */
-    ExposedNotRecorded = 'exposed_not_recorded',
-    /** The probe has not answered yet, or it was refused. */
     UnknownInWindow = 'unknown_in_window',
 }
 
@@ -273,44 +253,6 @@ function retentionDays(retentionPeriod: SessionRecordingRetentionPeriod | null |
 
 function daysSince(date: string | null | undefined): number | null {
     return date ? dayjs().diff(dayjs(date), 'day') : null
-}
-
-/**
- * The `experiment recordings list rendered` payload. Shared by the listener that sends it once the
- * reason is final and the `beforeUnmount` flush that sends it for a visit that ends first, so both
- * carry the same shape. `probe_result` is `pending` on the flush when the probe is still out.
- */
-function listRenderedContext(
-    values: experimentReplayTabLogicValues,
-    cache: Record<string, any>,
-    experiment: Experiment,
-    resultCount: number
-): ExperimentRecordingsListRenderedContext {
-    return {
-        ...values.filterContext,
-        result_count: resultCount,
-        empty_reason: resultCount === 0 ? values.listEmptyReason : null,
-        probe_result: !cache.windowRecordingProbeRequested
-            ? null
-            : cache.windowRecordingProbeFailed
-              ? 'failed'
-              : values.windowRecordingProbe === null
-                ? 'pending'
-                : values.windowRecordingProbe
-                  ? 'rows'
-                  : 'none',
-        days_since_start: daysSince(experiment.start_date),
-        days_since_end: daysSince(experiment.end_date),
-        retention_period: values.currentTeam?.session_recording_retention_period ?? null,
-        replay_opt_in: !!values.currentTeam?.session_recording_opt_in,
-        duration_filter_active: values.durationFilterActive,
-        duration_filter_key: values.appliedDurationFilter?.key ?? null,
-        duration_filter_seconds: values.appliedDurationFilter?.value ?? null,
-        duration_filter_operator: values.appliedDurationFilter?.operator ?? null,
-        duration_filter_count: values.appliedDurationFilterCount,
-        duration_filter_customized: values.durationFilterCustomized,
-        exposure_linkable: values.exposureLinkable,
-    }
 }
 
 /**
@@ -393,8 +335,6 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltasLoading: boolean
     tabViewContext: ExperimentRecordingsTabContext
     variantKeys: string[]
-    windowRecordingProbe: boolean | null
-    windowRecordingProbeLoading: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -503,9 +443,6 @@ export interface experimentReplayTabLogicActions {
     listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => {
         action: ExperimentRecordingsEmptyAction
     }
-    listRenderResolved: (resultCount: number) => {
-        resultCount: number
-    }
     loadInSessionExposure: (_?: unknown) => unknown
     loadInSessionExposureFailure: (
         error: string,
@@ -581,21 +518,6 @@ export interface experimentReplayTabLogicActions {
     ) => {
         sessionEventDeltas: ExperimentSessionEventDeltaResponseApi
         payload?: unknown
-    }
-    loadWindowRecordingProbe: () => any
-    loadWindowRecordingProbeFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadWindowRecordingProbeSuccess: (
-        windowRecordingProbe: boolean,
-        payload?: any
-    ) => {
-        windowRecordingProbe: boolean
-        payload?: any
     }
     playlistFiltersChanged: (filters: RecordingUniversalFilters) => {
         filters: RecordingUniversalFilters
@@ -697,7 +619,6 @@ export interface experimentReplayTabLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             bucketSessionIds: string[] | undefined,
             sessionBucketError: string | null,
-            windowRecordingProbe: boolean | null,
             filtersCustomized: boolean,
             recordingsFilters: RecordingUniversalFilters,
             effectiveVariantKey: string | null,
@@ -826,44 +747,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         watchHighlightOpened: (card: ExperimentWatchCardApi, position: number) => ({ card, position }),
         watchEmptyActionClicked: (action: ExperimentWatchEmptyAction) => ({ action }),
         listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => ({ action }),
-        listRenderResolved: (resultCount: number) => ({ resultCount }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         reportTabViewed: true,
         scannerCrossSellClicked: true,
     }),
     loaders(({ values, props, actions }) => ({
-        /**
-         * Did this project record anything at all over the experiment's run window? Asked only for
-         * a list that would otherwise report `unknown_in_window`, where the answer splits the
-         * residue in two.
-         *
-         * Recordings only: no exposure narrowing, no event or property filters, no test-account
-         * filter. Those turn a sub-second read into one that can scan terabytes, and none of them
-         * is part of the question.
-         *
-         * The list's default duration floor does apply. It is a predicate on the aggregated
-         * session row, so it costs nothing extra, and without it a window of only short sessions
-         * would answer "rows" and `exposed_not_recorded` would name the wrong cause.
-         *
-         * Windowed to the run rather than left on the default range. A project can record heavily
-         * today and still hold nothing over the window, so an unwindowed probe would answer for the
-         * wrong period and call capture healthy.
-         */
-        windowRecordingProbe: [
-            null as boolean | null,
-            {
-                loadWindowRecordingProbe: async () => {
-                    const response = await api.recordings.list({
-                        kind: NodeKind.RecordingsQuery,
-                        date_from: props.experiment.start_date,
-                        date_to: props.experiment.end_date ?? null,
-                        having_predicates: [defaultRecordingDurationFilter],
-                        limit: 1,
-                    })
-                    return (response.results?.length ?? 0) > 0
-                },
-            },
-        ],
         sessionBucket: [
             null as ExperimentSessionBucket | null,
             {
@@ -1281,7 +1169,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.currentTeam,
                 s.bucketSessionIds,
                 s.sessionBucketError,
-                s.windowRecordingProbe,
                 s.filtersCustomized,
                 s.recordingsFilters,
                 s.effectiveVariantKey,
@@ -1292,7 +1179,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 currentTeam: TeamPublicType | TeamType | null,
                 bucketSessionIds: string[] | undefined,
                 sessionBucketError: string | null,
-                windowRecordingProbe: boolean | null,
                 filtersCustomized: boolean,
                 recordingsFilters: RecordingUniversalFilters,
                 effectiveVariantKey: string | null,
@@ -1323,17 +1209,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (daysSinceStart < TOO_EARLY_DAYS) {
                     return ExperimentReplayListEmptyReason.TooEarly
                 }
-                // A probe that found nothing holds under any facet: a project that recorded no
-                // session over the window has none for one variant either, so a facet reason
-                // offering "the other variants can still have some" would be wrong.
-                if (windowRecordingProbe === false) {
-                    return ExperimentReplayListEmptyReason.NoRecordingsInWindow
-                }
-                // Every narrowing comes before the probe, and the probe never runs behind one. The
-                // probe counts recordings across the project, so on a narrowed list it answers a
-                // wider question than the one the list asked: it would find the sessions the
-                // narrowing hides and `exposed_not_recorded` would report that nobody exposed was
-                // recorded. Tightest narrowing first, so the way back out is one step.
+                // Tightest narrowing first, so the way back out is one step.
                 if (filtersCustomized) {
                     return ExperimentReplayListEmptyReason.FiltersNarrowed
                 }
@@ -1350,12 +1226,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // A window that expired only in part gets no reason of its own, whether the
                 // experiment ended or still runs: its retained days are inside retention, so an
                 // empty list there is unexplained. `days_since_start` and `retention_period` ride
-                // along on the report, so that slice stays one filter away. A run that starts
-                // before retention reads as `no_recordings_in_window`, because its retained slice
-                // holds nothing either.
-                if (windowRecordingProbe === true) {
-                    return ExperimentReplayListEmptyReason.ExposedNotRecorded
-                }
+                // along on the report, so that slice stays one filter away.
                 return ExperimentReplayListEmptyReason.UnknownInWindow
             },
         ],
@@ -1790,52 +1661,22 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (recordings.length === 0 && values.sessionBucketLoading) {
                 return
             }
-            // `unknown_in_window` is the placeholder the probe replaces, so reporting it now would
-            // stamp it on a list that resolves to one of the two probe reasons a moment later. Hold
-            // the report until the probe settles, and ask the probe if nothing has asked it yet.
-            if (
-                recordings.length === 0 &&
-                values.listEmptyReason === ExperimentReplayListEmptyReason.UnknownInWindow &&
-                !cache.windowRecordingProbeSettled
-            ) {
-                cache.listRenderReportPending = true
-                if (!cache.windowRecordingProbeRequested) {
-                    cache.windowRecordingProbeRequested = true
-                    actions.loadWindowRecordingProbe()
-                }
-                return
-            }
-            // Disarms a report held for a probe that is still out: the list has answered since, and
-            // the probe's answer would otherwise fire a second report calling it empty.
-            cache.listRenderReportPending = false
-            actions.listRenderResolved(recordings.length)
-        },
-        // One report per list, from the point its reason is final. A hold is one report, not one per
-        // render: two empty renders while the same probe is out (a facet change, say) leave the hold
-        // armed once, and the probe's answer flushes it a single time.
-        listRenderResolved: ({ resultCount }) => {
-            actions.reportExperimentRecordingsListRendered(
-                props.experiment.id,
-                listRenderedContext(values, cache, props.experiment, resultCount)
-            )
-        },
-        loadWindowRecordingProbeSuccess: () => {
-            cache.windowRecordingProbeSettled = true
-            if (cache.listRenderReportPending) {
-                cache.listRenderReportPending = false
-                actions.listRenderResolved(0)
-            }
-        },
-        // A refused probe leaves the reason at `unknown_in_window` and reports it as refused, so the
-        // list never shows a cause the probe did not establish. Settled either way: the probe is
-        // asked once per tab mount, and a second ask would not answer any sooner.
-        loadWindowRecordingProbeFailure: () => {
-            cache.windowRecordingProbeSettled = true
-            cache.windowRecordingProbeFailed = true
-            if (cache.listRenderReportPending) {
-                cache.listRenderReportPending = false
-                actions.listRenderResolved(0)
-            }
+            actions.reportExperimentRecordingsListRendered(props.experiment.id, {
+                ...values.filterContext,
+                result_count: recordings.length,
+                empty_reason: recordings.length === 0 ? values.listEmptyReason : null,
+                days_since_start: daysSince(props.experiment.start_date),
+                days_since_end: daysSince(props.experiment.end_date),
+                retention_period: values.currentTeam?.session_recording_retention_period ?? null,
+                replay_opt_in: !!values.currentTeam?.session_recording_opt_in,
+                duration_filter_active: values.durationFilterActive,
+                duration_filter_key: values.appliedDurationFilter?.key ?? null,
+                duration_filter_seconds: values.appliedDurationFilter?.value ?? null,
+                duration_filter_operator: values.appliedDurationFilter?.operator ?? null,
+                duration_filter_count: values.appliedDurationFilterCount,
+                duration_filter_customized: values.durationFilterCustomized,
+                exposure_linkable: values.exposureLinkable,
+            })
         },
         // Re-warm the rest of the page whenever the user moves to another recording: the
         // server-side cache entries expire on a TTL that starts at prefetch time, so a page
@@ -1953,15 +1794,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         if (!cache.reportedTabView) {
             cache.reportedTabView = true
             actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
-        }
-        // A list report held for a probe that never answered still counts. Dropped, the reports
-        // would under-count exactly the projects whose probe is slow.
-        if (cache.listRenderReportPending) {
-            cache.listRenderReportPending = false
-            actions.reportExperimentRecordingsListRendered(
-                props.experiment.id,
-                listRenderedContext(values, cache, props.experiment, 0)
-            )
         }
         // The sidebar singleton normally unmounts alongside this logic and resets itself; this
         // covers the case where another player keeps it mounted, so the experiment default

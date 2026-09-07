@@ -77,7 +77,6 @@ const ACTION_ATTRS = [
     'experiment-recordings-empty-ad-blocker-docs',
     'experiment-recordings-empty-retry-metric-filter',
     'experiment-recordings-empty-clear-filters',
-    'experiment-recordings-empty-exposure-docs',
     'experiment-recordings-empty-show-all-variants',
     'experiment-recordings-empty-all-sessions',
 ]
@@ -93,8 +92,6 @@ interface ReasonCase {
     copy: string
     /** In `ACTION_ATTRS` order. */
     actions: string[]
-    /** What the run-window probe answers, left unset for the reasons that never ask it. */
-    probe?: 'rows' | 'none'
 }
 
 // The team's retention period is the mock default of 30 days, which the run windows are set against.
@@ -177,7 +174,6 @@ const REASON_CASES: ReasonCase[] = [
         actions: ['experiment-recordings-empty-clear-filters'],
     },
     {
-        // The probe is refused, so nothing is established and the placeholder copy stands.
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 207,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
@@ -185,8 +181,6 @@ const REASON_CASES: ReasonCase[] = [
         actions: ['experiment-recordings-empty-retention-docs', 'experiment-recordings-empty-ad-blocker-docs'],
     },
     {
-        // Narrowed to one variant, so the probe never runs and the copy names the variant rather
-        // than claiming nobody exposed was recorded.
         reason: ExperimentReplayListEmptyReason.VariantHasNone,
         experimentId: 210,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
@@ -202,22 +196,6 @@ const REASON_CASES: ReasonCase[] = [
         copy: 'No recordings of the sessions the exposure happened in',
         actions: ['experiment-recordings-empty-all-sessions'],
     },
-    {
-        reason: ExperimentReplayListEmptyReason.NoRecordingsInWindow,
-        experimentId: 208,
-        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        probe: 'none',
-        copy: 'Nothing at all was recorded in this project',
-        actions: ['experiment-recordings-empty-replay-settings'],
-    },
-    {
-        reason: ExperimentReplayListEmptyReason.ExposedNotRecorded,
-        experimentId: 209,
-        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        probe: 'rows',
-        copy: 'none of them belongs to a person exposed to this experiment',
-        actions: ['experiment-recordings-empty-replay-settings', 'experiment-recordings-empty-exposure-docs'],
-    },
 ]
 
 describe('ExperimentRecordingsListEmptyState', () => {
@@ -228,7 +206,6 @@ describe('ExperimentRecordingsListEmptyState', () => {
         filters: { ...DEFAULT_RECORDING_FILTERS, date_from: '-30d' },
     }
     let playlistLogic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
-    let recordingsListSpy: jest.SpyInstance
 
     beforeEach(() => {
         useMocks({
@@ -246,7 +223,6 @@ describe('ExperimentRecordingsListEmptyState', () => {
         })
         ;(experimentsSessionBucketsCreate as jest.Mock).mockReset()
         jest.spyOn(api.propertyDefinitions, 'seenTogether').mockResolvedValue({})
-        recordingsListSpy = jest.spyOn(api.recordings, 'list').mockRejectedValue(new Error('refused'))
         playlistLogic = sessionRecordingsPlaylistLogic(playlistProps)
         playlistLogic.mount()
         playerSettingsLogic.mount()
@@ -273,23 +249,14 @@ describe('ExperimentRecordingsListEmptyState', () => {
 
     it.each(REASON_CASES)(
         'explains $reason and offers only the actions that fix it',
-        async ({ experimentId, experiment, team, setup, copy, actions, probe }) => {
+        async ({ experimentId, experiment, team, setup, copy, actions }) => {
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ...team })
             const logic = experimentReplayTabLogic({
                 experiment: { ...EXPERIMENT, id: experimentId, ...experiment } as Experiment,
             })
-            if (probe) {
-                recordingsListSpy.mockResolvedValue({
-                    results: probe === 'rows' ? [{ id: 'any-session' }] : [],
-                } as any)
-            }
             logic.mount()
             setup?.(logic)
             await expectLogic(logic).toFinishAllListeners()
-            // The probe only fires from an empty first page, which is the state under test.
-            logic.actions.recordingsLoaded([])
-            await expectLogic(logic).toFinishAllListeners()
-
             renderEmptyState({ ...EXPERIMENT, id: experimentId, ...experiment } as Experiment)
 
             expect(screen.getByTestId('experiment-recordings-empty-state')).toHaveTextContent(copy)

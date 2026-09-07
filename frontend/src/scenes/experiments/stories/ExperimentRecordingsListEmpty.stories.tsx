@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_funnel_metric.json'
-import type { MockSignature } from '~/mocks/utils'
 
 // One story per empty reason: the copy is the feature, and a screenshot is the only way to check
 // that each reason reads as its own answer. The default session_recordings handler returns an empty
@@ -35,8 +34,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-06-01',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id) + '?tab=recordings',
-        // The banner, not its wrapper: the wrapper also holds the skeleton that stands in while
-        // the probe is out, and a snapshot taken then would show no reason at all.
         testOptions: { waitForSelector: '[data-attr="experiment-recordings-empty-state"] .LemonBanner' },
     },
     decorators: [
@@ -63,37 +60,8 @@ export default meta
 
 type Story = StoryObj<{}>
 
-/**
- * The run-window probe and the playlist read the same endpoint, so the mock has to answer them
- * apart. The probe asks for one recording with no exposure narrowing; the playlist's own request
- * always carries `experiment_exposure` and a full page size.
- */
-const probeAnswers =
-    (answer: 'rows' | 'none' | 'failed'): MockSignature =>
-    ({ request }) => {
-        const params = new URL(request.url).searchParams
-        const isProbe = params.get('limit') === '1' && !params.get('experiment_exposure')
-        if (!isProbe) {
-            return [200, { results: [], has_next: false }]
-        }
-        if (answer === 'failed') {
-            return [500, { detail: 'probe refused' }]
-        }
-        return [200, { results: answer === 'rows' ? [{ id: 'probe-session' }] : [], has_next: false }]
-    }
-
-/** Replay is on and the window is inside retention, and the project recorded nothing over it. */
-export const ExperimentRecordingsEmptyNoRecordingsInWindow: Story = {}
-
-/** The project recorded over the window, and no recording belongs to an exposed person. */
-export const ExperimentRecordingsEmptyExposedNotRecorded: Story = {
-    decorators: [mswDecorator({ get: { '/api/environments/:team_id/session_recordings': probeAnswers('rows') } })],
-}
-
-/** The probe was refused, so the tab falls back to the hints it can offer without it. */
-export const ExperimentRecordingsEmptyUnknownInWindow: Story = {
-    decorators: [mswDecorator({ get: { '/api/environments/:team_id/session_recordings': probeAnswers('failed') } })],
-}
+/** Replay is on, the window is inside retention, nothing narrowed the list, and it is still empty. */
+export const ExperimentRecordingsEmptyUnknownInWindow: Story = {}
 
 export const ExperimentRecordingsEmptyTooEarly: Story = {
     decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],

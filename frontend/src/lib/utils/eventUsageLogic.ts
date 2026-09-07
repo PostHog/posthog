@@ -172,13 +172,6 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     result_count: number
     /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
     empty_reason: string | null
-    /**
-     * What the run-window recording probe found, null when no probe ran. The probe only runs for an
-     * empty list whose reason would otherwise be `unknown_in_window`, and the report waits for it,
-     * so `empty_reason` is the resolved reason rather than the placeholder. `pending` is a report
-     * that did not wait, because the list settled on a facet or on rows while the probe was out.
-     */
-    probe_result: 'rows' | 'none' | 'failed' | 'pending' | null
     /** Null when the experiment has not launched. */
     days_since_start: number | null
     /** Null while the experiment runs. */

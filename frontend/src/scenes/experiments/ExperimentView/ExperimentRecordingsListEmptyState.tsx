@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
@@ -21,15 +21,6 @@ import {
 // surface lands on the same page from the other.
 const RETENTION_DOCS = 'https://posthog.com/docs/session-replay/data-retention'
 const AD_BLOCKER_DOCS = 'https://posthog.com/docs/session-replay/troubleshooting#4-adtracking-blockers'
-// The same page the behavior-comparison shelf links when it can't match exposures to sessions.
-const EXPOSURE_DOCS = 'https://posthog.com/docs/experiments/exposures'
-
-/** The run window as the copy names it, left open at the end while the experiment runs. */
-function runWindow({ startDate, endDate }: ExperimentRecordingsListEmptyContext): string {
-    const from = startDate ? dayjs(startDate).format('MMM D, YYYY') : 'launch'
-    return `${from} and ${endDate ? dayjs(endDate).format('MMM D, YYYY') : 'now'}`
-}
-
 /** How long ago the run started, as the copy says it. Day zero has no count that reads right. */
 function startedWhen(daysSinceStart: number | null): string {
     if (daysSinceStart === null || daysSinceStart <= 0) {
@@ -160,58 +151,6 @@ function ReasonBanner({
             </LemonBanner>
         )
     }
-    if (reason === ExperimentReplayListEmptyReason.NoRecordingsInWindow) {
-        return (
-            <LemonBanner
-                type="info"
-                action={{
-                    children: 'Replay settings',
-                    to: urls.settings('environment-replay'),
-                    onClick: () => onAction('replay_settings'),
-                    'data-attr': 'experiment-recordings-empty-replay-settings',
-                }}
-            >
-                Nothing at all was recorded in this project between {runWindow(context)}. Replay is on, so check the SDK
-                setup, the sampling rate, and that the app running this experiment is the one being recorded.
-            </LemonBanner>
-        )
-    }
-    if (reason === ExperimentReplayListEmptyReason.ExposedNotRecorded) {
-        return (
-            <LemonBanner
-                type="info"
-                action={{
-                    children: 'Replay settings',
-                    to: urls.settings('environment-replay'),
-                    onClick: () => onAction('replay_settings'),
-                    'data-attr': 'experiment-recordings-empty-replay-settings',
-                }}
-            >
-                <div className="flex flex-col gap-1">
-                    <span>
-                        This project recorded sessions between {runWindow(context)}, but none of them belongs to a
-                        person exposed to this experiment. Common causes:
-                    </span>
-                    <ul className="list-disc pl-4">
-                        <li>Replay sampling, or a surface that does not run this experiment.</li>
-                        <li>
-                            Exposures sent from a backend SDK, under an identity that was never merged with the browser
-                            one.
-                        </li>
-                        <li>Test account filters hiding the sessions that would have matched.</li>
-                    </ul>
-                    <Link
-                        to={EXPOSURE_DOCS}
-                        target="_blank"
-                        data-attr="experiment-recordings-empty-exposure-docs"
-                        onClick={() => onAction('exposure_docs')}
-                    >
-                        How exposures work
-                    </Link>
-                </div>
-            </LemonBanner>
-        )
-    }
     return (
         <LemonBanner type="info">
             <div className="flex flex-col gap-1">
@@ -247,7 +186,7 @@ function ReasonBanner({
  */
 export function ExperimentRecordingsListEmptyState({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
-    const { listEmptyReason, listEmptyContext, windowRecordingProbeLoading, recordingsFilters } = useValues(logic)
+    const { listEmptyReason, listEmptyContext, recordingsFilters } = useValues(logic)
     const { listEmptyActionClicked, loadSessionBucket, setSelectedVariantKey, setExposureScope } = useActions(logic)
     const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
@@ -255,10 +194,6 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
 
     const recordingsAreHidden = hideViewedRecordings !== false
-    // The probe decides between two reasons, and until it lands neither is established. Showing the
-    // placeholder first would put one answer on screen and swap it for another a moment later.
-    const probePending =
-        windowRecordingProbeLoading && listEmptyReason === ExperimentReplayListEmptyReason.UnknownInWindow
 
     // Reporting the click and acting on it in one place, so a reason only has to name its action.
     const runAction = (action: ExperimentRecordingsEmptyAction): void => {
@@ -297,12 +232,9 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
             )}
             {/* Rows the API returned are hidden in the browser, so the list is empty only because of
                 the setting. A reason names a cause of emptiness, and here there is nothing to explain. */}
-            {hiddenRecordingsCount === 0 &&
-                (probePending ? (
-                    <LemonSkeleton className="h-16 w-full" />
-                ) : (
-                    <ReasonBanner reason={listEmptyReason} context={listEmptyContext} onAction={runAction} />
-                ))}
+            {hiddenRecordingsCount === 0 && (
+                <ReasonBanner reason={listEmptyReason} context={listEmptyContext} onAction={runAction} />
+            )}
         </div>
     )
 }
