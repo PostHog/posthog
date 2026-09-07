@@ -74,7 +74,9 @@ The availability of a git or GitHub tool is not that approval, and a push to a r
 ### 2. Find and assess candidates
 
 Call `posthog:feature-flag-get-all` with `active: "STALE"`.
-This returns all stale flags in one request — PostHog runs the staleness detection server-side using the criteria above.
+PostHog runs the staleness detection server-side using the criteria above.
+The response is one page of at most 100 flags, and `count` carries the full stale total.
+Raise `offset` and call again until you have read `count` flags, or the audit you report is silently truncated.
 
 For each candidate, gather context before recommending action:
 
