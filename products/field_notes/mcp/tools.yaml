@@ -28,7 +28,6 @@ tools:
         description: >
             Get a single field note by id, including the full element context (selector, element chain, inferred
             selectors, attributes) needed to locate the element in code.
-        feature_flag: field-notes
     field-notes-list:
         operation: field_notes_list
         enabled: true
@@ -45,7 +44,6 @@ tools:
             pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter
             by `field_note_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by
             `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.
-        feature_flag: field-notes
         response:
             include:
                 - id
@@ -74,7 +72,6 @@ tools:
             Update a field note after acting on it — set `field_note_status` to `acknowledged`, `resolved`, or
             `dismissed`, and optionally add a `resolution` note describing what changed. Send only the fields you want
             to change.
-        feature_flag: field-notes
     field-notes-update:
         operation: field_notes_update
         enabled: false

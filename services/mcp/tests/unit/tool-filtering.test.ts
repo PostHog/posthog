@@ -924,7 +924,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
-                'field-notes',
                 'mcp-analytics',
                 'metrics',
                 'endpoints-ai-materialization-fix',

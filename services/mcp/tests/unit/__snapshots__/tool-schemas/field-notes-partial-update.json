@@ -1,0 +1,124 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "comment": {
+            "description": "The note the user wrote about the element.",
+            "maxLength": 5000,
+            "type": "string"
+        },
+        "element_chain": {
+            "anyOf": [
+                {
+                    "maxLength": 20000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Serialized autocapture-style element chain from the element up to the document root."
+        },
+        "element_context": {
+            "additionalProperties": {},
+            "description": "Structured element metadata (inferred selectors, attributes, component hints).",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "element_text": {
+            "anyOf": [
+                {
+                    "maxLength": 2048,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Visible text of the element, if any."
+        },
+        "field_note_status": {
+            "description": "Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.\n\n* `pending` - Pending\n* `acknowledged` - Acknowledged\n* `resolved` - Resolved\n* `dismissed` - Dismissed",
+            "enum": ["pending", "acknowledged", "resolved", "dismissed"],
+            "type": "string"
+        },
+        "host": {
+            "description": "Hostname of the page, used to scope field notes to a site.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this field note.",
+            "type": "string"
+        },
+        "pathname": {
+            "anyOf": [
+                {
+                    "maxLength": 2048,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Path portion of the URL."
+        },
+        "resolution": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional note left by the agent when acknowledging, resolving, or dismissing the field note."
+        },
+        "screenshot_url": {
+            "anyOf": [
+                {
+                    "maxLength": 2048,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "URL of an uploaded screenshot captured with the field_note."
+        },
+        "selector": {
+            "description": "CSS selector that locates the element on the page.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "url": {
+            "description": "Full URL of the page the field note was made on.",
+            "maxLength": 2048,
+            "type": "string"
+        },
+        "viewport": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "height": {
+                            "description": "Viewport height in pixels.",
+                            "type": "number"
+                        },
+                        "width": {
+                            "description": "Viewport width in pixels.",
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Viewport size when the field note was made, as {width, height}."
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

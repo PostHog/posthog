@@ -24,6 +24,12 @@ import {
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
+import {
+    buildClaudeCodeDeepLink,
+    buildCodexDeepLink,
+    buildCursorDeepLink,
+    buildPostHogCodeDeepLink,
+} from './agentDeepLinks'
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './AgentLogo'
 
 export interface AgentPromptAction {
@@ -87,24 +93,6 @@ interface AgentOpenContext {
     repository?: string
 }
 
-/** Max prompt chars before truncation for agents that have strict URL length limits. */
-const LIMIT_LONG = 8_000
-const LIMIT_CLAUDE = 5_000
-const LIMIT_SHORT = 4_000
-
-function withLimit(prompt: string, maxChars: number, build: (p: string) => string): string {
-    return build(prompt.slice(0, maxChars))
-}
-
-function openDeepLink(buildDeepLink: (prompt: string) => string): (prompt: string) => void {
-    return (prompt: string) => window.open(buildDeepLink(prompt), '_blank')
-}
-
-export function buildPostHogCodeDeepLink(prompt: string, repository?: string): string {
-    const repoParam = repository ? `&repo=${encodeURIComponent(repository)}` : ''
-    return `posthog-code://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
-}
-
 const AGENTS: AgentDef[] = [
     {
         key: 'posthog-ai',
@@ -125,11 +113,7 @@ const AGENTS: AgentDef[] = [
         name: 'Claude Code',
         logo: claudeLogo,
         verb: 'Open',
-        open: (prompt, { repository }) => {
-            const query = withLimit(prompt, LIMIT_CLAUDE, (t) => encodeURIComponent(t))
-            const repoParam = repository ? `repo=${encodeURIComponent(repository)}&` : ''
-            window.open(`claude-cli://open?${repoParam}q=${query}`, '_blank')
-        },
+        open: (prompt, { repository }) => window.open(buildClaudeCodeDeepLink(prompt, repository), '_blank'),
     },
     {
         key: 'cursor',
@@ -138,21 +122,14 @@ const AGENTS: AgentDef[] = [
         // Cursor wordmark is solid black; invert in dark mode so it stays visible
         logoClassName: 'dark:invert',
         verb: 'Open',
-        open: openDeepLink((p) =>
-            // Cursor decodes the full deeplink before parsing query params, so reserved chars need an extra escape layer.
-            withLimit(
-                p,
-                LIMIT_LONG,
-                (t) => `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(encodeURIComponent(t))}`
-            )
-        ),
+        open: (prompt) => window.open(buildCursorDeepLink(prompt), '_blank'),
     },
     {
         key: 'codex',
         name: 'Codex',
         logo: openaiLogo,
         verb: 'Open',
-        open: openDeepLink((p) => withLimit(p, LIMIT_SHORT, (t) => `codex://new?prompt=${encodeURIComponent(t)}`)),
+        open: (prompt) => window.open(buildCodexDeepLink(prompt), '_blank'),
     },
     {
         key: 'clipboard',

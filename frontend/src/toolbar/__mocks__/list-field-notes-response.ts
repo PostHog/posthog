@@ -1,0 +1,33 @@
+export const listFieldNotesAPIResponse = {
+    count: 2,
+    next: null,
+    previous: null,
+    results: [
+        {
+            id: '0197c0a2-1f1e-7a4a-9b8f-2f9c3f1b4d10',
+            comment: 'This button should say "Save changes"',
+            field_note_status: 'pending',
+            resolution: null,
+            url: 'https://example.com/settings',
+            host: 'example.com',
+            pathname: '/settings',
+            selector: 'div.settings-panel > button.save',
+            element_text: 'Save',
+            screenshot_url: null,
+            created_at: '2026-08-31T10:12:00Z',
+        },
+        {
+            id: '0197c0a2-1f1e-7a4a-9b8f-2f9c3f1b4d11',
+            comment: 'The empty state needs a link to the docs',
+            field_note_status: 'pending',
+            resolution: null,
+            url: 'https://example.com/reports',
+            host: 'example.com',
+            pathname: '/reports',
+            selector: 'section.reports-empty',
+            element_text: 'No reports yet',
+            screenshot_url: null,
+            created_at: '2026-08-31T10:14:00Z',
+        },
+    ],
+}
