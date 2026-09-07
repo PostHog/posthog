@@ -40,6 +40,10 @@ MIN_BASELINE_WEEKS_FOR_BAND = 2
 SECONDS_PER_WEEK = 7 * 24 * 3600
 
 MAX_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_SERIES", "100"))
+# Display grains a caller may pick. Every rung divides an hour so slots stay
+# aligned with the weekly fold, and 5 is the bucket size of logs_volume_buckets.
+INTERVAL_LADDER_MINUTES = (5, 15, 30, 60)
+MAX_BUCKETS_PER_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_BUCKETS_PER_SERIES", "500"))
 # Widening keeps the envelope from reading as a hairline on quiet series: the
 # fraction scales both edges, the floor lifts the upper edge by a per-hour
 # count so a band exists even where every baseline week saw the same value.
@@ -122,7 +126,7 @@ def fetch_series_slot_rows(
     window_end: dt.datetime,
     interval_minutes: int,
 ) -> dict[_SeriesKey, list[_SlotRow]]:
-    """One ClickHouse pass: hourly rollup over the window plus baseline, folded
+    """One ClickHouse pass: interval rollup over the window plus baseline, folded
     by time-of-week onto the display window's slots.
 
     Rows are sparse — a (series, slot) with no observed and no baseline data has
@@ -341,8 +345,32 @@ def resolve_window(
             f"Log volume history does not reach that far back. The window may start at most "
             f"{MAX_WINDOW_START_AGE_DAYS} days ago."
         )
+    _check_bucket_cap(window_start, window_end, interval_minutes)
 
     return SeriesBandsWindow(start=window_start, end=window_end)
+
+
+def _bucket_count(window_start: dt.datetime, window_end: dt.datetime, interval_minutes: int) -> int:
+    return int((window_end - window_start).total_seconds()) // (interval_minutes * 60)
+
+
+def _check_bucket_cap(window_start: dt.datetime, window_end: dt.datetime, interval_minutes: int) -> None:
+    buckets = _bucket_count(window_start, window_end, interval_minutes)
+    if buckets <= MAX_BUCKETS_PER_SERIES:
+        return
+    fitting = next(
+        (
+            grain
+            for grain in INTERVAL_LADDER_MINUTES
+            if _bucket_count(window_start, window_end, grain) <= MAX_BUCKETS_PER_SERIES
+        ),
+        None,
+    )
+    remedy = f"Use a {fitting} minute grain or a shorter window." if fitting else "Pick a shorter window."
+    raise SeriesBandsWindowInvalid(
+        f"The window spans {buckets} buckets at the {interval_minutes} minute grain, "
+        f"over the cap of {MAX_BUCKETS_PER_SERIES} buckets per series. {remedy}"
+    )
 
 
 def run_series_bands(

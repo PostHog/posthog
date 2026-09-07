@@ -4,10 +4,10 @@
  * sync with the gateway's billing source
  * (services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py).
  *
- * Sources, checked 2026-08-22:
+ * Sources, checked 2026-09-07:
  * - Anthropic (Opus, Sonnet, Haiku): platform.claude.com/docs/en/about-claude/pricing
  * - GPT-5.5: developers.openai.com/api/docs/pricing
- * - Fable, GPT-5.6, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
+ * - Fable, GPT-5.6, GPT-6 Astra, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
  *   the user is actually charged (pinned in the file above). The drift test
  *   binds these rows to it.
  */
@@ -38,6 +38,7 @@ const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["sonnet-4", { inputPerMtok: 3, outputPerMtok: 15 }],
   ["sonnet", { inputPerMtok: 2, outputPerMtok: 10 }],
   ["haiku", { inputPerMtok: 1, outputPerMtok: 5 }],
+  ["gpt-6-astra", { inputPerMtok: 10, outputPerMtok: 50 }],
   ["gpt-5.6-sol", { inputPerMtok: 5, outputPerMtok: 30 }],
   ["gpt-5.6-terra", { inputPerMtok: 2.5, outputPerMtok: 15 }],
   ["gpt-5.6-luna", { inputPerMtok: 1, outputPerMtok: 6 }],
