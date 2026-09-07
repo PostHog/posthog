@@ -48,7 +48,16 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid, or skipped because the URL is a known advertising or analytics beacon. A rejected record waits for its dead-letter acknowledgement before this increment and the source commit. A skipped beacon has no dead-letter record',
+        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        labelNames: ['reason'],
+    })
+    /**
+     * A sustained rate here is expected after a beacon-list change, while the fetcher drains the
+     * queued beacons at parse speed. It is not the invalid-input signal that `dropped` carries.
+     */
+    private static readonly skipped = new Counter({
+        name: 'ml_image_fetch_consumer_skipped_total',
+        help: 'Frontier jobs the parser dropped on their own because the URL policy refuses the URL as unwanted, by decline reason. The record and its other jobs proceed, no dead-letter record is written, and the count lands with the source commit',
         labelNames: ['reason'],
     })
     private static readonly deadLettered = new Counter({
@@ -165,8 +174,11 @@ export class ImageFetchConsumerMetrics {
     public static incDeduped(scope: DedupScope, count: number): void {
         this.deduped.labels(scope).inc(count)
     }
-    public static incDropped(reason: UrlDropReason | UrlSkipReason, count: number): void {
+    public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
+    }
+    public static incSkipped(reason: UrlSkipReason, count: number): void {
+        this.skipped.labels(reason).inc(count)
     }
     public static incDeadLettered(reason: FrontierDeadLetterReason): void {
         this.deadLettered.labels(reason).inc()

@@ -77,9 +77,11 @@ pub(crate) fn px_length(text: &str) -> Option<f64> {
     number.parse::<f64>().ok()
 }
 
-/// Both dimensions are known and neither is larger than one pixel.
+/// Both dimensions are known and neither is larger than one pixel. A negative length is not a
+/// small box: the browser ignores it and renders the natural size.
 pub(crate) fn is_at_most_one_pixel(width: Option<f64>, height: Option<f64>) -> bool {
-    matches!((width, height), (Some(width), Some(height)) if width <= 1.0 && height <= 1.0)
+    let at_most_one = |length: f64| (0.0..=1.0).contains(&length);
+    matches!((width, height), (Some(width), Some(height)) if at_most_one(width) && at_most_one(height))
 }
 
 /// The last value an inline style gives one property, lowercased and without `!important`.
@@ -88,11 +90,19 @@ fn inline_style_declaration(style: &str, property: &str) -> Option<String> {
         .split(';')
         .filter_map(|declaration| declaration.split_once(':'))
         .filter(|(name, _)| name.trim().eq_ignore_ascii_case(property))
-        .map(|(_, value)| {
-            let value = value.trim().to_ascii_lowercase();
-            value.trim_end_matches("!important").trim().to_string()
-        })
+        .map(|(_, value)| without_important(&value.trim().to_ascii_lowercase()).to_string())
         .next_back()
+}
+
+/// CSS allows white space between the `!` and `important`.
+fn without_important(value: &str) -> &str {
+    let Some(before_keyword) = value.strip_suffix("important") else {
+        return value;
+    };
+    match before_keyword.trim_end().strip_suffix('!') {
+        Some(declared_value) => declared_value.trim_end(),
+        None => value,
+    }
 }
 
 /// The inline style wins over the `width` and `height` attributes, as it does in the browser, so
@@ -158,7 +168,10 @@ pub fn apply_blur(
     parent_is_picture: bool,
 ) -> bool {
     let mut acted = false;
-    let hidden_pixel = tag.eq_ignore_ascii_case("img") && is_hidden_pixel(attrs);
+    // Computed only when a remote image is about to be collected, because the inline style is
+    // parsed for it and most elements never reach that branch.
+    let mut hidden_pixel: Option<bool> = None;
+    let mut hidden_pixel_counted = false;
     for key in MEDIA_SRC_ATTRS {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
@@ -192,14 +205,20 @@ pub fn apply_blur(
             );
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
-            let collected = if !is_fetchable_image_attr(key, tag, parent_is_picture) {
-                None
-            } else if hidden_pixel {
-                ctx.decline_url("hidden_pixel");
-                None
-            } else {
-                ctx.collect_url_from(&selected, ImageSource::HtmlAttribute(key))
-            };
+            let collected =
+                if !ctx.collects_urls() || !is_fetchable_image_attr(key, tag, parent_is_picture) {
+                    None
+                } else if *hidden_pixel.get_or_insert_with(|| {
+                    tag.eq_ignore_ascii_case("img") && is_hidden_pixel(attrs)
+                }) {
+                    if !hidden_pixel_counted {
+                        ctx.decline_url("hidden_pixel");
+                        hidden_pixel_counted = true;
+                    }
+                    None
+                } else {
+                    ctx.collect_url_from(&selected, ImageSource::HtmlAttribute(key))
+                };
             let scrubbed = scrub_url(ctx, &selected).unwrap_or_else(|| selected.clone());
             // Fetch completion must not change how an ordinary replay renders this element.
             attrs.insert(

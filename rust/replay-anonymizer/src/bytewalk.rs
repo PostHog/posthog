@@ -756,8 +756,9 @@ impl<'c, 'a> Walker<'c, 'a> {
                         return self.redo_node(start, end, parent, node_mark, out);
                     }
                     emit_deferred_key(bytes, key, &mut emitted, out);
-                    let hidden_pixel =
-                        tag.eq_ignore_ascii_case("img") && self.attrs_hide_pixel(v.0).ok()?;
+                    let hidden_pixel = tag.eq_ignore_ascii_case("img")
+                        && self.ctx.collects_urls()
+                        && self.attrs_hide_pixel(v.0).ok()?;
                     self.walk_attrs(
                         v.0,
                         kind,
@@ -851,19 +852,74 @@ impl<'c, 'a> Walker<'c, 'a> {
         Some(end)
     }
 
+    /// One pass over an object for several keys. An escaped key or a repeated wanted key makes the
+    /// tree path decide, because that path sees the decoded key and keeps the last duplicate, and a
+    /// side effect taken here on a different reading could not be rolled back.
+    fn find_members<const N: usize>(
+        &self,
+        obj_start: usize,
+        names: [&[u8]; N],
+    ) -> Result<[Option<Span>; N], Fallback> {
+        const PRESCAN_BUDGET: usize = 4096;
+        let bytes = self.bytes;
+        let budget_end = obj_start.saturating_add(PRESCAN_BUDGET);
+        let mut found: [Option<Span>; N] = [None; N];
+        let mut pos = obj_start + 1;
+        let mut first = true;
+        loop {
+            pos = scan::skip_ws(bytes, pos);
+            if bytes.get(pos) == Some(&b'}') {
+                return Ok(found);
+            }
+            if pos >= budget_end {
+                return Err(Fallback);
+            }
+            if !first {
+                if bytes.get(pos) != Some(&b',') {
+                    return Ok(found);
+                }
+                pos = scan::skip_ws(bytes, pos + 1);
+            }
+            first = false;
+            if bytes.get(pos) != Some(&b'"') {
+                return Ok(found);
+            }
+            let key_end = scan::skip_string(bytes, pos).map_err(|_| Fallback)?;
+            let key = &bytes[pos + 1..key_end - 1];
+            if key.contains(&b'\\') {
+                return Err(Fallback);
+            }
+            pos = scan::skip_ws(bytes, key_end);
+            if bytes.get(pos) != Some(&b':') {
+                return Ok(found);
+            }
+            let vspan = scan::locate_value(bytes, pos + 1).map_err(|_| Fallback)?;
+            if let Some(index) = names.iter().position(|name| *name == key) {
+                if found[index].is_some() {
+                    return Err(Fallback);
+                }
+                found[index] = Some(vspan);
+            }
+            pos = vspan.1;
+        }
+    }
+
     /// The attribute half of `assets::is_hidden_pixel`. The style half never reaches this walker,
     /// because `walk_node` sends every element with a `style` attribute to the tree path first.
     fn attrs_hide_pixel(&self, obj_start: usize) -> Result<bool, Fallback> {
-        if self.find_member(obj_start, b"hidden")?.is_some() {
+        let [hidden, width, height] =
+            self.find_members(obj_start, [b"hidden", b"width", b"height"])?;
+        if hidden.is_some() {
             return Ok(true);
         }
-        let width = self.member_px_length(obj_start, b"width")?;
-        let height = self.member_px_length(obj_start, b"height")?;
-        Ok(is_at_most_one_pixel(width, height))
+        Ok(is_at_most_one_pixel(
+            self.px_length_at(width)?,
+            self.px_length_at(height)?,
+        ))
     }
 
-    fn member_px_length(&self, obj_start: usize, name: &[u8]) -> Result<Option<f64>, Fallback> {
-        let Some(span) = self.find_member(obj_start, name)? else {
+    fn px_length_at(&self, span: Option<Span>) -> Result<Option<f64>, Fallback> {
+        let Some(span) = span else {
             return Ok(None);
         };
         if scan::is_string(self.bytes, span) {
@@ -889,8 +945,10 @@ impl<'c, 'a> Walker<'c, 'a> {
             return self.copy_value(start, out);
         }
         let mut stashes: Vec<(String, String)> = Vec::new();
+        let mut hidden_pixel_counted = false;
         let end = {
             let stashes = &mut stashes;
+            let hidden_pixel_counted = &mut hidden_pixel_counted;
             self.walk_object(start, out, &mut |w, key, vstart, out| {
                 let name = std::str::from_utf8(&w.bytes[key.0..key.1]).ok()?;
                 // Existing internal refs need provenance validation and may need removing. The
@@ -905,7 +963,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         vstart,
                         tag,
                         parent_is_picture,
-                        hidden_pixel,
+                        hidden_pixel.then_some(hidden_pixel_counted),
                         out,
                         stashes,
                     );
@@ -963,6 +1021,8 @@ impl<'c, 'a> Walker<'c, 'a> {
     /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
     /// blurred; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
     /// host-scrubbed original are stashed alongside.
+    /// `hidden_pixel` is `Some` for an `img` nobody can see. The flag inside records whether this
+    /// element's decline was counted, so that `src` and `srcset` on one element count once.
     #[allow(clippy::too_many_arguments)]
     fn blur_media_src(
         &mut self,
@@ -970,7 +1030,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         vstart: usize,
         tag: &str,
         parent_is_picture: bool,
-        hidden_pixel: bool,
+        hidden_pixel: Option<&mut bool>,
         out: &mut Vec<u8>,
         stashes: &mut Vec<(String, String)>,
     ) -> Option<usize> {
@@ -1007,8 +1067,11 @@ impl<'c, 'a> Walker<'c, 'a> {
         } else {
             let collected = if !is_fetchable_image_attr(name, tag, parent_is_picture) {
                 None
-            } else if hidden_pixel {
-                self.ctx.decline_url("hidden_pixel");
+            } else if let Some(counted) = hidden_pixel {
+                if !*counted {
+                    self.ctx.decline_url("hidden_pixel");
+                    *counted = true;
+                }
                 None
             } else {
                 self.ctx

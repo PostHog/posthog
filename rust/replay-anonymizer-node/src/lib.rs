@@ -262,6 +262,8 @@ fn try_canonicalize_url_ffi(mut cx: FunctionContext) -> JsResult<JsObject> {
         Err(decline) => {
             let label = cx.string(decline.label());
             result.set(&mut cx, "decline", label)?;
+            let unwanted = cx.boolean(decline.is_unwanted());
+            result.set(&mut cx, "unwanted", unwanted)?;
         }
     }
     Ok(result)

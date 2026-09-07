@@ -1,3 +1,5 @@
+import type { UrlPolicyDecline } from '@posthog/replay-anonymizer'
+
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
@@ -15,8 +17,8 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'oversized_record'
-/** A job the parser drops on its own, without rejecting the record that carries it. */
-export type UrlSkipReason = 'tracking_beacon'
+/** Why the parser dropped a job on its own, without rejecting the record that carries it. */
+export type UrlSkipReason = UrlPolicyDecline
 export type StoredRepublishReason =
     | 'redirect'
     | 'retry'
@@ -174,8 +176,8 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
         }
         const verdict = tryCanonicalizeUrl(entry.url)
         if (!verdict.ok) {
-            if (verdict.decline === 'tracking_beacon') {
-                skipped.push({ reason: 'tracking_beacon' })
+            if (verdict.unwanted) {
+                skipped.push({ reason: verdict.decline })
             } else {
                 rejected.push({ reason: 'bad_url' })
             }
@@ -245,11 +247,9 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
     }
     const verdict = tryCanonicalizeUrl(currentUrl)
     if (!verdict.ok) {
-        // A rejected job sends its whole record to the dead-letter topic, and a record can hold a
-        // beacon next to real images, so a beacon is skipped on its own instead.
-        return verdict.decline === 'tracking_beacon'
-            ? { kind: 'skipped', reason: 'tracking_beacon' }
-            : { kind: 'rejected', reason: 'bad_url' }
+        // A rejected job sends its whole record to the dead-letter topic, and a record can hold an
+        // unwanted URL next to real images, so an unwanted URL is skipped on its own instead.
+        return verdict.unwanted ? { kind: 'skipped', reason: verdict.decline } : { kind: 'rejected', reason: 'bad_url' }
     }
     const canonical = verdict.url
     if (canonical.fetch !== currentUrl) {

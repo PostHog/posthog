@@ -195,8 +195,14 @@ impl<'a> Ctx<'a> {
         collector.borrow_mut().collect(original)
     }
 
+    pub(crate) fn collects_urls(&self) -> bool {
+        self.url_collector.is_some()
+    }
+
     /// Count a URL the walker refused before it reached the collector, in the collector's own
     /// decline metric, so that the walker's refusals and the policy's refusals read on one panel.
+    /// The policy counts once per distinct URL in a message, because the collector memoizes. This
+    /// counts once per element, so a spacer that a page repeats counts each time.
     pub(crate) fn decline_url(&self, reason: &'static str) {
         if let Some(collector) = self.url_collector.as_ref() {
             collector.borrow_mut().decline(reason);

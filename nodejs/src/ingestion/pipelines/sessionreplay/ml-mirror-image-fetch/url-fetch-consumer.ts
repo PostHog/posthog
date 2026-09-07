@@ -61,7 +61,8 @@ export class UrlFetchConsumer {
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
-        const drops = new Map<UrlDropReason | UrlSkipReason, number>()
+        const drops = new Map<UrlDropReason, number>()
+        const skips = new Map<UrlSkipReason, number>()
         const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
@@ -91,7 +92,7 @@ export class UrlFetchConsumer {
                     })
                 }
                 for (const { reason } of parsed.skipped) {
-                    drops.set(reason, (drops.get(reason) ?? 0) + 1)
+                    skips.set(reason, (skips.get(reason) ?? 0) + 1)
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
@@ -140,6 +141,7 @@ export class UrlFetchConsumer {
 
             if (this.options.dryRun || candidates.length === 0) {
                 await this.parkRejectedRecords(rejectedRecords, drops)
+                this.countSkippedJobs(skips)
                 return
             }
 
@@ -216,6 +218,7 @@ export class UrlFetchConsumer {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
             await this.parkRejectedRecords(rejectedRecords, drops)
+            this.countSkippedJobs(skips)
         } finally {
             ImageFetchConsumerMetrics.finishBatch(activeBatchId)
             this.recordMetrics(
@@ -241,9 +244,16 @@ export class UrlFetchConsumer {
         }
     }
 
+    /** Runs after the batch's durable work, so a batch that fails and is redelivered counts its skips once. */
+    private countSkippedJobs(skips: Map<UrlSkipReason, number>): void {
+        for (const [reason, count] of skips) {
+            ImageFetchConsumerMetrics.incSkipped(reason, count)
+        }
+    }
+
     private async parkRejectedRecords(
         records: RejectedFrontierRecord[],
-        drops: Map<UrlDropReason | UrlSkipReason, number>
+        drops: Map<UrlDropReason, number>
     ): Promise<void> {
         const deadlineAtMonotonicMs = performance.now() + DEAD_LETTER_BATCH_BUDGET_MS
         const limit = pLimit(DEAD_LETTER_PUBLISH_CONCURRENCY)
@@ -410,7 +420,7 @@ export class UrlFetchConsumer {
     }
 
     private recordMetrics(
-        drops: Map<UrlDropReason | UrlSkipReason, number>,
+        drops: Map<UrlDropReason, number>,
         dedupedInBatch: number,
         origins: number,
         registrableDomains: number,
