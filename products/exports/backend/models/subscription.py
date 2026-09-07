@@ -178,8 +178,8 @@ class Subscription(ModelActivityMixin, models.Model):
     prompt = models.TextField(null=True, blank=True)
 
     # Frozen by the first successful delivery so later runs reuse the same HogQL deterministically
-    # instead of re-running the planner LLM; cleared on prompt change (see save()). Shape is versioned —
-    # see report_pipeline._plan_to_freeze.
+    # instead of re-running the planner LLM. Edits that require a fresh plan clear it in save().
+    # Shape is versioned; see report_pipeline._plan_to_freeze.
     ai_query_plan = models.JSONField(null=True, blank=True, default=None)
     # Source of truth for the shape: ee.api.subscription.AIPromptConfigSerializer (writes) and
     # normalize_ai_window below (reads).
@@ -236,6 +236,8 @@ class Subscription(ModelActivityMixin, models.Model):
             self._rrule = self.rrule
         if "prompt" not in self.get_deferred_fields():
             self._initial_prompt = self.prompt
+        if "delivery_config" not in self.get_deferred_fields():
+            self._initial_include_images = bool((self.delivery_config or {}).get("include_images", True))
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
@@ -244,14 +246,18 @@ class Subscription(ModelActivityMixin, models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
-        # A changed prompt invalidates the frozen AI query plan at the model level (same pattern as
-        # next_delivery_date above), so ORM-path edits can't leave a plan answering the old prompt.
-        if self.id and self.prompt != getattr(self, "_initial_prompt", self.prompt) and self.ai_query_plan is not None:
+        include_images = bool((self.delivery_config or {}).get("include_images", True))
+        prompt_changed = self.prompt != getattr(self, "_initial_prompt", self.prompt)
+        images_just_enabled = include_images and not getattr(self, "_initial_include_images", include_images)
+        # Keep invalidation at the model level so every save path gets a fresh plan when its prompt
+        # changes or when chart validation resumes after images were hidden.
+        if self.id and (prompt_changed or images_just_enabled) and self.ai_query_plan is not None:
             self.ai_query_plan = None
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = [*kwargs["update_fields"], "ai_query_plan"]
         super().save(*args, **kwargs)
         self._initial_prompt = self.prompt
+        self._initial_include_images = include_images
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:

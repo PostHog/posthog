@@ -2965,15 +2965,30 @@ class TestAISubscriptionAPI(APILicensedTest):
         [
             (
                 "prompt_change_clears_plan",
+                {},
                 {"prompt": "A completely different question about retention?"},
                 False,
                 AIQueryPlanStatus.NOT_FROZEN.value,
             ),
-            ("title_change_keeps_plan", {"title": "Renamed"}, True, AIQueryPlanStatus.FROZEN.value),
+            (
+                "enabling_images_clears_plan",
+                {"include_images": False},
+                {"delivery_config": {"include_images": True}},
+                False,
+                AIQueryPlanStatus.NOT_FROZEN.value,
+            ),
+            (
+                "disabling_images_keeps_plan",
+                {"include_images": True},
+                {"delivery_config": {"include_images": False}},
+                True,
+                AIQueryPlanStatus.FROZEN.value,
+            ),
+            ("title_change_keeps_plan", {}, {"title": "Renamed"}, True, AIQueryPlanStatus.FROZEN.value),
         ]
     )
-    def test_editing_prompt_invalidates_frozen_query_plan(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, body, plan_survives, expected_status
+    def test_edits_that_require_replanning_invalidate_frozen_query_plan(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, delivery_config, body, plan_survives, expected_status
     ):
         self._mock_temporal(mock_sync)
         frozen = {
@@ -2981,7 +2996,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             "plan": VALID_AI_QUERY_PLAN,
         }
         sub_id = self._create_subscription_for("ai_prompt")
-        Subscription.objects.filter(id=sub_id).update(ai_query_plan=frozen)
+        Subscription.objects.filter(id=sub_id).update(ai_query_plan=frozen, delivery_config=delivery_config)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", body)
         assert response.status_code == status.HTTP_200_OK, response.json()

@@ -475,6 +475,7 @@ class TestBuildAITeamsCard:
                 [],
             )
 
+        assert deliver_teams.await_args is not None
         body = deliver_teams.await_args.kwargs["body"]["attachments"][0]["content"]["body"]
         assert [block for block in body if block["type"] == "Image"] == [
             {
