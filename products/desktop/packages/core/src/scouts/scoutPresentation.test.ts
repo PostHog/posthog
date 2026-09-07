@@ -19,6 +19,8 @@ import {
   isScoutCreatedByUser,
   listScoutCreatorOptions,
   listScoutsNeedingAttention,
+  listScoutsNeedingDecision,
+  MAX_SCOUTS_NEEDING_DECISION,
   nextRunAt,
   normalizeRunStatus,
   prettifyScoutSkillName,
@@ -827,5 +829,56 @@ describe("agent schedule and history", () => {
     );
     expect(attention).toHaveLength(1);
     expect(attention[0].kind).toBe("failing");
+  });
+
+  it("names each agent that waits on a decision, with its reason", () => {
+    const attention = listScoutsNeedingAttention(
+      [
+        makeConfig({
+          id: "paused",
+          skill_name: "signals-scout-error-tracking",
+          enabled: false,
+          status: "paused_by_system",
+          pause_reason: "ignored",
+        }),
+      ],
+      new Map(),
+      NOW,
+    );
+    expect(listScoutsNeedingDecision(attention)).toEqual({
+      entries: [
+        {
+          id: "paused",
+          name: "Error tracking",
+          reason: "Nobody acted on its signals.",
+        },
+      ],
+      hiddenCount: 0,
+    });
+  });
+
+  it("caps the named agents and counts the rest", () => {
+    const attention = listScoutsNeedingAttention(
+      Array.from({ length: MAX_SCOUTS_NEEDING_DECISION + 2 }, (_, index) =>
+        makeConfig({
+          id: `paused-${index}`,
+          skill_name: `signals-scout-${index}`,
+          enabled: false,
+          status: "paused_by_system",
+        }),
+      ),
+      new Map(),
+      NOW,
+    );
+    const named = listScoutsNeedingDecision(attention);
+    expect(named.entries).toHaveLength(MAX_SCOUTS_NEEDING_DECISION);
+    expect(named.hiddenCount).toBe(2);
+  });
+
+  it("names nobody when the fleet is healthy", () => {
+    expect(listScoutsNeedingDecision([])).toEqual({
+      entries: [],
+      hiddenCount: 0,
+    });
   });
 });

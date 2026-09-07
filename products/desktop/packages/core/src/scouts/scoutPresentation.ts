@@ -1145,6 +1145,40 @@ export function listScoutsNeedingAttention(
   return out.sort((a, b) => order[a.kind] - order[b.kind]);
 }
 
+/** How many names the fleet header lists before it falls back to a count. */
+export const MAX_SCOUTS_NEEDING_DECISION = 8;
+
+export interface ScoutNeedingDecision {
+  id: string;
+  name: string;
+  /** Why the scheduler flagged it, in the same words the row uses. */
+  reason: string;
+}
+
+export interface ScoutsNeedingDecision {
+  entries: ScoutNeedingDecision[];
+  /** Scouts past the cap, so the caller can say how many it left out. */
+  hiddenCount: number;
+}
+
+/**
+ * The named list behind an attention count. It reads the same attention items
+ * the count adds up, so the two can never disagree.
+ */
+export function listScoutsNeedingDecision(
+  items: ScoutAttention[],
+): ScoutsNeedingDecision {
+  const shown = items.slice(0, MAX_SCOUTS_NEEDING_DECISION);
+  return {
+    entries: shown.map(({ config, detail }) => ({
+      id: config.id,
+      name: prettifyScoutSkillName(config.skill_name),
+      reason: detail,
+    })),
+    hiddenCount: items.length - shown.length,
+  };
+}
+
 /** "in 4h", "in 12m", "due now"; null when there is no next run. */
 export function formatNextRun(next: Date | null, now: Date): string | null {
   if (!next) return null;
