@@ -21,13 +21,11 @@ from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_regist
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.flag_status import ROLLOUT_FULLY_ROLLED_OUT, ROLLOUT_NOT_ROLLED_OUT, ROLLOUT_PARTIAL
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA,
     EVIDENCE_NOT_CALLED_RECENTLY,
-    ROLLOUT_FULLY_ROLLED_OUT,
-    ROLLOUT_NOT_ROLLED_OUT,
-    ROLLOUT_PARTIAL,
     StaleFeatureFlagsCheck,
 )
 from products.product_tours.backend.models import ProductTour
@@ -123,6 +121,8 @@ class TestStaleFlagsDetect(BaseTest):
             ("archived", {**stale_by_usage(), "archived": True, "active": False}, None, False),
             ("soft_deleted", {**stale_by_usage(), "deleted": True}, None, False),
             ("remote_config", {**stale_by_config(), "is_remote_configuration": True}, None, False),
+            # The column is nullable; a NULL row is not remote config and must stay reportable.
+            ("remote_config_null_still_reported", {**stale_by_config(), "is_remote_configuration": None}, None, True),
             ("survey_targeting_flag", stale_by_config(), "survey_targeting", False),
             ("survey_user_linked_flag", stale_by_config(), "survey_linked", True),
             ("product_tour_internal_flag", stale_by_config(), "product_tour", False),
@@ -343,7 +343,10 @@ class TestStaleFlagsContract(SimpleTestCase):
         assert registration.dry_run is True
         assert registration.owner == JobOwners.TEAM_FEATURE_FLAGS
         assert registration.product == Product.FEATURE_FLAGS
-        assert registration.schedule is not None
+        # The weekly cadence and 1% sampling are operational guards like dry_run: the full-batch
+        # query cost is unmeasured, so widening either must be a deliberate change.
+        assert registration.schedule == "0 6 * * 1"
+        assert registration.rollout_percentage == 0.01
         assert registration.remediation is not None
         # Payloads carry flag keys and names, so the Health API must gate them on flag access.
         assert registration.access_controlled_resource == "feature_flag"

@@ -153,6 +153,11 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     candidate volume grows. These exclusions remove known blockers only. They do not prove
     the remaining flags are free of repository references or product intent.
 
+    The bulk-delete guard in ``products/feature_flags/backend/api/feature_flag.py`` blocks
+    the same references and must stay in step with this list. Where the two differ it is on
+    purpose, and this list is the stricter one: the guard blocks only running experiments,
+    this excludes every non-deleted one.
+
     A survey's user-created ``linked_flag`` is deliberately not excluded, unlike the
     survey flags PostHog generates itself. It is user-managed, bulk delete permits it, and
     the remediation tells the investigator to check surveys. A reported flag is evidence
@@ -163,6 +168,8 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     # Product tours, replay links, and flag dependencies are scoped by project, not by team:
     # another team in the same project can reference a flag this batch's teams own. A product
     # tour stays on the environment that created it, while a flag moves to the project root.
+    # Surveys stay on team scope: Survey and FeatureFlag both inherit RootTeamMixin, so both
+    # rows always sit on the project root team and their team ids line up.
     project_ids = set(Team.objects.filter(id__in=team_ids).values_list("project_id", flat=True))
 
     excluded: set[int] = set()
