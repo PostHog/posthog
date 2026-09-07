@@ -118,6 +118,7 @@ export function ActionFilterRow({
     addFilterDocLink,
     excludedProperties,
     allowNonCapturedEvents,
+    allowNonCapturedProperties,
     hogQLGlobals,
     inlineEventsDocLink,
     definitionPopoverRenderer,
@@ -740,6 +741,7 @@ export function ActionFilterRow({
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
+                        allowNonCapturedProperties={allowNonCapturedProperties}
                         operatorAllowlist={operatorAllowlist}
                         triggerVariant="input"
                         framedRows={behavioralFiltersEnabled}

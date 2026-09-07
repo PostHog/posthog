@@ -84,6 +84,7 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
     hogQLGlobals,
+    allowNonCapturedProperties,
     triggerVariant = 'button',
     staticValueOptions,
     renderOperatorValueSelect,
@@ -189,6 +190,7 @@ export function TaxonomicPropertyFilter({
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
+            allowNonCapturedProperties={allowNonCapturedProperties}
             excludedOperators={excludedOperators}
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts

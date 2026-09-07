@@ -66,6 +66,8 @@ export interface PropertyFiltersProps {
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
+    /** Allow users to filter on event, person and group properties that haven't been captured yet (default: false) */
+    allowNonCapturedProperties?: boolean
     /**
      * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
      * (the default) renders a button. Only has an effect on the rebuild menu
@@ -123,6 +125,7 @@ export function PropertyFilters({
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
+    allowNonCapturedProperties,
     triggerVariant = 'button',
     staticValueOptions,
     renderOperatorValueSelect,
@@ -237,6 +240,7 @@ export function PropertyFilters({
                                                 editable={editable}
                                                 operatorAllowlist={operatorAllowlist}
                                                 hogQLGlobals={hogQLGlobals}
+                                                allowNonCapturedProperties={allowNonCapturedProperties}
                                                 triggerVariant={triggerVariant}
                                                 staticValueOptions={staticValueOptions}
                                                 renderOperatorValueSelect={renderOperatorValueSelect}

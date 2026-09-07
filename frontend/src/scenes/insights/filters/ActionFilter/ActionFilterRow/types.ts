@@ -86,6 +86,8 @@ export interface ActionFilterRowProps {
     inlineEventsDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    /** Allow filtering on non-captured event, person and group properties */
+    allowNonCapturedProperties?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]

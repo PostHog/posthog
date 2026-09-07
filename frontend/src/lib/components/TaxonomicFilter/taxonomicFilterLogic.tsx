@@ -521,6 +521,7 @@ export interface taxonomicFilterLogicValues {
     activeTab: TaxonomicFilterGroupType
     activeTaxonomicGroup: TaxonomicFilterGroup | undefined
     allowNonCapturedEvents: boolean
+    allowNonCapturedProperties: boolean
     anyGroupLoading: boolean
     anyGroupStale: boolean
     currentTabIndex: number
@@ -688,6 +689,7 @@ export interface taxonomicFilterLogicMeta {
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
         }
         allowNonCapturedEvents: (arg: any) => boolean
+        allowNonCapturedProperties: (arg: any) => boolean
         hideBehavioralCohorts: (arg: any) => boolean
         hogQLExpressionComponentProps: (
             arg: any,
@@ -1061,6 +1063,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
+        ],
+        allowNonCapturedProperties: [
+            () => [(_, props) => props.allowNonCapturedProperties],
+            (allowNonCapturedProperties: boolean | undefined) => allowNonCapturedProperties ?? false,
         ],
         hideBehavioralCohorts: [
             () => [(_, props) => props.hideBehavioralCohorts],
@@ -2534,6 +2540,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const wasQuickFilter = isQuickFilterItem(item)
                 const wasFromRecents = hasRecentContext(item)
                 const wasFromPinnedList = hasPinnedContext(item)
+                // The "not seen yet" row commits a key the project never sent. Without this the
+                // rescue is indistinguishable from picking a definition that already existed.
+                const wasNonCaptured = item.isNonCaptured === true
 
                 const isEventTab =
                     sourceGroupType === TaxonomicFilterGroupType.Events ||
@@ -2552,6 +2561,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     wasFromPinnedList,
                     wasFromRecents,
                     wasQuickFilter,
+                    wasNonCaptured,
                     hadSearchInput,
                     position: meta?.position,
                     query: values.searchQuery || undefined,
