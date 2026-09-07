@@ -175,8 +175,16 @@ export class StateManager {
         }
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
-            if (projectsResult.success && projectsResult.data.length > 0) {
-                return { organizationId, projectId: Number(projectsResult.data[0]!) }
+            if (projectsResult.success) {
+                // The endpoint returns project objects; read `id` off the first one.
+                // Coercing the object itself yields NaN, which then reaches the cache
+                // as the active project and sends every later call to
+                // `/api/projects/NaN/`. Guard the value so a shape change degrades to
+                // org-only context instead of that.
+                const firstProjectId = projectsResult.data[0]?.id
+                if (typeof firstProjectId === 'number' && Number.isFinite(firstProjectId)) {
+                    return { organizationId, projectId: firstProjectId }
+                }
             }
             if (!projectsResult.success) {
                 // A 404 here means the API key/OAuth token points at an org the

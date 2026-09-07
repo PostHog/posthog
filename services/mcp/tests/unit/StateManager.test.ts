@@ -196,13 +196,15 @@ describe('StateManager', () => {
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
-            // Mock the API client organization projects list call
+            // The endpoint returns project objects, not bare ids. Coercing the
+            // object itself cached `NaN` as the active project and sent every
+            // later call to `/api/projects/NaN/`.
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
                         list: vi.fn().mockResolvedValue({
                             success: true,
-                            data: [789],
+                            data: [{ id: 789, organization: 'org-3', name: 'Scoped project' }],
                         }),
                     }),
                 }),
@@ -212,6 +214,7 @@ describe('StateManager', () => {
 
             expect(result.organizationId).toBe('org-3')
             expect(result.projectId).toBe(789)
+            expect(await cache.get('projectId')).toBe('789')
         })
 
         it('returns the org alone when no projects are available for the scoped org', async () => {
@@ -279,7 +282,7 @@ describe('StateManager', () => {
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
-                        list: vi.fn().mockResolvedValue({ success: true, data: [789] }),
+                        list: vi.fn().mockResolvedValue({ success: true, data: [{ id: 789, organization: 'org-3' }] }),
                     }),
                 }),
             }
