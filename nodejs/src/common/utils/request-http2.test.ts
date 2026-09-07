@@ -4,6 +4,7 @@ import https from 'node:https'
 import net, { AddressInfo } from 'node:net'
 import tls from 'node:tls'
 
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { TestTlsIdentity, createTestTlsIdentity } from '~/tests/helpers/tls'
 
 type RequestModule = typeof import('./request')
@@ -33,6 +34,8 @@ describe('secure HTTP/2 requests', () => {
     let tlsConnectSpy: jest.SpyInstance
     let tlsIdentity: TestTlsIdentity | undefined
     const originalExternalRequestConnections = process.env.EXTERNAL_REQUEST_CONNECTIONS
+    const originalKeepAliveTimeout = process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
+    const keepAliveTimeoutMs = 3000
     const originalProxyEnvironment = Object.fromEntries(
         proxyEnvironmentNames.map((name) => [name, process.env[name]])
     ) as Record<(typeof proxyEnvironmentNames)[number], string | undefined>
@@ -67,6 +70,9 @@ describe('secure HTTP/2 requests', () => {
                 return
             }
             finishResponse()
+            if (request.url === '/goaway') {
+                request.stream.session?.close()
+            }
         })
         http2Origin.on('session', (session) => {
             http2SessionCount += 1
@@ -102,7 +108,11 @@ describe('secure HTTP/2 requests', () => {
                 originSocket.pipe(clientSocket)
             })
             openSockets.add(originSocket)
-            originSocket.once('close', () => openSockets.delete(originSocket))
+            originSocket.once('close', () => {
+                openSockets.delete(originSocket)
+                clientSocket.destroy()
+            })
+            clientSocket.once('close', () => originSocket.destroy())
             originSocket.once('error', () => clientSocket.destroy())
             clientSocket.once('error', () => originSocket.destroy())
         })
@@ -118,12 +128,24 @@ describe('secure HTTP/2 requests', () => {
                 )) as typeof tls.connect)
         process.env.HTTPS_PROXY = `http://127.0.0.1:${serverPort(connectProxy)}`
         process.env.EXTERNAL_REQUEST_CONNECTIONS = '2'
+        process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = String(keepAliveTimeoutMs)
         delete process.env.HTTP_PROXY
         delete process.env.https_proxy
         delete process.env.http_proxy
+    })
 
+    beforeEach(() => {
+        http2SessionCount = 0
+        http2OriginProtocols.length = 0
+        http1OriginProtocols.length = 0
+        proxyAuthorities.length = 0
         jest.resetModules()
         requestModule = require('./request') as RequestModule
+    })
+
+    afterEach(async () => {
+        await requestModule.closeSharedAgents()
+        await waitForExpect(() => expect(openHttp2Sessions.size).toBe(0), 2000)
     })
 
     afterAll(async () => {
@@ -140,6 +162,11 @@ describe('secure HTTP/2 requests', () => {
         } else {
             process.env.EXTERNAL_REQUEST_CONNECTIONS = originalExternalRequestConnections
         }
+        if (originalKeepAliveTimeout === undefined) {
+            delete process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
+        } else {
+            process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = originalKeepAliveTimeout
+        }
         tlsConnectSpy.mockRestore()
 
         for (const session of openHttp2Sessions) {
@@ -154,7 +181,7 @@ describe('secure HTTP/2 requests', () => {
         await tlsIdentity?.cleanup()
     })
 
-    it('negotiates, reuses, runs concurrently, defaults, and falls back through a CONNECT proxy', async () => {
+    it('negotiates, multiplexes, defaults, and falls back through a CONNECT proxy', async () => {
         const http2Authority = `origin.test:${serverPort(http2Origin)}`
         const http2Url = `https://${http2Authority}`
         const bufferedResponse = await requestModule.fetch(`${http2Url}/buffered`, { allowH2: true, timeoutMs: 2000 })
@@ -189,7 +216,55 @@ describe('secure HTTP/2 requests', () => {
 
         expect(http2OriginProtocols).toEqual(['2.0', '2.0', '2.0', '2.0', '1.1'])
         expect(http1OriginProtocols).toEqual(['1.1'])
-        expect(http2SessionCount).toBe(2)
-        expect(proxyAuthorities).toEqual([http2Authority, http2Authority, http2Authority, http1Authority])
+        // undici multiplexes the concurrent requests on one session, up to the server's max concurrent streams.
+        expect(http2SessionCount).toBe(1)
+        expect(proxyAuthorities).toEqual([http2Authority, http2Authority, http1Authority])
+    }, 10000)
+
+    it('opens a new session after the origin sends GOAWAY', async () => {
+        const http2Url = `https://origin.test:${serverPort(http2Origin)}`
+        const goawayResponse = await requestModule.fetchStreamed(`${http2Url}/goaway`, {
+            allowH2: true,
+            timeoutMs: 2000,
+        })
+        expect((await goawayResponse.read(100)).bytes.toString()).toBe('/goaway')
+        const sessionsBeforeReconnect = http2SessionCount
+
+        const afterGoawayResponse = await requestModule.fetchStreamed(`${http2Url}/after-goaway`, {
+            allowH2: true,
+            timeoutMs: 2000,
+        })
+        expect((await afterGoawayResponse.read(100)).bytes.toString()).toBe('/after-goaway')
+
+        expect(http2SessionCount).toBe(sessionsBeforeReconnect + 1)
+    }, 10000)
+
+    it('closes an idle session after the keep-alive timeout', async () => {
+        const http2Url = `https://origin.test:${serverPort(http2Origin)}`
+        const response = await requestModule.fetchStreamed(`${http2Url}/idle`, { allowH2: true, timeoutMs: 2000 })
+        expect((await response.read(100)).bytes.toString()).toBe('/idle')
+        expect(openHttp2Sessions.size).toBeGreaterThan(0)
+
+        await waitForExpect(() => expect(openHttp2Sessions.size).toBe(0), keepAliveTimeoutMs * 3)
+    }, 15000)
+
+    it('closes open sessions and proxy tunnels when the shared agents shut down', async () => {
+        const http2Url = `https://origin.test:${serverPort(http2Origin)}`
+        const response = await requestModule.fetchStreamed(`${http2Url}/shutdown`, {
+            allowH2: true,
+            timeoutMs: 2000,
+        })
+        expect((await response.read(100)).bytes.toString()).toBe('/shutdown')
+        expect(openHttp2Sessions.size).toBeGreaterThan(0)
+        const requestedAt = Date.now()
+
+        await requestModule.closeSharedAgents()
+
+        await waitForExpect(() => {
+            expect(openHttp2Sessions.size).toBe(0)
+            expect(openSockets.size).toBe(0)
+        }, 2000)
+        // Well inside the keep-alive timeout, so the shutdown closed the session rather than the idle reaper.
+        expect(Date.now() - requestedAt).toBeLessThan(keepAliveTimeoutMs)
     }, 10000)
 })

@@ -259,6 +259,8 @@ class InsecureAgent extends Agent {
         super({
             keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            // undici enables HTTP/2 by default. Internal services stay on HTTP/1.1 because nothing here needs multiplexing and HTTP/2 sessions fail differently (GOAWAY replays, refused streams).
+            allowH2: false,
             connect: {
                 timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
@@ -296,6 +298,23 @@ function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
 const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
 const sharedSecureH2Agent = makeSecureDispatcher({ allowH2: true })
 const sharedInsecureAgent = new InsecureAgent()
+const sharedAgents = [sharedSecureAgent, sharedSecureH2Agent, sharedInsecureAgent]
+
+function unrefDelay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms).unref())
+}
+
+/**
+ * Closes the shared dispatchers at shutdown, which ends idle keep-alive sockets and HTTP/2 sessions
+ * that would otherwise stay open until their idle timeout. `close` waits for in-flight requests to
+ * settle, and a streamed body that no caller reads or discards holds its socket forever, so
+ * whatever remains after the grace period is destroyed.
+ */
+export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
+    const closed = Promise.allSettled(sharedAgents.map((agent) => agent.close()))
+    await Promise.race([closed, unrefDelay(gracePeriodMs)])
+    await Promise.allSettled(sharedAgents.map((agent) => agent.destroy()))
+}
 
 function destroyBody(body: Dispatcher.ResponseData['body']): void {
     try {
