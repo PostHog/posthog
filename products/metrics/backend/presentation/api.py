@@ -42,6 +42,7 @@ from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
+    METRICS_FUNDAMENTALS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -1103,6 +1104,20 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Take one chart point apart into the series and samples behind it,
         and recompute it independently so the plotted number can be checked
         rather than trusted."""
+        # The class-level gate admits every team on the metrics alpha, which is wider
+        # than this action should be. Fundamentals is a correctness tool for the people
+        # who build the viewer, so it carries its own flag. Without this check the tab
+        # is hidden in the UI but the data behind it stays one POST away.
+        if not posthog_feature_flag_enabled(
+            METRICS_FUNDAMENTALS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied(
+                f"This action requires feature flag {METRICS_FUNDAMENTALS_FEATURE_FLAG!r} to be enabled for your organization."
+            )
+
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         body = _MetricExplainRequestSerializer(data=request.data)
