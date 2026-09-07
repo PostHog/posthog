@@ -852,16 +852,26 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
-    it('billing-mcp-read-tools flag gates the billing overview tool', () => {
+    it('billing-mcp-read-tools flag gates the existing billing read tools', () => {
+        const existing = ['billing-overview-get', 'billing-usage-get', 'billing-spend-get']
         const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
-        expect(off).not.toContain('billing-overview-get')
+        for (const tool of existing) {
+            expect(off).not.toContain(tool)
+        }
 
         const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
-        expect(on).toContain('billing-overview-get')
+        for (const tool of existing) {
+            expect(on).toContain(tool)
+        }
     })
 
     it('organization-billing-api flag gates the tools that call the organization billing API', () => {
-        const gated = ['billing-subscription-get', 'billing-usage-status-get', 'billing-usage-get', 'billing-spend-get']
+        const gated = [
+            'billing-subscription-get',
+            'billing-usage-status-get',
+            'billing-usage-timeseries-get',
+            'billing-spend-timeseries-get',
+        ]
         const off = getToolsForFeatures({ featureFlags: { 'organization-billing-api': false } })
         for (const tool of gated) {
             expect(off).not.toContain(tool)

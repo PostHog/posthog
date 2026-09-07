@@ -1054,7 +1054,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "organization-billing-api"
+        "feature_flag": "billing-mcp-read-tools"
     },
     "billing-spend-summary-get": {
         "description": "Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with the two totals. Needs usage read access: owners always, admins when owner-only billing is off, or members when the member read flag is on. Use it for \"what have we spent so far this month\"; for the projection to the end of the period call billing-forecast-get, for history call billing-spend-get.",
@@ -1062,6 +1062,21 @@
         "feature": "billing",
         "summary": "Get spend this billing period",
         "title": "Get spend this billing period",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-spend-timeseries-get": {
+        "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend breakdown",
+        "title": "Get spend breakdown",
         "required_scopes": ["billing:read"],
         "annotations": {
             "destructiveHint": false,
@@ -1099,7 +1114,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "organization-billing-api"
+        "feature_flag": "billing-mcp-read-tools"
     },
     "billing-usage-status-get": {
         "description": "Per product and add-on: the limit in effect, whether usage is over or approaching it, and whether the resource is being limited right now. No counts, so any member can read it. Use it for \"am I near my events limit\" or \"is ingestion being limited\"; for the counts call billing-usage-summary-get.",
@@ -1122,6 +1137,21 @@
         "feature": "billing",
         "summary": "Get usage this billing period",
         "title": "Get usage this billing period",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-usage-timeseries-get": {
+        "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing access; for cost (spend) breakdowns call billing-spend-get.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get usage breakdown",
+        "title": "Get usage breakdown",
         "required_scopes": ["billing:read"],
         "annotations": {
             "destructiveHint": false,
