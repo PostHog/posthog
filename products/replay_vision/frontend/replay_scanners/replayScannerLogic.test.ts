@@ -1444,6 +1444,19 @@ describe('replayScannerLogic', () => {
                 goal_length: 'find users who get stuck'.length,
             })
         })
+
+        it('the last path taken is what the save reports', async () => {
+            // Each of these replaces the form, so someone who drafts with AI and then picks a
+            // template saved the template's scanner. Reporting the first path would credit the AI
+            // flow with a scanner it did not produce.
+            await expectLogic(logic, () => {
+                logic.actions.draftScannerFromGoal('find users who get stuck')
+            }).toFinishAllListeners()
+            expect(logic.values.creationMethod).toEqual('ai')
+
+            logic.actions.startFromTemplate('dead_end')
+            expect(logic.values.creationMethod).toEqual('template')
+        })
     })
 
     describe('rebuildExperimentContext', () => {
