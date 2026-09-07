@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator, Callable, Iterator, Sequence
 from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -18,13 +19,14 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -35,8 +37,9 @@ from posthog.permissions import (
     get_authenticator_scopes,
     posthog_feature_flag_enabled,
 )
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_trusted_client_ip, relative_date_parse
+from posthog.utils import generate_short_id, get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
@@ -102,6 +105,13 @@ class BillingServiceError(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_code = "billing_service_error"
     default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
+    """How often one person may start an export. Each one has billing build a whole file."""
+
+    scope = "billing_export"
+    rate = settings.BILLING_EXPORT_THROTTLE_RATE
 
 
 # Billing's guidance codes on the usage and spend endpoints, each with the page's own sentence.
@@ -520,6 +530,47 @@ def _gzip_stream(chunks: Iterator[bytes]) -> Iterator[bytes]:
         if data:
             yield data
     yield compressor.flush()
+
+
+# How many exports one person may have downloading at once. Each holds a response from billing
+# open for as long as the browser reads it, so the count is bounded per person and a slot is
+# given back when the download ends or the connection drops. The time limit only frees a slot
+# whose download died without giving it back.
+_EXPORT_STREAMS = RateLimit(
+    max_concurrency=settings.BILLING_EXPORT_CONCURRENT_STREAMS,
+    limit_name="billing_export_streams",
+    get_task_name=lambda user_id: f"billing_export_streams:{user_id}",
+    get_task_id=lambda user_id: generate_short_id(),
+    ttl=15 * 60,
+    apply_clickhouse_kill_switch=False,
+    allow_team_bypass=False,
+)
+
+
+def _take_export_stream_slot(user: Any) -> Optional[ConcurrencySlot]:
+    try:
+        return _EXPORT_STREAMS.use(user.pk)
+    except ConcurrencyLimitExceeded:
+        raise Throttled(
+            detail=(
+                f"You have {settings.BILLING_EXPORT_CONCURRENT_STREAMS} exports downloading. "
+                "Wait for one to finish before starting another."
+            )
+        )
+
+
+def _release_export_stream_slot(slot: Optional[ConcurrencySlot]) -> None:
+    if slot is not None:
+        _EXPORT_STREAMS.release(slot)
+
+
+async def _released_after(stream: AsyncGenerator[bytes], slot: Optional[ConcurrencySlot]) -> AsyncGenerator[bytes]:
+    """Give the export's stream slot back when the download ends, however it ends."""
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        await sync_to_async(_release_export_stream_slot)(slot)
 
 
 async def _stream_chunks(upstream: requests.Response, chunks: Iterator[bytes]) -> AsyncGenerator[bytes]:
@@ -1151,6 +1202,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="usage/export",
         permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        throttle_classes=[BillingExportThrottle],
     )
     def usage_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Download the usage breakdown as CSV, honouring the requested project cap."""
@@ -1162,6 +1214,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="spend/export",
         permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        throttle_classes=[BillingExportThrottle],
     )
     def spend_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Download the spend breakdown as CSV, honouring the requested project cap."""
@@ -1198,20 +1251,27 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # No teams_map: the names go into the file as it streams back, in _rewrite_csv_labels.
         teams_map = self._get_teams_map(organization, scoped_team_ids)
 
+        # Taken before billing is asked, so a refused export costs billing nothing, and held
+        # until the download ends: the body below gives it back.
+        slot = _take_export_stream_slot(request.user)
         try:
-            upstream = csv_getter(organization, params_to_pass)
-        except requests.Timeout:
-            raise BillingQueryTimeout()
-        except APIException:
+            try:
+                upstream = csv_getter(organization, params_to_pass)
+            except requests.Timeout:
+                raise BillingQueryTimeout()
+            except APIException:
+                raise
+            except Exception as e:
+                self._raise_billing_error(e, organization)
+        except BaseException:
+            _release_export_stream_slot(slot)
             raise
-        except Exception as e:
-            self._raise_billing_error(e, organization)
         lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
         accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
         # Every database read is done by now and the body does none, so the request's
         # connection is released before the download starts.
         response = streaming_response(
-            _stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines),
+            _released_after(_stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines), slot),
             content_type=upstream.headers.get("Content-Type", "text/csv"),
         )
         if accepts_gzip:

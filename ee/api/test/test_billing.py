@@ -10,6 +10,7 @@ from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_even
 from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 import jwt
@@ -31,10 +32,12 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 
 from ee.api.billing import (
+    _EXPORT_STREAMS,
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
     OWNER_ONLY_BILLING_FLAG,
     BillingDateRangeTooLong,
+    BillingExportThrottle,
     BillingQueryRejected,
     BillingQueryTooLarge,
     BillingUsageRequestSerializer,
@@ -2583,3 +2586,39 @@ class TestRewriteCsvLabels(APIBaseTest):
             self._run(body, {134: "Payments API"}),
             'Product,Project,Project ID,Total\n"Logs, ingested",Payments API,134,10\n',
         )
+
+
+class TestExportLimits(APILicensedTest):
+    """An export holds a response from billing open for as long as the browser reads it, so the
+    proxy bounds how many one person has open at once, and how often they start one."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        cache.clear()
+
+    def _export(self, rows: list[bytes]) -> Any:
+        upstream = MagicMock()
+        upstream.headers = {"Content-Type": "text/csv"}
+        upstream.iter_content.return_value = iter(rows)
+        with patch("ee.billing.billing_manager.BillingManager.get_usage_csv", return_value=upstream):
+            return self.client.get("/api/billing/usage/export/?start_date=2025-01-01&breakdowns=%5B%22type%22%5D")
+
+    @patch.object(_EXPORT_STREAMS, "max_concurrency", 1)
+    def test_exports_open_at_once_are_capped_per_person_and_a_finished_one_frees_its_slot(self):
+        first = self._export([b"Product\n", b"Events\n"])
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        refused = self._export([b"Product\n"])
+        self.assertEqual(refused.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("exports downloading", refused.json()["detail"])
+
+        self.assertEqual(b"".join(first), b"Product\nEvents\n")
+        self.assertEqual(self._export([b"Product\n"]).status_code, status.HTTP_200_OK)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch.object(BillingExportThrottle, "rate", "1/minute")
+    def test_export_starts_are_rate_limited_per_person(self, _rate_limit_enabled):
+        self.assertEqual(self._export([b"Product\n"]).status_code, status.HTTP_200_OK)
+        self.assertEqual(self._export([b"Product\n"]).status_code, status.HTTP_429_TOO_MANY_REQUESTS)

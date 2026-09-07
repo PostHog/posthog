@@ -487,6 +487,12 @@ WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
 
+# Billing usage and spend exports stream a file from the billing service for as long as the
+# browser reads it, so both limits are per user (see ee.api.billing): how often an export may
+# start, and how many may be open at once.
+BILLING_EXPORT_THROTTLE_RATE = get_from_env("BILLING_EXPORT_THROTTLE_RATE", "10/minute")
+BILLING_EXPORT_CONCURRENT_STREAMS = get_from_env("BILLING_EXPORT_CONCURRENT_STREAMS", 4, type_cast=int)
+
 # Email domains whose signups are created already-verified (skipping the email round-trip), so
 # non-prod deploy smoke-tests can sign up and act immediately. Empty by default — prod verifies
 # every signup.
