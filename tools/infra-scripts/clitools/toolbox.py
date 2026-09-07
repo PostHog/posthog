@@ -40,7 +40,10 @@ POOLS = {
         },
     },
     "flags-cache-jumphost": {
-        "default_namespace": "posthog",
+        # Golden-chart deployment in the per-app namespace; the legacy `posthog`
+        # namespace is still available via `KUBE_NAMESPACE=posthog`, which
+        # prod-us and prod-eu still need until they migrate (PostHog/charts#14843).
+        "default_namespace": "flags-cache-jumphost",
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",
     },

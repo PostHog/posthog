@@ -1025,7 +1025,7 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(
             toolbox_script.POOLS["flags-cache-jumphost"],
             {
-                "default_namespace": "posthog",
+                "default_namespace": "flags-cache-jumphost",
                 "app_label": "flags-cache-jumphost",
                 "claimed_label_key": "flags-jumphost-claimed",
             },
@@ -1352,14 +1352,14 @@ class TestToolbox(unittest.TestCase):
             check_claimed=True,
             app_label="flags-cache-jumphost",
             claimed_label_key="flags-jumphost-claimed",
-            namespace="posthog",
+            namespace="flags-cache-jumphost",
             context="posthog-dev",
             extra_selector=None,
         )
         # claim_pod gets namespace, context, and resource_version from get_toolbox_pod's return.
         self.assertEqual(
             m_claim.call_args.kwargs,
-            {"namespace": "posthog", "context": "posthog-dev", "resource_version": "12345"},
+            {"namespace": "flags-cache-jumphost", "context": "posthog-dev", "resource_version": "12345"},
         )
 
     def test_main_default_pool_dispatches_toolbox_django_kwargs(self):
