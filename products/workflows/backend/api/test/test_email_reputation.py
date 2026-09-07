@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -90,6 +91,78 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
         }
+
+    @parameterized.expand(
+        [
+            ("measured", "off", 500000, False),
+            ("shadowed", "shadow", 500000, False),
+            ("enforced", "enforce", 100, True),
+        ]
+    )
+    @override_settings(
+        HOGFLOW_BATCH_TRIGGER_LIMIT=500000,
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_HOURLY_CAPS=[50, 200, 600],
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+    )
+    def test_allowance_reports_the_batch_cap_that_applies_now(
+        self, _name: str, mode: str, expected_effective: int, expected_enforced: bool
+    ):
+        # A project reading the card while the tiers are measured must see the ceiling its sends
+        # actually meet. Reporting the tier cap there would tell a large sender its audience just
+        # shrank by three orders of magnitude when nothing changed.
+        with override_settings(WORKFLOWS_EMAIL_TIER_MODE=mode):
+            allowance = self._get_reputation({})["sending_allowance"]
+
+        assert allowance["enforced"] is expected_enforced
+        assert allowance["max_batch_audience"] == 100
+        assert allowance["effective_max_batch_audience"] == expected_effective
+
+    @parameterized.expand(
+        [
+            ("below_top", 0, 1000, 1000),
+            ("at_top", 2, None, None),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_HOURLY_CAPS=[50, 200, 600],
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+    )
+    def test_allowance_names_what_the_next_tier_allows(
+        self, _name: str, tier: int, expected_per_day: int | None, expected_batch: int | None
+    ):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": tier})
+
+        allowance = self._get_reputation({})["sending_allowance"]
+
+        assert allowance["next_tier_emails_per_day"] == expected_per_day
+        assert allowance["next_tier_max_batch_audience"] == expected_batch
+
+    @parameterized.expand(
+        [
+            ("pinned", True),
+            ("not_pinned", False),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_HOURLY_CAPS=[50, 200, 600],
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+    )
+    def test_allowance_says_when_the_project_is_held_on_its_tier(self, _name: str, pinned: bool):
+        # The tier sweep skips a pinned project in both directions, so the card must not tell it to
+        # keep sending cleanly to reach the tier above. The next-tier caps still resolve, which is
+        # why this flag has to travel with them rather than be inferred from them.
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"email_sending_tier": 0, "email_sending_tier_pinned": pinned},
+        )
+
+        allowance = self._get_reputation({})["sending_allowance"]
+
+        assert allowance["pinned"] is pinned
+        assert allowance["next_tier_emails_per_day"] == 1000
 
     @parameterized.expand(
         [
