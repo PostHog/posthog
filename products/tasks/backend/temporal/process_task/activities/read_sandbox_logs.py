@@ -40,6 +40,7 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
             result = sandbox.execute(
                 f"tail -c {MAX_LOG_SIZE} /tmp/agent-server.log 2>/dev/null || echo 'No log file found'",
                 timeout_seconds=10,
+                capture=False,
             )
             logs = result.stdout.strip()
             if logs:
@@ -49,6 +50,7 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
             agentsh_result = sandbox.execute(
                 "cat /var/log/agentsh/agentsh.log 2>/dev/null || true",
                 timeout_seconds=10,
+                capture=False,
             )
             agentsh_logs = agentsh_result.stdout.strip()
             if agentsh_logs:
@@ -62,7 +64,7 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
             try:
                 from products.tasks.backend.logic.services.agentsh import build_audit_query_command
 
-                audit_result = sandbox.execute(build_audit_query_command(), timeout_seconds=10)
+                audit_result = sandbox.execute(build_audit_query_command(), timeout_seconds=10, capture=False)
                 audit_output = audit_result.stdout.strip()
                 if audit_output and audit_output != "[]":
                     events = json.loads(audit_output)

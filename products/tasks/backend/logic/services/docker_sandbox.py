@@ -641,12 +641,15 @@ class DockerSandbox(SandboxBase):
         self,
         command: str,
         timeout_seconds: Optional[int] = None,
+        *,
+        capture: bool = True,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
                 "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
+                capture=capture,
             )
 
         if timeout_seconds is None:
@@ -672,6 +675,7 @@ class DockerSandbox(SandboxBase):
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=e,
+                capture=capture,
             )
         except Exception as e:
             logger.exception(f"Failed to execute command: {e}")
@@ -679,6 +683,7 @@ class DockerSandbox(SandboxBase):
                 "Failed to execute command",
                 {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
+                capture=capture,
             )
 
     def execute_stream(
