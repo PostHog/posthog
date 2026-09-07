@@ -81,6 +81,8 @@ flox activate
 
 After setup, use the `phw` command for everything:
 
+> `phw` also works with the [devenv](./developing-locally) environment. Installing devenv is the opt-in, so each worktree then activates devenv instead of Flox, and `POSTHOG_DEV_ENV=flox` is the way back. devenv has no per-shell profile, so run `source bin/phw` once to get the shell function.
+
 #### Create a NEW branch
 
 ```bash

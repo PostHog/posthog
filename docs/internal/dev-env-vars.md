@@ -1,17 +1,18 @@
 # Where local dev environment variables come from
 
-If an env var is set in your shell but you can't find it in any `.env*` file, it is almost certainly coming from **flox**, not dotenv.
+If an env var is set in your shell but you can't find it in any `.env*` file, it is almost certainly coming from your dev environment, **flox** or **devenv**, not dotenv.
 This is the layering, highest precedence first.
 
 ## The layers
 
 1. **Your shell** — anything you `export` yourself wins over everything below.
 2. **flox `[vars]`** (`.flox/env/manifest.toml`) — injected on every `flox activate`, which `direnv` runs automatically via `.envrc` whenever you `cd` into the repo. This is where `DEBUG=1`, `CLICKHOUSE_DATABASE`, and other always-on dev knobs live. These are **not** in any `.env` file, which is why grepping `.env*` for them comes up empty.
-3. **`.env.local`** — your personal, gitignored overrides and secrets (`op://` refs auto-resolve via 1Password). Sourced by `bin/start`.
-4. **`.env.development`** — committed dev-mode runtime knobs.
-5. **`.env.services`** — committed service connection defaults, shared with containers.
+3. **devenv `env`** (`devenv.nix`) — the same set of always-on dev knobs, injected on every `devenv shell`. `.envrc` uses devenv whenever the `devenv` binary is on your PATH, unless `POSTHOG_DEV_ENV` names an environment. Only one of the two environments is ever active, so this layer either replaces the flox one or is absent. It is invisible to a `.env*` grep for the same reason.
+4. **`.env.local`** — your personal, gitignored overrides and secrets (`op://` refs auto-resolve via 1Password). Sourced by `bin/start`.
+5. **`.env.development`** — committed dev-mode runtime knobs.
+6. **`.env.services`** — committed service connection defaults, shared with containers.
 
-`bin/start` sources `.env.local` > `.env.development` > `.env.services` and only sets a var if it is not already in the environment, so flox `[vars]` and your shell take precedence over the dotenv files.
+`bin/start` sources `.env.local` > `.env.development` > `.env.services` and only sets a var if it is not already in the environment, so the dev environment vars and your shell take precedence over the dotenv files.
 `python manage.py setup_background_agents` additionally appends a few keys (`DEBUG`, `SANDBOX_PROVIDER`, …) to `.env` from `.env.example`.
 
 ## Tracing a var
@@ -21,16 +22,19 @@ To find where `FOO` is actually coming from:
 ```bash
 # The flox layer (the usual "invisible" source):
 grep -n FOO .flox/env/manifest.toml
+# The devenv layer, if you opted in to devenv:
+grep -n FOO devenv.nix
 # The dotenv layers:
 grep -n FOO .env .env.local .env.development .env.services .env.example
-# What the activated env actually resolves to:
+# What the activated env actually resolves to (use the one you activate with):
 flox activate -- bash -c 'echo "$FOO"'
+devenv shell -- bash -c 'echo "$FOO"'
 ```
 
 ## Developing cloud-only features locally
 
 Cloud-gated code checks `is_cloud()`, which is true when `CLOUD_DEPLOYMENT` is one of `US`, `EU`, `DEV`, or `E2E`.
-`DEBUG` is on by default in local dev (flox `[vars]`), and there is a hard guard (`posthog/settings/utils.py`) that refuses to boot with `DEBUG` **and** `CLOUD_DEPLOYMENT` in `US`/`EU`/`DEV` — because `DEBUG` relaxes authentication, so it must never coincide with a real deployed-cloud identity.
+`DEBUG` is on by default in local dev (flox `[vars]`, or devenv `env`), and there is a hard guard (`posthog/settings/utils.py`) that refuses to boot with `DEBUG` **and** `CLOUD_DEPLOYMENT` in `US`/`EU`/`DEV` — because `DEBUG` relaxes authentication, so it must never coincide with a real deployed-cloud identity.
 
 The sanctioned way to run local dev "as cloud" is therefore:
 

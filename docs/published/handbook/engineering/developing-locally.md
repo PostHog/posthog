@@ -155,6 +155,49 @@ This is it – you should be seeing the PostHog app at <a href="http://localhost
 
 You can now change PostHog in any way you want. See [Project structure](./project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
 
+### Setup with devenv (opt-in)
+
+[devenv](https://devenv.sh/) is an alternative to Flox for the same environment. It resolves packages from nixpkgs and GitHub, so it needs no account and no hosted service. `devenv.nix` mirrors the Flox manifest: the same packages at the same versions, the same env vars, and the same activation steps.
+
+Installing devenv is the opt-in. `.envrc` uses devenv as soon as the `devenv` binary is on your PATH, and Flox otherwise.
+
+1. Install devenv.
+
+   If you already use Flox, you have a Nix daemon at `/nix` and only need devenv itself:
+
+   ```bash
+   nix profile add nixpkgs#devenv
+   ```
+
+   Add `--extra-experimental-features 'nix-command flakes'` if your `nix.conf` does not enable them.
+
+   Without Nix, follow the [devenv getting started guide](https://devenv.sh/getting-started/). It installs Nix with the NixOS installer first, then devenv.
+
+2. Enter the repo. direnv activates devenv, with no further setup. The first entry installs the Python and Node packages and builds phrocs, then drops you in the shell. Later entries take under a second, and editing `devenv.nix` adds a few seconds of re-evaluation to the next one.
+
+   If you do not use direnv, run `devenv hook` once for the same auto-activation.
+
+`hogli start` then works the same as under Flox.
+
+To go back to Flox for one shell, or in your shell rc, set the override:
+
+```bash
+export POSTHOG_DEV_ENV=flox
+```
+
+`POSTHOG_DEV_ENV=devenv` forces the other direction, which is useful when devenv is installed but not on the PATH of the shell you are in. A branch whose `.envrc` predates this rule keeps using Flox until it rebases on master.
+
+To run a single command, use `devenv shell -- <command>`. Do not use `devenv shell -c`, which means `--clean`.
+
+Two things Flox sets up that devenv cannot, because devenv has no per-shell profile:
+
+- The `phw` worktree helper. Run `source bin/phw` to get the shell function. It works the same in a worktree under devenv. See [isolated development](./flox-multi-instance-workflow).
+- The hogli zsh completions. Add `.devenv/state/completions` to your `fpath`.
+
+`pyproject.toml` still points pyright at the Flox venv. Under devenv the venv is `.devenv/state/venv`, so set the interpreter path in your editor settings until that is fixed.
+
+devenv writes one garbage-collection root per shell entry under `~/.local/share/devenv/gc`. Run `devenv gc` to clear them and let Nix reclaim the store paths.
+
 ### Customizing which services run
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
@@ -403,6 +446,7 @@ With PyCharm's built in support for Django, it's fairly easy to setup debugging 
 2. Setup the python interpreter (Settings… > Project: posthog > Python interpreter > Add interpreter -> Existing):
    - If using manual setup: `path_to_repo/posthog/.venv/bin/python`.
    - If using Flox: `path_to_repo/posthog/.flox/cache/venv/bin/python`.
+   - If using devenv: `path_to_repo/posthog/.devenv/state/venv/bin/python`.
 3. Setup Django support (Settings… > Languages & Frameworks > Django):
    - Django project root: `path_to_repo`
    - Settings: `posthog/settings/__init__.py`

@@ -15,6 +15,8 @@
   - This matters most for visual and UX work, where reading the code isn't the same as seeing the result. Rendering the affected surface (for example in Storybook via a headless browser) and comparing before and after is what actually confirms such a change, and is usually worth the setup cost.
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
+    - devenv (`devenv.nix`) is an alternative to flox for the same environment. `.envrc` and `bin/helpers/dev-env.sh` pick devenv whenever the `devenv` binary is on PATH, so installing it is the opt-in. `POSTHOG_DEV_ENV=flox` forces flox back and `POSTHOG_DEV_ENV=devenv` forces devenv, so check which one is active before assuming
+    - The non-interactive form under devenv is `devenv shell -- bash -c "<command>"`. Never `devenv shell -c "<command>"`: `-c` is `--clean`, not "run this command"
 - Tests:
   - Universal: `hogli test <file_or_directory>` — auto-detects test type (Python, Jest, Playwright, Rust, Go)
   - Single test: `hogli test path/to/test.py::TestClass::test_method`
@@ -33,7 +35,7 @@
     - Cloud task VMs, frontend work: `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled; product/Storybook builds still run from source
     - Cloud task VMs, tests: scope every run to what you changed, with `hogli test --changed` or the test files that cover the touched code. Run a whole module, package, or repo-wide suite at most once, right before you push, and only for a cross-cutting change. CI runs the full matrix; repeating it in the sandbox costs minutes per run and floods the context with output. In a sandbox `hogli test` runs pytest with `-q` (set `HOGLI_TEST_VERBOSE=1` to stream prints). `pytest.ini` already enables `--reuse-db`, and the prebaked dev-stack image seeds `test_posthog`; do not pass `--create-db` or override pytest `addopts`, because either discards the prewarmed schema. If pytest starts the full migration history, the VM image predates the database seed or the test database was replaced. Let that migration finish before retrying; interrupting it leaves a partial database that the next run must continue migrating.
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
-- LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
+- LSP: Pyright is configured against the flox venv (`.flox/cache/venv`). Under devenv the venv is `.devenv/state/venv`, which Pyright does not pick up yet, so point your editor at it. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
   **Local agents must use it too**: when a hogli command or local dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Do not run it from cloud tasks or agent-server sandboxes; the command is a no-op there.
 

@@ -86,7 +86,7 @@ Security
     - PII (Personal Identifiable Information)
 
 Testing
-  - After adding or updating tests, make sure they pass, by running them with pytest. Before running tests command, you must activate the dev environment with `flox activate`, then activate the venv. If that fails, instead find the Python venv at `.venv`, or `venv`, or `env`, in this order.
+  - After adding or updating tests, make sure they pass, by running them with pytest. Before running tests command, you must activate the dev environment with `flox activate`, or `devenv shell` under devenv, then activate the venv. If that fails, instead find the Python venv at `.venv`, or `venv`, or `env`, in this order.
   - When rerunning previously failed tests, specify the specific tests to re-run.
   - All new packages and most new significant functionality should come with unit tests
   - Significant features should come with integration and/or end-to-end tests
