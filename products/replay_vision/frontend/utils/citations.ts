@@ -58,16 +58,8 @@ export function parseCitedSegments(text: string, segments: unknown): Segment[] {
 }
 
 /**
- * Markdown source for a cited field, with each citation chip written back as a `t:<ms>` link target
- * LemonMarkdown hands to `renderTimestampRef`.
- *
- * The chips were split out of the prose at scan time, so a renderer that parses the text as markdown has
- * to see one string, not a segment list — a bullet or a bold run that spans a citation would otherwise be
- * cut in half and parsed as two documents.
- *
- * Nothing here sanitizes the prose. The renderer is what holds the line on links and images (see
- * `CitedMarkdown`): stripping syntax at this layer would have to out-guess every markdown form that
- * reaches a link, and reference-style `[x][ref]` alone already defeats that.
+ * Markdown source for a cited field, each chip written back as a `t:<ms>` target. One string rather than
+ * a segment list, or a bullet spanning a citation parses as two documents. The renderer sanitizes.
  */
 export function citedMarkdown(text: string, segments: unknown): string {
     const list = parseCitedSegments(text, segments)
@@ -80,10 +72,8 @@ export function citedMarkdown(text: string, segments: unknown): string {
             out += segment.value
             continue
         }
-        // Glued to the preceding word, matching how the chips render outside markdown — except after a
-        // `!`, where gluing a link turns the pair into an image. One space there reads as normal prose.
-        // The target has to be a whole non-negative number: LemonMarkdown reads `t:<digits>` and nothing
-        // else, so a fractional or negative offset would silently render as a dead label.
+        // Glued to the preceding word, except after a `!`, where that would make the pair an image.
+        // Whole non-negative digits only: LemonMarkdown reads nothing else, and would leave a dead label.
         const timestampMs = Math.max(0, Math.round(segment.timestamp_ms))
         const label = colonDelimitedDuration(Math.floor(timestampMs / 1000), null)
         out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${timestampMs})`

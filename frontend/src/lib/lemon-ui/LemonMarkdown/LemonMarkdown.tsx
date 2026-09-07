@@ -31,18 +31,12 @@ function chartRefId(href: unknown): string | null {
     return typeof href === 'string' ? (CHART_REF_TARGET.exec(href)?.[1] ?? null) : null
 }
 
-/**
- * Link target that marks a moment in a recording, e.g. `[01:32](t:92000)` — the offset in milliseconds.
- * Same reasoning as `chart:`: a link rather than a bespoke token, so the same markdown degrades to a
- * readable timestamp in the renderers that have no player to seek.
- */
+/** Link target for a moment in a recording, e.g. `[01:32](t:92000)`, the offset in milliseconds. */
 export const TIMESTAMP_REF_PREFIX = 't:'
 
-// Bounded digits so an overlong target is an ordinary link rather than a reference, keeping it subject
-// to the usual URL sanitizing. 12 digits is ~31 years of recording, well past any real session.
+// Bounded digits, so an overlong target stays an ordinary link and keeps the usual URL sanitizing.
 const TIMESTAMP_REF_TARGET = new RegExp(`^${TIMESTAMP_REF_PREFIX}(\\d{1,12})$`)
 
-/** The offset in milliseconds behind a `t:` link target, or null when `href` is an ordinary link. */
 function timestampRefMs(href: unknown): number | null {
     const digits = typeof href === 'string' ? TIMESTAMP_REF_TARGET.exec(href)?.[1] : undefined
     return digits === undefined ? null : parseInt(digits, 10)
@@ -87,29 +81,14 @@ export interface LemonMarkdownProps {
      * URL — leaking the viewer's IP, acting as a tracking pixel, or probing internal addresses.
      * When set, only images served from PostHog (same-origin or a `posthog.com` host) render inline
      * as <img>; every other image is rendered as a plain click-to-open link instead.
-     *
-     * `'all'` drops that exception too, so no <img> is emitted at all. Use it for content that has no
-     * business carrying an image: a same-origin `src` is still a credentialed GET the content gets to
-     * aim at any path on this host, which is not something to hand model output.
+     * `'all'` emits no <img> at all: a same-origin `src` is still a credentialed GET on this host.
      */
     disableImages?: boolean | 'all'
-    /**
-     * Whether to leave `@member:<id>` / `@role:<id>` as plain text rather than resolving them into
-     * mention chips. Use for content we don't control: a chip names a real colleague, tooltip with
-     * their email included, so without this the content gets to fake a mention of anyone in the org.
-     */
+    /** Whether `@member:<id>` / `@role:<id>` stay plain text instead of chips naming a real colleague. */
     disableMentions?: boolean
     /**
-     * Whether to render every link as plain text rather than an anchor, keeping its label. Use for
-     * content we don't control (e.g. LLM/agent output derived from a page a stranger wrote), where a
-     * link the reader can click is a phishing vector and the content has no reason to carry one.
-     *
-     * Set this rather than stripping link syntax from the source: markdown reaches a link through
-     * inline `[x](url)`, reference `[x][ref]` with a definition elsewhere in the document, a bare URL
-     * autolinked by remark-gfm, or an image that falls back to a link — so a sanitizer upstream of the
-     * parser has to out-guess every one of those forms, while this simply never emits an anchor.
-     * `renderChartRef` / `renderTimestampRef` targets are unaffected: those are rendered by the
-     * caller, not linked.
+     * Whether every link renders as its label rather than an anchor. Preferred over stripping link syntax
+     * from the source, which has to out-guess the inline, reference, autolink and image-fallback forms.
      */
     disableLinks?: boolean
     className?: string
@@ -137,12 +116,7 @@ export interface LemonMarkdownProps {
      * is a scheme no browser can follow.
      */
     renderChartRef?: (chartId: string, sourceOffset?: number) => React.ReactNode
-    /**
-     * Optional renderer for `t:<ms>` link targets (see `TIMESTAMP_REF_PREFIX`). Returning null or
-     * undefined renders the link's own label as plain text, which is the fallback for a reference no
-     * player is on screen to seek. Omitting this prop renders every timestamp target as its label —
-     * never as a link, since `t:` is a scheme no browser can follow.
-     */
+    /** Without it, or on a nullish return, a `t:<ms>` target renders as its label. */
     renderTimestampRef?: (timestampMs: number) => React.ReactNode
 }
 
@@ -193,8 +167,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             a: ({ href, children, node }: any): JSX.Element => {
                 const timestampMs = timestampRefMs(href)
                 if (timestampMs !== null) {
-                    // Falls back to its own label — the timestamp itself — which is what a reader with no
-                    // player on screen needs anyway.
                     return <>{renderTimestampRef?.(timestampMs) ?? children}</>
                 }
                 const chartId = chartRefId(href)
@@ -289,8 +261,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                           if (disableImages !== 'all' && isTrustedPostHogUrl(src)) {
                               return <img src={src} alt={alt} loading="lazy" />
                           }
-                          // The click-to-open fallback is itself an anchor, so it has to answer to
-                          // `disableLinks` too — otherwise an image is a way to reach a live link.
+                          // The click-to-open fallback is an anchor, so it answers to `disableLinks` too.
                           return disableLinks ? (
                               <>{alt || src}</>
                           ) : (
@@ -358,12 +329,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
         ]
     )
 
-    // Neither `chart:` nor `t:` is a protocol the default URL sanitizer knows, so it strips the href
-    // before the `a` override ever sees it — and an emptied href is what `Link` turns into a focusable
-    // target-blank stub that goes nowhere. Let both schemes through whether or not this caller can draw
-    // charts or seek a player, so the `a` override can recognize the reference and render its label as
-    // text. Only on `href`: the same transform runs for an image `src`, where nothing downstream reads a
-    // reference, so `![x](chart:y)` would carry an unsanitized scheme into a broken image.
+    // The default sanitizer strips both schemes, so let them through, on `href` only.
     const urlTransform = useMemo(
         () =>
             (url: string, key: string): string =>
@@ -376,8 +342,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
     // two-trailing-spaces hard-break rule (e.g. agent-written report summaries) renders with the
     // line breaks the author intended.
-    // Mentions are gated at the plugin: with it out of the pipeline no `ph-mention` node is ever
-    // produced, and `skipHtml` already keeps a hand-written one out.
     const remarkPlugins = useMemo(
         () => (disableMentions ? [remarkGfm, remarkBreaks] : [remarkGfm, remarkBreaks, remarkMentions]),
         [disableMentions]

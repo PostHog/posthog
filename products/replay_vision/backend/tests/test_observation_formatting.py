@@ -34,13 +34,10 @@ class TestPlainSnippet:
             ("blockquote", "> The user gave up.", "The user gave up."),
             ("link", "Landed on [the pricing page](https://example.com/p).", "Landed on the pricing page."),
             ("reference_link", "Landed on [pricing][p].\n\n[p]: https://example.com/p", "Landed on pricing."),
-            # Brackets in prose are far more often literal than a shortcut reference, so they stay.
             ("bracketed_prose", "The user clicked [Save].", "The user clicked [Save]."),
-            # Opens like a reference definition but is a sentence, so the line survives.
             ("prose_after_bracket", "[Save]: clicked twice before it took", "[Save]: clicked twice before it took"),
             ("image", "![a screenshot](https://example.com/x.png) followed.", "a screenshot followed."),
             ("escaped_star", r"Priced at 5\* the usual.", "Priced at 5* the usual."),
-            # Only spaces indent a block marker: a tab makes it literal text, in the browser flattener too.
             ("tab_indented_heading", "\t# literal hash", "# literal hash"),
             ("already_one_sentence_per_line", "Reached payment.\nCard rejected.", "Reached payment. Card rejected."),
             ("existing_terminal_punctuation", "Two problems:\n- one\n- two", "Two problems: one. two"),
@@ -66,8 +63,6 @@ class TestPlainSnippet:
         ]
     )
     def test_never_emits_a_line_break_or_a_leading_block_marker(self, _label: str, text: str) -> None:
-        # The search-result feed embeds this inside markdown that is read as structure, so a newline or a
-        # leading marker would let recording-derived text forge a row or a header there.
         snippet = plain_snippet(text)
         assert "\n" not in snippet
         assert not snippet.startswith(("-", "*", "#", ">"))
@@ -79,5 +74,4 @@ class TestPlainSnippet:
 
 
 def test_flatten_markdown_keeps_line_structure_for_embeddings() -> None:
-    # Embeddings take the flattened text whole, so the paragraph break has to survive the strip.
     assert flatten_markdown("## Title\n\n- **one**\n- two") == "Title\n\none\ntwo"

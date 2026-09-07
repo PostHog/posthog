@@ -10,10 +10,6 @@ EVENT_ID_CITATION_RE = re.compile(r"\(event_id [0-9a-f]{16}\)", re.IGNORECASE)
 
 SEARCH_SNIPPET_LIMIT = 600
 
-# Markdown a scanner can emit in its free-text fields. Block markers are matched per line, the way a
-# markdown parser reads them; inline markers are matched anywhere on the line. Kept identical to the
-# frontend's `flattenMarkdownToLine` (products/replay_vision/frontend/utils/markdown.ts): the two have to
-# agree on what is syntax, or a snippet flattens differently in a search result and on the seekbar.
 _FENCE_RE = re.compile(r"^ {0,3}(?:```|~~~)")
 _RULE_RE = re.compile(r"^ {0,3}(?:[-*_]\s*){3,}$")
 _HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s+")
@@ -21,22 +17,13 @@ _QUOTE_RE = re.compile(r"^ {0,3}>\s?")
 _BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d{1,9}[.)])\s+")
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-# A link reference definition is a whole line of pure syntax, so the line goes. Its `[text][ref]` and
-# `[text][]` usages keep their label. Bare `[text]` is left alone: in prose it is far more often a real
-# bracket ("clicked [Save]") than a shortcut reference.
-# The definition has to be the entire line — a space-free destination and an optional title, nothing
-# after. Matching just the prefix would eat a sentence that merely opens the same way, such as
-# "[Save]: clicked twice before it took".
 _LINK_DEFINITION_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S+(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*$")
 _REFERENCE_RE = re.compile(r"!?\[([^\]]*)\]\[[^\]]*\]")
 _CODE_SPAN_RE = re.compile(r"`+([^`]*)`+")
 _STRONG_RE = re.compile(r"(\*\*|__)(?=\S)(.+?)(?<=\S)\1")
 _STRIKE_RE = re.compile(r"~~(?=\S)(.+?)(?<=\S)~~")
-# The lookarounds keep `snake_case` and `2 * 3 * 4` intact: an underscore or star touching a word
-# character on the outside is punctuation the model meant literally, not an emphasis delimiter.
 _EMPHASIS_RE = re.compile(r"(?<![\w*_])([*_])(?=\S)(.+?)(?<=\S)\1(?![\w*_])")
 _ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!>~|])")
-# Terminal punctuation, after which one flattened block runs into the next without a sentence break.
 _SENTENCE_ENDINGS = ".!?:;,"
 
 
@@ -47,6 +34,15 @@ def flatten_markdown(text: str) -> str:
     it as prose, where the syntax is noise at best (`**` and `##` inside a search snippet) and a forged list
     row at worst. Flattening here rather than at each consumer keeps the stored field the one canonical
     copy. `plain_snippet` is what folds the result onto a single line.
+
+    The regexes above read a line the way a markdown parser does: block markers only at the start of a
+    line and only space-indented, inline markers anywhere. Three carry a reason worth knowing:
+    `_LINK_DEFINITION_RE` has to match a whole line, or it eats a sentence that merely opens the same way
+    ("[Save]: clicked twice before it took"); bare `[text]` is deliberately left alone, being far more
+    often a real bracket in prose than a shortcut reference; and `_EMPHASIS_RE`'s lookarounds keep
+    `snake_case` and `2 * 3 * 4` intact. The frontend's `flattenMarkdownToLine`
+    (products/replay_vision/frontend/utils/markdown.ts) is the same table and has to stay in step, or a
+    snippet flattens differently in a search result and on the seekbar.
     """
     lines: list[str] = []
     for raw in text.split("\n"):

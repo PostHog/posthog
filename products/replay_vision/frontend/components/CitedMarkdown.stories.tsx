@@ -27,7 +27,6 @@ export const Structured: Story = {
     },
 }
 
-/** Reasoning written before the prompt asked for structure still has to render as the paragraph it is. */
 export const PlainProse: Story = {
     args: {
         text: 'The user opened the pricing page, scrolled to the comparison table, and left without starting a trial.',
@@ -35,14 +34,7 @@ export const PlainProse: Story = {
     },
 }
 
-/**
- * Reasoning is model output derived from a page a stranger wrote, so a link in it is a phishing vector, an
- * image is a request it gets to aim from the reader's browser, and a mention is a colleague it gets to
- * name. Every markdown form that reaches one of those is here, including the reference forms that a regex
- * over the source misses and the same-origin image that the ordinary `disableImages` lets through. The
- * assertion runs in a real browser under `test-storybook`, which is the only place this can be checked:
- * `react-markdown` is ESM-only and mocked out under Jest.
- */
+/** Only `test-storybook` checks this: `react-markdown` is ESM-only and mocked out under Jest. */
 export const HostileLinks: Story = {
     args: {
         text: [
@@ -59,8 +51,7 @@ export const HostileLinks: Story = {
         ].join('\n'),
         segments: [],
     },
-    // `storybook/test` is a dependency of the frontend workspace, which a file under `products/` cannot
-    // resolve, so the assertions are plain throws. A play function that throws is a failed story.
+    // `storybook/test` belongs to the frontend workspace and does not resolve from `products/`.
     play: ({ canvasElement }) => {
         const check = (ok: boolean, failure: string): void => {
             if (!ok) {
@@ -70,8 +61,6 @@ export const HostileLinks: Story = {
         const text = canvasElement.textContent ?? ''
         check(canvasElement.querySelectorAll('a').length === 0, 'a clickable link reached the reader')
         check(canvasElement.querySelectorAll('img').length === 0, 'an image fired a request')
-        // The labels and the raw mention syntax survive as plain text, so the reader still sees what the
-        // model wrote. A chip would show the member's name in its place.
         check(text.includes('click here'), 'a link label was dropped instead of kept as text')
         check(text.includes('@member:1 and @role:1'), 'a mention resolved into a chip')
     },

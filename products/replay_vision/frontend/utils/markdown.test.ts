@@ -11,7 +11,6 @@ describe('flattenMarkdownToLine', () => {
             expected: 'Checkout blocked. The form rejected it.',
         },
         {
-            // Only spaces indent a block marker: a tab makes it literal text, in the backend flattener too.
             name: 'leaves a tab-indented hash as text',
             text: '\t# literal hash',
             expected: '# literal hash',
@@ -37,13 +36,11 @@ describe('flattenMarkdownToLine', () => {
             expected: 'Landed on pricing.',
         },
         {
-            // Brackets in prose are far more often literal than a shortcut reference, so they stay.
             name: 'leaves bracketed prose alone',
             text: 'The user clicked [Save].',
             expected: 'The user clicked [Save].',
         },
         {
-            // Opens like a reference definition but is a sentence, so the line survives.
             name: 'keeps a sentence that merely opens like a reference definition',
             text: '[Save]: clicked twice before it took',
             expected: '[Save]: clicked twice before it took',

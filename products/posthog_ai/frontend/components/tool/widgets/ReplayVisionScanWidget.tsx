@@ -99,8 +99,7 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
         )
     }
 
-    // Summarizers write a title and a body; a monitor scan on the same widget has reasoning instead. The
-    // reasoning can carry markdown, and this widget has one paragraph of plain text to show it in.
+    // Summarizers write a title and a body; a monitor scan has reasoning, which can carry markdown.
     const title = readTitle(observation)
     const reasoning = readReasoning(observation)
     const body = readSummary(observation) ?? (reasoning ? flattenMarkdownToLine(reasoning) : null)

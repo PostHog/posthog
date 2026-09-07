@@ -98,7 +98,6 @@ describe('citedMarkdown', () => {
             expected: '- **Reached payment**[01:32](t:92000)\n- Card rejected',
         },
         {
-            // `![label](target)` is an image, so a citation glued to a `!` would stop being a citation.
             name: 'does not let a trailing exclamation mark turn the citation into an image',
             text: '',
             segments: [
@@ -108,8 +107,6 @@ describe('citedMarkdown', () => {
             expected: 'Something broke! [00:05](t:5000)',
         },
         {
-            // Sanitizing is the renderer's job (`CitedMarkdown` sets `disableLinks`), so the prose is
-            // passed through whole — a link here must arrive intact rather than half-stripped.
             name: 'passes the prose through untouched, including anything link-shaped',
             text: '',
             segments: [
@@ -119,7 +116,6 @@ describe('citedMarkdown', () => {
             expected: 'Saw [an offer](https://evil.example)[00:05](t:5000)',
         },
         {
-            // `t:` takes digits only, so anything else in the target would render as a dead label.
             name: 'rounds a fractional offset and clamps a negative one so the target stays parseable',
             text: '',
             segments: [

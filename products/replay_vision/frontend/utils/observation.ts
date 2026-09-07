@@ -132,8 +132,7 @@ export interface ObservationSeekbarMark {
 const SNIPPET_MAX_LENGTH = 160
 
 function lastSentence(text: string): string | null {
-    // Flattened first: a seekbar mark has room for one line, so markdown syntax would reach the reader as
-    // literal `**` and `-`, and a bullet's marker would read as the start of the sentence.
+    // Flattened first: a mark has room for one line, where a bullet marker reads as the sentence start.
     const flat = flattenMarkdownToLine(text)
     if (!flat) {
         return null
