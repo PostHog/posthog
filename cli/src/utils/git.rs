@@ -227,30 +227,45 @@ fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
 /// `https://x-access-token:<token>@github.com/owner/repo.git`), and that credential must never
 /// reach release metadata.
 ///
-/// Returns `None` when a URL holds an `@` but does not parse. Userinfo must percent-encode
-/// `/`, `?` and `#`, so a URL that breaks that rule can hide a credential in a position no
-/// parser can identify. Such a URL is dropped instead of stored.
+/// Returns `None` for a URL whose credential sits where no parser can identify it, rather than
+/// store it. That covers a URL holding an `@` that does not parse, because userinfo must
+/// percent-encode `/`, `?` and `#`, and a URL holding an `@` in its path.
 fn strip_credentials(url: &str) -> Option<String> {
     // A query or a fragment can hold a token (`?token=`, `#access_token=`) and a git remote
-    // needs neither, so both go before anything else looks at the URL.
+    // needs neither, so both go before anything else looks at the URL. The full input stays
+    // readable, because a malformed credential can put an `@` after the delimiter that goes.
+    let full = url;
     let url = match url.find(['?', '#']) {
         Some(index) => &url[..index],
         None => url,
     };
 
     // SCP-like SSH remotes (`git@host:owner/repo.git`) have no `://` authority to parse, and
-    // the leading `git` is a fixed SSH username rather than a stored secret.
+    // the leading `git` is a fixed SSH username rather than a stored secret. A second `@` sits
+    // in the path, where the rule below applies.
     if !url.contains("://") {
-        return Some(url.to_string());
+        let path = url.split_once(':').map_or("", |(_, path)| path);
+        return if path.contains('@') {
+            None
+        } else {
+            Some(url.to_string())
+        };
     }
 
     let Ok(mut parsed) = Url::parse(url) else {
-        return if url.contains('@') {
+        return if full.contains('@') {
             None
         } else {
             Some(url.to_string())
         };
     };
+
+    // An `@` in the path is a credential written into the wrong position, most often
+    // `https://host/${TOKEN}@host/owner/repo.git` from a CI script that meant to write
+    // `https://${TOKEN}@host/owner/repo.git`. Nothing tells that token from a path segment.
+    if parsed.path().contains('@') {
+        return None;
+    }
 
     // Return the input untouched when it holds no credential, so the parser never reshapes a
     // URL that this function does not need to change.
@@ -495,9 +510,29 @@ mod tests {
                 Some("git@github.com:owner/repo.git"),
             ),
             (
-                "an `@` in the path is not a credential",
+                "a token in the path is refused, because nothing tells it from a path segment",
+                "https://github.com/ghs_abc123def456@github.com/owner/repo.git",
+                None,
+            ),
+            (
+                "any other `@` in the path is refused for the same reason",
                 "https://github.com/owner/repo@v2.git",
-                Some("https://github.com/owner/repo@v2.git"),
+                None,
+            ),
+            (
+                "a second `@` in an scp-like path is refused too",
+                "git@github.com:ghs_abc123@owner/repo.git",
+                None,
+            ),
+            (
+                "a malformed credential holding a `?` before the `@` is refused",
+                "https://user:ghp_abc123?x@github.com/owner/repo.git",
+                None,
+            ),
+            (
+                "a malformed credential holding a `#` before the `@` is refused",
+                "https://user:ghp_abc123#x@github.com/owner/repo.git",
+                None,
             ),
             (
                 "ssh url with a credential",
