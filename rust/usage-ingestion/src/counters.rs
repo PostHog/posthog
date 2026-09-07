@@ -18,24 +18,13 @@ const HOURLY_TTL_SECONDS: u64 = 25 * 60 * 60;
 const DAILY_TTL_SECONDS: u64 = 31 * 24 * 60 * 60;
 const DEFAULT_CONNECTIONS: usize = 16;
 const DEFAULT_FLUSH_CONCURRENCY: usize = 16;
-const DEFAULT_MAX_SERIES_PER_BUCKET: usize = 16;
 const MAX_PAST_TIMESTAMP: ChronoDuration = ChronoDuration::days(7);
 const MAX_FUTURE_TIMESTAMP: ChronoDuration = ChronoDuration::hours(24);
-const INCREMENT_COUNTER: &str = r#"
-local exists = redis.call('HEXISTS', KEYS[1], ARGV[1])
-if exists == 0 and redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[4]) then
-    return 0
-end
-redis.call('HINCRBY', KEYS[1], ARGV[1], ARGV[2])
-redis.call('EXPIRE', KEYS[1], ARGV[3], 'NX')
-return 1
-"#;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CounterConfig {
     pub connections: usize,
     pub flush_concurrency: usize,
-    pub max_series_per_bucket: usize,
 }
 
 impl Default for CounterConfig {
@@ -43,7 +32,6 @@ impl Default for CounterConfig {
         Self {
             connections: DEFAULT_CONNECTIONS,
             flush_concurrency: DEFAULT_FLUSH_CONCURRENCY,
-            max_series_per_bucket: DEFAULT_MAX_SERIES_PER_BUCKET,
         }
     }
 }
@@ -99,7 +87,6 @@ struct CounterEntry {
 #[derive(Debug, PartialEq, Eq)]
 pub enum CounterAddError {
     TimestampOutOfRange,
-    TooManySeries,
     Overflow,
 }
 
@@ -107,7 +94,6 @@ impl CounterAddError {
     pub fn reason(&self) -> &'static str {
         match self {
             Self::TimestampOutOfRange => "timestamp_out_of_range",
-            Self::TooManySeries => "too_many_series",
             Self::Overflow => "overflow",
         }
     }
@@ -120,25 +106,12 @@ pub struct ScopeCounters {
 }
 
 /// A process-local, lossy aggregation of Kafka-confirmed usage records.
+#[derive(Default)]
 pub struct CounterAccumulator {
     pending: Mutex<HashMap<CounterScope, HashMap<CounterEntry, i64>>>,
-    max_series_per_bucket: usize,
-}
-
-impl Default for CounterAccumulator {
-    fn default() -> Self {
-        Self::new(DEFAULT_MAX_SERIES_PER_BUCKET)
-    }
 }
 
 impl CounterAccumulator {
-    pub fn new(max_series_per_bucket: usize) -> Self {
-        Self {
-            pending: Mutex::default(),
-            max_series_per_bucket,
-        }
-    }
-
     pub fn add_record(&self, record: &KafkaBillingUsageRecord) -> Result<(), CounterAddError> {
         // TODO: Pass trusted capture time from event-derived producers into `usage_timestamp`.
         // Batch-flush time rebuckets lagged records into wrong quota windows; customer event timestamps must not be used.
@@ -174,15 +147,9 @@ impl CounterAccumulator {
         let mut pending = self.pending.lock().expect("usage counter mutex poisoned");
         let mut rejection = None;
         for scope in scopes {
-            // An organization aggregates the series of every team below it, so it saturates
-            // first. Rejecting per scope keeps the team projection alive when it does.
-            if let Err(error) = add_to_scope(
-                pending.entry(scope).or_default(),
-                buckets,
-                &field,
-                quantity,
-                self.max_series_per_bucket,
-            ) {
+            if let Err(error) =
+                add_to_scope(pending.entry(scope).or_default(), buckets, &field, quantity)
+            {
                 rejection = Some(error);
             }
         }
@@ -211,18 +178,9 @@ impl CounterAccumulator {
     }
 }
 
-/// A flushed scope: commands sent, and deltas the Redis-side series cap refused.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ScopeFlush {
-    pub commands: usize,
-    pub capped: usize,
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FlushOutcome {
     pub commands: usize,
-    /// Refused by the series cap, which is the projection working as designed.
-    pub capped: usize,
     /// Lost because a scope's transaction failed.
     pub dropped: usize,
     pub failed_scopes: usize,
@@ -230,13 +188,12 @@ pub struct FlushOutcome {
 
 #[async_trait]
 pub trait CounterStore: Send + Sync {
-    async fn flush_scope(&self, counters: ScopeCounters) -> Result<ScopeFlush, redis::RedisError>;
+    async fn flush_scope(&self, counters: ScopeCounters) -> Result<usize, redis::RedisError>;
 }
 
 /// Cluster-aware store. Each scope is one transaction, and every key in it has the same hash tag.
 pub struct RedisCounterStore {
     connections: Vec<AsyncMutex<ClusterConnection>>,
-    max_series_per_bucket: usize,
 }
 
 impl RedisCounterStore {
@@ -246,10 +203,7 @@ impl RedisCounterStore {
         for _ in 0..config.connections {
             connections.push(AsyncMutex::new(client.get_async_connection().await?));
         }
-        Ok(Self {
-            connections,
-            max_series_per_bucket: config.max_series_per_bucket,
-        })
+        Ok(Self { connections })
     }
 
     fn connection(&self, scope: &CounterScope) -> &AsyncMutex<ClusterConnection> {
@@ -261,29 +215,27 @@ impl RedisCounterStore {
 
 #[async_trait]
 impl CounterStore for RedisCounterStore {
-    async fn flush_scope(&self, counters: ScopeCounters) -> Result<ScopeFlush, redis::RedisError> {
+    async fn flush_scope(&self, counters: ScopeCounters) -> Result<usize, redis::RedisError> {
         let entry_count = counters.entries.len();
         let mut pipeline = redis::pipe();
         pipeline.atomic();
         for (entry, quantity) in counters.entries {
             let key = counter_key(&counters.scope, entry.bucket);
             pipeline
-                .cmd("EVAL")
-                .arg(INCREMENT_COUNTER)
-                .arg(1)
+                .cmd("HINCRBY")
                 .arg(&key)
-                .arg(&entry.field)
+                .arg(entry.field)
                 .arg(quantity)
+                .ignore()
+                .cmd("EXPIRE")
+                .arg(key)
                 .arg(entry.bucket.ttl_seconds())
-                .arg(self.max_series_per_bucket);
+                .arg("NX")
+                .ignore();
         }
         let mut connection = self.connection(&counters.scope).lock().await;
-        let accepted = pipeline.query_async::<Vec<i64>>(&mut *connection).await?;
-        let accepted = accepted.into_iter().filter(|result| *result == 1).count();
-        Ok(ScopeFlush {
-            commands: accepted * 2,
-            capped: entry_count - accepted,
-        })
+        pipeline.query_async::<()>(&mut *connection).await?;
+        Ok(entry_count * 2)
     }
 }
 
@@ -305,7 +257,6 @@ fn add_to_scope(
     buckets: [Bucket; 2],
     field: &str,
     quantity: i64,
-    max_series_per_bucket: usize,
 ) -> Result<(), CounterAddError> {
     let mut totals = [0_i64; 2];
     for (bucket, total) in buckets.into_iter().zip(&mut totals) {
@@ -317,17 +268,7 @@ fn add_to_scope(
             Some(current) => current
                 .checked_add(quantity)
                 .ok_or(CounterAddError::Overflow)?,
-            None => {
-                if entries
-                    .keys()
-                    .filter(|existing| existing.bucket == bucket)
-                    .count()
-                    >= max_series_per_bucket
-                {
-                    return Err(CounterAddError::TooManySeries);
-                }
-                quantity
-            }
+            None => quantity,
         };
     }
     for (bucket, total) in buckets.into_iter().zip(totals) {
@@ -362,9 +303,8 @@ async fn flush_with_concurrency(
             async move {
                 let entries = counters.entries.len();
                 match store.flush_scope(counters).await {
-                    Ok(flushed) => FlushOutcome {
-                        commands: flushed.commands,
-                        capped: flushed.capped,
+                    Ok(commands) => FlushOutcome {
+                        commands,
                         ..FlushOutcome::default()
                     },
                     Err(error) => {
@@ -385,7 +325,6 @@ async fn flush_with_concurrency(
         .into_iter()
         .fold(FlushOutcome::default(), |total, next| FlushOutcome {
             commands: total.commands + next.commands,
-            capped: total.capped + next.capped,
             dropped: total.dropped + next.dropped,
             failed_scopes: total.failed_scopes + next.failed_scopes,
         })
@@ -443,12 +382,6 @@ pub fn spawn_flush_task(
                 .increment(outcome.commands as u64);
             metrics::counter!("usage_ingestion_redis_counter_dropped_deltas_total")
                 .increment(outcome.dropped as u64);
-            metrics::counter!(
-                "usage_ingestion_redis_counter_rejected_deltas_total",
-                "reason" => "too_many_series"
-            )
-            .increment(outcome.capped as u64);
-            // Only a failed transaction means the connection is suspect. A capped series does not.
             if outcome.failed_scopes > 0 {
                 metrics::counter!("usage_ingestion_redis_counter_errors_total").increment(1);
                 store = None;
@@ -494,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn bounds_series_timestamps_and_deltas() {
+    fn rejects_out_of_range_timestamps_and_overflowing_deltas() {
         let organization_id = Uuid::nil();
         let accumulator = CounterAccumulator::default();
         let now = Utc::now();
@@ -521,23 +454,6 @@ mod tests {
             ),
             Err(CounterAddError::TimestampOutOfRange)
         );
-        for index in 0..DEFAULT_MAX_SERIES_PER_BUCKET {
-            accumulator
-                .add(
-                    42,
-                    organization_id,
-                    &format!("events_{index}"),
-                    "event",
-                    1,
-                    now,
-                )
-                .unwrap();
-        }
-        assert_eq!(
-            accumulator.add(42, organization_id, "one_too_many", "event", 1, now),
-            Err(CounterAddError::TooManySeries)
-        );
-
         let overflow = CounterAccumulator::default();
         overflow
             .add(43, organization_id, "events", "event", i64::MAX, now)
@@ -546,36 +462,5 @@ mod tests {
             overflow.add(43, organization_id, "events", "event", 1, now),
             Err(CounterAddError::Overflow)
         );
-    }
-
-    #[test]
-    fn saturated_organization_still_lets_a_team_count() {
-        let organization_id = Uuid::nil();
-        let accumulator = CounterAccumulator::default();
-        let now = Utc::now();
-        for index in 0..DEFAULT_MAX_SERIES_PER_BUCKET {
-            accumulator
-                .add(
-                    index as i64 + 1,
-                    organization_id,
-                    &format!("events_{index}"),
-                    "event",
-                    1,
-                    now,
-                )
-                .unwrap();
-        }
-
-        assert_eq!(
-            accumulator.add(99, organization_id, "one_too_many", "event", 7, now),
-            Err(CounterAddError::TooManySeries)
-        );
-        let drained = accumulator.drain();
-        let team = drained
-            .iter()
-            .find(|counters| counters.scope == CounterScope::Team(99))
-            .expect("the team scope should still hold its own series");
-        assert_eq!(team.entries.len(), 2);
-        assert!(team.entries.values().all(|quantity| *quantity == 7));
     }
 }
