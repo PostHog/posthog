@@ -251,6 +251,7 @@ export interface experimentReplayTabLogicValues {
     seenTogetherMapLoading: boolean // viewRecordingsLinkabilityLogic
     unlinkableEventNames: Set<string> // viewRecordingsLinkabilityLogic
     appliedDurationFilter: RecordingDurationFilter | null
+    appliedDurationFilterCount: number
     behaviorComparisonAvailable: boolean
     behaviorComparisonOpen: boolean
     bucketSessionIds: string[] | undefined
@@ -545,9 +546,12 @@ export interface experimentReplayTabLogicMeta {
             playlistFilters: RecordingUniversalFilters | null,
             recordingsFilters: RecordingUniversalFilters
         ) => RecordingDurationFilter | null
-        durationFilterCustomized: (
+        appliedDurationFilterCount: (
             playlistFilters: RecordingUniversalFilters | null,
-            recordingsFilters: RecordingUniversalFilters,
+            recordingsFilters: RecordingUniversalFilters
+        ) => number
+        durationFilterCustomized: (
+            appliedDurationFilterCount: number,
             appliedDurationFilter: RecordingDurationFilter | null
         ) => boolean
         listEmptyReason: (
@@ -1030,7 +1034,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // and `lt`. Null when no duration filter is applied, which the tab does itself for a watch
         // card. The filter bar writes one entry, but the query conversion carries every duration
         // predicate through `having_predicates` and back, so a set from another writer can hold
-        // more. This describes the first entry only, and `durationFilterCustomized` covers the rest.
+        // more. This describes the first entry only, so it is reported next to the entry count.
         appliedDurationFilter: [
             (s) => [s.playlistFilters, s.recordingsFilters],
             (
@@ -1038,19 +1042,22 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 recordingsFilters: RecordingUniversalFilters
             ): RecordingDurationFilter | null => (playlistFilters ?? recordingsFilters).duration[0] ?? null,
         ],
+        // How many duration filters the list ran under. The reported key, threshold, and operator
+        // describe the first, so this is what tells a reader whether they describe the whole set.
+        appliedDurationFilterCount: [
+            (s) => [s.playlistFilters, s.recordingsFilters],
+            (playlistFilters: RecordingUniversalFilters | null, recordingsFilters: RecordingUniversalFilters): number =>
+                (playlistFilters ?? recordingsFilters).duration.length,
+        ],
         // Whether the applied filter differs from replay's default floor, which counts removing it
         // as a difference. A reader needs this to tell an empty list under the floor everyone gets
         // from an empty list under a threshold the viewer chose. More than one duration filter
         // counts as a difference too, so that a second, stricter entry can never report as the
         // default that `appliedDurationFilter` read off the first.
         durationFilterCustomized: [
-            (s) => [s.playlistFilters, s.recordingsFilters, s.appliedDurationFilter],
-            (
-                playlistFilters: RecordingUniversalFilters | null,
-                recordingsFilters: RecordingUniversalFilters,
-                appliedDurationFilter: RecordingDurationFilter | null
-            ): boolean =>
-                (playlistFilters ?? recordingsFilters).duration.length > 1 ||
+            (s) => [s.appliedDurationFilterCount, s.appliedDurationFilter],
+            (appliedDurationFilterCount: number, appliedDurationFilter: RecordingDurationFilter | null): boolean =>
+                appliedDurationFilterCount > 1 ||
                 appliedDurationFilter === null ||
                 appliedDurationFilter.key !== defaultRecordingDurationFilter.key ||
                 appliedDurationFilter.value !== defaultRecordingDurationFilter.value ||
@@ -1523,6 +1530,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 duration_filter_key: values.appliedDurationFilter?.key ?? null,
                 duration_filter_seconds: values.appliedDurationFilter?.value ?? null,
                 duration_filter_operator: values.appliedDurationFilter?.operator ?? null,
+                duration_filter_count: values.appliedDurationFilterCount,
                 duration_filter_customized: values.durationFilterCustomized,
                 exposure_linkable: values.exposureLinkable,
             })

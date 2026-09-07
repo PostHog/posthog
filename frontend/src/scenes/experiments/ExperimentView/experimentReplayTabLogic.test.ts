@@ -821,6 +821,7 @@ describe('experimentReplayTabLogic', () => {
             duration_filter_key: 'active_seconds',
             duration_filter_seconds: 5,
             duration_filter_operator: 'gt',
+            duration_filter_count: 1,
             duration_filter_customized: false,
             exposure_linkable: true,
             variant: 'test',
@@ -849,6 +850,7 @@ describe('experimentReplayTabLogic', () => {
                 duration_filter_key: 'duration',
                 duration_filter_seconds: 60,
                 duration_filter_operator: 'gt',
+                duration_filter_count: 1,
                 duration_filter_customized: true,
             },
         },
@@ -860,6 +862,7 @@ describe('experimentReplayTabLogic', () => {
                 duration_filter_key: null,
                 duration_filter_seconds: null,
                 duration_filter_operator: null,
+                duration_filter_count: 0,
                 duration_filter_customized: true,
             },
         },
@@ -884,6 +887,7 @@ describe('experimentReplayTabLogic', () => {
                 duration_filter_key: 'active_seconds',
                 duration_filter_seconds: 5,
                 duration_filter_operator: 'gt',
+                duration_filter_count: 2,
                 duration_filter_customized: true,
             },
         },
@@ -895,7 +899,7 @@ describe('experimentReplayTabLogic', () => {
         //
         // The last case is the fail-safe one: the reported key, threshold, and operator describe
         // the first entry, so a set whose first entry is the default must still report as
-        // customized when a later entry is what narrowed the list.
+        // customized, and its count must say that the report names part of the set.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         logic.actions.playlistFiltersChanged({ ...logic.values.recordingsFilters, duration })
         logic.actions.recordingsLoaded([])
