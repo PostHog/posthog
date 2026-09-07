@@ -388,6 +388,7 @@ tools:
         enabled: true
         scopes:
             - signal_scout:write
+            - llm_skill:write
         annotations:
             readOnly: false
             destructive: false
@@ -402,7 +403,9 @@ tools:
             `enabled`, and `emit` (false = dry-run). Cron schedules use the project timezone automatically and
             occurrences must be at least 30 minutes apart. The same call can configure `output_destinations`. The skill
             must already exist on the project (author it via the skills store first). Upsert: if a config already exists
-            for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since
+            for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as
+            the scout's prompt, so the call needs `llm_skill:write` and editor access to skills on top of
+            `signal_scout:write`, the same bar as `scout-create`. Creating an enabled config is activity-logged, since
             running a scout drives spend.
     scout-config-delete:
         operation: signals_scout_config_destroy
@@ -985,6 +988,7 @@ tools:
         enabled: true
         scopes:
             - signal_scout:write
+            - llm_skill:write
         annotations:
             readOnly: false
             destructive: false

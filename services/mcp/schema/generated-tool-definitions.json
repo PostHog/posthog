@@ -9352,12 +9352,12 @@
         }
     },
     "scout-config-create": {
-        "description": "Register the config for a freshly authored skill immediately, without waiting for the coordinator to auto-register it. The config row is what makes a skill a scout, so any valid skill name works. The coordinator only auto-registers `signals-scout-*` skills, so for any other name this call is what puts the skill on the schedule. The same call can optionally set its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *' that takes precedence when set), `enabled`, and `emit` (false = dry-run). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart. The same call can configure `output_destinations`. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "description": "Register the config for a freshly authored skill immediately, without waiting for the coordinator to auto-register it. The config row is what makes a skill a scout, so any valid skill name works. The coordinator only auto-registers `signals-scout-*` skills, so for any other name this call is what puts the skill on the schedule. The same call can optionally set its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *' that takes precedence when set), `enabled`, and `emit` (false = dry-run). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart. The same call can configure `output_destinations`. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so the call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, the same bar as `scout-create`. Creating an enabled config is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create a scout config",
         "title": "Create a scout config",
-        "required_scopes": ["signal_scout:write"],
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -9833,7 +9833,7 @@
         "feature": "signals",
         "summary": "Create a scout config (deprecated)",
         "title": "Create a scout config (deprecated)",
-        "required_scopes": ["signal_scout:write"],
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

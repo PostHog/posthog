@@ -3414,6 +3414,48 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
 
+    @parameterized.expand(
+        [
+            # Registering puts the skill body on the schedule as the run's prompt, and the run acts
+            # as the skill's author. A config-only key must not reach that, whatever the name.
+            ("config_scope_only_prefixed", "signals-scout-fresh", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("config_scope_only_bare", "my-ordinary-skill", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", "my-ordinary-skill", ["signal_scout:write", "llm_skill:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_requires_skill_authoring_scope(
+        self, _name: str, skill_name: str, scopes: list[str], expected: int
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_skill(skill_name)
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._list_url(), data={"skill_name": skill_name}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists() == (
+            expected == status.HTTP_201_CREATED
+        )
+
+    def test_create_requires_skill_editor_access(self) -> None:
+        # Same RBAC bar as creating a scout from scratch: a member who may tune scouts but may
+        # not author skills cannot put someone else's skill on the schedule.
+        self._make_skill("my-ordinary-skill")
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
+        ) as check_resource:
+            check_resource.side_effect = lambda resource, *args, **kwargs: resource != "llm_skill"
+            response = self.client.post(self._list_url(), data={"skill_name": "my-ordinary-skill"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
+
     def test_create_rejects_skill_belonging_to_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._make_skill("signals-scout-fresh", team=other_team)

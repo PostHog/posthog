@@ -2216,14 +2216,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        # Setting a `structured_output_schema` injects text a privileged agent reads verbatim in
-        # its run prompt (schema `description` fields are free prose), so it is skill-authoring-level
-        # steering: keys need `llm_skill:write` on top of the config write — the same two-leg gate as
-        # scout notes. Only the *setting* write escalates; reads, other config edits, and clearing
-        # the schema (privilege-reducing) stay on the base config scopes.
-        if getattr(view, "action", None) in ("create", "partial_update") and self._sets_structured_output_schema(
-            request
-        ):
+        # Registering a config puts a skill on the schedule under any name, and the skill body is
+        # the run's whole prompt, so `create` carries the skill-authoring scope on top of the config
+        # write — the same two-leg gate as creating a scout from scratch and as scout notes.
+        # On `partial_update` only setting a `structured_output_schema` escalates, because the
+        # schema is rendered verbatim into the run prompt (its `description` fields are free prose).
+        # Reads, other config edits, and clearing the schema stay on the base config scopes.
+        action = getattr(view, "action", None)
+        if action == "create":
+            return ["signal_scout:write", "llm_skill:write"]
+        if action == "partial_update" and self._sets_structured_output_schema(request):
             return ["signal_scout:write", "llm_skill:write"]
         return None
 
@@ -2232,13 +2234,23 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.data
         return isinstance(data, dict) and data.get("structured_output_schema") is not None
 
-    def _assert_can_author_structured_output_schema(self) -> None:
-        # RBAC leg of the schema-write gate, mirroring the scout-notes steering gate: session
-        # callers (and key holders) must clear the same `llm_skill` editor bar that editing a
-        # scout's skill body requires, bound to the canonical team whose scouts read the prompt.
+    def _has_skill_editor_access(self) -> bool:
+        # RBAC leg of the skill-authoring gates, bound to the canonical team whose scouts read the
+        # prompt: session callers (and key holders) must clear the same `llm_skill` editor bar
+        # that editing a scout's skill body requires.
         canonical_team = self.team.parent_team or self.team
         access = UserAccessControl(user=cast(User, self.request.user), team=canonical_team)
-        if not access.check_access_level_for_resource("llm_skill", "editor"):
+        return access.check_access_level_for_resource("llm_skill", "editor")
+
+    def _assert_can_register_scout(self) -> None:
+        if not self._has_skill_editor_access():
+            raise exceptions.PermissionDenied(
+                "Registering a scout config requires editor access to skills, since the skill body "
+                "is the prompt the scout agent runs."
+            )
+
+    def _assert_can_author_structured_output_schema(self) -> None:
+        if not self._has_skill_editor_access():
             raise exceptions.PermissionDenied(
                 "Setting structured_output_schema requires editor access to skills, since the schema "
                 "is read verbatim by the scout agent."
@@ -2296,6 +2308,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "or the project is already at its enabled-scouts maximum."
                 )
             ),
+            403: OpenApiResponse(description="The caller lacks editor access to skills on this project."),
         },
         summary="Create a scout config",
         description=(
@@ -2305,15 +2318,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, "
             "and output destinations. "
             "The skill must already exist on this project. Upsert: if a config already exists "
-            "for the skill, the provided fields are applied to it."
+            "for the skill, the provided fields are applied to it. Registering puts the skill's "
+            "body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and "
+            "editor access to skills on top of `signal_scout:write`, like creating a scout."
         ),
         operation_id="signals_scout_config_create",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team = _canonical_team(self)
         team_id = team.id
-        if self._sets_structured_output_schema(request):
-            self._assert_can_author_structured_output_schema()
+        self._assert_can_register_scout()
         serializer = SignalScoutConfigCreateSerializer(
             data=request.data,
             context={**self.get_serializer_context(), "project_id": self.team.project_id},
