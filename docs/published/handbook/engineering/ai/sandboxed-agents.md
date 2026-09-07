@@ -51,11 +51,6 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
-## Message presentation
-
-Human messages in the shared message template in `products/posthog_ai/frontend` stay right-aligned and occupy at most 80% of the available width.
-Long prompts wrap within this limit so they remain visibly offset from assistant replies.
-
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:
