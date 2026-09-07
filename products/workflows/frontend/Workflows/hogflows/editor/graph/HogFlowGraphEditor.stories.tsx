@@ -15,7 +15,6 @@ const meta: Meta<typeof Workflow> = {
     component: Workflow,
     parameters: {
         layout: 'fullscreen',
-        mockDate: '2026-09-04 12:00:00',
         testOptions: {
             waitForLoadersToDisappear: true,
             waitForSelector: '[data-attr=workflow-editor]',

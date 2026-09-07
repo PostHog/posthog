@@ -123,7 +123,7 @@ export function StepRandomCohortBranchConfiguration({
     const shortfall = 100 - totalPercentage
 
     return (
-        <>
+        <div className="flex flex-col gap-3">
             <StepSchemaErrors />
 
             {cohorts.map((cohort, index) => (
@@ -170,6 +170,6 @@ export function StepRandomCohortBranchConfiguration({
                     <IconBalance />
                 </LemonButton>
             </div>
-        </>
+        </div>
     )
 }

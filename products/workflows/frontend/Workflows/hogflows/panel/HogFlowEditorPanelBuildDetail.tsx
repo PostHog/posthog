@@ -12,6 +12,7 @@ import {
     LemonLabel,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
 } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -393,7 +394,17 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                       ]),
                                 {
                                     key: 'on_error',
-                                    header: <span className="flex-1">Error handling</span>,
+                                    header: (
+                                        <>
+                                            <span className="flex-1">Error handling</span>
+                                            <LemonTag
+                                                size="small"
+                                                type={action.on_error === 'continue' ? 'success' : 'danger'}
+                                            >
+                                                {action.on_error === 'continue' ? 'Continue on error' : 'Exit on error'}
+                                            </LemonTag>
+                                        </>
+                                    ),
                                     content: (
                                         <div>
                                             <p>

@@ -18,6 +18,12 @@ const PANEL_WORKFLOW: HogFlow = {
     variables: [
         { type: 'string', key: 'account_owner', label: 'Account owner', default: '' },
         { type: 'number', key: 'trial_days', label: 'Trial days', default: 14 },
+        ...Array.from({ length: 22 }, (_, index) => ({
+            type: 'string' as const,
+            key: `workflow_value_${index + 1}`,
+            label: `Workflow value ${index + 1}`,
+            default: '',
+        })),
     ],
     actions: [
         {
@@ -93,7 +99,6 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
     component: HogFlowEditorPanel,
     parameters: {
         layout: 'fullscreen',
-        mockDate: '2026-09-07 12:00:00',
     },
     decorators: [
         mswDecorator({

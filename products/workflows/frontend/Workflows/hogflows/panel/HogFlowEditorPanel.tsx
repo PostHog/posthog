@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -27,7 +27,13 @@ export function HogFlowEditorPanel(): JSX.Element | null {
             <>
                 {capitalizeFirstLetter(mode)}
                 {mode === 'variables' && variablesCount > 0 && (
-                    <span className="ml-1 text-muted">({variablesCount})</span>
+                    <LemonBadge.Number
+                        count={variablesCount}
+                        maxDigits={2}
+                        size="small"
+                        status="muted"
+                        className="ml-1"
+                    />
                 )}
             </>
         ),
