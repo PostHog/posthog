@@ -2,10 +2,12 @@ import json
 import uuid
 import random
 import asyncio
+import inspect
 import datetime as dt
 import operator
 import dataclasses
-from typing import cast
+from collections.abc import Coroutine
+from typing import Any, cast
 
 import pytest
 import freezegun
@@ -31,7 +33,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, Logger, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -959,3 +961,41 @@ def test_resolve_log_source_cdc_extraction():
 
     assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_logger_produce_drops_message_when_loop_is_closed():
+    """A log line issued after the worker loop closed must not raise into the caller.
+
+    Sync activities run in worker threads that can outlive the loop captured at worker
+    startup, so `produce` used to raise `RuntimeError: Event loop is closed` into the
+    code that logged.
+    """
+    queue = QueueCapture(maxsize=0)
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    logger = Logger("test_logger_produce_closed_loop", queue=queue, loop=loop)
+    logger.produce(b'{"message": "shutdown race"}')
+
+    assert queue.entries == []
+
+
+def test_logger_produce_closes_the_message_coroutine_when_submission_fails(monkeypatch):
+    submitted: list[Coroutine[Any, Any, None]] = []
+
+    # Stands in for the loop closing between the guard in `produce` and the submission.
+    def fail_to_submit(coro: Coroutine[Any, Any, None], loop: asyncio.AbstractEventLoop) -> None:
+        submitted.append(coro)
+        raise RuntimeError("Event loop is closed")
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", fail_to_submit)
+
+    queue = QueueCapture(maxsize=0)
+    loop = asyncio.new_event_loop()
+    logger = Logger("test_logger_produce_submission_race", queue=queue, loop=loop)
+
+    logger.produce(b'{"message": "shutdown race"}')
+    loop.close()
+
+    assert queue.entries == []
+    assert [inspect.getcoroutinestate(coro) for coro in submitted] == [inspect.CORO_CLOSED]
