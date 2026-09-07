@@ -6,6 +6,8 @@ from typing import Optional, TypedDict
 from django.contrib.gis.geoip2 import GeoIP2
 
 import structlog
+from geoip2.errors import AddressNotFoundError
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 
@@ -38,6 +40,39 @@ GEOIP_KEY_MAPPING = {"city": "city_name"}
 # of active client addresses is worth holding onto. Each entry is a few hundred bytes.
 GEOIP_LOCATION_CACHE_SIZE = 4096
 
+# Only genuine lookup failures increment this counter. Non-public ranges have no location by definition,
+# so skipping them keeps the counter low-volume and actionable.
+GEOIP_LOOKUP_FAILURES = Counter(
+    "geoip_lookup_failures_total",
+    "GeoIP city lookups that returned no location, by failure reason.",
+    labelnames=["reason"],
+)
+
+_NON_PUBLIC_IP_CATEGORIES = frozenset({"private", "loopback", "link_local", "reserved", "unspecified"})
+
+
+def _classify_ip(ip_address: str) -> str:
+    """Classify an address before a GeoIP lookup.
+
+    The order is significant because Python also reports loopback, link-local, reserved, and
+    unspecified addresses as private.
+    """
+    try:
+        parsed = ipaddress.ip_address(ip_address)
+    except ValueError:
+        return "invalid"
+    if parsed.is_unspecified:
+        return "unspecified"
+    if parsed.is_loopback:
+        return "loopback"
+    if parsed.is_link_local:
+        return "link_local"
+    if parsed.is_reserved:
+        return "reserved"
+    if parsed.is_private:
+        return "private"
+    return "public"
+
 
 def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
     """
@@ -52,14 +87,25 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
         $geoip_postal_code
         $geoip_time_zone
     """
-    if not ip_address or not geoip or ip_address == "127.0.0.1" or ip_address.startswith("192.168."):
-        # Local addresses would otherwise throw "The address 127.0.0.1 is not in the database." below
+    if not ip_address or not geoip:
+        return {}
+
+    category = _classify_ip(ip_address)
+    if category in _NON_PUBLIC_IP_CATEGORIES:
+        return {}
+    if category == "invalid":
+        GEOIP_LOOKUP_FAILURES.labels(reason="invalid").inc()
         return {}
 
     try:
         geoip_properties = geoip.city(ip_address)
-    except Exception as e:
-        logger.exception(f"geoIP computation error: {e}")
+    except AddressNotFoundError:
+        # A public address missing from the database is a coverage gap, not an operational error.
+        GEOIP_LOOKUP_FAILURES.labels(reason="not_found").inc()
+        return {}
+    except Exception:
+        GEOIP_LOOKUP_FAILURES.labels(reason="lookup_error").inc()
+        logger.exception("geoIP computation error")
         return {}
 
     properties: dict[str, str] = {}
@@ -81,13 +127,7 @@ def _is_non_public_ip(ip_address: str) -> bool:
     """True for addresses geoip can't usefully locate — private/reserved ranges (incl. IPv6) and
     malformed input. Without this, RFC1918 (10/8, 172.16/12), loopback (::1), link-local, etc. would
     fall through to geoip.city() and raise "not in the database" on every such request."""
-    try:
-        parsed = ipaddress.ip_address(ip_address)
-    except ValueError:
-        return True
-    return (
-        parsed.is_private or parsed.is_loopback or parsed.is_link_local or parsed.is_reserved or parsed.is_unspecified
-    )
+    return _classify_ip(ip_address) != "public"
 
 
 @dataclass(frozen=True, kw_only=True)
