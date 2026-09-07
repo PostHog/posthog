@@ -137,8 +137,8 @@ export async function redirectMessageToOutput<O extends string>(
             'redirect-step': step,
             'redirect-timestamp': new Date().toISOString(),
         }
-        // Dropping the key spreads the redirected stream across partitions, but the
-        // overflow lane still needs the original key to refresh its overflow flag.
+        // Dropping the key spreads the redirected stream across partitions;
+        // keep the original key recoverable for consumers of the stream.
         if (!preserveKey && originalMessage.key) {
             extraHeaders['redirect-original-key'] = originalMessage.key.toString()
         }

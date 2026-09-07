@@ -131,9 +131,7 @@ describe('createRateLimitToOverflowStep', () => {
         expect(results[2].type).toBe(PipelineResultType.OK)
     })
 
-    it('passes events without a message key through without consulting the service', async () => {
-        // Capture spreads keyless events round-robin, so they cannot concentrate
-        // on a partition and are not rate limited.
+    it('falls back to token:distinct_id from headers for events without a message key', async () => {
         const service = createMockOverflowRedirectService(new Set(['token1:user1']))
         const step = createRateLimitToOverflowStep(true, service)
 
@@ -141,8 +139,9 @@ describe('createRateLimitToOverflowStep', () => {
 
         const results = await step(events)
 
-        expect(results[0].type).toBe(PipelineResultType.OK)
-        expect(service.handleEventBatch).not.toHaveBeenCalled()
+        expect(results[0].type).toBe(PipelineResultType.REDIRECT)
+        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][0]
+        expect(batches[0].key).toBe('token1:user1')
     })
 
     it.each([

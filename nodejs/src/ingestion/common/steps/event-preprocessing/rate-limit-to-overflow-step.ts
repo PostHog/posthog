@@ -13,14 +13,28 @@ export interface RateLimitToOverflowStepInput {
     headers: EventHeaders
 }
 
-/** Returns the Kafka message key as a string, or null when the message has none. */
-export function messageKeyString(message: Pick<Message, 'key'>): string | null {
+function messageKeyString(message: Pick<Message, 'key'>): string | null {
     const rawKey = message.key
     if (rawKey === null || rawKey === undefined) {
         return null
     }
     const kafkaKey = typeof rawKey === 'string' ? rawKey : rawKey.toString('utf8')
     return kafkaKey.length === 0 ? null : kafkaKey
+}
+
+/**
+ * The partition key a message concentrates on, shared by the rate limit and
+ * TTL refresh steps so both sides of an overflow flag agree on its key: the
+ * Kafka message key, or the `redirect-original-key` header a redirect stamps
+ * when it drops the key, or `token:distinct_id` from headers — the key capture
+ * builds for regular events.
+ */
+export function deriveOverflowKey(message: Pick<Message, 'key'>, headers: EventHeaders): string {
+    return (
+        messageKeyString(message) ??
+        headers.redirect_original_key ??
+        `${headers.token ?? ''}:${headers.distinct_id ?? ''}`
+    )
 }
 
 /**
@@ -31,9 +45,7 @@ export function messageKeyString(message: Pick<Message, 'key'>): string | null {
  * concentrates traffic on a partition. For regular events it is
  * `token:distinct_id`; for cookieless events it is `token:client_ip`, so one
  * IP's cookieless stream is budgeted as a single key even though every event
- * gets a fresh hashed distinct_id later in the pipeline. Events without a
- * message key are spread round-robin by capture, cannot concentrate on a
- * partition, and pass through unlimited.
+ * gets a fresh hashed distinct_id later in the pipeline.
  */
 export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepInput>(
     preservePartitionLocality: boolean,
@@ -44,15 +56,12 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
             return inputs.map((input) => ok(input))
         }
 
-        const perInputKeys: (string | null)[] = []
+        const perInputKeys: string[] = []
         const keyStats = new Map<string, { headersPerEvent: EventHeaders[]; firstTimestamp: number }>()
 
         for (const input of inputs) {
-            const eventKey = messageKeyString(input.message)
+            const eventKey = deriveOverflowKey(input.message, input.headers)
             perInputKeys.push(eventKey)
-            if (eventKey === null) {
-                continue
-            }
 
             const timestamp = input.headers.now?.getTime() ?? Date.now()
             const existing = keyStats.get(eventKey)
@@ -61,10 +70,6 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
             } else {
                 keyStats.set(eventKey, { headersPerEvent: [input.headers], firstTimestamp: timestamp })
             }
-        }
-
-        if (keyStats.size === 0) {
-            return inputs.map((input) => ok(input))
         }
 
         const groups: OverflowEventGroup[] = Array.from(keyStats.entries()).map(
@@ -77,8 +82,7 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
         const keysToRedirect = await overflowRedirectService.handleEventBatch(groups)
 
         return inputs.map((input, index) => {
-            const eventKey = perInputKeys[index]
-            if (eventKey !== null && keysToRedirect.has(eventKey)) {
+            if (keysToRedirect.has(perInputKeys[index])) {
                 return redirect('rate_limit_exceeded', OVERFLOW_OUTPUT, preservePartitionLocality)
             }
             return ok(input)
