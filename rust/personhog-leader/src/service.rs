@@ -35,7 +35,7 @@ use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::{load_person_from_pg, PgFallback};
 use crate::recovery::ChangelogRecovery;
-use crate::validation::{validate_before_publish, Limits};
+use crate::validation::{validate_before_publish};
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
     can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
@@ -501,7 +501,7 @@ impl PersonHogLeaderService {
         // Reject structurally invalid records before spending any version.
         // Validation failures are not retryable: the input is bad, not the
         // infrastructure. InvalidArgument signals the caller not to retry.
-        if let Err(reason) = crate::validation::validate_before_publish(
+        if let Err(reason) = validate_before_publish(
             &proto.uuid,
             &person.properties,
             self.size_limits.threshold,
