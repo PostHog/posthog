@@ -1076,7 +1076,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _replaceable_context_identifiers(cls, instance: Subscription) -> set[tuple[str, int]]:
         identifiers: set[tuple[str, int]] = set()
         for context in cls._context_rows(instance):
-            if not context.has_live_target_for_team(instance.team_id):
+            if not context.has_target_for_team(instance.team_id, include_deleted=True):
                 continue
 
             if context.dashboard_id is not None:
@@ -1093,8 +1093,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _replace_contexts(instance: Subscription, contexts: list[dict[str, Insight | Dashboard]]) -> None:
         scoped_contexts = SubscriptionContext.objects.for_team(instance.team_id)
         scoped_contexts.filter(subscription=instance).filter(
-            Q(dashboard__team_id=instance.team_id, dashboard__deleted=False)
-            | Q(insight__team_id=instance.team_id, insight__deleted=False)
+            Q(dashboard__team_id=instance.team_id) | Q(insight__team_id=instance.team_id)
         ).delete()
         for context in contexts:
             scoped_contexts.create(team_id=instance.team_id, subscription=instance, **context)

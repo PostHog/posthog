@@ -3170,7 +3170,9 @@ class TestAISubscriptionAPI(APILicensedTest):
             ),
         ]
     )
-    def test_patch_preserves_a_soft_deleted_context(self, mock_is_cloud, mock_flag, mock_sync, _name, target_factory):
+    def test_patch_empty_contexts_clears_a_soft_deleted_context(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, target_factory
+    ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         target = target_factory(self)
@@ -3190,10 +3192,14 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert updated.status_code == status.HTTP_200_OK, updated.json()
         assert updated.json()["contexts"] == []
         assert (
-            SubscriptionContext.objects.for_team(self.team.id)
-            .filter(subscription_id=created.json()["id"], **{identifier: target.id})
-            .exists()
+            not SubscriptionContext.objects.for_team(self.team.id).filter(subscription_id=created.json()["id"]).exists()
         )
+
+        target.deleted = False
+        target.save(update_fields=["deleted"])
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == []
 
     def test_patch_omitting_contexts_preserves_them(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
@@ -3203,6 +3209,8 @@ class TestAISubscriptionAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(contexts=[{"dashboard_id": dashboard.id}], send_test_now=False),
         )
+        dashboard.deleted = True
+        dashboard.save(update_fields=["deleted"])
 
         updated = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
@@ -3210,7 +3218,13 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
 
         assert updated.status_code == status.HTTP_200_OK, updated.json()
-        assert updated.json()["contexts"] == [{"dashboard_id": dashboard.id, "dashboard_name": "Growth"}]
+        assert updated.json()["contexts"] == []
+
+        dashboard.deleted = False
+        dashboard.save(update_fields=["deleted"])
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == [{"dashboard_id": dashboard.id, "dashboard_name": "Growth"}]
 
     def test_patch_empty_contexts_clears_them(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
@@ -3241,16 +3255,26 @@ class TestAISubscriptionAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(contexts=[{"dashboard_id": old_dashboard.id}], send_test_now=False),
         )
+        old_dashboard.deleted = True
+        old_dashboard.save(update_fields=["deleted"])
 
         updated = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
             {"contexts": [{"insight_id": new_insight.id}], "send_test_now": False},
         )
 
+        old_dashboard.deleted = False
+        old_dashboard.save(update_fields=["deleted"])
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+
         assert updated.status_code == status.HTTP_200_OK, updated.json()
-        assert updated.json()["contexts"] == [
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == [
             {"insight_id": new_insight.id, "insight_short_id": "new12345", "insight_name": "New"}
         ]
+        assert (
+            SubscriptionContext.objects.for_team(self.team.id).filter(subscription_id=created.json()["id"]).count() == 1
+        )
 
     @parameterized.expand(
         [
