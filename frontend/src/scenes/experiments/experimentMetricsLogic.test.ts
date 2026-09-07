@@ -887,7 +887,7 @@ describe('experimentMetricsLogic', () => {
 
             // Tailored toast counts the failures against the total.
             expect(lemonToast.error).toHaveBeenCalledWith(
-                '1 of 2 metrics failed to load. Click "Try again" on a metric to run it again.'
+                '1 of 2 metrics failed to load. Click "Try again" on a metric to reload all of them.'
             )
             expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'failed' }))
             // The successful secondary metric still loads its result.
