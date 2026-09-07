@@ -148,8 +148,12 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element | nul
                         title={
                             <>
                                 Version number refreshed hourly.
-                                <br />
-                                Click 'Releases ↗' to check for any since.
+                                {links && (
+                                    <>
+                                        <br />
+                                        Click 'Releases ↗' to check for any since.
+                                    </>
+                                )}
                             </>
                         }
                     >
