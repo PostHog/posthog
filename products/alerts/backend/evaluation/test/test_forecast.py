@@ -1,12 +1,17 @@
 import datetime
 from collections.abc import Callable
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import ForecastConfig, InsightsThresholdBounds, InsightThreshold, InsightThresholdType, IntervalType
+
+from posthog.models.team import Team
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -14,13 +19,16 @@ from products.alerts.backend.evaluation.contract import (
     ExtractionResult,
     InsufficientHistoryError,
     SeriesPoint,
+    SimulationContext,
 )
 from products.alerts.backend.evaluation.forecast import (
+    TrendsForecastExtractor,
     _index_for_target_date,
     _target_projection,
     evaluate_with_forecast,
 )
 from products.alerts.backend.forecasting.engine import ForecastConfigurationError, ForecastResult
+from products.product_analytics.backend.facade.models import Insight
 
 
 class StubEngine:
@@ -324,3 +332,68 @@ class TestHistoryRequirements:
             )
         assert result.is_inconclusive is True
         assert result.triggered_metadata == {"forecast": {"status": "inconclusive", "reason": "stale_data"}}
+
+
+class TestForecastSimulationLookback:
+    @parameterized.expand(
+        [
+            ("absolute_too_old", "1900-01-01", "2024-09-07"),
+            ("relative_too_old", "-100y", "2024-09-07"),
+            ("within_limit", "-30d", "-30d"),
+            ("exact_limit", "2024-09-07", "2024-09-07"),
+        ]
+    )
+    def test_query_date_from_is_capped_before_extraction(
+        self, _name: str, date_from: str, expected_date_from: str
+    ) -> None:
+        team = cast(Team, SimpleNamespace(timezone="UTC", base_currency="USD"))
+        context = SimulationContext(
+            team=team,
+            extractor_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "future_breach",
+                "horizon": 1,
+            },
+            date_from=date_from,
+        )
+        query = {
+            "kind": "TrendsQuery",
+            "interval": "day",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with (
+            freeze_time("2026-09-07T12:00:00Z"),
+            patch(
+                "products.alerts.backend.evaluation.forecast.extract_trends_series", return_value=_series()
+            ) as extract,
+        ):
+            TrendsForecastExtractor().simulate(cast(Insight, SimpleNamespace()), query, context)
+
+        assert extract.call_args.kwargs["date_from"] == expected_date_from
+
+    def test_excessive_relative_date_is_rejected_before_extraction(self) -> None:
+        context = SimulationContext(
+            team=cast(Team, SimpleNamespace(timezone="UTC", base_currency="USD")),
+            extractor_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "future_breach",
+                "horizon": 1,
+            },
+            date_from="-99999999999999999999999999999999999999999999999999y",
+        )
+        query = {
+            "kind": "TrendsQuery",
+            "interval": "day",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with (
+            patch("products.alerts.backend.evaluation.forecast.extract_trends_series") as extract,
+            pytest.raises(ValueError, match="date range is invalid"),
+        ):
+            TrendsForecastExtractor().simulate(cast(Insight, SimpleNamespace()), query, context)
+
+        extract.assert_not_called()

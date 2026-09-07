@@ -1,5 +1,5 @@
 import math
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -20,7 +20,7 @@ from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult, is_non_time_series_trend
-from posthog.utils import get_from_dict_or_attr
+from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -33,6 +33,7 @@ from products.alerts.backend.evaluation.formatting import make_trends_value_form
 from products.alerts.backend.forecasting.engine import (
     DEFAULT_HORIZON,
     DEFAULT_INTERVAL_WIDTH,
+    MAX_FORECAST_LOOKBACK_DAYS,
     MAX_FORECAST_OUTPUT_POINTS,
     MAX_FORECAST_REACH_DAYS,
     ForecastConfigurationError,
@@ -88,6 +89,22 @@ def _forecast_min_samples(
     config = _parse_config(forecast_config)
     horizon = _horizon_from_config(config, interval, today or datetime.now(UTC).date())
     return bounded_training_points(_required_history_points(horizon, interval), interval)
+
+
+def _bounded_simulation_date_from(date_from: str | None, timezone: ZoneInfo, today: date) -> str | None:
+    """Cap an optional preview range before it reaches the insight query.
+
+    ``bounded_training_points`` limits what Prophet receives, but applying that limit after the
+    insight query would still let a caller request an arbitrarily expensive history scan.
+    """
+    if date_from is None:
+        return None
+    earliest_date = today - timedelta(days=MAX_FORECAST_LOOKBACK_DAYS)
+    try:
+        requested_date = relative_date_parse(date_from, timezone).date()
+    except (OverflowError, ValueError) as error:
+        raise ValueError("Forecast simulation date range is invalid.") from error
+    return earliest_date.isoformat() if requested_date < earliest_date else date_from
 
 
 def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
@@ -301,7 +318,8 @@ class TrendsForecastExtractor:
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         trends_query = TrendsQuery.model_validate(query)
-        today = datetime.now(ZoneInfo(ctx.team.timezone)).date()
+        team_timezone = ZoneInfo(ctx.team.timezone)
+        today = datetime.now(team_timezone).date()
         result = extract_trends_series(
             insight,
             ctx.team,
@@ -309,7 +327,7 @@ class TrendsForecastExtractor:
             _forecast_min_samples(ctx.extractor_config, trends_query.interval, today),
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             series_index=ctx.series_index,
-            date_from=ctx.date_from,
+            date_from=_bounded_simulation_date_from(ctx.date_from, team_timezone, today),
             user=ctx.user,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, ctx.team.base_currency)
