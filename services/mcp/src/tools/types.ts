@@ -113,6 +113,12 @@ export type Context = {
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
     /**
+     * Record a capability this server does not have, in the agent's own words. Set only by
+     * the CLI context, whose runtime has no `tools/list` and therefore no request state for
+     * the hono path's reporter to read. Best-effort, like `trackEvent`.
+     */
+    reportMissingCapability?: (description: string) => Promise<void>
+    /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.
      */

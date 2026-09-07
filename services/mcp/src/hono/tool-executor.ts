@@ -1,5 +1,7 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
+import { getMoreToolsResult } from '@posthog/mcp-analytics'
+
 import {
     buildToolResultPayload,
     estimateResponseTokens,
@@ -20,6 +22,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
+import { missingCapabilityToolName } from '@/lib/posthog/analytics'
 import {
     createExecTool,
     describeApiValidationError,
@@ -38,6 +41,7 @@ import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
     trackExecuteSqlGeneration,
+    trackMissingCapability,
     trackToolCall,
     trackToolSpan,
     trackToolsList,
@@ -102,7 +106,7 @@ export class ToolExecutor {
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
-        const tools = this.injectContext(this.buildAdvertisedTools(state))
+        const tools = this.instrumentToolList(this.buildAdvertisedTools(state))
 
         void trackToolsList(
             tools.map((t) => t.name),
@@ -112,14 +116,20 @@ export class ToolExecutor {
         return { tools }
     }
 
-    // Inject the `context` argument into every advertised tool so agents can state
-    // what they're trying to do (`handleToolCall` strips it before validation and
-    // surfaces it as `$mcp_intent` — the same injection `instrument()` does for
-    // SDK-wrapped servers). Guarded: analytics must never break `tools/list`, so
-    // any failure falls back to the un-augmented tools.
-    private injectContext(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
+    // The outbound half of the analytics SDK's custom-dispatcher contract, and what
+    // `instrument()` does for a server built on an MCP `Server` object. Two additions:
+    //
+    // - The `context` argument on every tool, so agents can state what they're trying to
+    //   do. `extractAnalyticsData` strips it before validation and it becomes `$mcp_intent`.
+    // - The `get_more_tools` virtual tool, which an agent calls to report a capability
+    //   this server does not have. It comes from the SDK rather than the catalog, so
+    //   `handleToolCall` answers it from `isMissingCapability` before any name lookup.
+    //
+    // Guarded: analytics must never break `tools/list`, so any failure falls back to the
+    // un-augmented tools.
+    private instrumentToolList(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
         try {
-            return getPostHogClient().prepareToolList(tools)
+            return getPostHogClient().prepareToolList(tools, { reportMissing: true })
         } catch {
             return tools
         }
@@ -151,8 +161,37 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
         }
 
-        const { intentMeta, args } = this.extractIntent(toolName, (params?.arguments ?? {}) as Record<string, unknown>)
+        const { intentMeta, args, isMissingCapability } = this.extractAnalyticsData(
+            toolName,
+            (params?.arguments ?? {}) as Record<string, unknown>
+        )
         const callParams = { ...params, arguments: args }
+
+        // `get_more_tools` is advertised by `instrumentToolList` rather than built from the
+        // catalog, so it has to be answered before any lookup. The agent's description
+        // arrives as the same injected `context` argument every other tool carries.
+        if (isMissingCapability) {
+            // The virtual tool reaches no schema: it is not in the catalog, so nothing
+            // enforces the `context` the SDK marks required, and the SDK's `prepareToolCall` reports
+            // blank text as no intent at all. Refuse instead of capturing, because the
+            // missing-capabilities feed renders the description and nothing else, so a
+            // report without one is an unreadable row.
+            if (!intentMeta.intent) {
+                toolCallsTotal.inc({ tool: toolName, status: 'validation_error' })
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Describe the capability you wanted in "context", then call this tool again.',
+                        },
+                    ],
+                    isError: true,
+                }
+            }
+            toolCallsTotal.inc({ tool: toolName, status: 'success' })
+            void trackMissingCapability(intentMeta.intent, state)
+            return getMoreToolsResult()
+        }
 
         if (toolName === 'exec') {
             return this.callExecTool(callParams, state, intentMeta)
@@ -204,23 +243,28 @@ export class ToolExecutor {
         return undefined
     }
 
-    // Pull the agent's stated intent off the injected `context` arg and strip it so
-    // tool schemas/handlers never see it (validation is `.strict()` in places). The
-    // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
-    // must never break `tools/call`, so on failure we fall back to the raw args —
-    // safe because `context` is only present when the matching injection succeeded.
-    private extractIntent(
+    // The inbound half of the same contract. Pulls the agent's stated intent off the
+    // injected `context` arg and strips it so tool schemas and handlers never see it
+    // (validation is `.strict()` in places), and reports whether the call targeted the
+    // virtual tool `instrumentToolList` appended. Guarded: analytics must never break
+    // `tools/call`, so on failure we fall back to the raw args — safe because `context`
+    // is only present when the matching injection succeeded.
+    private extractAnalyticsData(
         toolName: string,
         rawArgs: Record<string, unknown>
-    ): { intentMeta: ToolCallIntentMeta; args: Record<string, unknown> } {
+    ): { intentMeta: ToolCallIntentMeta; args: Record<string, unknown>; isMissingCapability: boolean } {
         try {
             const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs)
             return {
                 intentMeta: { intent: prepared.intent, intentSource: prepared.intentSource },
                 args: prepared.args ?? rawArgs,
+                // The SDK resolves the virtual tool's name once for both the advertise and the
+                // detect side, so a renamed tool cannot be advertised under one name and looked
+                // up under another.
+                isMissingCapability: prepared.isMissingCapability,
             }
         } catch {
-            return { intentMeta: {}, args: rawArgs }
+            return { intentMeta: {}, args: rawArgs, isMissingCapability: false }
         }
     }
 
@@ -542,6 +586,9 @@ export class ToolExecutor {
             })
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
+        // `tools/list` advertises the SDK's virtual tool next to `exec`, so an agent that
+        // routes every call through `exec` must be able to reach it there too.
+        const virtualToolName = missingCapabilityToolName(getPostHogClient())
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
         // Override it with the same prompt tools-mode advertises, so the
@@ -573,6 +620,14 @@ export class ToolExecutor {
                 trackCommand: (meta) => {
                     execMetrics.commandMeta = { ...execMetrics.commandMeta, ...meta }
                 },
+                ...(virtualToolName
+                    ? {
+                          missingCapability: {
+                              toolName: virtualToolName,
+                              report: (context: string) => void trackMissingCapability(context, state),
+                          },
+                      }
+                    : {}),
             }
         )
 

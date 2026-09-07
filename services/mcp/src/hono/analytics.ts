@@ -463,6 +463,33 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
     }
 }
 
+/**
+ * Records a `get_more_tools` call as a capability the server does not have.
+ *
+ * The SDK maps `context` to `$mcp_intent`, which is the only field the missing-capabilities
+ * feed renders as the report text, and stamps `$mcp_resource_name` with the virtual tool's
+ * resolved name. The base properties carry the client identity that the feed resolves into a
+ * harness label, so a report without them shows as an unidentified client.
+ */
+export async function trackMissingCapability(intent: string | undefined, state: ResolvedState): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        getPostHogClient().captureMissingCapability({
+            distinctId: state.distinctId,
+            groups,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            ...(intent ? { context: intent } : {}),
+            properties,
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
 export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)

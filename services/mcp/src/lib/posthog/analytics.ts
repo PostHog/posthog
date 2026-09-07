@@ -1,8 +1,28 @@
+import type { PostHogMCP } from '@posthog/mcp-analytics'
+
 export enum AnalyticsEvent {
     MCP_PROJECT_SWITCHED = 'mcp project switched',
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
     MCP_TOOL_CALL = '$mcp_tool_call',
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
+}
+
+/**
+ * The name the analytics SDK advertises its missing-capability virtual tool under.
+ *
+ * The SDK owns that name and does not export it, so read it back from the tool list it
+ * prepares. A configured `missingCapabilityToolName` is then honored instead of assumed,
+ * which keeps every dispatcher accepting exactly the name `tools/list` advertised. Takes the
+ * client rather than resolving it, because the runtimes that need this hold their own.
+ * Returns undefined when the SDK appends no tool, and callers then treat the name as unknown.
+ */
+export function missingCapabilityToolName(client: PostHogMCP): string | undefined {
+    try {
+        const [descriptor] = client.prepareToolList<{ name: string }>([], { reportMissing: true })
+        return descriptor?.name
+    } catch {
+        return undefined
+    }
 }
 
 // Emitted as `$mcp_version` / `mcp_version` on analytics events. The MCP server

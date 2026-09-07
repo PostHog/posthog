@@ -219,4 +219,58 @@ describe('ToolExecutor intent capture', () => {
 
         captureSpy.mockRestore()
     })
+    // The virtual tool is advertised by the SDK and is absent from the catalog, so a
+    // branch below the roster lookup would answer "not found" and leave the
+    // missing-capabilities feed with no producer. That is the state this wiring fixes.
+    it('answers the missing-capability tool and captures the report instead of failing the call', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureMissingCapability').mockImplementation(() => {})
+
+        const result = (await executor.handleToolCall(
+            { name: 'get_more_tools', arguments: { context: 'wanted to pause a running experiment' } },
+            makeState([{ name: 'projects-get' }])
+        )) as any
+
+        expect(result.isError).toBeFalsy()
+        expect(result.content[0].text).toContain('noted your feedback')
+
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        // The feed reads the report text from `$mcp_intent`, which the SDK maps from
+        // `context`. A report captured under any other key renders as a blank row.
+        expect(captureSpy.mock.calls[0]![0].context).toBe('wanted to pause a running experiment')
+
+        captureSpy.mockRestore()
+    })
+
+    it('keeps answering the missing-capability tool when capturing the report throws', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureMissingCapability').mockImplementation(() => {
+            throw new Error('analytics down')
+        })
+
+        const result = (await executor.handleToolCall(
+            { name: 'get_more_tools', arguments: { context: 'no way to list cohort members' } },
+            makeState([{ name: 'projects-get' }])
+        )) as any
+
+        expect(result.isError).toBeFalsy()
+
+        captureSpy.mockRestore()
+    })
+    // A report the feed cannot render is worse than no report: it lands as a row with no
+    // text. The virtual tool reaches no schema, so nothing else rejects a blank one.
+    it.each([
+        { label: 'no arguments at all', args: {} },
+        { label: 'a whitespace-only description', args: { context: '   ' } },
+    ])('refuses a missing-capability call with $label', async ({ args }) => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureMissingCapability').mockImplementation(() => {})
+
+        const result = (await executor.handleToolCall(
+            { name: 'get_more_tools', arguments: args },
+            makeState([{ name: 'projects-get' }])
+        )) as any
+
+        expect(result.isError).toBe(true)
+        expect(captureSpy).not.toHaveBeenCalled()
+
+        captureSpy.mockRestore()
+    })
 })

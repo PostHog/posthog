@@ -62,6 +62,43 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
     const sessionManager = new SessionManager(cache)
     const sessionId = randomUUID()
 
+    /** Identity and base properties every CLI event carries, resolved per capture. */
+    const buildEnvelope = async (): Promise<{
+        distinctId: string
+        groups: Record<string, string>
+        sessionId: string
+        properties: Record<string, unknown>
+    }> => {
+        const [distinctId, analyticsContext, apiKey] = await Promise.all([
+            stateManager.getDistinctId().catch(() => undefined),
+            stateManager.getAnalyticsContext().catch(() => undefined),
+            stateManager.getApiKey().catch(() => undefined),
+        ])
+        return {
+            distinctId: distinctId ?? fallbackDistinctId,
+            groups: analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {},
+            sessionId: await sessionManager.getSessionUuid(sessionId),
+            properties: {
+                $ai_product: 'mcp',
+                $mcp_source: 'posthog_cli',
+                $mcp_client_name: 'posthog-cli',
+                $mcp_consumer: 'posthog-cli',
+                $mcp_mode: 'cli',
+                $mcp_scope_preset: resolveScopePreset(apiKey?.scopes),
+                $mcp_version: config.version,
+                ...(cliInvocationId ? { cli_invocation_id: cliInvocationId } : {}),
+                ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),
+            },
+        }
+    }
+
+    /** Queue a capture so `flushAnalytics` waits for it before the process exits. */
+    const enqueue = (capture: Promise<void>): Promise<void> => {
+        pendingAnalytics.add(capture)
+        void capture.finally(() => pendingAnalytics.delete(capture))
+        return capture
+    }
+
     const context: Context = {
         api,
         cache,
@@ -69,40 +106,41 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         stateManager,
         sessionManager,
         getDistinctId: () => stateManager.getDistinctId(),
-        trackEvent: (event: AnalyticsEvent, properties: Record<string, unknown> = {}) => {
-            const capture = (async (): Promise<void> => {
-                try {
-                    const [distinctId, analyticsContext, apiKey] = await Promise.all([
-                        stateManager.getDistinctId().catch(() => undefined),
-                        stateManager.getAnalyticsContext().catch(() => undefined),
-                        stateManager.getApiKey().catch(() => undefined),
-                    ])
-                    const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
-
-                    getPostHogClient().capture({
-                        distinctId: distinctId ?? fallbackDistinctId,
-                        event,
-                        ...(Object.keys(groups).length > 0 ? { groups } : {}),
-                        properties: {
-                            $ai_product: 'mcp',
-                            $mcp_source: 'posthog_cli',
-                            $mcp_client_name: 'posthog-cli',
-                            $mcp_consumer: 'posthog-cli',
-                            $mcp_mode: 'cli',
-                            $mcp_scope_preset: resolveScopePreset(apiKey?.scopes),
-                            $mcp_version: config.version,
-                            ...(cliInvocationId ? { cli_invocation_id: cliInvocationId } : {}),
-                            ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),
-                            $session_id: await sessionManager.getSessionUuid(sessionId),
-                            ...properties,
-                        },
-                    })
-                } catch {}
-            })()
-            pendingAnalytics.add(capture)
-            void capture.finally(() => pendingAnalytics.delete(capture))
-            return capture
-        },
+        trackEvent: (event: AnalyticsEvent, properties: Record<string, unknown> = {}) =>
+            enqueue(
+                (async (): Promise<void> => {
+                    try {
+                        const envelope = await buildEnvelope()
+                        getPostHogClient().capture({
+                            distinctId: envelope.distinctId,
+                            event,
+                            ...(Object.keys(envelope.groups).length > 0 ? { groups: envelope.groups } : {}),
+                            properties: {
+                                ...envelope.properties,
+                                $session_id: envelope.sessionId,
+                                ...properties,
+                            },
+                        })
+                    } catch {}
+                })()
+            ),
+        reportMissingCapability: (description: string) =>
+            enqueue(
+                (async (): Promise<void> => {
+                    try {
+                        const envelope = await buildEnvelope()
+                        // The SDK owns the event name and puts the description on `$mcp_intent`,
+                        // which is the field the missing-capabilities feed renders.
+                        getPostHogClient().captureMissingCapability({
+                            distinctId: envelope.distinctId,
+                            ...(Object.keys(envelope.groups).length > 0 ? { groups: envelope.groups } : {}),
+                            sessionId: envelope.sessionId,
+                            context: description,
+                            properties: envelope.properties,
+                        })
+                    } catch {}
+                })()
+            ),
     }
 
     return context

@@ -73,6 +73,52 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    // The SDK advertises `get_more_tools` on `tools/list` and never adds it to the tool
+    // roster, so `findTool` would reject it as an unknown tool. Without the short-circuit
+    // an agent that routes every call through `exec` cannot report a gap at all, which is
+    // the only route the CLI has.
+    describe('missing-capability tool', () => {
+        function createExecWithReporter(reported: string[]): Tool<any> {
+            return createExec([makeMockTool()], undefined, {
+                missingCapability: {
+                    toolName: 'get_more_tools',
+                    report: (context: string) => reported.push(context),
+                },
+            })
+        }
+
+        it('records the report and answers with the SDK acknowledgement', async () => {
+            const reported: string[] = []
+            const exec = createExecWithReporter(reported)
+
+            const result = await exec.handler(mockContext, {
+                command: 'call get_more_tools {"context":"no way to list cohort members"}',
+            })
+
+            expect(reported).toEqual(['no way to list cohort members'])
+            expect(String(result)).toContain('noted your feedback')
+        })
+
+        it.each([
+            { label: 'no arguments', command: 'call get_more_tools' },
+            { label: 'a blank description', command: 'call get_more_tools {"context":"   "}' },
+        ])('rejects $label without recording a report', async ({ command }) => {
+            const reported: string[] = []
+            const exec = createExecWithReporter(reported)
+
+            await expect(exec.handler(mockContext, { command })).rejects.toThrow('Usage: call get_more_tools')
+            expect(reported).toEqual([])
+        })
+
+        it('leaves the name unknown when the runtime reports no missing capability', async () => {
+            const exec = createExec([makeMockTool()])
+
+            await expect(
+                exec.handler(mockContext, { command: 'call get_more_tools {"context":"anything"}' })
+            ).rejects.toThrow('Unknown tool')
+        })
+    })
+
     describe('learn command', () => {
         const helpCatalog = new ExecHelpCatalog([
             {

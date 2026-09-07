@@ -1,6 +1,8 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
+import { getMoreToolsResult } from '@posthog/mcp-analytics'
+
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
@@ -139,6 +141,19 @@ export interface ExecToolOptions {
      * a retired name name its successor instead of reading as an unknown tool.
      */
     flagGatedTools?: FlagGatedTool[]
+    /**
+     * Answers the analytics SDK's `get_more_tools` virtual tool, which reports a capability
+     * this server does not have. The SDK advertises it on `tools/list` and never puts it in
+     * the tool roster, so `call` has to recognize the name before it searches the roster.
+     * Runtimes that do not capture the report leave this unset, and the name then fails as
+     * an unknown tool like any other.
+     */
+    missingCapability?: {
+        /** Resolved by the SDK, so exec and `tools/list` accept the same name. */
+        toolName: string
+        /** Records the agent's description of the gap. */
+        report: (context: string) => void
+    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -753,6 +768,40 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
+/**
+ * Records a `get_more_tools` call and answers with the SDK's canned acknowledgement.
+ *
+ * The virtual tool takes one required `context` argument. A caller that sends nothing usable
+ * gets the same usage error a real tool would raise for a missing required field, because a
+ * blank report cannot be read on the missing-capabilities feed.
+ */
+function handleMissingCapabilityCall(
+    missingCapability: NonNullable<ExecToolOptions['missingCapability']>,
+    jsonBody: string
+): string {
+    let input: Record<string, unknown>
+    try {
+        input = jsonBody ? (JSON.parse(jsonBody) as Record<string, unknown>) : {}
+    } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
+    }
+
+    const context = typeof input.context === 'string' ? input.context.trim() : ''
+    if (!context) {
+        throw new ExecCommandError(
+            `Usage: call ${missingCapability.toolName} {"context": "<what you wanted to do and could not>"}`,
+            'usage'
+        )
+    }
+
+    missingCapability.report(context)
+    // The SDK returns MCP content blocks; exec answers with a plain string.
+    return getMoreToolsResult()
+        .content.map((block) => block.text)
+        .join('\n')
+}
+
 /** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
 const HINT_TOOL_NAME_PATTERN = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g
 
@@ -1114,6 +1163,9 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
+                    if (options.missingCapability && toolName === options.missingCapability.toolName) {
+                        return handleMissingCapabilityCall(options.missingCapability, jsonBody)
+                    }
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(

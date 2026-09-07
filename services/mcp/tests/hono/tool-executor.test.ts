@@ -21,6 +21,11 @@ import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
+/** The virtual tool the analytics SDK appends to every `tools/list`. Hardcoded rather than
+ *  read back from the SDK, so a rename upstream fails here instead of passing silently:
+ *  clients see the new name the moment it ships. */
+const MISSING_CAPABILITY_TOOL_NAME = 'get_more_tools'
+
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
     name: 'survey-get',
@@ -170,16 +175,18 @@ describe('ToolExecutor', () => {
 
             const result = await executor.handleToolsList(makeState(subset.map((e) => ({ name: e.name }))))
 
-            expect(result.tools).toHaveLength(3)
-            expect(result.tools.map((t) => t.name)).toEqual(subset.map((e) => e.name))
+            expect(result.tools.map((t) => t.name)).toEqual([
+                ...subset.map((e) => e.name),
+                MISSING_CAPABILITY_TOOL_NAME,
+            ])
         })
 
-        it('returns empty list when allTools is empty', async () => {
+        it('advertises only the missing-capability tool when allTools is empty', async () => {
             const result = await executor.handleToolsList(makeState([]))
-            expect(result.tools).toEqual([])
+            expect(result.tools.map((t) => t.name)).toEqual([MISSING_CAPABILITY_TOOL_NAME])
         })
 
-        it('returns single exec tool entry when useSingleExec is true', async () => {
+        it('returns the exec tool entry beside the missing-capability tool when useSingleExec is true', async () => {
             const state = makeState(
                 catalog
                     .getPreBuiltEntries()
@@ -189,8 +196,7 @@ describe('ToolExecutor', () => {
             )
 
             const result = await executor.handleToolsList(state)
-            expect(result.tools).toHaveLength(1)
-            expect(result.tools[0]!.name).toBe('exec')
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', MISSING_CAPABILITY_TOOL_NAME])
         })
 
         // Active project metadata reaches the model on the exec `command` for every
@@ -287,7 +293,7 @@ describe('ToolExecutor', () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
             const result = await executor.handleToolsList(state)
-            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui', MISSING_CAPABILITY_TOOL_NAME])
 
             // The advertised schema is derived from the zod validation schema —
             // pin the contract the agent writes calls against. The analytics
@@ -306,7 +312,7 @@ describe('ToolExecutor', () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = await executor.handleToolsList(state)
-            expect(result.tools.map((t) => t.name)).toEqual(['exec'])
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', MISSING_CAPABILITY_TOOL_NAME])
         })
     })
 

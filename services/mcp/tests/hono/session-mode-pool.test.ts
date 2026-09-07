@@ -23,6 +23,11 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { contextMillHandler, handlers } from '../workers/fixtures/handlers'
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
+/** The virtual tool the analytics SDK appends to every `tools/list`. Hardcoded rather than
+ *  read back from the SDK, so a rename upstream fails here instead of passing silently:
+ *  clients see the new name the moment it ships. */
+const MISSING_CAPABILITY_TOOL_NAME = 'get_more_tools'
+
 const mswServer = setupServer(...handlers, contextMillHandler)
 
 function createInMemoryRedis(): RedisLike & {
@@ -128,17 +133,18 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         expect(sessionId).toBeTruthy()
 
         // Client caches the tools payload at init. cli mode collapses the wire
-        // roster to the single `exec` umbrella tool (the sibling `render-ui` tool
-        // only advertises to MCP Apps hosts; Claude Code isn't one).
+        // roster to the `exec` umbrella tool (the sibling `render-ui` tool only
+        // advertises to MCP Apps hosts; Claude Code isn't one) plus the analytics
+        // SDK's missing-capability tool, which is appended in every mode.
         const cachedTools = await clientA.listTools()
-        expect(cachedTools.tools.map((t) => t.name).sort()).toEqual(['exec'])
+        expect(cachedTools.tools.map((t) => t.name).sort()).toEqual([MISSING_CAPABILITY_TOOL_NAME, 'exec'].sort())
 
         // headers_2 — pool member flipping to a different Anthropic vendor. The
         // vendor header never participates in tools-mode detection, so the request
         // stays in cli mode and the roster still collapses to the `exec` umbrella
         // tool.
         const pooledRoster = await listToolsOnSession(sessionId!, 'ClaudeAI')
-        expect(pooledRoster.map((t) => t.name).sort()).toEqual(['exec'])
+        expect(pooledRoster.map((t) => t.name).sort()).toEqual([MISSING_CAPABILITY_TOOL_NAME, 'exec'].sort())
 
         await clientA.close()
     })

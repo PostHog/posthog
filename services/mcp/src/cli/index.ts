@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
+import { getPostHogClient } from '@/lib/posthog'
+import { AnalyticsEvent, missingCapabilityToolName } from '@/lib/posthog/analytics'
 import { createExecTool } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
@@ -84,6 +85,9 @@ function buildStaticExec(): BuiltStaticExec {
 
 async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltExec> {
     const context = await buildCliContext(config)
+    // The CLI serves no `tools/list`, so `exec` is the only place the SDK's virtual tool can
+    // be reached here.
+    const virtualToolName = missingCapabilityToolName(getPostHogClient())
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const tools = getCliTools({ aiConsentGiven })
     const execTool = createExecTool(
@@ -96,7 +100,17 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
             void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
         },
         [],
-        { requireDestructiveConfirmation: true }
+        {
+            requireDestructiveConfirmation: true,
+            ...(virtualToolName && context.reportMissingCapability
+                ? {
+                      missingCapability: {
+                          toolName: virtualToolName,
+                          report: (description: string) => void context.reportMissingCapability?.(description),
+                      },
+                  }
+                : {}),
+        }
     )
 
     return { context, execTool, tools }

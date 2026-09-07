@@ -9,6 +9,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+/** The virtual tool the analytics SDK appends to every `tools/list`. Hardcoded rather than
+ *  read back from the SDK, so a rename upstream fails here instead of passing silently:
+ *  clients see the new name the moment it ships. */
+const MISSING_CAPABILITY_TOOL_NAME = 'get_more_tools'
+
 export type ProtocolTestHarness = {
     /** Origin used to construct the MCP endpoint URL (e.g. `https://test.local`). */
     baseUrl: URL
@@ -1378,10 +1383,13 @@ export function defineCatalogFilterTests(
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
             expect(Array.isArray(tools)).toBe(true)
             // `always_available` utility tools (e.g. agent-feedback, gated by its
-            // own feature flag) bypass feature filtering by design, so an unknown
-            // feature yields only those — assert no feature-gated tool leaked,
-            // rather than a hard-empty list.
-            const featureGated = tools.filter((t) => t.name !== 'agent-feedback')
+            // own feature flag) bypass feature filtering by design, and the analytics
+            // SDK appends its missing-capability virtual tool outside the catalog
+            // entirely, so an unknown feature yields only those — assert no
+            // feature-gated tool leaked, rather than a hard-empty list.
+            const featureGated = tools.filter(
+                (t) => t.name !== 'agent-feedback' && t.name !== MISSING_CAPABILITY_TOOL_NAME
+            )
             expect(featureGated).toHaveLength(0)
         })
 
@@ -1606,8 +1614,9 @@ export function defineExecModeTests(
             const { tools } = await client.listTools()
             // The sibling `render-ui` tool only advertises to MCP Apps hosts (Claude
             // web/desktop); this generic test client isn't one, so the cli-mode roster
-            // collapses to just `exec`.
-            expect(tools.map((t) => t.name).sort()).toEqual(['exec'])
+            // collapses to `exec` plus the analytics SDK's missing-capability tool,
+            // which is appended in every mode.
+            expect(tools.map((t) => t.name).sort()).toEqual([MISSING_CAPABILITY_TOOL_NAME, 'exec'].sort())
         })
 
         it('exec "tools" lists available inner tools', async () => {
