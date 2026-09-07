@@ -224,12 +224,15 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
 
     @parameterized.expand(
         [
-            ("completed", DataModelingJob.Status.COMPLETED),
-            ("failed", DataModelingJob.Status.FAILED),
+            ("completed", DataModelingJob.Status.COMPLETED, True),
+            ("failed", DataModelingJob.Status.FAILED, True),
+            ("still_running", DataModelingJob.Status.RUNNING, False),
         ]
     )
     @mock.patch("products.endpoints.backend.tasks.tasks._deactivate_version_materialization")
-    def test_selects_stale_version_from_a_recent_job_whatever_its_outcome(self, _name, job_status, mock_deactivate):
+    def test_selects_stale_version_from_a_recent_finished_job(
+        self, _name, job_status, expect_deactivation, mock_deactivate
+    ):
         now = timezone.now()
         _, version = self._create_materialized_endpoint(
             name="v2_scheduled",
@@ -246,6 +249,9 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
 
         deactivate_stale_materializations()
 
+        if not expect_deactivation:
+            mock_deactivate.assert_not_called()
+            return
         mock_deactivate.assert_called_once()
         assert mock_deactivate.call_args[0][0].id == version.id
 

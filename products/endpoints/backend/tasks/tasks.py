@@ -10,7 +10,7 @@ from structlog import get_logger
 from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.data_modeling.backend.facade.models import DataModelingJob
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
 from products.endpoints.backend.logic.ducklake_shadow import run_ducklake_shadow_comparison
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
@@ -60,7 +60,7 @@ def deactivate_stale_materializations() -> None:
 
     This task finds endpoint versions where:
     1. The version has an active materialization (saved_query.is_materialized = True)
-    2. The materialization has run in the past 24h (any job, or saved_query.last_run_at)
+    2. The materialization has run in the past 24h (a finished job, or saved_query.last_run_at)
     3. The materialization was enabled at least 30 days ago (saved_query.created_at)
     4. The version was last executed over 30 days ago (via API key), or it is a superseded
        version that was never executed
@@ -71,13 +71,14 @@ def deactivate_stale_materializations() -> None:
     twenty_four_hours_ago = now - timedelta(hours=24)
     stale_threshold = now - timedelta(days=STALE_THRESHOLD_DAYS)
 
-    # Any job proves the schedule is still firing, which is what this gate asks. A materialization
-    # that fails every run costs the same compute as one that succeeds, so testing for success here
-    # would exempt exactly the versions most worth reverting.
+    # Any finished run proves the schedule is still firing, which is what this gate asks. Testing
+    # for success instead would exempt the versions most worth reverting, because a run that fails
+    # costs the same compute as one that succeeds. A still-running job does not count, because
+    # reverting soft-deletes the saved query under a live workflow.
     recent_job = DataModelingJob.objects.filter(
         saved_query_id=OuterRef("saved_query_id"),
         last_run_at__gte=twenty_four_hours_ago,
-    )
+    ).exclude(status=DataModelingJobStatus.RUNNING)
     ran_recently = Q(saved_query__last_run_at__gte=twenty_four_hours_ago) | Q(Exists(recent_job))
 
     # Both stamps are written together on every API-key call, so a superseded version with no stamp
