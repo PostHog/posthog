@@ -20,6 +20,7 @@ import {
 import { useHostTRPC } from "@posthog/host-router/react";
 import type { WorkspaceMode } from "@posthog/shared";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { toastOpenTaskError } from "@posthog/ui/features/tasks/toastOpenTaskError";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import {
   AlertDialog,
@@ -570,7 +571,8 @@ export function ArchivedTasksView() {
               onClick: () =>
                 void queryClient
                   .fetchQuery(taskDetailQuery(navigateToTaskId))
-                  .then(openTask),
+                  .then(openTask)
+                  .catch(toastOpenTaskError),
             }
           : undefined,
       });
