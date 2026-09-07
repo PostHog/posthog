@@ -100,6 +100,14 @@ def _merged_filters() -> dict[str, Any]:
     return merged
 
 
+def _reordered_filters() -> dict[str, Any]:
+    filters = _merged_filters()
+    filters["groups"].reverse()
+    for group in filters["groups"]:
+        group["properties"] = [dict(reversed(list(prop.items()))) for prop in group["properties"]]
+    return filters
+
+
 def _without(key: str) -> dict[str, Any]:
     filters = _merged_filters()
     filters.pop(key)
@@ -188,6 +196,9 @@ def test_created_flag_with_tags(
 @parameterized.expand(
     [
         ("merged_the_current_definition", _merged_filters(), 1.0),
+        # An agent that rewrites the definition may reorder keys and conditions without
+        # changing who the flag serves. Failing that would fail every correct run.
+        ("rewrote_the_definition_in_a_different_order", _reordered_filters(), 1.0),
         ("dropped_the_variants", _without("multivariate"), 0.0),
         ("dropped_the_payloads", _without("payloads"), 0.0),
         (

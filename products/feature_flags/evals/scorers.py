@@ -14,6 +14,7 @@ failure the lifecycle tools exist to prevent, and final state cannot see it.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
@@ -198,6 +199,17 @@ def _variant_percentages(filters: Any) -> dict[str, Any]:
     }
 
 
+def _property_filters(filters: Any) -> list[str]:
+    """Each release condition's property list, canonicalized and order-insensitive.
+
+    Sorted keys and a sorted outer list, because an agent that rewrites the definition
+    is free to reorder both without changing who the flag serves.
+    """
+    return sorted(
+        json.dumps(group["properties"], sort_keys=True) for group in _groups(filters) if group.get("properties")
+    )
+
+
 class PreservedUnrelatedConfig(Scorer):
     """Binary: did the rollout edit move one number and keep everything else?
 
@@ -239,10 +251,7 @@ class PreservedUnrelatedConfig(Scorer):
             "moved_the_target_group": target in after_percentages,
             "kept_the_other_conditions": all(percentage in after_percentages for percentage in pinned),
             "kept_every_condition": len(_groups(after)) == len(_groups(before)),
-            "kept_the_property_filters": sorted(
-                str(group.get("properties")) for group in _groups(after) if group.get("properties")
-            )
-            == sorted(str(group.get("properties")) for group in _groups(before) if group.get("properties")),
+            "kept_the_property_filters": _property_filters(after) == _property_filters(before),
             "kept_the_variants": _variant_percentages(after) == _variant_percentages(before),
             "kept_the_payloads": (after.get("payloads") if isinstance(after, dict) else None) == before.get("payloads"),
         }
