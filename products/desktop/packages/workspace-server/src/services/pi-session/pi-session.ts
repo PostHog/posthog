@@ -215,9 +215,8 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const metadata = this.taskMetadataRepository.findByTaskId(taskId);
     const sessionFile = metadata?.piSessionFile ?? undefined;
 
-    // The session file row only exists on the machine that started the task, so
-    // a synced task, a second device, or a reinstall has none. Start a fresh
-    // session there instead of leaving the task unopenable.
+    // The row only exists on the machine that started the task, so a synced
+    // task, a second device, or a reinstall has none.
     if (!sessionFile) {
       this.log.warn("No local Pi session file, starting a new session", {
         taskId,

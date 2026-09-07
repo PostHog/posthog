@@ -151,8 +151,6 @@ function normalizeSessionError(error: unknown): {
     message?: unknown;
     retryable?: unknown;
   };
-  // An unmapped transport failure carries no text a person can act on, so tell
-  // them what to do instead of showing the internal message.
   const message =
     typeof value?.message === "string" && value.message.trim().length > 0
       ? value.message
