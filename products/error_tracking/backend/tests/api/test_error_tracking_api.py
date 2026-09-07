@@ -1734,7 +1734,7 @@ class TestErrorTracking(APIBaseTest):
                 "metadata": {
                     "git": {
                         "commit_id": "def456",
-                        "remote_url": "https://x-access-token:secret@example.com/repository.git?access_token=query-secret",
+                        "remote_url": "//x-access-token:secret@example.com/repository.git?access_token=query-secret",
                     }
                 }
             },
@@ -1743,7 +1743,7 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         release.refresh_from_db()
-        assert release.metadata == {"git": {"commit_id": "def456", "remote_url": "https://example.com/repository.git"}}
+        assert release.metadata == {"git": {"commit_id": "def456", "remote_url": "//example.com/repository.git"}}
 
     def test_fetch_release_by_hash_id(self) -> None:
         release = ErrorTrackingRelease.objects.create(

@@ -321,11 +321,13 @@ def _sanitize_release_remote_url(remote_url: str) -> str:
         (position for position in (query_start, fragment_start) if position >= 0),
         default=len(remote_url),
     )
-    scheme_end = remote_url.find("://", 0, sanitized_end)
-    if scheme_end < 0:
-        return remote_url[:sanitized_end]
-
-    authority_start = scheme_end + 3
+    if remote_url.startswith("//"):
+        authority_start = 2
+    else:
+        scheme_end = remote_url.find("://", 0, sanitized_end)
+        if scheme_end < 0:
+            return remote_url[:sanitized_end]
+        authority_start = scheme_end + 3
     authority_end = remote_url.find("/", authority_start, sanitized_end)
     if authority_end < 0:
         authority_end = sanitized_end
