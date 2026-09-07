@@ -34,7 +34,6 @@ from posthog.utils import absolute_uri
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
@@ -860,6 +859,10 @@ class VercelIntegration:
 
         if not token_response.id_token:
             raise exceptions.AuthenticationFailed("Vercel SSO response missing id_token")
+
+        # ee/apps.py imports this module at app-population, so a module-scope import here
+        # puts the DRF schema stack on the startup path of every process.
+        from ee.api.authentication import VercelAuthentication  # noqa: PLC0415
 
         # Then exchange token for claim
         claims = VercelAuthentication()._validate_jwt_token(token_response.id_token, "user")
