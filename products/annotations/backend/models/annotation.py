@@ -46,6 +46,12 @@ class Annotation(ModelActivityMixin, models.Model):
 
     class Meta:
         db_table = "posthog_annotation"
+        indexes = [
+            # Every read path filters on the team, or on the organization for organization-scoped
+            # rows, then sorts by date_marker descending.
+            models.Index(fields=["team", "-date_marker"], name="annotation_team_by_marker"),
+            models.Index(fields=["organization", "scope", "-date_marker"], name="annotation_org_by_marker"),
+        ]
 
     @property
     def insight_short_id(self) -> Optional[str]:
