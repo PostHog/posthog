@@ -3125,6 +3125,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (!target || values.currentProjectId == null) {
                 return
             }
+            // An approval waiting on agent startup outlives this command — the terminal frame that stops
+            // it is a round trip away, so the agent can still accept work the user just canceled. Drop
+            // the delivery here. A warm Run is not the streamed run, so its deliveries are not ours.
+            if (target.runId === (cache.activeRun as { runId: string } | undefined)?.runId) {
+                actions.cancelPermissionDelivery()
+            }
             try {
                 await tasksRunsCommandCreate(String(values.currentProjectId), target.taskId, target.runId, {
                     jsonrpc: '2.0',

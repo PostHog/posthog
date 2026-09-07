@@ -3371,6 +3371,38 @@ describe('runStreamLogic', () => {
                 }
             )
 
+            test('cancels an outstanding request when the streamed run is canceled', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate)
+                let complete!: (value: typeof accepted) => void
+                command
+                    .mockImplementationOnce(
+                        () =>
+                            new Promise((resolve) => {
+                                complete = resolve
+                            })
+                    )
+                    .mockResolvedValue(accepted)
+                submit()
+                await jest.advanceTimersByTimeAsync(0)
+                const signal = command.mock.calls[0][4]?.signal
+                logic.actions.cancelRun()
+                expect(signal?.aborted).toBe(true)
+                complete(accepted)
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(command.mock.calls.filter((call) => call[3].method === 'permission_response')).toHaveLength(1)
+                expect(logic.values.respondingToPermission).toBe(false)
+                expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+            })
+
+            test('keeps the delivery alive when a warm run outside this stream is canceled', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate).mockRejectedValue(readinessError)
+                submit()
+                await jest.advanceTimersByTimeAsync(250)
+                logic.actions.cancelRun({ taskId: 'warm-task', runId: 'warm-run' })
+                await jest.advanceTimersByTimeAsync(500)
+                expect(command.mock.calls.filter((call) => call[3].method === 'permission_response')).toHaveLength(3)
+            })
+
             test('stops readiness retries when another client resolves this permission', async () => {
                 const command = jest.mocked(tasksRunsCommandCreate).mockRejectedValue(readinessError)
                 submit()
