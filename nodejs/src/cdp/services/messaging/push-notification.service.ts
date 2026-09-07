@@ -69,6 +69,8 @@ const pushNotificationRescheduledCounter = new Counter({
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
+// Apple asks providers to reuse a connection for hours to days and to ping it after an hour idle.
+const APNS_IDLE_TIMEOUT_MS = 60 * 60 * 1000
 
 // One entry per signing key, so the ceiling is the number of APNs integrations routed through this pod.
 // Pruned on write rather than on a timer.
@@ -509,6 +511,7 @@ export class PushNotificationService {
             body: JSON.stringify(apnsPayload),
             // APNs requires HTTP/2
             allowH2: true,
+            http2IdleTimeoutMs: APNS_IDLE_TIMEOUT_MS,
         }
 
         if (params.timeoutMs !== undefined) {

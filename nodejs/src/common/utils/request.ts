@@ -1,6 +1,8 @@
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
+import { EventEmitter } from 'node:events'
+import type { ClientHttp2Session } from 'node:http2'
 import net from 'node:net'
 import tls from 'node:tls'
 import { Counter, Gauge } from 'prom-client'
@@ -19,6 +21,7 @@ import {
     request,
     fetch as undiciFetch,
 } from 'undici'
+import { kHTTP2Session } from 'undici/lib/core/symbols'
 import { URL } from 'url'
 
 import { getExternalRequestConfig } from '~/common/config'
@@ -60,6 +63,8 @@ export type FetchOptions = {
     body?: string | Buffer
     timeoutMs?: number
     allowH2?: boolean
+    /** How long an idle HTTP/2 session to an origin stays open. Defaults to the keep-alive timeout. */
+    http2IdleTimeoutMs?: number
 }
 
 export type FetchResponse = {
@@ -276,75 +281,186 @@ class InsecureAgent extends Agent {
 }
 
 /**
- * Node's HTTP/2 client multiplexes up to this many streams on one session. undici's own default for its
- * initial peer setting is the same value.
+ * Streams one HTTP/2 session carries at most. Node's own default limit is the same, so an origin that
+ * advertises more gets a second session past this point instead of a larger first one.
  */
 const HTTP2_STREAMS_PER_SESSION = 100
 
 /**
- * undici 7 gives an HTTP/2 client the same defaults as an HTTP/1.1 client, which costs one session per
- * origin twice over. Its `pipelining` default of 1 marks the client busy after one in-flight request, so a
- * pool opens a new connection for every concurrent request instead of a new stream. It also retires an
- * idle HTTP/1.1 socket after the keep-alive timeout but leaves an idle HTTP/2 session open until the origin
- * closes it (nodejs/undici#5406 fixes the latter in undici 8). A caller that fetches from many origins
- * would otherwise hold one open socket per concurrent request per origin it ever reached.
+ * One origin's connections on the HTTP/2 dispatcher.
  *
- * Both fixes wait for ALPN, so a fallback HTTP/1.1 connection keeps its defaults. HTTP/1.1 pipelining
- * would be unsafe against arbitrary origins.
+ * undici 7 opens a new connection for every request that arrives while the first one is still
+ * negotiating, and its HTTP/2 client neither multiplexes past one stream by default nor stops at the
+ * origin's advertised stream limit. This holds every request on the first connection until ALPN and
+ * the origin's SETTINGS frame have answered both questions, then sets the client's stream budget from
+ * the answer. Requests beyond that budget go to an ordinary pool, so an HTTP/1.1 origin still gets
+ * parallel connections and an HTTP/2 origin busy with non-idempotent requests still gets more sessions.
  */
-function makeHttp2SessionPoolFactory(idleTimeoutMs: number): (origin: string | URL, options: object) => Pool {
-    return (origin, options) =>
-        new Pool(origin, {
-            ...(options as Pool.Options),
-            factory: (clientOrigin, clientOptions) =>
-                makeHttp2SessionClient(clientOrigin, clientOptions as Client.Options, idleTimeoutMs),
-        })
-}
+class Http2OriginDispatcher extends Dispatcher {
+    private readonly first: Pool
+    private overflow: Pool | undefined
+    private budgetKnown = false
 
-function makeHttp2SessionClient(origin: URL, options: Client.Options, idleTimeoutMs: number): Client {
-    const connect = options.connect
-    if (typeof connect !== 'function') {
-        return new Client(origin, options)
+    constructor(
+        private readonly origin: string | URL,
+        private readonly options: Pool.Options,
+        private readonly idleTimeoutMs: number
+    ) {
+        super()
+        this.first = this.makePool(1, true)
     }
-    const client: Client = new Client(origin, {
-        ...options,
-        connect: (connectOptions, callback) =>
-            connect(connectOptions, (...result) => {
-                const socket = result[1]
-                if (socket instanceof tls.TLSSocket && socket.alpnProtocol === 'h2') {
-                    client.pipelining = HTTP2_STREAMS_PER_SESSION
-                    closeSocketWhenIdle(client, socket, idleTimeoutMs)
-                }
-                callback(...result)
-            }),
-    })
-    return client
-}
 
-function closeSocketWhenIdle(client: Client, socket: tls.TLSSocket, idleTimeoutMs: number): void {
-    socket.setTimeout(idleTimeoutMs)
-    socket.on('timeout', () => {
-        // A stream that waits on a slow origin sends no bytes, so socket inactivity alone is not idleness.
-        const { running, pending, size } = client.stats
-        if (running > 0 || pending > 0 || size > 0) {
-            socket.setTimeout(idleTimeoutMs)
+    public override dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
+        const connections = this.options.connections ?? 0
+        if (!this.budgetKnown || this.first.stats.free > 0 || connections === 1) {
+            return this.first.dispatch(options, handler)
+        }
+        this.overflow ??= this.makePool(connections > 1 ? connections - 1 : undefined, false)
+        return this.overflow.dispatch(options, handler)
+    }
+
+    public override close(): Promise<void>
+    public override close(callback: () => void): void
+    public override close(callback?: () => void): Promise<void> | void {
+        return settle(
+            this.pools().map((pool) => pool.close()),
+            callback
+        )
+    }
+
+    public override destroy(): Promise<void>
+    public override destroy(error: Error | null): Promise<void>
+    public override destroy(callback: () => void): void
+    public override destroy(error: Error | null, callback: () => void): void
+    public override destroy(
+        errorOrCallback?: Error | null | (() => void),
+        callback?: () => void
+    ): Promise<void> | void {
+        const error = errorOrCallback instanceof Error ? errorOrCallback : null
+        const done = typeof errorOrCallback === 'function' ? errorOrCallback : callback
+        return settle(
+            this.pools().map((pool) => pool.destroy(error)),
+            done
+        )
+    }
+
+    private pools(): Pool[] {
+        return this.overflow ? [this.first, this.overflow] : [this.first]
+    }
+
+    private makePool(connections: number | undefined, gate: boolean): Pool {
+        const pool = new Pool(this.origin, {
+            ...this.options,
+            connections,
+            factory: (clientOrigin, clientOptions) =>
+                this.makeClient(clientOrigin, clientOptions as Client.Options, gate),
+        })
+        const source: EventEmitter = pool
+        for (const event of ['connect', 'disconnect', 'connectionError', 'drain']) {
+            source.on(event, (...args: unknown[]) => EventEmitter.prototype.emit.call(this, event, ...args))
+        }
+        return pool
+    }
+
+    private makeClient(origin: URL, options: Client.Options, gate: boolean): Client {
+        const connect = options.connect
+        if (typeof connect !== 'function') {
+            throw new Error('undici must hand the client factory a connector function')
+        }
+        const client: Client = new Client(origin, {
+            ...options,
+            connect: (connectOptions, callback) => {
+                if (gate) {
+                    this.budgetKnown = false
+                }
+                connect(connectOptions, (error, socket) => {
+                    if (error !== null || socket === null) {
+                        callback(error ?? new Error('connector returned no socket'), null)
+                        return
+                    }
+                    callback(null, socket)
+                    this.onConnected(client, socket, gate)
+                })
+            },
+        })
+        return client
+    }
+
+    /** undici attaches the session to the socket before the connector callback returns, so this runs after it. */
+    private onConnected(client: Client, socket: net.Socket | tls.TLSSocket, gate: boolean): void {
+        const session = (socket as unknown as { [kHTTP2Session]?: ClientHttp2Session })[kHTTP2Session]
+        client.pipelining = 1
+        if (!session) {
+            if (gate) {
+                this.budgetKnown = true
+            }
             return
         }
-        idleHttp2SessionsClosed.inc()
-        // The informational code keeps undici from failing a request queued on this client, so the client reconnects for the next one.
-        socket.destroy(new errors.InformationalError('socket idle timeout'))
-    })
+        session.on('remoteSettings', (settings) => {
+            const advertised = settings.maxConcurrentStreams ?? HTTP2_STREAMS_PER_SESSION
+            client.pipelining = Math.max(1, Math.min(advertised, HTTP2_STREAMS_PER_SESSION))
+            if (gate) {
+                this.budgetKnown = true
+            }
+        })
+        closeSocketWhenIdle(client, socket, this.idleTimeoutMs)
+    }
+}
+
+function settle(pending: Promise<unknown>[], callback?: () => void): Promise<void> | void {
+    const done = Promise.all(pending).then(() => undefined)
+    if (!callback) {
+        return done
+    }
+    done.then(callback, callback)
+}
+
+/**
+ * undici retires an idle HTTP/1.1 socket after the keep-alive timeout but leaves an idle HTTP/2 session
+ * open until the origin closes it. The clock here is the client's own request accounting rather than
+ * socket activity, because undici pings the session every minute and an origin may ping too, and either
+ * would reset a socket inactivity timer.
+ */
+function closeSocketWhenIdle(client: Client, socket: net.Socket | tls.TLSSocket, idleTimeoutMs: number): void {
+    const tickMs = Math.max(1, Math.ceil(idleTimeoutMs / 4))
+    let idleSinceMs: number | undefined
+    let timer: NodeJS.Timeout
+    const tick = (): void => {
+        if (socket.destroyed) {
+            return
+        }
+        const { running, pending, size } = client.stats
+        if (running > 0 || pending > 0 || size > 0) {
+            idleSinceMs = undefined
+        } else if (idleSinceMs === undefined) {
+            idleSinceMs = Date.now()
+        } else if (Date.now() - idleSinceMs >= idleTimeoutMs) {
+            idleHttp2SessionsClosed.inc()
+            // The informational code keeps undici from failing a request queued on this client, so the client reconnects for the next one.
+            socket.destroy(new errors.InformationalError('socket idle timeout'))
+            return
+        }
+        timer = setTimeout(tick, tickMs).unref()
+    }
+    timer = setTimeout(tick, tickMs).unref()
+    socket.once('close', () => clearTimeout(timer))
 }
 
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
-function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
+function makeSecureDispatcher({ http2IdleTimeoutMs }: { http2IdleTimeoutMs?: number }): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
     const keepAliveTimeoutMs = Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS)
-    const http2Sessions = allowH2 ? { factory: makeHttp2SessionPoolFactory(keepAliveTimeoutMs) } : {}
+    const allowH2 = http2IdleTimeoutMs !== undefined
+    const http2Sessions = allowH2
+        ? {
+              factory: (origin: string | URL, options: object) =>
+                  new Http2OriginDispatcher(origin, options as Pool.Options, http2IdleTimeoutMs),
+          }
+        : {}
 
     if (proxyUrl) {
         return new ProxyAgent({
@@ -368,9 +484,22 @@ function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
     })
 }
 
-const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
-const sharedSecureH2Agent = makeSecureDispatcher({ allowH2: true })
+const sharedSecureAgent = makeSecureDispatcher({})
 const sharedInsecureAgent = new InsecureAgent()
+const sharedSecureH2Agents = new Map<number, Dispatcher>()
+
+function secureDispatcher(options: { allowH2?: boolean; http2IdleTimeoutMs?: number }): Dispatcher {
+    if (!options.allowH2) {
+        return sharedSecureAgent
+    }
+    const idleTimeoutMs = options.http2IdleTimeoutMs ?? Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS)
+    let dispatcher = sharedSecureH2Agents.get(idleTimeoutMs)
+    if (!dispatcher) {
+        dispatcher = makeSecureDispatcher({ http2IdleTimeoutMs: idleTimeoutMs })
+        sharedSecureH2Agents.set(idleTimeoutMs, dispatcher)
+    }
+    return dispatcher
+}
 
 function destroyBody(body: Dispatcher.ResponseData['body']): void {
     try {
@@ -483,8 +612,12 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     try {
-        const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
-        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
+        return await _fetch(
+            url,
+            options,
+            secureDispatcher(options),
+            requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
+        )
     } finally {
         inflightExternalRequests.dec()
     }
@@ -494,6 +627,8 @@ export type StreamedFetchOptions = {
     headers?: HeadersInit
     timeoutMs: number
     allowH2?: boolean
+    /** How long an idle HTTP/2 session to an origin stays open. Defaults to the keep-alive timeout. */
+    http2IdleTimeoutMs?: number
 }
 
 export type StreamedResponse = {
@@ -597,7 +732,7 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         result = await request(parsed.toString(), {
             method: 'GET',
             headers: options.headers,
-            dispatcher: options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent,
+            dispatcher: secureDispatcher(options),
             signal: AbortSignal.timeout(options.timeoutMs),
             responseHeaders: 'raw',
         })
