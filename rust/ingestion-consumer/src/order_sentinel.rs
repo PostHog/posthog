@@ -50,9 +50,8 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::ledger_shadow::set_held_gauges;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{AssignmentEpoch, Held, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -305,7 +304,17 @@ impl CommitSentinel {
     pub fn forget_partitions<'a>(&self, revoked: impl IntoIterator<Item = (&'a str, i32)>) {
         let mut partitions = self.partitions.lock().unwrap();
         for (topic, partition) in revoked {
-            partitions.remove(&(topic.to_string(), partition));
+            let forgotten = partitions.remove(&(topic.to_string(), partition));
+            if forgotten.is_some_and(|state| state.attempted.is_some()) {
+                let topic: Arc<str> = Arc::from(topic);
+                let partition: Arc<str> = Arc::from(partition.to_string());
+                gauge!(
+                    "ingestion_consumer_commit_confirmation_lag",
+                    "topic" => topic,
+                    "partition" => partition,
+                )
+                .set(0.0);
+            }
         }
     }
 }
@@ -571,9 +580,8 @@ pub struct SentinelContext {
     commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
     /// The offset ledger the commit path settles against. Owned here so the
-    /// rebalance callbacks forget partitions on the same ledger. `None` when
-    /// the ledger is switched off: the consumer then has no ledger anywhere.
-    topic_offset_ledger: Option<Arc<TopicOffsetLedger>>,
+    /// rebalance callbacks forget partitions on the same ledger.
+    topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Advanced once per assignment callback; the gRPC transport stamps it
     /// on sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances. Distinct from the offset ledger's generations, which move
@@ -585,7 +593,7 @@ impl SentinelContext {
     pub fn new(
         commit_sentinel: Arc<CommitSentinel>,
         key_sentinel: Arc<KeyOrderSentinel>,
-        topic_offset_ledger: Option<Arc<TopicOffsetLedger>>,
+        topic_offset_ledger: Arc<TopicOffsetLedger>,
     ) -> Self {
         Self {
             commit_sentinel,
@@ -607,7 +615,7 @@ impl SentinelContext {
         Self::new(
             Arc::new(CommitSentinel::new()),
             Arc::new(KeyOrderSentinel::new()),
-            Some(Arc::new(TopicOffsetLedger::new())),
+            Arc::new(TopicOffsetLedger::new()),
         )
     }
 
@@ -615,21 +623,29 @@ impl SentinelContext {
         Arc::clone(&self.commit_sentinel)
     }
 
-    pub fn topic_offset_ledger(&self) -> Option<Arc<TopicOffsetLedger>> {
-        self.topic_offset_ledger.clone()
+    pub fn topic_offset_ledger(&self) -> Arc<TopicOffsetLedger> {
+        Arc::clone(&self.topic_offset_ledger)
     }
 
     /// Start a new ledger generation for every partition in `tpl`, dropping
-    /// its window and zeroing its gauges. Nothing to do without a ledger.
+    /// its window.
     fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
-        let Some(ledger) = &self.topic_offset_ledger else {
-            return;
-        };
-        ledger.forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-        for element in tpl.elements() {
-            set_held_gauges(element.topic(), element.partition(), Held::default());
-        }
+        self.topic_offset_ledger
+            .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
     }
+}
+
+fn partition_names(tpl: &TopicPartitionList) -> Vec<String> {
+    let elements = tpl.elements();
+    let mut partitions: Vec<(&str, i32)> = elements
+        .iter()
+        .map(|element| (element.topic(), element.partition()))
+        .collect();
+    partitions.sort_unstable();
+    partitions
+        .into_iter()
+        .map(|(topic, partition)| format!("{topic}:{partition}"))
+        .collect()
 }
 
 impl ClientContext for SentinelContext {
@@ -645,7 +661,11 @@ impl ConsumerContext for SentinelContext {
         match rebalance {
             Rebalance::Revoke(tpl) => {
                 counter!("ingestion_consumer_rebalances_total", "event" => "revoke").increment(1);
-                info!(partitions = tpl.count(), "Rebalance: partitions revoked");
+                info!(
+                    partitions = tpl.count(),
+                    topic_partitions = ?partition_names(tpl),
+                    "Rebalance: partitions revoked"
+                );
                 self.commit_sentinel
                     .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
                 self.forget_ledger_partitions(tpl);
@@ -665,7 +685,11 @@ impl ConsumerContext for SentinelContext {
     fn post_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         if let Rebalance::Assign(tpl) = rebalance {
             counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
-            info!(partitions = tpl.count(), "Rebalance: partitions assigned");
+            info!(
+                partitions = tpl.count(),
+                topic_partitions = ?partition_names(tpl),
+                "Rebalance: partitions assigned"
+            );
             // An assign list names partitions that start a new assignment, so
             // any surviving ledger for them is stale. The revoke callback
             // normally dropped it already; this covers losses with no revoke
@@ -1012,5 +1036,18 @@ mod tests {
         assert!(sentinel
             .note_sent("t:a", &[msg_at(0, 101)], SendKind::Fresh)
             .is_empty());
+    }
+
+    #[test]
+    fn partition_names_sort_by_topic_then_partition_number() {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition("overflow", 2);
+        tpl.add_partition("events", 10);
+        tpl.add_partition("events", 9);
+
+        assert_eq!(
+            partition_names(&tpl),
+            vec!["events:9", "events:10", "overflow:2"]
+        );
     }
 }
