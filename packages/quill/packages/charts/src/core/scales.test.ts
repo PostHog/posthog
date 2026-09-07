@@ -1052,6 +1052,34 @@ describe('hog-charts scales', () => {
             const { band } = createBarScales(series, ['a'], dimensions, { maxBandSize: 48 })
             expect(band.bandwidth()).toBeCloseTo(48, 5)
         })
+
+        // Stacked breakdowns repeat one band key per row so the rows share a band and stack.
+        const stackedRows = ['band', 'band', 'band', 'band', 'band']
+        const stackedSeries = stackedRows.map((_, i) =>
+            makeSeries({ key: `s${i}`, data: stackedRows.map((__, j) => (i === j ? (i + 1) * 10 : 0)) })
+        )
+
+        it('sizes the cap off the distinct bands when rows repeat a band key', () => {
+            const { band } = createBarScales(stackedSeries, stackedRows, tallDims, {
+                axisOrientation: 'horizontal',
+                maxBandSize: 48,
+            })
+            expect(band.domain()).toEqual(['band'])
+            expect(band.bandwidth()).toBeCloseTo(48, 5)
+        })
+
+        it('keeps every stacked row when the cap shortens the range', () => {
+            const { band, value } = createBarScales(stackedSeries, stackedRows, tallDims, {
+                axisOrientation: 'horizontal',
+                fitToHeight: true,
+                minBandSize: 24,
+                maxBandSize: 48,
+            })
+            expect(band.bandwidth()).toBeCloseTo(48, 5)
+            // A row budget measured against the shortened range would drop the last rows, and the
+            // value axis would then stop short of the value only they carry.
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(50)
+        })
     })
 
     describe('createBarScales — horizontal fitToHeight', () => {

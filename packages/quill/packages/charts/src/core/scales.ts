@@ -735,21 +735,24 @@ export function createBarScales(
 
     const bandAxisStart = isHorizontal ? dimensions.plotTop : dimensions.plotLeft
     const bandAxisExtent = isHorizontal ? dimensions.plotHeight : dimensions.plotWidth
-    const cappedExtent = Math.min(
-        bandAxisExtent,
-        maxBandRange ?? Infinity,
-        bandRangeForBandSize(labels.length, maxBandSize, bandPadding)
-    )
+    // The row budget below is measured before `maxBandSize` shortens anything: once the cap gives
+    // every band exactly `maxBandSize`, no band sits under `minBandSize`, so there is nothing left
+    // to drop and the cap must not shrink the row budget.
+    const fitExtent = Math.min(bandAxisExtent, maxBandRange ?? Infinity)
     // Fit-to-height: only keep the rows that fit at `minBandSize`. Labels arrive value-sorted, so
     // slicing keeps the leading rows. Bars/labels/grid all resolve through `band(label)`, so a
     // dropped label resolves to `undefined` and is skipped everywhere — no extra plumbing needed.
     let domainLabels = labels
     if (isHorizontal && fitToHeight && minBandSize && minBandSize > 0) {
-        const maxBands = Math.max(1, Math.floor(cappedExtent / minBandSize))
+        const maxBands = Math.max(1, Math.floor(fitExtent / minBandSize))
         if (labels.length > maxBands) {
             domainLabels = labels.slice(0, maxBands)
         }
     }
+    // Size the cap off the bands d3 draws, not the rows: the ordinal domain keeps only the first
+    // occurrence of a label, and stacked breakdowns repeat one band key for every stacked row.
+    const bandCount = new Set(domainLabels).size
+    const cappedExtent = Math.min(fitExtent, bandRangeForBandSize(bandCount, maxBandSize, bandPadding))
     const band = scaleBand<string>()
         .domain(domainLabels)
         .range([bandAxisStart, bandAxisStart + cappedExtent])
