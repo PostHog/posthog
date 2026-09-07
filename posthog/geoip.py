@@ -1,7 +1,7 @@
 import ipaddress
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Optional, TypedDict
+from typing import Literal, Optional, TypedDict
 
 from django.contrib.gis.geoip2 import GeoIP2
 
@@ -48,10 +48,22 @@ GEOIP_LOOKUP_FAILURES = Counter(
     labelnames=["reason"],
 )
 
-_NON_PUBLIC_IP_CATEGORIES = frozenset({"private", "loopback", "link_local", "reserved", "unspecified"})
+type IPClassification = Literal[
+    "public",
+    "invalid",
+    "private",
+    "loopback",
+    "link_local",
+    "reserved",
+    "unspecified",
+]
+
+_NON_PUBLIC_IP_CATEGORIES: frozenset[IPClassification] = frozenset(
+    {"private", "loopback", "link_local", "reserved", "unspecified"}
+)
 
 
-def _classify_ip(ip_address: str) -> str:
+def _classify_ip(ip_address: str) -> IPClassification:
     """Classify an address before a GeoIP lookup.
 
     The order is significant because Python also reports loopback, link-local, reserved, and
