@@ -109,6 +109,8 @@ tools:
             - _create_in_folder
         feature_flag: revamped-py-notebooks
         feature_flag_behavior: disable
+        superseded_by:
+            - notebooks-create-markdown
     notebooks-destroy:
         operation: notebooks_destroy
         enabled: true
@@ -287,6 +289,8 @@ tools:
                     - notebook_short_id
         feature_flag: notebooks-collaboration
         feature_flag_behavior: disable
+        superseded_by:
+            - notebook-edit
     notebooks-recording-comments-retrieve:
         operation: notebooks_recording_comments_retrieve
         enabled: false
@@ -321,6 +325,8 @@ tools:
                     - notebook_short_id
         feature_flag: revamped-py-notebooks
         feature_flag_behavior: disable
+        superseded_by:
+            - notebooks-get
     notebooks-run-cell:
         operation: notebooks_sql_v2_run_create
         enabled: false

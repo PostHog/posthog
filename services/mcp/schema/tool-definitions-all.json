@@ -1681,7 +1681,8 @@
             "readOnlyHint": true
         },
         "feature_flag": "context-layer",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["context-wiki-page-retrieve"]
     },
     "channel-instructions-update": {
         "description": "Publish a complete replacement for a channel's CONTEXT.md. Read the current version with channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if another update changes the document.",
@@ -1697,7 +1698,8 @@
             "readOnlyHint": false
         },
         "feature_flag": "context-layer",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["context-wiki-page-update"]
     },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions. A project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response carries `count` and `next`, and without `limit` you get every channel in one array.",
@@ -8415,6 +8417,8 @@
         "required_scopes": ["notebook:write"],
         "feature_flag": "notebooks-collaboration",
         "hidden_when_flag_on": "revamped-py-notebooks",
+        "superseded_by": ["notebooks-update-cell", "notebooks-add-cell"],
+        "redirect_hint": "Read the notebook with notebooks-get first: the revamped notebooks are cell-based, so an edit targets one cell.",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -8481,7 +8485,8 @@
             "readOnlyHint": false
         },
         "feature_flag": "revamped-py-notebooks",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["notebooks-create-markdown"]
     },
     "notebooks-create-markdown": {
         "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. This is the default artifact for an analysis with a narrative — a deep dive, a one-off investigation, a 'why did X change' — where the reader needs the reasoning and caveats, not just a number; a dashboard is for metrics tracked repeatedly over time. Reach for a notebook without being asked whenever the work needs Python, so the code, its output, and its errors are visible to the user next to the result instead of running where they can't see them.",
@@ -8585,7 +8590,8 @@
             "readOnlyHint": false
         },
         "feature_flag": "notebooks-collaboration",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["notebook-edit"]
     },
     "notebooks-retrieve": {
         "description": "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. Use this when you need the raw content or the current version number — required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled). When you do not have the notebook's short_id, find it with notebooks-list; searching by title is what its search parameter is for.",
@@ -8601,7 +8607,8 @@
             "readOnlyHint": true
         },
         "feature_flag": "revamped-py-notebooks",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["notebooks-get"]
     },
     "notebooks-run-cell-interrupt": {
         "description": "Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.",

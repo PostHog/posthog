@@ -1666,7 +1666,8 @@
             "readOnlyHint": true
         },
         "feature_flag": "context-layer",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["context-wiki-page-retrieve"]
     },
     "channel-instructions-update": {
         "description": "Publish a complete replacement for a channel's CONTEXT.md. Read the current version with channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if another update changes the document.",
@@ -1682,7 +1683,8 @@
             "readOnlyHint": false
         },
         "feature_flag": "context-layer",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["context-wiki-page-update"]
     },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions. A project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response carries `count` and `next`, and without `limit` you get every channel in one array.",
@@ -8056,7 +8058,8 @@
             "readOnlyHint": false
         },
         "feature_flag": "revamped-py-notebooks",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["notebooks-create-markdown"]
     },
     "notebooks-destroy": {
         "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
@@ -8130,7 +8133,8 @@
             "readOnlyHint": false
         },
         "feature_flag": "notebooks-collaboration",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["notebook-edit"]
     },
     "notebooks-retrieve": {
         "description": "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. Use this when you need the raw content or the current version number — required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled). When you do not have the notebook's short_id, find it with notebooks-list; searching by title is what its search parameter is for.",
@@ -8146,7 +8150,8 @@
             "readOnlyHint": true
         },
         "feature_flag": "revamped-py-notebooks",
-        "feature_flag_behavior": "disable"
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["notebooks-get"]
     },
     "notebooks-run-cell-interrupt": {
         "description": "Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.",
