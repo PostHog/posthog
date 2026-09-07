@@ -129,6 +129,7 @@ posthog.Team conversations.SigningSecret.team reverse-accessor(conversations_sig
 posthog.Team conversations.TeamConversationsSlackConfig.team reverse-accessor(teamconversationsslackconfig) 1
 posthog.Team conversations.TeamConversationsTeamsConfig.team reverse-accessor(teamconversationsteamsconfig) 1
 posthog.Team customer_analytics.TeamCustomerAnalyticsConfig.team reverse-accessor(teamcustomeranalyticsconfig) 1
+posthog.Team dashboards.Dashboard.team reverse-accessor(dashboard_set) 1
 posthog.Team dashboards.Text.team reverse-accessor(text_set) 1
 posthog.Team data_modeling.DataModelingJob.team reverse-accessor(datamodelingjob_set) 1
 posthog.Team data_modeling.GitHubSyncConfig.team reverse-accessor(githubsyncconfig) 1

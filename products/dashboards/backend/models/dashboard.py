@@ -56,7 +56,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pinned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")

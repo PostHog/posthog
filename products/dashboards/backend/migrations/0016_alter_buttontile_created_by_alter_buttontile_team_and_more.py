@@ -56,15 +56,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AlterField(
-            model_name="dashboard",
-            name="team",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="+",
-                to="posthog.team",
-            ),
-        ),
-        migrations.AlterField(
             model_name="dashboardtemplate",
             name="created_by",
             field=models.ForeignKey(
