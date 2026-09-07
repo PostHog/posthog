@@ -33,6 +33,5 @@ Phase 1 is read-only — all actions require the user to make changes manually.
 | Variant sum != 100%                     | The multivariate rollout percentages don't add up to 100%. Adjust the variant percentages.                                                                 |
 | Dead variant (0% rollout)               | A variant has 0% rollout on a non-experiment flag. Either give it traffic or remove it.                                                                    |
 | Dead condition (0% rollout)             | A release condition has 0% rollout. Either increase it or remove the condition.                                                                            |
-| Manual rollout on experiment flag       | An experiment flag has manual rollout overrides. This can invalidate experiment results. Remove manual overrides and let the experiment control the split. |
 | Toggle instability (>3 toggles)         | This flag has been toggled on/off many times. Consider whether the flag is being used as intended.                                                         |
 | High config churn                       | This flag is being modified very frequently. Consider stabilizing the configuration.                                                                       |

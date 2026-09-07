@@ -82,11 +82,6 @@ Checks multivariate flag rollout percentages for correctness.
   - Report: "A release condition has 0% rollout and is not serving any traffic."
   - Action: Either increase the rollout or remove the condition.
 
-- **Manual rollout on experiment flag**: A flag with entries in `experiment_set` has release conditions where `rollout_percentage` is not the expected even split. This suggests someone manually adjusted the rollout outside the experiment.
-  - Severity: INFO · Category: Process
-  - Report: "This experiment flag has manual rollout overrides that differ from the experiment's expected split."
-  - Action: Remove manual overrides and let the experiment control the variant split.
-
 ---
 
 ## 5. Lifecycle
