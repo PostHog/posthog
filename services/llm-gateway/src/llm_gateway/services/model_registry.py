@@ -20,11 +20,7 @@ from llm_gateway.modal import (
     is_modal_configured,
     is_modal_model_configured,
 )
-from llm_gateway.products.config import (
-    get_effective_allowed_models,
-    get_product_config,
-    is_model_restricted_for_product,
-)
+from llm_gateway.products.config import get_product_config, is_model_restricted_for_product
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 
@@ -135,7 +131,7 @@ class ModelRegistryService:
         """Get models available to a product, filtered by configured providers."""
         config = get_product_config(product)
         configured_providers = _get_configured_providers()
-        allowed_models = get_effective_allowed_models(config) if config else None
+        allowed_models = config.allowed_models if config else None
 
         all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
@@ -201,9 +197,8 @@ class ModelRegistryService:
         config = get_product_config(product)
 
         # If product has explicit allowed_models, check against those
-        allowed_models = get_effective_allowed_models(config) if config else None
-        if allowed_models is not None:
-            if not _model_matches_allowlist(model_id, allowed_models):
+        if config is not None and config.allowed_models is not None:
+            if not _model_matches_allowlist(model_id, config.allowed_models):
                 return False
 
         # `@cf/`-served models aren't in litellm's cost map (so get_model returns None) — gate them

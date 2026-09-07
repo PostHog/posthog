@@ -4,11 +4,10 @@
  * sync with the gateway's billing source
  * (services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py).
  *
- * Sources, checked 2026-09-06:
+ * Sources, checked 2026-09-07:
  * - Anthropic (Opus, Sonnet, Haiku): platform.claude.com/docs/en/about-claude/pricing
  * - GPT-5.5: developers.openai.com/api/docs/pricing
- * - GPT-6 Astra: the LiteLLM catalogue pinned by the gateway
- * - Fable, GPT-5.6, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
+ * - Fable, GPT-5.6, GPT-6 Astra, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
  *   the user is actually charged (pinned in the file above). The drift test
  *   binds these rows to it.
  */

@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
-from llm_gateway.products.config import PRODUCTS
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
@@ -433,9 +432,21 @@ class TestModelMatchesAllowlist:
 
 
 class TestIsModelAvailable:
-    def test_gpt_6_astra_is_available_to_every_product(self):
-        for product in PRODUCTS:
-            assert is_model_available("gpt-6-astra", product) is True
+    @pytest.mark.parametrize(
+        "product,expected",
+        [
+            ("posthog_code", True),
+            ("background_agents", True),
+            ("slack_app", True),
+            ("posthog_ai", True),
+            ("onboarding", False),
+            ("product_analytics", False),
+            ("review_hog", False),
+            ("stamphog", False),
+        ],
+    )
+    def test_gpt_6_astra_respects_product_allowlists(self, product: str, expected: bool) -> None:
+        assert is_model_available("gpt-6-astra", product) is expected
 
     @pytest.mark.parametrize(
         "model_id,product,expected",

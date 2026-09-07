@@ -96,21 +96,13 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.3-codex",
         "gpt-5.2",
         "gpt-5-mini",
+        "gpt-6-astra",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
         "moonshotai/kimi-k3",
     }
 )
-
-MODELS_AVAILABLE_TO_ALL_PRODUCTS: Final[frozenset[str]] = frozenset({"gpt-6-astra"})
-
-
-def get_effective_allowed_models(config: ProductConfig) -> frozenset[str] | None:
-    if config.allowed_models is None:
-        return None
-    return config.allowed_models | MODELS_AVAILABLE_TO_ALL_PRODUCTS
-
 
 # Models reserved for specific products must stay restricted even when a product otherwise allows
 # every model (`allowed_models=None`). This is an authorization boundary, not merely a
@@ -173,6 +165,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 # review_hog to this slug (LEGACY_PRODUCT_OVERRIDES in the desktop
                 # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
+                "gpt-6-astra",
             }
             | BEDROCK_MODELS
         ),
@@ -574,10 +567,9 @@ def check_product_access(
     if model and is_model_restricted_for_product(model, resolved_product):
         return False, f"Model '{model}' not allowed for product '{product}'"
 
-    allowed_models = get_effective_allowed_models(config)
-    if model and allowed_models is not None:
+    if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(
-            model, allowed_models, provider=provider, settings=settings, exact=config.exact_model_match
+            model, config.allowed_models, provider=provider, settings=settings, exact=config.exact_model_match
         ):
             return False, f"Model '{model}' not allowed for product '{product}'"
 

@@ -99,6 +99,7 @@ describe("contract rates match the gateway's pinned table", () => {
     ["gpt-5.6-sol", "gpt-5.6-sol"],
     ["gpt-5.6-terra", "gpt-5.6-terra"],
     ["gpt-5.6-luna", "gpt-5.6-luna"],
+    ["gpt-6-astra", "gpt-6-astra"],
   ] as const)("%s", async (family, block) => {
     // A dynamic import keeps the pure-layer lint honest: only this test
     // touches the filesystem, and only to read the gateway's table.
