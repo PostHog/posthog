@@ -96,7 +96,7 @@ Exclude a candidate when any of these apply:
 - tied to an experiment (`experiment_set` non-empty) — check the experiment's status before touching it
 - linked to an early access feature, session replay settings, or used as remote configuration
 - an internal or permanent operational flag (kill switches, tier gates)
-- archived or deleted
+- disabled, archived, or deleted
 - changed recently — a flag updated last month with no calls may be newly deployed and waiting for a release
 - depended on by other active flags
 
