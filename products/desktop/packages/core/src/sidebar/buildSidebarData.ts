@@ -145,9 +145,11 @@ export function computeSidebarSessionSignature(
         ? session.cloudOutput.pr_url
         : "";
     const isAgentIdle = session.agentIdleForRunId === session.taskRunId;
-    signature += `${session.taskId}:${session.isPromptPending ? 1 : 0}:${
-      session.pendingPermissions?.size ?? 0
-    }:${session.cloudStatus ?? ""}:${prUrl}:${isAgentIdle ? 1 : 0};`;
+    signature += `${session.taskId}:${session.taskRunId ?? ""}:${
+      session.isPromptPending ? 1 : 0
+    }:${session.pendingPermissions?.size ?? 0}:${
+      session.cloudStatus ?? ""
+    }:${prUrl}:${isAgentIdle ? 1 : 0};`;
   }
   return signature;
 }
@@ -217,27 +219,40 @@ export function deriveTaskRunState(
   session: TaskSession | undefined,
 ): Pick<
   TaskData,
-  "id" | "isGenerating" | "taskRunId" | "taskRunStatus" | "taskRunEnvironment"
+  | "id"
+  | "isGenerating"
+  | "needsPermission"
+  | "taskRunId"
+  | "taskRunStatus"
+  | "taskRunEnvironment"
 > {
-  // The task detail header reads the same rule, so a row and its header cannot
-  // disagree about one task. A session that belongs to an earlier run does not
-  // speak for the current one: it must not report work the run has finished,
-  // nor hide work on a run it never watched.
+  // The task detail header reads the same status rule. A session from an older
+  // run must not report activity for the latest run.
   const latestRunId = task.latest_run?.id;
   const sessionRunsLatestRun =
     latestRunId !== undefined && session?.taskRunId === latestRunId;
   const taskRunStatus = resolveEffectiveCloudStatus(task, session) ?? undefined;
   const isAgentIdle =
     sessionRunsLatestRun && session?.agentIdleForRunId === latestRunId;
+  const isPromptPending =
+    sessionRunsLatestRun &&
+    session?.isPromptPending === true &&
+    !isTerminalStatus(taskRunStatus);
+  const isCloudRunStarting =
+    taskRunStatus === "not_started" || taskRunStatus === "queued";
+  const isCloudRunWorking =
+    taskRunStatus === "in_progress" &&
+    (isPromptPending ||
+      (task.latest_run?.mode === "background" && !isAgentIdle));
   const isActiveCloudRun =
     task.latest_run?.environment === "cloud" &&
-    taskRunStatus !== undefined &&
-    !isTerminalStatus(taskRunStatus) &&
-    !isAgentIdle;
+    (isCloudRunStarting || isCloudRunWorking);
 
   return {
     id: task.id,
-    isGenerating: session?.isPromptPending === true || isActiveCloudRun,
+    isGenerating: isPromptPending || isActiveCloudRun,
+    needsPermission:
+      sessionRunsLatestRun && (session?.pendingPermissions?.size ?? 0) > 0,
     taskRunId: task.latest_run?.id ?? undefined,
     taskRunStatus,
     taskRunEnvironment: task.latest_run?.environment ?? undefined,
@@ -274,7 +289,6 @@ export function deriveTaskData(
     isUnread,
     isPinned: ctx.pinnedIds.has(task.id),
     isSuspended: ctx.suspendedIds.has(task.id),
-    needsPermission: (session?.pendingPermissions?.size ?? 0) > 0,
     repository: getRepositoryInfo(task, workspace?.folderPath ?? undefined),
     folderId: workspace?.folderId || undefined,
     runMode: task.latest_run?.mode ?? undefined,

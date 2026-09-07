@@ -5,6 +5,7 @@ import {
   deriveTaskRunState,
   limitTasksPerGroup,
   narrowFullTask,
+  type RunMode,
   readRunMode,
   sliceVisibleTasks,
   type TaskSession,
@@ -40,35 +41,92 @@ function makeGroup(id: string, taskCount: number): TaskGroup {
 
 describe("deriveTaskRunState", () => {
   it.each<
-    [string, TaskRunStatus, "local" | "cloud", TaskSession | undefined, boolean]
-  >([
-    ["a cloud run reconnects", "in_progress", "cloud", undefined, true],
-    ["a cloud run waits for setup", "not_started", "cloud", undefined, true],
     [
-      "the current cloud run is active",
+      string,
+      TaskRunStatus,
+      "local" | "cloud",
+      RunMode | undefined,
+      TaskSession | undefined,
+      boolean,
+    ]
+  >([
+    [
+      "a background cloud run reconnects",
       "in_progress",
       "cloud",
+      "background",
+      undefined,
+      true,
+    ],
+    [
+      "an interactive cloud run waits after restart",
+      "in_progress",
+      "cloud",
+      "interactive",
+      undefined,
+      false,
+    ],
+    [
+      "an older server omits the cloud run mode",
+      "in_progress",
+      "cloud",
+      undefined,
+      undefined,
+      false,
+    ],
+    [
+      "a cloud run waits for setup",
+      "not_started",
+      "cloud",
+      undefined,
+      undefined,
+      true,
+    ],
+    [
+      "a matching cloud session has no activity evidence",
+      "in_progress",
+      "cloud",
+      "interactive",
       { taskRunId: "run-1" },
+      false,
+    ],
+    [
+      "the current interactive cloud run has a prompt in flight",
+      "in_progress",
+      "cloud",
+      "interactive",
+      { taskRunId: "run-1", isPromptPending: true },
       true,
     ],
     [
       "the current cloud run reports idle",
       "in_progress",
       "cloud",
+      "background",
       { taskRunId: "run-1", agentIdleForRunId: "run-1" },
       false,
     ],
     [
-      "a session for another run reports idle",
+      "a session for another background run reports idle",
       "in_progress",
       "cloud",
+      "background",
       { taskRunId: "run-2", agentIdleForRunId: "run-2" },
       true,
+    ],
+    [
+      "a session for another run cannot activate an interactive run",
+      "in_progress",
+      "cloud",
+      "interactive",
+      { taskRunId: "run-2", agentIdleForRunId: "run-2" },
+      false,
     ],
     [
       "the previous run left an idle marker",
       "in_progress",
       "cloud",
+      "background",
       { taskRunId: "run-1", agentIdleForRunId: "run-0" },
       true,
     ],
@@ -76,6 +134,7 @@ describe("deriveTaskRunState", () => {
       "an old cloud session still reports work",
       "completed",
       "cloud",
+      "background",
       { taskRunId: "run-0", cloudStatus: "in_progress" },
       false,
     ],
@@ -83,29 +142,80 @@ describe("deriveTaskRunState", () => {
       "the current cloud run settles while the session lags",
       "completed",
       "cloud",
-      { taskRunId: "run-1", cloudStatus: "in_progress" },
+      "background",
+      {
+        taskRunId: "run-1",
+        cloudStatus: "in_progress",
+        isPromptPending: true,
+      },
       false,
     ],
-    ["a cloud run completes", "completed", "cloud", undefined, false],
-    ["a local run stays in progress", "in_progress", "local", undefined, false],
+    [
+      "a cloud run completes",
+      "completed",
+      "cloud",
+      "background",
+      undefined,
+      false,
+    ],
+    [
+      "a local run stays in progress",
+      "in_progress",
+      "local",
+      undefined,
+      undefined,
+      false,
+    ],
     [
       "a local agent streams output",
       "in_progress",
       "local",
+      undefined,
       { taskRunId: "run-1", isPromptPending: true },
       true,
     ],
+    [
+      "an old local session streams output",
+      "in_progress",
+      "local",
+      undefined,
+      { taskRunId: "run-0", isPromptPending: true },
+      false,
+    ],
   ])(
     "derives loading for %s",
-    (_case, status, environment, session, expected) => {
+    (_case, status, environment, mode, session, expected) => {
       const result = deriveTaskRunState(
-        { id: "task-1", latest_run: { id: "run-1", status, environment } },
+        {
+          id: "task-1",
+          latest_run: { id: "run-1", status, environment, mode },
+        },
         session,
       );
 
       expect(result.isGenerating).toBe(expected);
     },
   );
+
+  it.each([
+    ["the latest run", "run-1", true],
+    ["an older run", "run-0", false],
+  ])("reads pending permissions from %s", (_case, taskRunId, expected) => {
+    const result = deriveTaskRunState(
+      {
+        id: "task-1",
+        latest_run: {
+          id: "run-1",
+          status: "in_progress",
+          environment: "cloud",
+          mode: "interactive",
+        },
+      },
+      { taskRunId, pendingPermissions: { size: 1 } },
+    );
+
+    expect(result.needsPermission).toBe(expected);
+  });
 });
 
 describe("sliceVisibleTasks", () => {

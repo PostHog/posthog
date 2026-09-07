@@ -5556,7 +5556,14 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(id="id", status="status", environment="environment"))
+        .annotate(
+            _mode=Case(
+                When(state__mode="interactive", then=Value("interactive")),
+                default=Value("background"),
+                output_field=CharField(),
+            ),
+            _data=JSONObject(id="id", status="status", environment="environment", mode="_mode"),
+        )
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
@@ -5569,7 +5576,10 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
         raw = getattr(task, "_latest_run", None)
         latest = (
             contracts.TaskLatestRunSummaryDTO(
-                id=raw["id"], status=raw.get("status"), environment=raw.get("environment")
+                id=raw["id"],
+                status=raw.get("status"),
+                environment=raw.get("environment"),
+                mode=raw.get("mode", "background"),
             )
             if isinstance(raw, dict)
             else None

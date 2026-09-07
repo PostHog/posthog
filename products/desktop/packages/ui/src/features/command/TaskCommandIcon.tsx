@@ -1,3 +1,7 @@
+import {
+  deriveTaskRunState,
+  narrowFullTask,
+} from "@posthog/core/sidebar/buildSidebarData";
 import type { Task } from "@posthog/shared/domain-types";
 import { TaskIcon } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
@@ -13,6 +17,8 @@ export function TaskCommandIcon({ task }: { task: Task }) {
     cloudPrUrl: null,
     taskRunEnvironment: task.latest_run?.environment,
   });
+  const sidebarTask = narrowFullTask(task);
+  const runState = deriveTaskRunState(sidebarTask, undefined);
   const stateSlackThreadUrl = (
     task.latest_run?.state as { slack_thread_url?: unknown } | undefined
   )?.slack_thread_url;
@@ -20,8 +26,10 @@ export function TaskCommandIcon({ task }: { task: Task }) {
     typeof stateSlackThreadUrl === "string" ? stateSlackThreadUrl : undefined;
   return (
     <TaskIcon
-      workspaceMode={task.latest_run?.environment}
-      taskRunStatus={task.latest_run?.status}
+      workspaceMode={runState.taskRunEnvironment}
+      isGenerating={runState.isGenerating}
+      taskRunStatus={runState.taskRunStatus}
+      runMode={sidebarTask.latest_run?.mode ?? undefined}
       originProduct={task.origin_product}
       slackThreadUrl={slackThreadUrl}
       prState={prState}

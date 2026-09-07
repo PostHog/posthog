@@ -5086,16 +5086,22 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         [payload] = response.json()["results"]
         self.assertEqual(
             payload["latest_run"],
-            {"id": str(valid_run.id), "status": valid_run.status, "environment": valid_run.environment},
+            {
+                "id": str(valid_run.id),
+                "status": valid_run.status,
+                "environment": valid_run.environment,
+                "mode": "background",
+            },
         )
 
     @parameterized.expand(
         [
-            ("with_run", True),
-            ("no_runs", False),
+            ("background_run", {}, "background"),
+            ("interactive_run", {"mode": "interactive"}, "interactive"),
+            ("no_runs", None, None),
         ]
     )
-    def test_summaries_response_shape(self, _name, with_run):
+    def test_summaries_response_shape(self, _name, run_state, expected_mode):
         task = self.create_task("Task")
         run = (
             TaskRun.objects.create(
@@ -5103,8 +5109,9 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 task=task,
                 status=TaskRun.Status.IN_PROGRESS,
                 environment=TaskRun.Environment.LOCAL,
+                state=run_state,
             )
-            if with_run
+            if run_state is not None
             else None
         )
 
@@ -5114,7 +5121,16 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         [payload] = response.json()["results"]
         self.assertEqual(set(payload.keys()), self.SUMMARY_FIELDS)
         self.assertEqual(payload["created_by_id"], self.user.id)
-        expected_run = {"id": str(run.id), "status": run.status, "environment": run.environment} if run else None
+        expected_run = (
+            {
+                "id": str(run.id),
+                "status": run.status,
+                "environment": run.environment,
+                "mode": expected_mode,
+            }
+            if run
+            else None
+        )
         self.assertEqual(payload["latest_run"], expected_run)
 
     def test_summaries_paginates_large_id_sets(self):

@@ -4778,6 +4778,11 @@ export interface TaskRunSummaryApi {
     id: string
     status: TaskRunStatusEnumApi | null
     environment: TaskRunEnvironmentEnumApi | null
+    /** Execution mode of the latest run.
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
+    mode: TaskExecutionModeEnumApi
 }
 
 /**
