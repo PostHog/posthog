@@ -1,9 +1,19 @@
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
+
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.fit_score import IcpFitResult
-from products.growth.backend.enrichment.writer import record_signup_work_email, write_organization_enrichment
+from products.growth.backend.enrichment.writer import (
+    FIT_EVALUATION_KIND_BACKFILL,
+    FIT_EVALUATION_KIND_INITIAL,
+    FIT_EVALUATION_KIND_RECHECK,
+    FIT_EVALUATION_KIND_SWEEP,
+    record_signup_work_email,
+    write_organization_enrichment,
+)
 from products.growth.backend.models import OrganizationEnrichment
 
 
@@ -92,6 +102,7 @@ class TestEnrichmentWriter(BaseTest):
             pha_client=pha_client,
             icp_score=9,
             fit=_fit(),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
@@ -101,6 +112,8 @@ class TestEnrichmentWriter(BaseTest):
         assert record.data["icp_fit_version"] == "v0.5"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "lists-1"
+        assert record.data["icp_fit_evaluation_kind"] == "initial"
+        assert record.data["icp_fit_evaluated_at"]
         assert record.data["icp_fit_components"]["capital"] == 30
         assert record.data["icp_fit_flags"] == {
             "quality_investor": True,
@@ -114,6 +127,9 @@ class TestEnrichmentWriter(BaseTest):
         assert properties["icp_fit_score"] == 72
         assert properties["icp_fit_version"] == "v0.5"
         assert properties["icp_fit_status"] == "scored"
+        # Provenance lands on the Postgres record only, not the group projection.
+        assert "icp_fit_evaluated_at" not in properties
+        assert "icp_fit_evaluation_kind" not in properties
 
     def test_fit_only_write_carries_no_field_or_clay_keys(self):
         # The fit backfill passes fields=None and no clay score: only icp_fit_* keys move.
@@ -123,6 +139,7 @@ class TestEnrichmentWriter(BaseTest):
             fields=None,
             pha_client=pha_client,
             fit=_fit(score=41),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_BACKFILL,
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
@@ -144,12 +161,14 @@ class TestEnrichmentWriter(BaseTest):
             },
         )
         pha_client = MagicMock()
-        write_organization_enrichment(
-            organization_id=str(self.organization.id),
-            fields=None,
-            pha_client=pha_client,
-            fit=IcpFitResult(status="insufficient_data", lists_version="lists-1"),
-        )
+        with freeze_time("2026-09-01T12:00:00Z"):
+            write_organization_enrichment(
+                organization_id=str(self.organization.id),
+                fields=None,
+                pha_client=pha_client,
+                fit=IcpFitResult(status="insufficient_data", lists_version="lists-1"),
+                fit_evaluation_kind=FIT_EVALUATION_KIND_SWEEP,
+            )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data == {
@@ -158,6 +177,8 @@ class TestEnrichmentWriter(BaseTest):
             "icp_fit_status": "insufficient_data",
             "icp_fit_version": "v0.5",
             "icp_fit_lists_version": "lists-1",
+            "icp_fit_evaluated_at": "2026-09-01T12:00:00+00:00",
+            "icp_fit_evaluation_kind": "sweep",
         }
         # Group properties cannot be deleted, so only the status key is projected: pairing
         # the fresh version with the group's stale numeric score would misattribute it.
@@ -167,7 +188,11 @@ class TestEnrichmentWriter(BaseTest):
     def test_disqualification_after_a_scored_pass_strips_the_stale_components_and_flags(self):
         pha_client = MagicMock()
         write_organization_enrichment(
-            organization_id=str(self.organization.id), fields=None, pha_client=pha_client, fit=_fit(score=62)
+            organization_id=str(self.organization.id),
+            fields=None,
+            pha_client=pha_client,
+            fit=_fit(score=62),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
         )
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_components"]["capital"] == 30
@@ -178,6 +203,7 @@ class TestEnrichmentWriter(BaseTest):
             fields=None,
             pha_client=pha_client,
             fit=IcpFitResult(status="disqualified", score=0, dq_reason="role=student"),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_RECHECK,
         )
         record.refresh_from_db()
         assert record.data["icp_fit_score"] == 0
@@ -192,9 +218,14 @@ class TestEnrichmentWriter(BaseTest):
             fields=None,
             pha_client=pha_client,
             fit=IcpFitResult(status="disqualified", score=0, dq_reason="company_type=SCHOOL"),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
         )
         write_organization_enrichment(
-            organization_id=str(self.organization.id), fields=None, pha_client=pha_client, fit=_fit()
+            organization_id=str(self.organization.id),
+            fields=None,
+            pha_client=pha_client,
+            fit=_fit(),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_RECHECK,
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
@@ -208,6 +239,7 @@ class TestEnrichmentWriter(BaseTest):
             fields=None,
             pha_client=pha_client,
             fit=_fit(score=55),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
             fit_mirror_distinct_id="signer",
         )
         pha_client.set.assert_called_once_with(
@@ -221,9 +253,38 @@ class TestEnrichmentWriter(BaseTest):
             fields=None,
             pha_client=pha_client,
             fit=IcpFitResult(status="insufficient_data"),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_RECHECK,
             fit_mirror_distinct_id="signer",
         )
         pha_client.set.assert_called_once_with(distinct_id="signer", properties={"icp_fit_status": "insufficient_data"})
+
+    @parameterized.expand(
+        [
+            ("initial", FIT_EVALUATION_KIND_INITIAL),
+            ("recheck", FIT_EVALUATION_KIND_RECHECK),
+            ("backfill", FIT_EVALUATION_KIND_BACKFILL),
+            ("sweep", FIT_EVALUATION_KIND_SWEEP),
+        ]
+    )
+    def test_fit_evaluation_kind_is_recorded_verbatim(self, _name, kind):
+        write_organization_enrichment(
+            organization_id=str(self.organization.id),
+            fields=None,
+            pha_client=MagicMock(),
+            fit=_fit(),
+            fit_evaluation_kind=kind,
+        )
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_evaluation_kind"] == kind
+
+    def test_fit_without_evaluation_kind_raises(self):
+        with self.assertRaises(ValueError):
+            write_organization_enrichment(
+                organization_id=str(self.organization.id),
+                fields=None,
+                pha_client=MagicMock(),
+                fit=_fit(),
+            )
 
     def test_record_signup_work_email_merges_without_clobbering_provider_data(self):
         record_signup_work_email(organization_id=str(self.organization.id), work_email=False)
