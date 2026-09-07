@@ -3503,7 +3503,9 @@ class SandboxEnvironment(UUIDModel):
         FULL = "full", "Full"
         CUSTOM = "custom", "Custom"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # The (team, created_by) index below leads with team_id, so it already serves
+    # team lookups and the cascade delete check.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
     name = models.CharField(max_length=255)
