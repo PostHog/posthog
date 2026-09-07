@@ -2067,7 +2067,7 @@ class TaskSearchQuerySerializer(serializers.Serializer):
 class TaskSearchResultSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Search document identifier.")
     kind = serializers.ChoiceField(
-        choices=["task", "pull_request", "artifact", "channel"], help_text="Type of matched resource."
+        choices=["task", "pull_request", "artifact", "channel", "canvas"], help_text="Type of matched resource."
     )
     title = serializers.CharField(help_text="Primary result label.")
     subtitle = serializers.CharField(allow_blank=True, help_text="Secondary result context.")

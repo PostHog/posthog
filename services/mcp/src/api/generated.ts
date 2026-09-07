@@ -86587,6 +86587,7 @@ export namespace Schemas {
      * * `pull_request` - pull_request
      * * `artifact` - artifact
      * * `channel` - channel
+     * * `canvas` - canvas
      */
     export type TaskSearchResultKindEnum = typeof TaskSearchResultKindEnum[keyof typeof TaskSearchResultKindEnum];
 
@@ -86596,6 +86597,7 @@ export namespace Schemas {
       PullRequest: 'pull_request',
       Artifact: 'artifact',
       Channel: 'channel',
+      Canvas: 'canvas',
     } as const;
 
     export interface TaskSearchResult {
@@ -86606,7 +86608,8 @@ export namespace Schemas {
        * * `task` - task
        * * `pull_request` - pull_request
        * * `artifact` - artifact
-       * * `channel` - channel */
+       * * `channel` - channel
+       * * `canvas` - canvas */
       kind: TaskSearchResultKindEnum;
       /** Primary result label. */
       title: string;

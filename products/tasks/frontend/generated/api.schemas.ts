@@ -4520,6 +4520,7 @@ export interface RepositoryReadinessResponseApi {
  * * `pull_request` - pull_request
  * * `artifact` - artifact
  * * `channel` - channel
+ * * `canvas` - canvas
  */
 export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
 
@@ -4528,6 +4529,7 @@ export const TaskSearchResultKindEnumApi = {
     PullRequest: 'pull_request',
     Artifact: 'artifact',
     Channel: 'channel',
+    Canvas: 'canvas',
 } as const
 
 export interface TaskSearchResultApi {
@@ -4538,7 +4540,8 @@ export interface TaskSearchResultApi {
      * * `task` - task
      * * `pull_request` - pull_request
      * * `artifact` - artifact
-     * * `channel` - channel */
+     * * `channel` - channel
+     * * `canvas` - canvas */
     kind: TaskSearchResultKindEnumApi
     /** Primary result label. */
     title: string

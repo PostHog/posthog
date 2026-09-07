@@ -13,6 +13,7 @@ from django.dispatch import receiver
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
+from products.canvas.backend.models import Canvas
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskRun, TaskSearchDocument
 
 logger = logging.getLogger(__name__)
@@ -207,6 +208,26 @@ def index_channel(channel_id: Any, *, canonical_team_id: int | None = None) -> N
     )
 
 
+def index_canvas(canvas_id: Any, *, canonical_team_id: int | None = None) -> None:
+    canvas = Canvas.objects.unscoped().filter(id=canvas_id).first()
+    source_key = str(canvas_id)
+    if canvas is None or canvas.deleted or canvas.source_policy != Canvas.SOURCE_POLICY_STANDARD:
+        TaskSearchDocument.objects.unscoped().filter(
+            kind=TaskSearchDocument.Kind.CANVAS, source_key=source_key
+        ).delete()
+        return
+    canonical_team_id = canonical_team_id or resolve_effective_team_id(canvas.team_id)
+    _upsert(
+        team_id=canonical_team_id,
+        kind=TaskSearchDocument.Kind.CANVAS,
+        source_key=source_key,
+        title=canvas.name,
+        identifiers=[canvas.name],
+        channel_id=canvas.channel_id,
+        metadata={"canvas_id": str(canvas.id), "canvas_kind": canvas.kind, "template_id": canvas.template_id},
+    )
+
+
 def rebuild_team_search_index(team_id: int) -> None:
     canonical_team_id = resolve_effective_team_id(team_id)
     environment_ids = Team.objects.filter(Q(id=canonical_team_id) | Q(parent_team_id=canonical_team_id)).values_list(
@@ -225,6 +246,8 @@ def rebuild_team_search_index(team_id: int) -> None:
         Channel.objects.for_team(canonical_team_id, canonical=True).values_list("id", flat=True).iterator()
     ):
         index_channel(channel_id, canonical_team_id=canonical_team_id)
+    for canvas_id in Canvas.objects.for_team(canonical_team_id, canonical=True).values_list("id", flat=True).iterator():
+        index_canvas(canvas_id, canonical_team_id=canonical_team_id)
 
 
 def _after_commit(callback) -> None:
@@ -274,6 +297,31 @@ def channel_saved(sender, instance: Channel, update_fields=None, **kwargs) -> No
     if update_fields is not None and not set(update_fields) & {"name", "deleted", "channel_type", "created_by"}:
         return
     _after_commit(lambda: index_channel(instance.id))
+
+
+@receiver(post_save, sender=Canvas)
+def canvas_saved(sender, instance: Canvas, update_fields=None, **kwargs) -> None:
+    if update_fields is not None and not set(update_fields) & {
+        "name",
+        "deleted",
+        "channel",
+        "kind",
+        "template_id",
+        "source_policy",
+    }:
+        return
+    _after_commit(lambda: index_canvas(instance.id))
+
+
+@receiver(post_delete, sender=Canvas)
+def canvas_deleted(sender, instance: Canvas, **kwargs) -> None:
+    _after_commit(
+        lambda: (
+            TaskSearchDocument.objects.unscoped()
+            .filter(kind=TaskSearchDocument.Kind.CANVAS, source_key=str(instance.id))
+            .delete()
+        )
+    )
 
 
 @receiver(post_delete, sender=Channel)

@@ -2,6 +2,7 @@ import re
 import time
 import hashlib
 import logging
+from collections import Counter
 from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -5467,6 +5468,33 @@ def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[cont
     return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
 
 
+_SEARCH_KIND_ORDER = (
+    TaskSearchDocument.Kind.TASK,
+    TaskSearchDocument.Kind.CANVAS,
+    TaskSearchDocument.Kind.CHANNEL,
+    TaskSearchDocument.Kind.PULL_REQUEST,
+    TaskSearchDocument.Kind.ARTIFACT,
+)
+_SEARCH_BULK_KINDS = {TaskSearchDocument.Kind.PULL_REQUEST, TaskSearchDocument.Kind.ARTIFACT}
+_SEARCH_BULK_KIND_PAGE_SHARE = 0.25
+_SEARCH_CANDIDATE_FACTOR = 3
+_SEARCH_MAX_CANDIDATES = 150
+
+
+def _mixed_search_page(documents: Iterable[TaskSearchDocument], page_size: int) -> list[TaskSearchDocument]:
+    quota = int(page_size * _SEARCH_BULK_KIND_PAGE_SHARE)
+    used: Counter[str] = Counter()
+    page: list[TaskSearchDocument] = []
+    overflow: list[TaskSearchDocument] = []
+    for document in documents:
+        if document.kind in _SEARCH_BULK_KINDS and used[document.kind] >= quota:
+            overflow.append(document)
+            continue
+        used[document.kind] += 1
+        page.append(document)
+    return (page + overflow)[:page_size]
+
+
 def search_tasks(
     team_id: int,
     user_id: int | None,
@@ -5497,7 +5525,8 @@ def search_tasks(
     matches = exact_match
     if len(normalized) >= 3:
         matches |= Q(search_text__icontains=normalized)
-    documents = (
+    page_size = min(limit, 50)
+    candidates = (
         TaskSearchDocument.objects.for_team(team_id)
         .filter(visibility)
         .filter(matches)
@@ -5507,10 +5536,18 @@ def search_tasks(
                 When(search_text__startswith=normalized, then=Value(1)),
                 default=Value(2),
                 output_field=IntegerField(),
-            )
+            ),
+            _kind_rank=Case(
+                *[When(kind=kind, then=Value(rank)) for rank, kind in enumerate(_SEARCH_KIND_ORDER)],
+                default=Value(len(_SEARCH_KIND_ORDER)),
+                output_field=IntegerField(),
+            ),
         )
-        .order_by("_rank", "-updated_at")[: min(limit, 50)]
+        .order_by("_rank", "_kind_rank", "-updated_at")[
+            : min(page_size * _SEARCH_CANDIDATE_FACTOR, _SEARCH_MAX_CANDIDATES)
+        ]
     )
+    documents = _mixed_search_page(candidates, page_size)
     return [
         {
             "id": str(document.id),
@@ -8042,7 +8079,6 @@ def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) 
 def _locked_visible_channel(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, no_key: bool = False
 ) -> Channel | None:
-
     channel = (
         Channel.objects.for_team(team_id).select_for_update(no_key=no_key).filter(id=channel_id, deleted=False).first()
     )
