@@ -16,7 +16,9 @@ import type {
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
     DomainsListParams,
+    DomainsScimLogsRetrieveParams,
     EnterprisePropertyDefinitionApi,
+    EventIngestionRestrictionApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -31,6 +33,7 @@ import type {
     GitHubReposResponseApi,
     IdentityProviderConfigApi,
     IdentityProviderConfigsListParams,
+    IdentityProviderConfigsScimLogsRetrieveParams,
     InvitesListParams,
     LeakedKeyReportApi,
     LeakedKeyReportResponseApi,
@@ -39,6 +42,9 @@ import type {
     OrganizationDomainApi,
     OrganizationInviteApi,
     OrganizationInviteDelegateApi,
+    OrganizationNotificationLockBulkUpdateApi,
+    OrganizationNotificationMemberApi,
+    OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
@@ -51,6 +57,8 @@ import type {
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
+    PaginatedSCIMRequestLogApi,
+    PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
     PatchedCIMDVerificationTokenUpdateApi,
@@ -59,6 +67,7 @@ import type {
     PatchedFileSystemShortcutApi,
     PatchedIdentityProviderConfigApi,
     PatchedOrganizationDomainApi,
+    PatchedProductIntroSeenApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
@@ -71,6 +80,12 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    UploadedMediaApi,
+    UploadedMediaCreate201,
+    UploadedMediaCreateBody,
+    UploadedMediaListParams,
+    UploadedMediaStartUploadApi,
+    UploadedMediaUploadStartedApi,
     UserApi,
     UserAuthSessionApi,
     UserGitHubLinkStartRequestApi,
@@ -88,6 +103,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
 } from './api.schemas'
 
@@ -386,16 +402,33 @@ export const domainsDestroy = async (organizationId: string, id: string, options
     })
 }
 
-export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
+export const getDomainsScimLogsRetrieveUrl = (
+    organizationId: string,
+    id: string,
+    params?: DomainsScimLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/domains/${id}/scim/logs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
 }
 
 export const domainsScimLogsRetrieve = async (
     organizationId: string,
     id: string,
+    params?: DomainsScimLogsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
+): Promise<PaginatedSCIMRequestLogApi> => {
+    return apiMutator<PaginatedSCIMRequestLogApi>(getDomainsScimLogsRetrieveUrl(organizationId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -535,6 +568,41 @@ export const identityProviderConfigsDestroy = async (
     })
 }
 
+export const getIdentityProviderConfigsScimLogsRetrieveUrl = (
+    organizationId: string,
+    id: string,
+    params?: IdentityProviderConfigsScimLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/identity_provider_configs/${id}/scim/logs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/identity_provider_configs/${id}/scim/logs/`
+}
+
+export const identityProviderConfigsScimLogsRetrieve = async (
+    organizationId: string,
+    id: string,
+    params?: IdentityProviderConfigsScimLogsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedSCIMRequestLogApi> => {
+    return apiMutator<PaginatedSCIMRequestLogApi>(
+        getIdentityProviderConfigsScimLogsRetrieveUrl(organizationId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getIdentityProviderConfigsScimTokenCreateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/identity_provider_configs/${id}/scim/token/`
 }
@@ -643,6 +711,43 @@ export const invitesDelegateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(organizationInviteDelegateApi),
+    })
+}
+
+export const getNotificationLocksListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/notification_locks/`
+}
+
+/**
+ * List the organization's members with their own notification settings and the locks in force for each.
+ */
+export const notificationLocksList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationNotificationMemberApi[]> => {
+    return apiMutator<OrganizationNotificationMemberApi[]>(getNotificationLocksListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotificationLocksBulkUpdateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/notification_locks/bulk_update/`
+}
+
+/**
+ * Lock or unlock notification settings for members of this organization. Each affected member is notified in the app.
+ */
+export const notificationLocksBulkUpdateCreate = async (
+    organizationId: string,
+    organizationNotificationLockBulkUpdateApi: OrganizationNotificationLockBulkUpdateApi,
+    options?: RequestInit
+): Promise<OrganizationNotificationMemberApi[]> => {
+    return apiMutator<OrganizationNotificationMemberApi[]>(getNotificationLocksBulkUpdateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationNotificationLockBulkUpdateApi),
     })
 }
 
@@ -1040,20 +1145,37 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
+export const getOrganizationsProjectsEventIngestionRestrictionsListUrl = (
+    organizationId: string,
+    id: number,
+    params?: OrganizationsProjectsEventIngestionRestrictionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
 }
 
 /**
  * Projects for the current organization.
  */
-export const organizationsProjectsEventIngestionRestrictionsRetrieve = async (
+export const organizationsProjectsEventIngestionRestrictionsList = async (
     organizationId: string,
     id: number,
+    params?: OrganizationsProjectsEventIngestionRestrictionsListParams,
     options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl(organizationId, id),
+): Promise<EventIngestionRestrictionApi[]> => {
+    return apiMutator<EventIngestionRestrictionApi[]>(
+        getOrganizationsProjectsEventIngestionRestrictionsListUrl(organizationId, id, params),
         {
             ...options,
             method: 'GET',
@@ -2298,6 +2420,107 @@ export const sessionRecordingsSharingRefreshCreate = async (
     })
 }
 
+export const getUploadedMediaListUrl = (projectId: string, params: UploadedMediaListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/uploaded_media/?${stringifiedParams}`
+        : `/api/projects/${projectId}/uploaded_media/`
+}
+
+/**
+ * List images in the media library. Requires a `purpose` filter — the library is scoped per consumer (e.g. `email`), so browsing without one would mix in unrelated uploads (dashboard images, toolbar screenshots, ...).
+ */
+export const uploadedMediaList = async (
+    projectId: string,
+    params: UploadedMediaListParams,
+    options?: RequestInit
+): Promise<PaginatedUploadedMediaListApi> => {
+    return apiMutator<PaginatedUploadedMediaListApi>(getUploadedMediaListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUploadedMediaCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/uploaded_media/`
+}
+
+/**
+ *
+ *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
+ *
+ *     Uploaded media must be less than 4MB and decode as a PNG, JPEG, GIF, WebP, AVIF or BMP image — the formats
+ *     the download route will serve inline. Pass `purpose` to also add the image to a library, making it visible
+ *     to `GET ?purpose=...`.
+ *
+ */
+export const uploadedMediaCreate = async (
+    projectId: string,
+    uploadedMediaCreateBody?: UploadedMediaCreateBody,
+    options?: RequestInit
+): Promise<UploadedMediaCreate201> => {
+    const formData = new FormData()
+    if (uploadedMediaCreateBody?.image !== undefined) {
+        formData.append(`image`, uploadedMediaCreateBody.image)
+    }
+    if (uploadedMediaCreateBody?.purpose !== undefined) {
+        formData.append(`purpose`, uploadedMediaCreateBody.purpose)
+    }
+
+    return apiMutator<UploadedMediaCreate201>(getUploadedMediaCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getUploadedMediaCompleteUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uploaded_media/${id}/complete_upload/`
+}
+
+/**
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ */
+export const uploadedMediaCompleteUploadCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UploadedMediaApi> => {
+    return apiMutator<UploadedMediaApi>(getUploadedMediaCompleteUploadCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUploadedMediaStartUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/uploaded_media/start_upload/`
+}
+
+/**
+ * Step 1 of the presigned upload flow: reserves a pending image and returns a presigned URL to POST the file to directly, bytes never pass through this API. Call complete_upload with the returned id once the upload finishes.
+ */
+export const uploadedMediaStartUploadCreate = async (
+    projectId: string,
+    uploadedMediaStartUploadApi: UploadedMediaStartUploadApi,
+    options?: RequestInit
+): Promise<UploadedMediaUploadStartedApi> => {
+    return apiMutator<UploadedMediaUploadStartedApi>(getUploadedMediaStartUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uploadedMediaStartUploadApi),
+    })
+}
+
 export const getRevokeLeakedKeyCreateUrl = () => {
     return `/api/revoke_leaked_key/`
 }
@@ -2896,6 +3119,34 @@ export const usersOnboardingSkipCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(onboardingSkipRequestApi),
+    })
+}
+
+export const getUsersProductIntroSeenPartialUpdateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/product_intro_seen/`
+}
+
+/**
+ * Record that this user has seen one product intro.
+ *
+ * Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+ * recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+ * would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+ * here changes an account, an organization, or a profile.
+ *
+ * Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+ * other's key, which a read-modify-write of the whole map cannot avoid.
+ */
+export const usersProductIntroSeenPartialUpdate = async (
+    uuid: string,
+    patchedProductIntroSeenApi?: PatchedProductIntroSeenApi,
+    options?: RequestInit
+): Promise<UsersProductIntroSeenPartialUpdate200> => {
+    return apiMutator<UsersProductIntroSeenPartialUpdate200>(getUsersProductIntroSeenPartialUpdateUrl(uuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProductIntroSeenApi),
     })
 }
 

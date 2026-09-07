@@ -250,6 +250,16 @@ _FEATURE_REQUEST_ORDERING_CHOICES = [
     ("priority", "Priority: low to high"),
     ("title", "Title: A to Z"),
     ("-title", "Title: Z to A"),
+    ("account", "Accounts: A to Z"),
+    ("-account", "Accounts: Z to A"),
+    ("product_area", "Product areas: A to Z"),
+    ("-product_area", "Product areas: Z to A"),
+    ("status", "Status: A to Z"),
+    ("-status", "Status: Z to A"),
+    ("created_by", "Created by: A to Z"),
+    ("-created_by", "Created by: Z to A"),
+    ("evidence_count", "Evidence: low to high"),
+    ("-evidence_count", "Evidence: high to low"),
 ]
 
 
@@ -411,6 +421,11 @@ class FeatureRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="Active account links visible to the caller, with account-specific evidence.",
     )
+    evidence_count = serializers.IntegerField(
+        read_only=True,
+        min_value=0,
+        help_text="Total evidence items recorded across visible account links.",
+    )
     product_areas = FeatureRequestProductAreaSerializer(
         many=True,
         read_only=True,
@@ -441,6 +456,7 @@ class FeatureRequestSerializer(DataclassSerializer):
             "can_update",
             "account",
             "account_links",
+            "evidence_count",
             "product_areas",
             "created_by",
             "updated_by",
@@ -989,10 +1005,15 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
     )
+    last_login = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the member last signed in, or null if they have never signed in.",
+    )
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user", "level"]
+        fields = ["id", "user", "level", "last_login"]
         read_only_fields = ["id", "user", "level"]
         extra_kwargs = {
             "id": {"help_text": "Organization membership ID."},
@@ -1757,8 +1778,8 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     display_type = serializers.ChoiceField(
         choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
-            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', 'boolean', or 'select'."
+            "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', "
+            "'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL."
         ),
     )
     target_type = serializers.ChoiceField(
@@ -1813,7 +1834,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     references = CustomPropertyReferenceSerializer(
         many=True,
         read_only=True,
-        help_text="Workflows that use this property, resolved by definition id.",
+        help_text="Workflows that use this property, resolved by definition id when the caller can view workflows.",
+    )
+    has_workflow_reference = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a workflow updates this property. Always returned, even when workflow details are hidden.",
     )
 
     def validate(self, attrs):
@@ -1848,6 +1873,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_by",
             "updated_at",
             "references",
+            "has_workflow_reference",
         ]
 
 
@@ -1890,7 +1916,8 @@ class CustomPropertyValueWriteSerializer(serializers.Serializer):
     value = CustomPropertyValueField(
         help_text=(
             "Value to store, matching the definition's type: a number for number/currency/percent, a "
-            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+            "boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, "
+            "or text for text properties."
         )
     )
 

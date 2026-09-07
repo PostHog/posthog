@@ -185,6 +185,7 @@
 
         &:first-child {
             width: fit-content;
+            max-width: 100%;
             margin-top: 0;
             font-weight: 600;
             white-space: normal;
@@ -194,7 +195,10 @@
                 -webkit-line-clamp: 5;
                 -webkit-box-orient: vertical;
                 overflow: hidden;
-                overflow-wrap: break-word;
+
+                // `anywhere` (unlike `break-word`) shrinks the intrinsic min-content width, so an
+                // unbroken event name wraps instead of blowing the row past its step column.
+                overflow-wrap: anywhere;
             }
         }
 

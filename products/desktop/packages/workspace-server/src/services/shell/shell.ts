@@ -63,10 +63,26 @@ function getShellArgs(shell: string): string[] {
   return ["-l"];
 }
 
+function getCommandShellArgs(shell: string, command: string): string[] {
+  if (platform() === "win32") {
+    const lower = shell.toLowerCase();
+    if (lower.includes("powershell") || lower.includes("pwsh")) {
+      return ["-NoLogo", "-Command", command];
+    }
+    return ["/c", command];
+  }
+  return ["-c", command];
+}
+
 function buildShellEnv(
   additionalEnv?: Record<string, string>,
+  unsetEnv?: string[],
 ): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
+
+  for (const key of unsetEnv ?? []) {
+    delete env[key];
+  }
 
   // User-facing shells must not inherit the workspace-server's internal
   // markers: ELECTRON_RUN_AS_NODE makes any Electron-based CLI run as node,
@@ -232,8 +248,11 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     command: string;
     cwd: string;
     taskId?: string;
+    additionalEnv?: Record<string, string>;
+    unsetEnv?: string[];
   }): Promise<void> {
-    const { sessionId, command, cwd, taskId } = options;
+    const { sessionId, command, cwd, taskId, additionalEnv, unsetEnv } =
+      options;
 
     const existing = this.sessions.get(sessionId);
     if (existing) {
@@ -241,15 +260,16 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     }
 
     const taskEnv = await this.getTaskEnv(taskId);
+    const mergedEnv = { ...taskEnv, ...additionalEnv };
     const workingDir = this.resolveWorkingDir(sessionId, cwd);
     const shell = getDefaultShell();
 
-    const ptyProcess = pty.spawn(shell, ["-c", command], {
+    const ptyProcess = pty.spawn(shell, getCommandShellArgs(shell, command), {
       name: "xterm-256color",
       cols: 80,
       rows: 24,
       cwd: workingDir,
-      env: buildShellEnv(taskEnv),
+      env: buildShellEnv(mergedEnv, unsetEnv),
       encoding: PTY_ENCODING,
     });
 

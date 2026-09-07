@@ -6,7 +6,6 @@ import { ResumeSaga } from "./resume-saga";
 import {
   createAgentChunk,
   createAgentMessage,
-  createGitCheckpointNotification,
   createMockApiClient,
   createMockLogger,
   createNotification,
@@ -50,7 +49,6 @@ describe("ResumeSaga", () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.conversation).toHaveLength(0);
-        expect(result.data.latestGitCheckpoint).toBeNull();
         expect(result.data.logEntryCount).toBe(0);
       }
     });
@@ -444,106 +442,6 @@ describe("ResumeSaga", () => {
       expect(toolCalls).toHaveLength(2);
       expect(toolCalls[0].result).toBe("content a");
       expect(toolCalls[1].result).toBeUndefined();
-    });
-  });
-
-  describe("checkpoint finding", () => {
-    it("finds latest git checkpoint", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
-      (
-        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
-      ).mockResolvedValue([
-        createGitCheckpointNotification({
-          checkpointId: "checkpoint-1",
-          checkpointRef: "refs/posthog-code-checkpoint/checkpoint-1",
-          head: "head-1",
-        }),
-        createUserMessage("continue"),
-        createGitCheckpointNotification({
-          checkpointId: "checkpoint-2",
-          checkpointRef: "refs/posthog-code-checkpoint/checkpoint-2",
-          head: "head-2",
-        }),
-      ]);
-
-      const saga = new ResumeSaga(mockLogger);
-      const result = await saga.run({
-        taskId: "task-1",
-        runId: "run-1",
-        repositoryPath: repo.path,
-        apiClient: mockApiClient,
-      });
-
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-
-      expect(result.data.latestGitCheckpoint?.checkpointId).toBe(
-        "checkpoint-2",
-      );
-    });
-
-    it("does not mark resume as interrupted from checkpoint state", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
-      (
-        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
-      ).mockResolvedValue([
-        createGitCheckpointNotification({
-          checkpointId: "checkpoint-1",
-          checkpointRef: "refs/posthog-code-checkpoint/checkpoint-1",
-        }),
-      ]);
-
-      const saga = new ResumeSaga(mockLogger);
-      const result = await saga.run({
-        taskId: "task-1",
-        runId: "run-1",
-        repositoryPath: repo.path,
-        apiClient: mockApiClient,
-      });
-
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-
-      expect(result.data.interrupted).toBe(false);
-    });
-  });
-
-  describe("device info", () => {
-    it("extracts device info from log entries", async () => {
-      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-        createTaskRun(),
-      );
-      (
-        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
-      ).mockResolvedValue([
-        createGitCheckpointNotification({
-          checkpointId: "checkpoint-1",
-          checkpointRef: "refs/posthog-code-checkpoint/checkpoint-1",
-          device: { type: "local" },
-        }),
-        createGitCheckpointNotification({
-          checkpointId: "checkpoint-2",
-          checkpointRef: "refs/posthog-code-checkpoint/checkpoint-2",
-          device: { type: "cloud" },
-        }),
-      ]);
-
-      const saga = new ResumeSaga(mockLogger);
-      const result = await saga.run({
-        taskId: "task-1",
-        runId: "run-1",
-        repositoryPath: repo.path,
-        apiClient: mockApiClient,
-      });
-
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-
-      expect(result.data.lastDevice).toEqual({ type: "cloud" });
     });
   });
 

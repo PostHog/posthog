@@ -68,13 +68,12 @@ export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
- * rollout gate and the per-team feature-flag count override.
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
  *
- * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
- * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
- * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
- * unlike the cache tools' rebuild and clear.
+ * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -91,6 +90,13 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
         .optional()
         .describe(
             "New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
+        ),
+    property_matching_version: zod
+        .union([zod.literal(1), zod.literal(2)])
+        .describe('\* `1` - Legacy\n\* `2` - Explicit')
+        .optional()
+        .describe(
+            "New property matching version for the team. Version 1 preserves legacy behavior. Version 2 uses explicit scalar and array equality. Only set version 2 after confirming that the team's local-evaluation SDK versions support it. Omit to leave it unchanged.\n\n\* `1` - Legacy\n\* `2` - Explicit"
         ),
     max_feature_flags_override: zod
         .number()
@@ -206,7 +212,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -215,7 +221,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         value: zod
                                             .unknown()
                                             .describe(
@@ -252,7 +260,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -261,7 +269,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
                                             .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
@@ -282,7 +292,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -291,7 +301,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
@@ -311,7 +323,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -320,7 +332,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum([
                                                 'semver_gt',
@@ -348,7 +362,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -357,7 +371,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
@@ -383,7 +399,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['in', 'not_in'])
                                             .describe('\* `in` - in\n\* `not_in` - not_in')
@@ -409,7 +427,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
                                             .describe('\* `flag_evaluates_to` - flag_evaluates_to')
@@ -633,7 +653,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -642,7 +662,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         value: zod
                                             .unknown()
                                             .describe(
@@ -679,7 +701,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -688,7 +710,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
                                             .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
@@ -709,7 +733,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -718,7 +742,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
@@ -738,7 +764,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -747,7 +773,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum([
                                                 'semver_gt',
@@ -775,7 +803,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -784,7 +812,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
@@ -810,7 +840,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['in', 'not_in'])
                                             .describe('\* `in` - in\n\* `not_in` - not_in')
@@ -836,7 +868,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
                                             .describe('\* `flag_evaluates_to` - flag_evaluates_to')

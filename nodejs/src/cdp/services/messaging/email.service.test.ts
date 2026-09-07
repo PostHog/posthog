@@ -107,7 +107,7 @@ describe('EmailService', () => {
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -131,7 +131,7 @@ describe('EmailService', () => {
                     sesUntrackedConfigurationSet: '',
                 },
                 hub.integrationManager,
-                new TeamWorkflowsConfigService(hub.postgres),
+                new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                 hub.ENCRYPTION_SALT_KEYS,
                 hub.SITE_URL,
                 new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -486,7 +486,7 @@ describe('EmailService', () => {
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                     },
                     hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres),
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                     hub.ENCRYPTION_SALT_KEYS,
                     hub.SITE_URL,
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -750,10 +750,10 @@ describe('EmailService', () => {
         })
 
         describe('team suspension enforcement at send time', () => {
-            // Guards the reputation kill switch: while a team is suspended, no send path may
+            // Guards both suspension switches: while a team is suspended, no send path may
             // reach SES — including editor test sends, which count against the tenant too.
-            // The first two write a real row so they also cover the service's SELECT; mocking
-            // isEmailSendingSuspended would pass with the column missing from the query.
+            // These write a real config row so they also cover the service's SELECT; mocking
+            // getEmailSendingSuspension would pass with the column missing from the query.
             const suspendTeam = async (): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -786,6 +786,55 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics).toEqual([])
+            })
+
+            const setProviderTenantStatus = async (status: string): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    // email_sending_suspension_reason is NOT NULL and its default is Django-side,
+                    // not on the column, so a raw INSERT has to supply it.
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status)
+                     VALUES ($1, false, 'off', '', $2)
+                     ON CONFLICT (team_id) DO UPDATE SET ses_tenant_sending_status = $2`,
+                    [team.id, status],
+                    'test-set-ses-tenant-sending-status'
+                )
+            }
+
+            // A paused provider tenant rejects every send, so the send path has to read the stored
+            // state. Only DISABLED blocks: REINSTATED is what a tenant the provider has restored
+            // reads, so treating any non-ENABLED status as paused would withhold accepted sends.
+            it.each([
+                ['DISABLED', 0, 'email_suspended'],
+                ['REINSTATED', 1, 'email_sent'],
+            ])('provider tenant status %s: %i SES calls, records %s', async (status, sesCalls, metricName) => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                await setProviderTenantStatus(status as string)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(sesCalls as number)
+                expect(result.metrics.map((m) => m.metric_name)).toContain(metricName)
+            })
+
+            // The send path caches this row for minutes, so a pause that lands after the first read
+            // would keep sending — and a reinstatement would keep blocking — until the entry aged
+            // out. The provider state sync announces each change to close that window.
+            it('picks up a provider status change announced while the config is cached', async () => {
+                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                await setProviderTenantStatus('ENABLED')
+                expect(await configService.getEmailSendingSuspension(team.id)).toBeNull()
+
+                await setProviderTenantStatus('DISABLED')
+
+                await waitForExpect(async () => {
+                    // Republished every poll: subscribing is asynchronous, so the first publish can
+                    // land before this subscriber is listening. Marking for refresh is idempotent.
+                    await hub.pubSub.publish('reload-team-workflows-config', JSON.stringify({ teamId: team.id }))
+                    expect(await configService.getEmailSendingSuspension(team.id)).toEqual('provider')
+                }, 3000)
             })
 
             it('fails open when the suspension lookup errors', async () => {

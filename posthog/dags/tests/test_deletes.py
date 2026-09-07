@@ -5,17 +5,25 @@ from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
+from unittest.mock import patch
+
+from django.conf import settings as django_settings
 
 from clickhouse_driver import Client
+from dagster import build_op_context
 
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
 from posthog.dags.deletes import (
+    _DELETE_PREDICATE,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
+    DeleteConfig,
     MonthlyCleanupConfig,
     PendingDeletesDictionary,
     PendingDeletesTable,
     StagedDictionary,
+    _count_unswept_rows,
+    _delete_predicate_params,
     cleanup_old_events_by_partition,
     deletes_job,
     find_partitions_to_cleanup,
@@ -23,6 +31,8 @@ from posthog.dags.deletes import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.deletion_targets import EVENTS, TargetPlacement
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -780,4 +790,136 @@ def test_a_rerun_stages_over_the_previous_runs_object(cluster: ClickhouseCluster
         assert from_staged_object == from_source_table
     finally:
         cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: ClickhouseCluster):
+    # The count only earns its place if it can come back non-zero. A predicate or parameter that
+    # matched nothing would report a clean sweep every week and nobody would notice.
+    team_id = 424242
+    person_uuid = UUID(int=7)
+    timestamp = datetime(2026, 8, 27, 10, 0, 0)
+
+    table = PendingDeletesTable(timestamp=timestamp)
+    dictionary = PendingDeletesDictionary(source=table)
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+    create = partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)
+    create_adhoc = partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)
+
+    def insert_person_deletion(client: Client) -> None:
+        client.execute(
+            table.populate_query,
+            [
+                {
+                    "id": 1,
+                    "deletion_type": int(DeletionType.Person),
+                    "key": str(person_uuid),
+                    "group_type_index": None,
+                    "created_at": timestamp,
+                    "delete_verified_at": None,
+                    "created_by_id": None,
+                    "team_id": team_id,
+                }
+            ],
+        )
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
+            [(team_id, "d", person_uuid, timestamp - timedelta(hours=1))],
+        )
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(insert_person_deletion).result()
+        cluster.any_host(create).result()
+        cluster.any_host(dictionary.load).result()
+        cluster.any_host(create_adhoc).result()
+        cluster.any_host(adhoc.load).result()
+        cluster.any_host(insert_events).result()
+
+        context = build_op_context()
+        before = _count_unswept_rows(
+            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+        )
+        surviving = before["events"]
+        assert surviving is not None and surviving >= 1, "the count cannot see rows the sweep has not removed yet"
+
+        runner = LightweightDeleteMutationRunner(
+            table=EVENTS_DATA_TABLE(),
+            predicate=_DELETE_PREDICATE,
+            parameters=_delete_predicate_params(dictionary, adhoc),
+        )
+        for _host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            cluster.map_all_hosts(mutation.wait).result()
+
+        after = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        assert after["events"] == 0
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluster: ClickhouseCluster):
+    # The proxy count only reads the cluster the Distributed engine names, and this repo builds the
+    # events_json proxy against CLICKHOUSE_CLUSTER. A deployment whose storage moved elsewhere would
+    # get a clean report off an empty table, so an off-cluster target is counted on its storage
+    # table too, through the handle that holds it.
+    team_id = 424243
+    person_uuid = UUID(int=11)
+    timestamp = datetime(2026, 8, 28, 10, 0, 0)
+
+    table = PendingDeletesTable(timestamp=timestamp)
+    dictionary = PendingDeletesDictionary(source=table)
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+
+    def insert_person_deletion(client: Client) -> None:
+        client.execute(
+            table.populate_query,
+            [
+                {
+                    "id": 2,
+                    "deletion_type": int(DeletionType.Person),
+                    "key": str(person_uuid),
+                    "group_type_index": None,
+                    "created_at": timestamp,
+                    "delete_verified_at": None,
+                    "created_by_id": None,
+                    "team_id": team_id,
+                }
+            ],
+        )
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
+            [(team_id, "d", person_uuid, timestamp - timedelta(hours=1))],
+        )
+
+    # A second handle over the same node stands in for a target whose storage is elsewhere.
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    placement = TargetPlacement(target=EVENTS, cluster=sibling)
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(insert_person_deletion).result()
+        cluster.any_host(partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(dictionary.load).result()
+        cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(adhoc.load).result()
+        cluster.any_host(insert_events).result()
+
+        with patch("posthog.dags.deletes.resolve_placements", return_value=[placement]):
+            counts = _count_unswept_rows(
+                build_op_context(), cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+            )
+
+        storage = counts[EVENTS.data_table]
+        assert storage is not None and storage >= 1, "the storage table was not counted for an off-cluster target"
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(adhoc.drop).result()
         cluster.any_host(table.drop).result()

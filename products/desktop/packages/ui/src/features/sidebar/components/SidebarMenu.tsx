@@ -1,6 +1,6 @@
 import { findGroupFolder } from "@posthog/core/sidebar/groupTasks";
 import {
-  computeOrderedVisibleTaskIds,
+  computeOrderedVisibleTasks,
   computePriorTaskIds,
   formatArchiveResult,
   formatBulkResult,
@@ -22,7 +22,12 @@ import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExte
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
+import { withSidebarPeekHeld } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import {
+  openSidebarTask,
+  resolveSidebarTask,
+} from "@posthog/ui/features/sidebar/sidebarTaskInteractions";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
 import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
@@ -30,7 +35,6 @@ import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSele
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
-import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useTaskContextMenu } from "@posthog/ui/features/tasks/useTaskContextMenu";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
@@ -38,9 +42,7 @@ import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import { toast } from "@posthog/ui/primitives/toast";
-import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
-import { openTask } from "@posthog/ui/router/useOpenTask";
 import { logger } from "@posthog/ui/shell/logger";
 import { Box, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -67,15 +69,18 @@ function SidebarMenuComponent() {
   const archiveCacheKeys = useArchiveCacheKeys();
   const view = useAppView();
 
-  // Must mirror useSidebarData's filters so taskMap covers every rendered
-  // task — otherwise handleTaskClick silently bails for tasks not in the map.
   const showAllUsers = useSidebarStore((s) => s.showAllUsers);
   const showInternal = useSidebarStore((s) => s.showInternal);
-  const { data: allTasks = [] } = useTasks({ showAllUsers, showInternal });
+  const showCreator = useSidebarStore((s) =>
+    s.listItemMetadataFields.includes("creator"),
+  );
+  const observeFullTasks = showAllUsers || showCreator;
+  const { data: allTasks = [] } = useTasks(
+    { showAllUsers, showInternal },
+    { enabled: observeFullTasks, subscribed: observeFullTasks },
+  );
 
   const { data: workspaces = {} } = useWorkspaces();
-  const { markAsViewed } = useTaskViewed();
-
   const { folders, removeFolder } = useFolders();
 
   const openExternalApp = useExternalAppAction();
@@ -92,40 +97,7 @@ function SidebarMenuComponent() {
     activeView: view,
   });
 
-  const taskMap = useMemo(
-    () => new Map<string, Task>(allTasks.map((task) => [task.id, task])),
-    [allTasks],
-  );
-  const creatorNameByTaskId = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const task of allTasks) {
-      const name = creatorName(task.created_by);
-      if (name) names.set(task.id, name);
-    }
-    return names;
-  }, [allTasks]);
-
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
-
-  const previousTaskIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const currentTaskId =
-      view.type === "task-detail" && view.taskId ? view.taskId : null;
-
-    if (
-      previousTaskIdRef.current &&
-      previousTaskIdRef.current !== currentTaskId
-    ) {
-      markAsViewed(previousTaskIdRef.current);
-    }
-
-    if (currentTaskId) {
-      markAsViewed(currentTaskId);
-    }
-
-    previousTaskIdRef.current = currentTaskId;
-  }, [view, markAsViewed]);
 
   const queryClient = useQueryClient();
 
@@ -139,8 +111,7 @@ function SidebarMenuComponent() {
     taskTitle: string;
     runId?: string;
   } | null>(null);
-  const [handoffTaskId, setHandoffTaskId] = useState<string | null>(null);
-  const handoffTask = handoffTaskId ? taskMap.get(handoffTaskId) : undefined;
+  const [handoffTask, setHandoffTask] = useState<Task | null>(null);
 
   useClearSelectionOnEscape();
   const listAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -158,24 +129,8 @@ function SidebarMenuComponent() {
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
 
   const allSidebarTasks = useMemo(
-    () => [...sidebarData.pinnedTasks, ...sidebarData.flatTasks],
-    [sidebarData.pinnedTasks, sidebarData.flatTasks],
-  );
-
-  const allSidebarTaskIds = useMemo(
-    () => allSidebarTasks.map((t) => t.id),
-    [allSidebarTasks],
-  );
-
-  // Ordered list of currently visible task IDs in display order. Used as the
-  // index for shift-click range selection so it matches what the user sees —
-  // in by-project mode the chronological flat order would span across project
-  // groups and pull in unrelated tasks.
-  // Depends on the three list fields rather than `sidebarData` itself, which
-  // useSidebarData rebuilds as a fresh object every render.
-  const orderedVisibleTaskIds = useMemo(
     () =>
-      computeOrderedVisibleTaskIds(
+      computeOrderedVisibleTasks(
         {
           pinnedTasks: sidebarData.pinnedTasks,
           flatTasks: sidebarData.flatTasks,
@@ -192,6 +147,20 @@ function SidebarMenuComponent() {
       collapsedSections,
     ],
   );
+
+  const allSidebarTaskIds = useMemo(
+    () => allSidebarTasks.map((t) => t.id),
+    [allSidebarTasks],
+  );
+
+  const creatorNameByTaskId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const task of allTasks) {
+      const name = creatorName(task.created_by);
+      if (name) names.set(task.id, name);
+    }
+    return names;
+  }, [allTasks]);
 
   useEffect(() => {
     pruneSelection(allSidebarTaskIds);
@@ -213,7 +182,7 @@ function SidebarMenuComponent() {
     }
     if (e.shiftKey) {
       e.preventDefault();
-      selectRange(taskId, orderedVisibleTaskIds, activeTaskId);
+      selectRange(taskId, allSidebarTaskIds, activeTaskId);
       return;
     }
     if (e.metaKey || e.ctrlKey) {
@@ -223,15 +192,7 @@ function SidebarMenuComponent() {
     }
 
     clearSelection();
-    const task = taskMap.get(taskId);
-    if (task) {
-      void openTask(task);
-    } else {
-      // Sidebar rows come from the summaries path, which can include tasks the
-      // full-list query (taskMap) doesn't carry. Don't silently bail — navigate
-      // by id; the task-detail route resolves the task from its own query.
-      navigateToTaskDetail(taskId);
-    }
+    void openSidebarTask(queryClient, taskId);
   };
 
   const handleBulkContextMenu = useCallback(
@@ -240,8 +201,8 @@ function SidebarMenuComponent() {
       e.stopPropagation();
       const allPinned = bulkActions.pinDirection === "unpin";
       try {
-        const result =
-          await hostClient.contextMenu.showBulkTaskContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showBulkTaskContextMenu.mutate({
             taskCount: bulkActions.selectedCount,
             allPinned,
             runningCount: bulkActions.runningCount,
@@ -254,7 +215,8 @@ function SidebarMenuComponent() {
                 starred,
               }),
             ),
-          });
+          }),
+        );
         if (!result.action) return;
 
         const intent = resolveBulkTaskContextMenuIntent(result.action, {
@@ -290,11 +252,12 @@ function SidebarMenuComponent() {
       const folder = findGroupFolder(folders, groupId);
       if (!folder) return;
       try {
-        const result =
-          await hostClient.contextMenu.showFolderContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showFolderContextMenu.mutate({
             folderName: folder.name,
             folderPath: folder.path,
-          });
+          }),
+        );
         if (result.action?.type === "remove") {
           await removeFolder(folder.id);
         } else if (result.action?.type === "external-app") {
@@ -313,14 +276,16 @@ function SidebarMenuComponent() {
     [folders, removeFolder, hostClient, openExternalApp],
   );
 
-  const handleTaskContextMenu = (
+  const handleTaskContextMenu = async (
     taskId: string,
     e: React.MouseEvent,
     isPinned: boolean,
   ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
     // Right-clicking a row that's mid-archive is a no-op.
     if (useArchivingTasksStore.getState().isArchiving(taskId)) {
-      e.preventDefault();
       return;
     }
 
@@ -338,48 +303,46 @@ function SidebarMenuComponent() {
     }
 
     const taskData = allSidebarTasks.find((t) => t.id === taskId);
-    const task = taskMap.get(taskId) ?? taskData;
-    if (task) {
-      const runId = taskMap.get(taskId)?.latest_run?.id;
+    if (taskData) {
       const workspace = workspaces[taskId];
-      const isInCommandCenter = commandCenterCells.some(
-        (id) => id === taskId && taskMap.has(id),
-      );
+      const isInCommandCenter = commandCenterCells.includes(taskId);
 
-      // The menu mirrors the header's rule: only the owner sees Hand off.
-      // Read through the full task map: the sidebar's summary rows don't
-      // always carry `created_by`.
       const canHandoff =
         authStatus === "authenticated" &&
         currentUser.data?.id != null &&
-        taskMap.get(taskId)?.created_by?.id === currentUser.data.id;
+        taskData.createdById === currentUser.data.id;
 
-      showContextMenu(task, e, {
-        worktreePath: workspace?.worktreePath ?? undefined,
-        folderPath: workspace?.folderPath ?? undefined,
-        isPinned,
-        isSuspended: taskData?.isSuspended,
-        canStop:
-          taskData?.taskRunEnvironment === "cloud" &&
-          isTaskActivelyRunning(taskData),
-        runId,
-        isInCommandCenter,
-        hasEmptyCommandCenterCell: true,
-        canHandoff,
-        onHandoff: () => setHandoffTaskId(task.id),
-        onTogglePin: () => handleTaskTogglePin(taskId),
-        onStop: (stopTaskId, taskTitle, stopRunId) =>
-          setStopConfirm({
-            taskId: stopTaskId,
-            taskTitle,
-            runId: stopRunId,
-          }),
-        onArchive: handleTaskArchive,
-        onArchivePrior: handleArchivePrior,
-        onAddToCommandCenter: () => {
-          placeTaskInCommandCenter(taskId, task.title);
-        },
-      });
+      void withSidebarPeekHeld(() =>
+        showContextMenu(taskData, e, {
+          worktreePath: workspace?.worktreePath ?? undefined,
+          folderPath: workspace?.folderPath ?? undefined,
+          isPinned,
+          isSuspended: taskData?.isSuspended,
+          canStop:
+            taskData?.taskRunEnvironment === "cloud" &&
+            isTaskActivelyRunning(taskData),
+          runId: taskData.taskRunId,
+          isInCommandCenter,
+          hasEmptyCommandCenterCell: true,
+          canHandoff,
+          onHandoff: async () => {
+            const task = await resolveSidebarTask(queryClient, taskId);
+            if (task) setHandoffTask(task);
+          },
+          onTogglePin: () => handleTaskTogglePin(taskId),
+          onStop: (stopTaskId, taskTitle, stopRunId) =>
+            setStopConfirm({
+              taskId: stopTaskId,
+              taskTitle,
+              runId: stopRunId,
+            }),
+          onArchive: handleTaskArchive,
+          onArchivePrior: handleArchivePrior,
+          onAddToCommandCenter: () => {
+            placeTaskInCommandCenter(taskId, taskData.title);
+          },
+        }),
+      );
     }
   };
 
@@ -589,7 +552,7 @@ function SidebarMenuComponent() {
           task={handoffTask}
           open
           onOpenChange={(open) => {
-            if (!open) setHandoffTaskId(null);
+            if (!open) setHandoffTask(null);
           }}
         />
       ) : null}

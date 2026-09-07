@@ -11,7 +11,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
 import { summarizeMemo } from "../new-thread/buildThreadGroups";
-import { grouping } from "../new-thread/conversationThreadConfig";
+import { isSubagentSpawnTool } from "../session-update/collaborationTools";
 import { SessionUpdateView } from "../session-update/SessionUpdateView";
 import { iconForToolCall } from "../session-update/toolCallUtils";
 
@@ -43,9 +43,11 @@ function resolveTool(item: SessionUpdateItem): {
     ...(update as unknown as ToolCall),
     status: (update as unknown as ToolCall).status ?? "in_progress",
   };
+  const toolName = readAgentToolName(fromMap._meta);
   return {
     toolCall: fromMap,
-    toolName: readAgentToolName(fromMap._meta),
+    toolName:
+      toolName ?? (isSubagentSpawnTool(fromMap.title) ? "subagent" : undefined),
   };
 }
 
@@ -57,7 +59,7 @@ function toolKey(item: SessionUpdateItem): string {
 
 /** Human label for a uniform group, e.g. `ToolSearch` → "Tool search", `mcp__x__run` → "Run". */
 function friendlyName(key: string): string {
-  if (grouping.subagentToolNames.has(key)) return "Subagents";
+  if (isSubagentSpawnTool(key)) return "Subagents";
   const last = key.includes("__") ? (key.split("__").pop() ?? key) : key;
   // Split separators and PascalCase/camelCase so tool identifiers read naturally.
   const spaced = last
@@ -66,7 +68,7 @@ function friendlyName(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
-export function isToolActive(item: SessionUpdateItem): boolean {
+function isToolActive(item: SessionUpdateItem): boolean {
   const { toolCall } = resolveTool(item);
   const incomplete =
     toolCall.status === "pending" || toolCall.status === "in_progress";

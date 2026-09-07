@@ -193,10 +193,9 @@ export interface ProductPushCampaignApi {
  * * `medium` - medium
  * * `low` - low
  */
-export type IdentityMatchingLinkTierEnumApi =
-    (typeof IdentityMatchingLinkTierEnumApi)[keyof typeof IdentityMatchingLinkTierEnumApi]
+export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
 
-export const IdentityMatchingLinkTierEnumApi = {
+export const ConfidenceTierEnumApi = {
     High: 'high',
     Medium: 'medium',
     Low: 'low',
@@ -304,7 +303,7 @@ export interface IdentityMatchingLinkApi {
      * * `high` - high
      * * `medium` - medium
      * * `low` - low */
-    tier: IdentityMatchingLinkTierEnumApi
+    tier: ConfidenceTierEnumApi
     /** When the link was computed (UTC). */
     computed_at: string
     /** Distinct (IP, day) combinations both sides were seen on. */

@@ -7,7 +7,7 @@ import {
 
 export const SOURCE_PRODUCT_OPTIONS: { value: SourceProduct; label: string }[] =
   [
-    { value: "session_replay", label: "Session replay" },
+    { value: "replay_vision", label: "Replay Vision" },
     { value: "error_tracking", label: "Error tracking" },
     { value: "llm_analytics", label: "AI observability" },
     { value: "conversations", label: "Conversations" },

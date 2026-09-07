@@ -108,9 +108,13 @@ export const OBJECT_RULE_RESOURCE_CONFIG: Partial<Record<APIScopeObject, ObjectR
         url: (rule) => urls.dataWarehouseSource(`managed-${rule.resource_id}`),
         parseUrl: (path) => /^\/data-management\/sources\/managed-([0-9a-f-]{36})(?:[/?#]|$)/.exec(path)?.[1] ?? null,
     },
+    notebook: {
+        url: (rule) => (rule.short_id ? urls.notebook(rule.short_id) : null),
+        parseUrl: (path) => /^\/notebooks\/([A-Za-z0-9]+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
 }
 
-/** A link to open the object, null for types we can't address (e.g. notebooks need a short_id). */
+/** A link to open the object, null for types without a URL or whose short_id is missing. */
 export function objectRuleUrl(rule: AccessObjectRule): string | null {
     return OBJECT_RULE_RESOURCE_CONFIG[rule.resource]?.url(rule) ?? null
 }
@@ -216,6 +220,7 @@ export interface accessDetailLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
@@ -229,6 +234,7 @@ export interface accessDetailLogicActions {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -298,6 +304,7 @@ export interface accessDetailLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'

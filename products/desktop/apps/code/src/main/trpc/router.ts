@@ -15,6 +15,7 @@ import { connectivityRouter } from "@posthog/host-router/routers/connectivity.ro
 import { contextMenuRouter } from "@posthog/host-router/routers/context-menu.router";
 import { dashboardsRouter } from "@posthog/host-router/routers/dashboards.router";
 import { deepLinkRouter } from "@posthog/host-router/routers/deep-link.router";
+import { diskCacheRouter } from "@posthog/host-router/routers/disk-cache.router";
 import { enrichmentRouter } from "@posthog/host-router/routers/enrichment.router";
 import { environmentRouter } from "@posthog/host-router/routers/environment.router";
 import { externalAppsRouter } from "@posthog/host-router/routers/external-apps.router";
@@ -24,7 +25,6 @@ import { foldersRouter } from "@posthog/host-router/routers/folders.router";
 import { fsRouter } from "@posthog/host-router/routers/fs.router";
 import { gitRouter } from "@posthog/host-router/routers/git.router";
 import { githubIntegrationRouter } from "@posthog/host-router/routers/github-integration.router";
-import { handoffRouter } from "@posthog/host-router/routers/handoff.router";
 import { integrationRouter } from "@posthog/host-router/routers/integration.router";
 import { linearIntegrationRouter } from "@posthog/host-router/routers/linear-integration.router";
 import { llmGatewayRouter } from "@posthog/host-router/routers/llm-gateway.router";
@@ -88,7 +88,6 @@ export const trpcRouter = router({
   git: gitRouter,
   githubIntegration: githubIntegrationRouter,
   releaseFeed: releaseFeedRouter,
-  handoff: handoffRouter,
   integration: integrationRouter,
   linearIntegration: linearIntegrationRouter,
   llmGateway: llmGatewayRouter,
@@ -116,6 +115,7 @@ export const trpcRouter = router({
   updates: updatesRouter,
   usageMonitor: usageMonitorRouter,
   deepLink: deepLinkRouter,
+  diskCache: diskCacheRouter,
   workspace: workspaceRouter,
   workspaceServer: workspaceServerRouter,
 });
@@ -130,6 +130,4 @@ export type TrpcRouter = typeof trpcRouter;
  * When this assignment errors, its expected type names the missing routes.
  */
 type MissingHostRoutes = Exclude<keyof HostRouter, keyof TrpcRouter>;
-export const servesEveryHostRoute: [MissingHostRoutes] extends [never]
-  ? true
-  : MissingHostRoutes = true;
+true satisfies [MissingHostRoutes] extends [never] ? true : MissingHostRoutes;

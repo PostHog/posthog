@@ -31,5 +31,3 @@ export const browserTabsStore = createStore<BrowserTabsState>((set) => ({
       snapshotsEqual(prev.snapshot, snapshot) ? prev : { snapshot },
     ),
 }));
-
-export const getTabsSnapshot = () => browserTabsStore.getState().snapshot;

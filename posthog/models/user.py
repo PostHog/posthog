@@ -17,6 +17,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.organization_notification_lock import GovernedSetting, effective_notification_settings
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
@@ -30,6 +31,11 @@ if TYPE_CHECKING:
     from social_django.models import UserSocialAuth
 
 
+# Adding a notification here usually means touching three other places:
+# `posthog/models/organization_notification_lock.py` decides whether an organization may set it
+# for a member, `frontend/src/scenes/settings/shared/notificationSettingDescriptors.ts` labels it
+# for the admin surface, and `frontend/src/scenes/settings/user/UpdateEmailPreferences.tsx` gives
+# the member their own control.
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
     error_tracking_issue_assigned: bool
@@ -403,9 +409,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     try:
                         from products.access_control.backend.models.role import RoleMembership
 
-                        user_roles = RoleMembership.objects.filter(
-                            user=self, organization_member__in=[membership.id for membership in org_memberships]
-                        ).values_list("role_id", flat=True)
+                        user_roles = (
+                            RoleMembership.objects.filter(
+                                user=self, organization_member__in=[membership.id for membership in org_memberships]
+                            )
+                            .valid_for_authorization()
+                            .values_list("role_id", flat=True)
+                        )
 
                         role_accessible_team_ids = set(
                             AccessControl.objects.filter(
@@ -556,9 +566,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             try:
                 from products.access_control.backend.models.role import RoleMembership
 
-                RoleMembership.objects.create(
-                    role_id=organization.default_role_id, user=self, organization_member=membership
-                )
+                role = organization.roles.get(id=organization.default_role_id)
+                RoleMembership.objects.create(role=role, user=self, organization_member=membership)
             except Exception as e:
                 capture_exception(
                     e,
@@ -587,9 +596,15 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
 
-    def should_send_organization_member_join_email(self, organization_id: str) -> bool:
-        """Whether to email this user when someone joins the given organization (default: True)."""
-        disabled = self.notification_settings.get("organization_member_join_email_disabled") or {}
+    def should_send_organization_member_join_email(
+        self, organization_id: str, locks: dict[GovernedSetting, bool] | None = None
+    ) -> bool:
+        """Whether to email this user when someone joins the given organization (default: True).
+
+        Pass `locks` when resolving many users, so a fan-out does not run one query per member.
+        """
+        settings = effective_notification_settings(self, locks=locks)
+        disabled = settings.get("organization_member_join_email_disabled") or {}
         return not bool(disabled.get(str(organization_id), False))
 
     def leave(self, *, organization: Organization) -> None:

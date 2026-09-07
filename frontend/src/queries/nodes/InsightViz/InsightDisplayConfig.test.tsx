@@ -205,6 +205,20 @@ describe('InsightDisplayConfig', () => {
                 },
             ],
             [
+                'trends donut',
+                makeTrendsQuery(ChartDisplayType.ActionsDonut),
+                {
+                    sections: ['Display', 'Unit'],
+                    displayItems: [
+                        'Show values on series',
+                        'Show as % of total',
+                        'Show names on slices',
+                        'Show total in center',
+                        'Show legendBottom',
+                    ],
+                },
+            ],
+            [
                 'trends table',
                 makeTrendsQuery(ChartDisplayType.ActionsTable),
                 { sections: ['Display', 'Unit'], displayItems: [] },

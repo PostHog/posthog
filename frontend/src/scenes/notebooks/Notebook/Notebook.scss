@@ -719,7 +719,8 @@ body[theme='dark'].has-markdown-v2-notebook .main-content-container > main {
         .Notebook__markdown-v2,
         .MarkdownNotebook__debug-layout,
         .MarkdownNotebook__main,
-        .MarkdownNotebook__canvas {
+        .MarkdownNotebook__canvas,
+        .MarkdownNotebook__canvas-header {
             width: 100%;
             max-width: none;
         }

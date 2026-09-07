@@ -1,0 +1,6 @@
+{
+    "id": "RA6",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted on both prongs. (1) 'nothing in tasks.py checks the resolver was registered' is false: tasks/tasks.py:201-204 checks `if resolver is None` and returns a carve-out with a fail-closed comment. (2) Registration order IS enforced by Django's lifecycle: ReviewHogConfig.ready() (review_hog/backend/apps.py:9-13) calls receivers.connect(), which registers the resolver (receivers.py:69); every web/Celery process completes django.setup() (all ready() hooks) before serving a webhook, so no delivery can precede registration. A removed/renamed app degrading to no re-review is the documented, deliberate fail-closed design (inbox_hooks.py:8-10), not a defect — dismissal safety still runs. The suggested cross-reference comments already exist: inbox_hooks.py:1-15 names AppConfig.ready(), receivers.py:63-68 and tasks.py:203 explain the hook and fail-closed choice."
+}

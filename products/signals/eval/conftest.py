@@ -18,7 +18,7 @@ from posthog.models import Organization, Team
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 # Initialize posthoganalytics default_client so the LLM wrapper (which requires it) works
-posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
+posthoganalytics.default_client = Posthog(
     os.environ.get("POSTHOG_PROJECT_API_KEY", "phx_unused"),
     host=os.environ.get("POSTHOG_HOST", "http://localhost:8010"),
     disabled=True,
@@ -98,7 +98,7 @@ def gateway_client():
     """Async Anthropic client pointed at the internal LLM gateway's native Messages endpoint.
 
     Used by eval_grouping_e2e to drive the production signals pre-emit pipeline
-    (`_check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
+    (`check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
     """
     return get_async_anthropic_gateway_client(product="signals", team_id=EVAL_TEAM_ID)
 
