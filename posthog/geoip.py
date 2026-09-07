@@ -158,11 +158,18 @@ def _lookup_location(ip_address: str) -> CachedLocation:
 
     The database is opened once at import and never written, so the mapping from address to location
     cannot change under a running process — a deploy shipping a new database restarts it. Frozen, so a
-    cached entry can't be mutated through one caller and observed by the next. lru_cache doesn't store
-    exceptions, so a failed lookup is retried rather than pinned for the life of the process.
+    cached entry can't be mutated through one caller and observed by the next. A public address the
+    database does not cover is memoized as an empty location, so a repeat request for it does not pay
+    the lookup again. Other failures raise, and lru_cache doesn't store exceptions, so those are retried
+    rather than pinned for the life of the process.
     """
     assert geoip is not None  # caller checks; keeps the cached path free of the None branch
-    city = geoip.city(ip_address)
+    try:
+        city = geoip.city(ip_address)
+    except AddressNotFoundError:
+        # A public address missing from the database is a coverage gap, not an operational error.
+        GEOIP_LOOKUP_FAILURES.labels(reason="not_found").inc()
+        return CachedLocation(latitude=None, longitude=None, country_code=None)
     latitude = city.get("latitude")
     longitude = city.get("longitude")
     country_code = city.get("country_code")
@@ -180,6 +187,7 @@ def get_geoip_location(ip_address: Optional[str]) -> GeoLocation:
     try:
         location = _lookup_location(ip_address)
     except Exception:
+        GEOIP_LOOKUP_FAILURES.labels(reason="lookup_error").inc()
         logger.exception("geoIP location error")
         return {}
     out: GeoLocation = {}
