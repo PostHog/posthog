@@ -361,6 +361,7 @@ class TestStatsConfig(APIBaseTest):
             split_baseline_and_test_variants(variants, baseline_key="nonexistent")
 
         self.assertIn("No exposures", str(ctx.exception))
+        self.assertEqual(ctx.exception.get_codes(), ["no_data"])
 
     @parameterized.expand(
         [
