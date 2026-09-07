@@ -272,6 +272,47 @@ class TestSlackFormatting(SimpleTestCase):
         # message must produce non-empty fallback text so it isn't silently dropped.
         assert slack_text.strip() != ""
 
+    @parameterized.expand(
+        [
+            (
+                "fence_keeps_backslashes",
+                {"type": "codeBlock", "content": [{"type": "text", "text": r"C:\Projects\*"}]},
+                "```\nC:\\Projects\\*\n```",
+            ),
+            (
+                "span_keeps_emphasis_literal",
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "a *b* c", "marks": [{"type": "code"}]}],
+                },
+                "`a *b* c`",
+            ),
+        ]
+    )
+    def test_outbound_code_is_literal_in_the_text_fallback(self, _name: str, node: dict, expected: str) -> None:
+        # Code bypasses markdown escaping, so its backslashes are the author's own and the
+        # unescape pass must not eat them, nor may the mrkdwn rewrites reach inside.
+        slack_text, _ = rich_content_to_slack_payload({"type": "doc", "content": [node]}, "")
+
+        assert slack_text == expected
+
+    def test_outbound_code_span_keeps_control_characters_escaped(self) -> None:
+        # Lifting code out of the rewrites must not also lift it out of the injection
+        # protection — a `<!channel>` in a code span must not reach Slack live.
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "<!channel>", "marks": [{"type": "code"}]}],
+                }
+            ],
+        }
+
+        slack_text, _ = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_text == "`&lt;!channel&gt;`"
+
     def test_outbound_empty_code_block_emits_no_preformatted_element(self) -> None:
         rich_content = {
             "type": "doc",

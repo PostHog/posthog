@@ -15,6 +15,7 @@ import structlog
 
 from posthog.api.capture import capture_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.comment.formatting import strip_markdown_escapes
 from posthog.event_usage import groups as build_groups
 from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.group_type_mapping import get_group_types_for_project
@@ -532,7 +533,7 @@ def _capture_team_message(
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
     if message_content is not None:
-        properties["message_content"] = (message_content or "")[:1000]
+        properties["message_content"] = strip_markdown_escapes(message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
@@ -580,7 +581,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     """Customer sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
-    properties["message_content"] = (message_content or "")[:1000]
+    properties["message_content"] = strip_markdown_escapes(message_content or "")[:1000]
     properties["author_type"] = "customer"
     properties.update(_get_customer_properties(ticket))
     properties.update(_get_assignment_properties(ticket))
