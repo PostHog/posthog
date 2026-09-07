@@ -6,10 +6,29 @@ import {
   CloudUsageLimitError,
   DESKTOP_BILLING_LIMIT_ERROR_CODE,
   PostHogAPIClient,
+  ScoutRequestError,
   SESSION_LOGS_PAGE_TIMEOUT_MS,
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it("sends the selected scout to the runs endpoint", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response("[]", { status: 200 }));
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.listScoutRuns(42, { skill_name: "signals-scout-example" });
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/signals/scout/runs/");
+    expect(url.searchParams.get("skill_name")).toBe("signals-scout-example");
+  });
   describe("updateTaskChannelAutoArchive", () => {
     it("rejects a successful response that did not save the setting", async () => {
       const fetch = vi.fn().mockResolvedValue(
@@ -3156,4 +3175,30 @@ describe("PostHogAPIClient", () => {
       );
     });
   });
+});
+
+describe("manual scout run refusals", () => {
+  it.each([403, 409, 429])(
+    "preserves HTTP status %s from the production fetcher",
+    async (status) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Run request refused." }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "test-token",
+        async () => "test-token",
+        42,
+        { fetch },
+      );
+      const error = await client
+        .runScoutNow(42, "config-1")
+        .catch((value: unknown) => value);
+      expect(error).toBeInstanceOf(ScoutRequestError);
+      expect(error).toMatchObject({ status });
+    },
+  );
 });

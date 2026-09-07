@@ -18,6 +18,15 @@ export function getCurrentBrowserTabId(): string | null {
 }
 
 /**
+ * Whether the tab still exists in the mirror. A null tabId means tabs are off,
+ * so there is one window whose composer cannot have been closed with the tab.
+ */
+export function isBrowserTabOpen(tabId: string | null): boolean {
+  if (!tabId) return true;
+  return readMirror().tabs.some((candidate) => candidate.id === tabId);
+}
+
+/**
  * Move one browser tab to a new route without stealing focus from another tab.
  * Active tabs use router history; background tabs update their durable target
  * and will load that route when the user returns.

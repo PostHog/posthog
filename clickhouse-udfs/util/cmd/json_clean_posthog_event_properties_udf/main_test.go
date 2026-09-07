@@ -50,15 +50,21 @@ func TestProcessLinePreservesPersonProperties(t *testing.T) {
 }
 
 func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *testing.T) {
-	input := []byte(`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`)
-	want := `{"$feature_flags":{"existing":"kept","first-flag":"existing","number":42,"enabled":true,"config":{"nested":{"value":"dropped"}}},"other":"value"}`
-
-	var got bytes.Buffer
-	if err := processLine(input, &got); err != nil {
-		t.Fatal(err)
+	tests := map[string]string{
+		`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`: `{"$feature_flags":{"config":{"nested":{"value":"dropped"}},"enabled":true,"existing":"kept","first-flag":"existing","number":42},"other":"value"}`,
+		`{"$feature/zebra":false,"$feature/alpha":"control","other":1}`: `{"other":1,"$feature_flags":{"alpha":"control","zebra":false}}`,
+		`{"$feature_flags":{"zebra":false,"alpha":"control"}}`:          `{"$feature_flags":{"alpha":"control","zebra":false}}`,
+		`{"$feature/a.b":1,"$feature/a":{"b":2},"$feature/Z":true}`:     `{"$feature_flags":{"Z":true,"a":{"b":1}}}`,
 	}
-	if got.String() != want {
-		t.Fatalf("processLine() = %s, want %s", got.String(), want)
+
+	for input, want := range tests {
+		var got bytes.Buffer
+		if err := processLine([]byte(input), &got); err != nil {
+			t.Fatalf("processLine(%s) returned error: %v", input, err)
+		}
+		if got.String() != want {
+			t.Fatalf("processLine(%s) = %s, want %s", input, got.String(), want)
+		}
 	}
 }
 

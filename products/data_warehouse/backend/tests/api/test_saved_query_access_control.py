@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -10,7 +11,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.warehouse_sources.backend.facade.models import (
@@ -123,6 +124,51 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
         self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
+
+    def test_resume_schedules_skips_a_query_the_caller_cannot_edit(self):
+        # Both queries are created by someone else, so the creator bypass cannot mask the deny.
+        allowed = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="resume_allowed",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        denied = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="resume_denied",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        nodes = {}
+        for label, saved_query in (("allowed", allowed), ("denied", denied)):
+            node = Node.objects.create(
+                team=self.team,
+                dag=DAG.objects.create(team=self.team, name=f"resume_dag_{label}"),
+                saved_query=saved_query,
+                type=NodeType.MAT_VIEW,
+            )
+            mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid.uuid4()))
+            node.save()
+            nodes[label] = node
+
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(denied.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
+            {"view_ids": [str(allowed.id), str(denied.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # The response must not reveal that the denied id names a real view.
+        self.assertNotIn(str(denied.id), response.content.decode())
+        nodes["allowed"].refresh_from_db()
+        nodes["denied"].refresh_from_db()
+        self.assertEqual(suspension_state(nodes["allowed"]), {})
+        self.assertNotEqual(suspension_state(nodes["denied"]), {})
 
     def test_object_level_access_blocks_specific_query(self):
         # Grant viewer at resource level (warehouse_table), then deny object-level on this specific view.

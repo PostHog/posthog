@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionSchemePersistError,
     RepartitionSupersededError,
     RepartitionTarget,
+    RepartitionTooLargeForBudgetError,
     RepartitionUnpartitionableError,
     repartition_table_in_place,
 )
@@ -425,7 +426,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # instead bounds nothing: a worker killed mid-rewrite records no outcome, so the cap never moves.
     # A staged swap runs no rewrite (temp is already complete), so its recovery is not a rewrite
     # attempt and is not charged, the same reason the give-up above exempts it.
-    charged_attempts = None if swap is not None else _charge_attempt(schema, pending, logger)
+    charged_attempts = None if swap is not None else _charge_attempt(schema, pending, inputs.job_id, logger)
 
     start = time.monotonic()
     try:
@@ -492,8 +493,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts),
         ).inc()
         return
-    except RepartitionUnpartitionableError as e:
-        # Terminal: the table can't be partitioned on its keys. Clear the flag AND engage the cooldown —
+    except (RepartitionUnpartitionableError, RepartitionTooLargeForBudgetError) as e:
+        # Terminal: the table can't be partitioned on its keys, or one activity budget can't cover it
+        # and its checkpoint can't be resumed. Clear the flag AND engage the cooldown —
         # clearing `repartition_pending` alone re-arms the loop, because detection re-flags on the very
         # next sync (the OOM/size trigger is still true and the table's scheme is unchanged), so the
         # table churns flag → start → skip every 5 minutes forever. The cooldown re-evaluates at most
@@ -753,18 +755,27 @@ def _give_up(
 
 
 def _charge_attempt(
-    schema: ExternalDataSchema, pending: dict[str, Any] | None, logger: FilteringBoundLogger
+    schema: ExternalDataSchema, pending: dict[str, Any] | None, job_id: str, logger: FilteringBoundLogger
 ) -> int | None:
-    """Record this attempt against the retry cap before the rewrite runs; return the prior count.
+    """Record this sync run against the retry cap before the rewrite runs; return the prior count.
 
-    `_refund_attempt` restores that count. None means nothing was charged (no pending marker, or a DB
-    failure) — bookkeeping must never block the rewrite.
+    Charged at most once per run, keyed on `job_id`. Temporal retries this activity up to three times
+    inside a single sync, and an attempt that is hard-killed records no outcome, so charging each
+    retry lets one bad sync spend the whole cap: the table is then abandoned by the give-up on the
+    next run, before any later sync ever retries the rewrite. The cap counts syncs that failed, not
+    the retries within one.
+
+    `_refund_attempt` restores the prior count and releases the run's charge. None means nothing was
+    charged (no pending marker, or a DB failure) — bookkeeping must never block the rewrite.
     """
     if pending is None:
         return None
     prior = int(pending.get("attempts", 0))
+    if pending.get("charged_job_id") == job_id:
+        # A retry of a run that already paid: the persisted count already includes its charge.
+        return max(prior - 1, 0)
     try:
-        schema.set_repartition_pending({**pending, "attempts": prior + 1})
+        schema.set_repartition_pending({**pending, "attempts": prior + 1, "charged_job_id": job_id})
     except Exception:
         logger.warning("repartition: could not charge attempt, proceeding uncharged", exc_info=True)
         return None
@@ -777,7 +788,8 @@ def _refund_attempt(schema: ExternalDataSchema, prior: int | None, logger: Filte
     Supersession, transient infra and a checkpoint that advanced are noise or progress, not evidence
     the rewrite is doomed. Refunds only when the persisted count is still the one this attempt wrote:
     overlapping attempts otherwise let each refund erase the other's charge, and a cap that never
-    counts up is the loop this whole change exists to stop.
+    counts up is the loop this whole change exists to stop. Releases the run's charge marker too, so
+    a later retry within the same run charges again rather than riding a refunded charge.
     """
     if prior is None:
         return
@@ -785,7 +797,7 @@ def _refund_attempt(schema: ExternalDataSchema, prior: int | None, logger: Filte
         schema.refresh_from_db(fields=["sync_type_config"])
         pending = schema.repartition_pending
         if pending is not None and int(pending.get("attempts", 0)) == prior + 1:
-            schema.set_repartition_pending({**pending, "attempts": prior})
+            schema.set_repartition_pending({**pending, "attempts": prior, "charged_job_id": None})
     except Exception:
         logger.warning("repartition: could not refund attempt", exc_info=True)
 

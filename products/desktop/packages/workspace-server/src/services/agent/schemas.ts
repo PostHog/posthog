@@ -1,5 +1,5 @@
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
-import { BEDROCK_GATEWAY_VARIANTS } from "@posthog/shared";
+import { BEDROCK_GATEWAY_VARIANTS, CLOUD_REGIONS } from "@posthog/shared";
 import { effortLevelSchema } from "@posthog/shared/domain-types";
 import { z } from "zod";
 import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "../os/schemas";
@@ -390,7 +390,7 @@ export const listSessionsOutput = z.array(sessionInfoSchema);
 
 export const getPiModelCatalogInput = z.object({
   apiHost: z.string(),
-  region: z.enum(["us", "eu", "dev"]),
+  region: z.enum(CLOUD_REGIONS),
 });
 
 export const getPiModelCatalogOutput = z.array(piModelCatalogEntrySchema);
