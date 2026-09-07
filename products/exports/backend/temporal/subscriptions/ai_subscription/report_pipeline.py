@@ -1,4 +1,5 @@
 import uuid
+import random
 import asyncio
 import contextlib
 import dataclasses
@@ -96,11 +97,11 @@ _MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 # same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
 QUERY_FAILED_PREFIX = "Query failed to run"
 
-# Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
-# error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
-# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently, bounded by
-# _MAX_CONCURRENT_STEPS.
+# Per-step budgets keep unchanged capacity retries separate from LLM query repairs. The maximum
+# capacity backoff is 15 seconds, which stays below one query attempt's timeout.
 _MAX_QUERY_FIX_RETRIES = 2
+_MAX_TRANSIENT_QUERY_RETRIES = 2
+_TRANSIENT_QUERY_RETRY_BASE_DELAY_SECONDS = 5.0
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
 
 # The planner may emit up to MAX_QUERY_PLAN_STEPS steps; bound how many run their ClickHouse query at
@@ -130,6 +131,7 @@ def _all_queries_failed_notice(total_steps: int) -> str:
 class QueryRepairDecision:
     repair_hint: Optional[str]
     invalidates_plan: bool
+    retry_unchanged: bool = False
 
 
 def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairDecision:
@@ -169,7 +171,7 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         and not has_unknown_query_status_error
         and not has_unclassified_error
     ):
-        return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=False, retry_unchanged=True)
     # Exposed ClickHouse errors are user-safe, so their server text reaches `safe_message`. Check them
     # first to keep query-derived identifiers out of the repair prompt.
     if has_clickhouse_user_error:
@@ -605,10 +607,12 @@ async def _run_steps(
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
         had_plan_invalidating_failure = False
+        query_fix_attempts = 0
+        transient_query_retries = 0
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
 
-        for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
+        while True:
             executable_hogql = window.render_window_filter(current_hogql)
             try:
                 query = AssistantHogQLQuery(query=executable_hogql)
@@ -648,13 +652,31 @@ async def _run_steps(
                 last_exc = exc
                 repair_decision = _query_repair_hint_and_plan_invalidation(exc)
                 had_plan_invalidating_failure = had_plan_invalidating_failure or repair_decision.invalidates_plan
-                if attempt >= _MAX_QUERY_FIX_RETRIES or repair_decision.repair_hint is None:
+                if repair_decision.retry_unchanged:
+                    if transient_query_retries >= _MAX_TRANSIENT_QUERY_RETRIES:
+                        break
+                    max_delay = _TRANSIENT_QUERY_RETRY_BASE_DELAY_SECONDS * (2**transient_query_retries)
+                    delay = random.uniform(max_delay / 2, max_delay)
+                    transient_query_retries += 1
+                    logger.info(
+                        "ai_report.transient_query_retry",
+                        trace_correlation_id=trace_correlation_id,
+                        step_description=safe_description,
+                        attempt=transient_query_retries,
+                        max_retries=_MAX_TRANSIENT_QUERY_RETRIES,
+                        delay_seconds=round(delay, 1),
+                        error_type=type(exc).__name__,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                if repair_decision.repair_hint is None or query_fix_attempts >= _MAX_QUERY_FIX_RETRIES:
                     break
+                query_fix_attempts += 1
                 logger.info(
                     "ai_report.query_fix_attempt",
                     trace_correlation_id=trace_correlation_id,
                     step_description=safe_description,
-                    attempt=attempt + 1,
+                    attempt=query_fix_attempts,
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )

@@ -509,12 +509,24 @@ async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_t
     [
         pytest.param(ClickHouseAtCapacity(), id="clickhouse_at_capacity"),
         pytest.param(ClickHouseClusterMemoryLimitExceeded(), id="cluster_memory_limit"),
+        pytest.param(
+            _query_status_error(
+                error_message=None,
+                error_code=None,
+                error_category=QueryErrorCategory.RATE_LIMITED,
+            ),
+            id="async_rate_limited_status",
+        ),
     ],
 )
+@patch(f"{_RP}.asyncio.sleep", new_callable=AsyncMock)
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_preserves_plan_for_transient_capacity_error(
-    mock_executor_cls: MagicMock, mock_fix: AsyncMock, capacity_error: BaseException
+async def test_run_steps_bounds_transient_capacity_retries_without_invalidating_plan(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+    _mock_sleep: AsyncMock,
+    capacity_error: BaseException,
 ) -> None:
     error = MaxToolRetryableError("Query temporarily unavailable")
     error.__context__ = capacity_error
@@ -525,6 +537,35 @@ async def test_run_steps_preserves_plan_for_transient_capacity_error(
     )
 
     assert execution.plan_invalidating_failed_count == 0
+    assert mock_executor_cls.return_value.arun_format_and_capture.await_count == 3
+    mock_fix.assert_not_awaited()
+
+
+@patch(f"{_RP}.asyncio.sleep", new_callable=AsyncMock)
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_retries_transient_capacity_error_without_rewriting_query(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+    _mock_sleep: AsyncMock,
+) -> None:
+    error = MaxToolRetryableError("Query temporarily unavailable")
+    error.__context__ = ClickHouseClusterMemoryLimitExceeded()
+    mock_run = AsyncMock(
+        side_effect=[
+            error,
+            FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
+        ]
+    )
+    mock_executor_cls.return_value.arun_format_and_capture = mock_run
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.failed_count == 0
+    assert execution.plan_invalidating_failed_count == 0
+    assert [call.args[0].query for call in mock_run.await_args_list] == ["SELECT 1", "SELECT 1"]
     mock_fix.assert_not_awaited()
 
 
