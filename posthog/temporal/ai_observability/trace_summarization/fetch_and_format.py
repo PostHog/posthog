@@ -29,6 +29,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
+    sanitize_surrogates,
 )
 
 logger = structlog.get_logger(__name__)
@@ -288,7 +289,9 @@ def _format_generation_text_repr(generation_data: dict, max_length: int | None =
             parts.extend(("--- Input ---", in_block, ""))
         if out_block:
             parts.extend(("--- Output ---", out_block))
-        return "\n".join(parts)
+        # This path builds its own text instead of going through the formatters, so it repairs
+        # surrogates itself -- including any the section truncation below splits apart.
+        return sanitize_surrogates("\n".join(parts))
 
     text_repr = assemble(input_block, output_block)
     if max_length is None or len(text_repr) <= max_length:
