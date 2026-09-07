@@ -253,14 +253,37 @@ def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
     return ", ".join(sorted(it.name or str(it.id) for it in items))
 
 
+# The subdomain becomes one label of a DNS name, so it must satisfy the DNS label rules.
+MAIL_FROM_SUBDOMAIN_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
 class NativeEmailIntegrationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    name = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
-    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(help_text="Address the sender sends from. Its domain must be a custom domain.")
+    name = serializers.CharField(help_text="Display name recipients see on emails from this sender.")
+    provider = serializers.ChoiceField(
+        choices=["ses", "maildev"] if settings.DEBUG else ["ses"],
+        help_text="Email delivery provider that owns the domain identity.",
+    )
+    mail_from_subdomain = serializers.CharField(
+        required=False,
+        help_text=(
+            'Single DNS label put in front of the sender domain in the Return-Path header, for example "feedback". '
+            'Letters, numbers, and hyphens only. Defaults to "feedback" when it is left out.'
+        ),
+        error_messages={"blank": 'Enter a MAIL FROM subdomain, for example "feedback".'},
+    )
 
     def validate_email(self, value: str) -> str:
         return value.lower()
+
+    def validate_mail_from_subdomain(self, value: str) -> str:
+        subdomain = value.lower()
+        if not MAIL_FROM_SUBDOMAIN_PATTERN.match(subdomain):
+            raise ValidationError(
+                "Use 1 to 63 letters, numbers, or hyphens in the MAIL FROM subdomain, starting and ending "
+                'with a letter or number, for example "feedback". Leave out your domain and the dot before it.'
+            )
+        return subdomain
 
 
 class GitHubRepoSerializer(serializers.Serializer):

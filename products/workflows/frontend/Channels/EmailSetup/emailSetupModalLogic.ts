@@ -38,6 +38,8 @@ export interface EmailSenderFormType {
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
+// Must stay in step with MAIL_FROM_SUBDOMAIN_PATTERN in posthog/api/integration.py
+const MAIL_FROM_SUBDOMAIN_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i
 
 export const parseHostname = (hostname: string, rootDomain: string): { subdomain: string; rootDomain: string } => {
     if (hostname === '@') {
@@ -58,7 +60,8 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
         email: integration.config.email,
         name: integration.config.name,
         provider: integration.config.provider,
-        mail_from_subdomain: integration.config.mail_from_subdomain,
+        // Senders saved before this field existed carry no value, so show the default the backend applies
+        mail_from_subdomain: integration.config.mail_from_subdomain || 'feedback',
     }
 }
 
@@ -187,7 +190,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             },
         ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ props, actions, values }) => ({
         emailSender: {
             defaults: {
                 provider: 'ses',
@@ -207,14 +210,18 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     email: emailError,
                     name: !name ? 'Name is required' : undefined,
                     provider: !provider ? 'Provider is required' : undefined,
-                    mail_from_subdomain:
-                        values.savedIntegration === null && !mail_from_subdomain
-                            ? 'MAIL FROM subdomain is required for new senders'
-                            : undefined,
+                    mail_from_subdomain: !mail_from_subdomain
+                        ? 'Enter a MAIL FROM subdomain, for example "feedback".'
+                        : !MAIL_FROM_SUBDOMAIN_REGEX.test(mail_from_subdomain)
+                          ? 'Use 1 to 63 letters, numbers, or hyphens, starting and ending with a letter or number, for example "feedback". Leave out your domain.'
+                          : undefined,
                 }
             },
             submit: async (config) => {
                 try {
+                    // Editing an existing sender closes the modal on success; a new sender stays
+                    // open so the DNS records to verify can be shown.
+                    const isEdit = !!values.savedIntegration
                     let integration: IntegrationType
                     if (values.savedIntegration) {
                         integration = await api.integrations.updateEmailConfig(values.savedIntegration.id, {
@@ -229,6 +236,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)
                     actions.verifyDomain()
+                    if (isEdit) {
+                        props.onComplete(integration.id)
+                    }
                     return config
                 } catch (error) {
                     if (error instanceof ApiError || (error && typeof error === 'object' && 'detail' in error)) {

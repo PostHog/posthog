@@ -223,7 +223,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
 
     dns_records = verification_result.get("dnsRecords", [])
     domain = instance.config.get("domain", "")
-    mail_from_subdomain = instance.config.get("mail_from_subdomain", "feedback")
+    mail_from_subdomain = instance.config.get("mail_from_subdomain") or "feedback"
 
     verify_token = ""
     dkim_tokens: list[str] = []
