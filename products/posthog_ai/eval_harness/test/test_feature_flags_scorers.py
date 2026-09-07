@@ -10,11 +10,6 @@ from products.feature_flags.evals.scorers import FILE_EDIT_TOOLS, FLAG_LOOKUP_TO
 
 
 def _raw_tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
-    """Build an ACP log. A fourth tuple element overrides the result status.
-
-    ``"failed"`` is what makes ``ToolCall.is_error`` true, which the scorer uses to
-    ignore an attempt the agent made and lost.
-    """
     lines = []
     for index, call in enumerate(calls, start=1):
         name, raw_input, raw_output = call[0], call[1], call[2]
