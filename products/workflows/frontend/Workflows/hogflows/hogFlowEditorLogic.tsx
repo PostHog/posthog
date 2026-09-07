@@ -2022,10 +2022,10 @@ export interface hogFlowEditorLogicActions {
         isBranchJoinDropzone: boolean,
         joinEdges?: HogFlowEdge[]
     ) => {
-        movingNodeId: string
-        targetEdge: HogFlowEdge
         isBranchJoinDropzone: boolean
         joinEdges: HogFlowEdge[] | undefined
+        movingNodeId: string
+        targetEdge: HogFlowEdge
     }
     moveNodeToHighlightedDropzone: () => {
         value: true
@@ -2039,8 +2039,8 @@ export interface hogFlowEditorLogicActions {
         joinEdges?: HogFlowEdge[]
     ) => {
         event: DragEvent<Element> | undefined
-        targetEdge: HogFlowEdge | undefined
         joinEdges: HogFlowEdge[] | undefined
+        targetEdge: HogFlowEdge | undefined
     }
     onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => {
         edges: EdgeChange<HogFlowActionEdge>[]
