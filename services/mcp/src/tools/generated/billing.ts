@@ -290,24 +290,6 @@ const billingUsageGet = (): ToolBase<
     },
 })
 
-const BillingUsageSummaryGetSchema = () => z.object({})
-
-const billingUsageSummaryGet = (): ToolBase<
-    ReturnType<typeof BillingUsageSummaryGetSchema>,
-    Schemas.BillingUsageSummary
-> => ({
-    name: 'billing-usage-summary-get',
-    schema: BillingUsageSummaryGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingUsageSummaryGetSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.BillingUsageSummary>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/usage/`,
-        })
-        return result
-    },
-})
-
 const BillingUsageStatusGetSchema = () => z.object({})
 
 const billingUsageStatusGet = (): ToolBase<
@@ -326,6 +308,24 @@ const billingUsageStatusGet = (): ToolBase<
     },
 })
 
+const BillingUsageSummaryGetSchema = () => z.object({})
+
+const billingUsageSummaryGet = (): ToolBase<
+    ReturnType<typeof BillingUsageSummaryGetSchema>,
+    Schemas.BillingUsageSummary
+> => ({
+    name: 'billing-usage-summary-get',
+    schema: BillingUsageSummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingUsageSummaryGetSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.BillingUsageSummary>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/usage/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-features-get': billingFeaturesGet,
     'billing-forecast-get': billingForecastGet,
@@ -337,6 +337,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-spend-summary-get': billingSpendSummaryGet,
     'billing-subscription-get': billingSubscriptionGet,
     'billing-usage-get': billingUsageGet,
-    'billing-usage-summary-get': billingUsageSummaryGet,
     'billing-usage-status-get': billingUsageStatusGet,
+    'billing-usage-summary-get': billingUsageSummaryGet,
 }
