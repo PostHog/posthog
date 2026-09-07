@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import yaml
 from hogbox_preview.backend import ExecResult, PreviewBackend
+from hogbox_preview.desktop_profile import DESKTOP_PREVIEW_IMAGES
 from hogbox_preview.stack import PostHogPreviewStack
 
 
@@ -99,6 +100,45 @@ class DesktopProfileStack(unittest.TestCase):
         stack = PostHogPreviewStack(backend, desktop_pr_number=123)
         with self.assertRaisesRegex(RuntimeError, "Desktop access denied"):
             stack._run_desktop_readiness(123)
+
+
+class DesktopImagePull(unittest.TestCase):
+    # These two are not in the golden, so every preview fetches them cold from
+    # ghcr, which flakes mid-layer. pull_image() covers the images it owns; a
+    # simplification back to a bare `compose up` would silently lose these.
+    def test_retries_each_desktop_image_independently(self) -> None:
+        backend = MagicMock(spec=PreviewBackend)
+        backend.run_long.side_effect = [
+            RuntimeError("proxy TLS timeout"),
+            None,
+            RuntimeError("gateway TLS timeout"),
+            None,
+            None,
+        ]
+        stack = PostHogPreviewStack(backend, desktop_pr_number=123)
+
+        stack._up_desktop_services()
+
+        commands = [call.args[0] for call in backend.run_long.call_args_list]
+        self.assertEqual(
+            [command for command in commands if command.startswith("docker pull")],
+            [f"docker pull {image}" for image in DESKTOP_PREVIEW_IMAGES for _ in range(2)],
+        )
+        self.assertIn("up -d --no-build desktop-preview-proxy llm-gateway", commands[-1])
+
+    def test_exhausted_pull_stops_before_compose_up(self) -> None:
+        backend = MagicMock(spec=PreviewBackend)
+        backend.run_long.side_effect = RuntimeError("TLS timeout")
+        stack = PostHogPreviewStack(backend, desktop_pr_number=123)
+        first = DESKTOP_PREVIEW_IMAGES[0]
+
+        with self.assertRaisesRegex(RuntimeError, f"docker pull {first} failed after 3 attempts: TLS timeout"):
+            stack._up_desktop_services()
+
+        self.assertEqual(
+            [call.args[0] for call in backend.run_long.call_args_list],
+            [f"docker pull {first}"] * 3,
+        )
 
 
 if __name__ == "__main__":
