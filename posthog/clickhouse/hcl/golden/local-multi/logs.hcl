@@ -2376,38 +2376,6 @@ SQL
     }
   }
 
-  table "metrics2_kafka_metrics" {
-    order_by = ["_topic", "_partition"]
-    settings = {
-      index_granularity = "8192"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics2_kafka_metrics"
-      replica_name = "{replica}-{shard}"
-    }
-  }
-
   table "metrics_distributed" {
     column "uuid" {
       type = "String"
@@ -4423,45 +4391,6 @@ SQL
     }
     column "attribute_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "metrics2_input_to_kafka_metrics" {
-    to_table = "posthog.metrics2_kafka_metrics"
-    query    = <<SQL
-SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.metrics2_input
-GROUP BY
-  _partition, _topic
-SQL
-
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime)"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
     }
   }
 

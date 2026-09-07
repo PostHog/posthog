@@ -21,7 +21,6 @@ METRIC_SERIES2_TABLE_NAME = "metric_series2"
 METRIC_SERIES_DISTRIBUTED_TABLE_NAME = "metric_series_distributed"
 METRIC_ATTRIBUTES2_TABLE_NAME = "metric_attributes2"
 METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME = "metric_attributes_distributed"
-METRICS2_KAFKA_METRICS_TABLE_NAME = "metrics2_kafka_metrics"
 
 DEFAULT_RETENTION_DAYS = 90
 
@@ -256,25 +255,6 @@ SETTINGS
 """
 
 
-def METRICS2_KAFKA_METRICS_TABLE_SQL() -> str:
-    return f"""
-CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_KAFKA_METRICS_TABLE_NAME}
-(
-    `_partition` UInt32,
-    `_topic` String,
-    `max_offset` SimpleAggregateFunction(max, UInt64),
-    `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
-    `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
-    `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
-    `max_lag` SimpleAggregateFunction(max, UInt64)
-)
-ENGINE = {AggregatingMergeTree(METRICS2_KAFKA_METRICS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
-ORDER BY (_topic, _partition)
-SETTINGS
-    index_granularity = 8192
-"""
-
-
 def _distributed_sql(distributed_name: str, data_table: str) -> str:
     return "CREATE TABLE IF NOT EXISTS {database}.{distributed} AS {database}.{table_name} ENGINE = {engine}".format(
         distributed=distributed_name,
@@ -455,20 +435,3 @@ def METRICS2_INPUT_TO_METRIC_ATTRIBUTES_MV() -> str:
 
 def METRICS2_INPUT_TO_RESOURCE_ATTRIBUTES_MV() -> str:
     return _attributes_mv("resource_attributes", "resource_attributes", "resource", filter_long_pairs=False)
-
-
-def METRICS2_INPUT_TO_KAFKA_METRICS_MV() -> str:
-    db = _db()
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_kafka_metrics TO {db}.{METRICS2_KAFKA_METRICS_TABLE_NAME}
-AS SELECT
-    _partition,
-    _topic,
-    maxSimpleState(_offset) AS max_offset,
-    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-    maxSimpleState(timestamp) AS max_timestamp,
-    maxSimpleState(now()) AS max_created_at,
-    maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM {db}.{METRICS2_INPUT_TABLE_NAME}
-GROUP BY _partition, _topic
-"""

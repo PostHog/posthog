@@ -586,15 +586,6 @@ CREATE TABLE posthog.metrics2_input (
   _topic String,
   _offset UInt64
 ) ENGINE = Null();
-CREATE TABLE posthog.metrics2_kafka_metrics (
-  _partition UInt32,
-  _topic String,
-  max_offset SimpleAggregateFunction(max, UInt64),
-  max_observed_timestamp SimpleAggregateFunction(max, DateTime64(9)),
-  max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
-  max_created_at SimpleAggregateFunction(max, DateTime64(9)),
-  max_lag SimpleAggregateFunction(max, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics2_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics_distributed (
   uuid String,
   team_id Int32,
@@ -1259,17 +1250,6 @@ FROM
     GROUP BY
       team_id, time_bucket, service_name, resource_fingerprint, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_kafka_metrics TO posthog.metrics2_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.metrics2_input
-GROUP BY
-  _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,

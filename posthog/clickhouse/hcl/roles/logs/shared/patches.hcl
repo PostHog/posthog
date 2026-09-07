@@ -121,9 +121,9 @@ database "posthog" {
   # (noshard ZK paths, posthog_single_shard reader); the cloud envs keep their
   # per-shard logs-cluster paths for metrics1, metric_attributes and
   # metrics_kafka_metrics, and read through the logs cluster. The v2 chain
-  # (metrics2_input, metrics2, metric_series2, metric_attributes2,
-  # metrics2_kafka_metrics) stays on the noshard path in every env, like
-  # metric_samples1 and metric_series1, and only its readers are patched above.
+  # (metrics2_input, metrics2, metric_series2, metric_attributes2) stays on the
+  # noshard path in every env, like metric_samples1 and metric_series1, and only
+  # its readers are patched above.
   patch_table "metrics" {
     engine "distributed" {
       cluster_name    = "logs"
