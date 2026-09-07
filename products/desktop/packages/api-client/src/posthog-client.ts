@@ -3191,27 +3191,73 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side). `star`
-  // only applies when this call creates the channel; an existing one keeps the
-  // requester's star as it was.
+  // Create a channel. A public channel (default) is resolve-or-create by name
+  // (idempotent server-side). A private channel is always created fresh with the
+  // requester plus `memberIds` as its members. `star` only applies when this call
+  // creates the channel; an existing public one keeps the requester's star as it was.
   async resolveTaskChannel(
     name: string,
-    options: { star: boolean },
+    options: {
+      star: boolean;
+      channelType?: "public" | "private";
+      memberIds?: number[];
+    },
   ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
+    const body: Record<string, unknown> = { name, star: options.star };
+    if (options.channelType === "private") {
+      body.channel_type = "private";
+      body.member_ids = options.memberIds ?? [];
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
       overrides: {
-        body: JSON.stringify({ name, star: options.star }),
+        body: JSON.stringify(body),
       },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  // The members of a private channel. Public and personal channels have no
+  // members and read as an empty list.
+  async listTaskChannelMembers(id: string): Promise<UserBasic[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/members/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch space members: ${response.statusText}`);
+    }
+    return (await response.json()) as UserBasic[];
+  }
+
+  // Replace a private channel's member set. The creator is always kept, whatever
+  // `userIds` holds. Returns the updated members.
+  async setTaskChannelMembers(
+    id: string,
+    userIds: number[],
+  ): Promise<UserBasic[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/members/`;
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ user_ids: userIds }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update space members: ${response.statusText}`);
+    }
+    return (await response.json()) as UserBasic[];
   }
 
   async renameTaskChannel(id: string, name: string): Promise<TaskChannel> {
@@ -3329,6 +3375,26 @@ export class PostHogAPIClient {
     if (!response.ok) {
       throw new Error(
         `Failed to update space repositories: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelType(
+    id: string,
+    channelType: "public" | "private",
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ channel_type: channelType }) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update space visibility: ${response.statusText}`,
       );
     }
     return (await response.json()) as TaskChannel;
