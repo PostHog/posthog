@@ -15,15 +15,17 @@ use lifecycle::{ComponentOptions, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{BaseConsumer, Consumer, StreamConsumer};
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
+use rdkafka::TopicPartitionList;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::config::LedgerMode;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -434,6 +436,7 @@ struct Harness {
     pub ledger: Arc<TopicOffsetLedger>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
+    ledger_mode: LedgerMode,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -530,6 +533,7 @@ impl Harness {
             registry_config,
             0,
             ComponentOptions::new(),
+            LedgerMode::Shadow,
         )
         .await
     }
@@ -552,6 +556,7 @@ impl Harness {
             ComponentOptions::new()
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
+            LedgerMode::Shadow,
         )
         .await
     }
@@ -569,6 +574,24 @@ impl Harness {
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
+            LedgerMode::Shadow,
+        )
+        .await
+    }
+
+    /// Single worker and partition, ledger commit mode: the Kafka commit
+    /// comes from the ledger frontier instead of the batch spans.
+    async fn start_commit_mode(topic: &str) -> Self {
+        Self::start_inner(
+            topic,
+            1,
+            1,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            LedgerMode::Commit,
         )
         .await
     }
@@ -583,6 +606,7 @@ impl Harness {
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
         component_options: ComponentOptions,
+        ledger_mode: LedgerMode,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -636,6 +660,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
+                ledger_mode,
             },
             handle,
         );
@@ -658,6 +683,7 @@ impl Harness {
             ledger,
             max_in_flight,
             deferred_flush_timeout,
+            ledger_mode,
         }
     }
 
@@ -712,6 +738,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
                 debug_recorder: None,
+                ledger_mode: self.ledger_mode,
             },
             handle,
         );
@@ -731,6 +758,25 @@ impl Harness {
             return true;
         };
         tokio::time::timeout(timeout, task).await.is_ok()
+    }
+
+    /// The group's committed offset for one partition of the harness topic;
+    /// `None` while nothing is committed.
+    fn committed_offset(&self, partition: i32) -> Option<i64> {
+        let probe: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", KAFKA_BROKERS)
+            .set("group.id", &self.group_id)
+            .create()
+            .expect("committed-offset probe");
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition(&self.topic, partition);
+        let committed = probe
+            .committed_offsets(tpl, Duration::from_secs(2))
+            .expect("fetch committed offsets");
+        match committed.elements()[0].offset() {
+            rdkafka::Offset::Offset(offset) => Some(offset),
+            _ => None,
+        }
     }
 
     async fn wait_for(&self, total: usize, timeout: Duration) {
@@ -1972,6 +2018,50 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
     harness.stop().await;
 }
 
+/// Commit mode: the broker-committed offset is the ledger frontier — one past
+/// everything the workers accepted — and a restart resumes from it with no
+/// loss and no redelivery.
+#[tokio::test]
+async fn commit_mode_commits_the_ledger_frontier() {
+    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
+    let mut harness = Harness::start_commit_mode(&topic).await;
+    let producer = make_producer();
+
+    for seq in 0..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(10, Duration::from_secs(15)).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the committed offset to reach the frontier",
+        || harness.committed_offset(0) == Some(10),
+    )
+    .await;
+
+    // A clean frontier is a usable resume point: after a crash, only the new
+    // messages arrive.
+    harness.crash_consumer();
+    harness.restart_consumer(fast_registry_config()).await;
+    for seq in 10..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(15, Duration::from_secs(15)).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the committed offset to reach the new frontier",
+        || harness.committed_offset(0) == Some(15),
+    )
+    .await;
+
+    let total: usize = harness.workers.iter().map(|w| w.count()).sum();
+    assert_eq!(
+        total, 15,
+        "a committed frontier behind the accepted work would redeliver here"
+    );
+
+    harness.stop().await;
+}
+
 /// A worker that processes a batch but whose ACK is lost is indistinguishable
 /// from a failed send, so the consumer replays the batch: duplicates are the
 /// accepted cost of at-least-once, loss never is, and the replay lands behind
@@ -2492,6 +2582,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            ledger_mode: LedgerMode::Shadow,
         },
         handle2,
     );
@@ -2599,6 +2690,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            ledger_mode: LedgerMode::Shadow,
         },
         handle2,
     );
@@ -2712,6 +2804,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            ledger_mode: LedgerMode::Shadow,
         },
         handle,
     );
@@ -3045,6 +3138,78 @@ async fn nacking_worker_fences_worker_stream_and_reroutes_in_order() {
         batch2_seqs,
         vec![4, 5, 6, 7],
         "post-fence messages for user-1 missing or out-of-order on the live worker: {live_seqs:?}"
+    );
+
+    harness.stop().await;
+}
+
+/// One routing key arriving on two partitions: a partition-count change
+/// leaves a key's backlog on its old partition while new messages land on the
+/// new one. The dispatcher merges such a key into one sub-batch (the pin
+/// table is partition-blind), so the batcher must split the completion back
+/// per partition — mis-attributed coverage would leave the poll uncommitted
+/// and wedge the consumer. Two waves prove commits keep flowing: with
+/// max_in_flight = 1, the second wave can only deliver after the first wave's
+/// polls completed.
+#[tokio::test]
+async fn same_key_across_partitions_completes_and_commits() {
+    let topic = format!("e2e-cross-partition-key-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        2,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    for seq in 0..3usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 3..6usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(6, Duration::from_secs(15)).await;
+
+    for seq in 6..9usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 9..12usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(12, Duration::from_secs(15)).await;
+
+    // Everything delivered exactly once; cross-partition interleaving is
+    // free, but each partition's own sequence must arrive in order.
+    let seqs = harness.workers[0].seqs_for("user-1");
+    let mut sorted = seqs.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        (0..12).collect::<Vec<_>>(),
+        "every message must land exactly once; got {seqs:?}"
+    );
+    let partition_0: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| *s < 3 || (6..9).contains(s))
+        .collect();
+    let partition_1: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| (3..6).contains(s) || *s >= 9)
+        .collect();
+    assert_eq!(
+        partition_0,
+        vec![0, 1, 2, 6, 7, 8],
+        "partition 0 must keep offset order"
+    );
+    assert_eq!(
+        partition_1,
+        vec![3, 4, 5, 9, 10, 11],
+        "partition 1 must keep offset order"
     );
 
     harness.stop().await;

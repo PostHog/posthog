@@ -524,6 +524,7 @@ export interface experimentLogicValues {
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
     experimentsConfig: ExperimentsConfig | null // experimentsConfigLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    receivedFeatureFlags: boolean // featureFlagLogic
     conversionMetrics: FunnelTimeConversionMetrics // funnelDataLogic
     funnelResults: FunnelResultType // funnelDataLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
@@ -783,6 +784,13 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     addToExperiments: (experiment: Experiment) => Experiment // experimentsLogic
     updateExperiments: (experiment: Experiment) => Experiment // experimentsLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     updateFlagFromPartial: (
         flag: Partial<FeatureFlagType> & {
             id: number
@@ -1344,7 +1352,11 @@ export interface experimentLogicActions {
         uuid: string,
         attributionType: BreakdownAttributionType,
         attributionValue?: number
-    ) => { attributionType: BreakdownAttributionType; attributionValue: number | undefined; uuid: string }
+    ) => {
+        attributionType: BreakdownAttributionType
+        attributionValue: number | undefined
+        uuid: string
+    }
     updateMetricBreakdownLimit: (
         uuid: string,
         breakdownLimit: number
@@ -1481,7 +1493,7 @@ export const experimentLogic = kea<experimentLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
             holdoutsLogic,
             ['holdouts'],
             billingLogic,
@@ -1526,6 +1538,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ],
             teamLogic,
             ['addProductIntent'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
             featureFlagsLogic,
             ['updateFlagFromPartial'],
             modalsLogic,
@@ -2768,6 +2782,14 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
+            // The refresh branches on the recalculation flag. Choosing a branch before the flag has
+            // resolved reads it as off and runs the legacy loaders, which fail for a recalculation
+            // experiment. Defer the refresh until flags arrive; setFeatureFlags replays it once.
+            if (!values.receivedFeatureFlags) {
+                cache.deferredRefresh = { forceRefresh, triggeredBy, refreshIfStale }
+                return
+            }
+
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -2910,6 +2932,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) {
                     actions.refreshExperimentResults(true, 'page_load')
                 }
+            }
+        },
+        setFeatureFlags: () => {
+            // Flags have now resolved. Replay a refresh that arrived before them so the branch decision
+            // uses the real flag value. One-shot: clear the deferred request before re-firing.
+            const deferred = cache.deferredRefresh
+            if (deferred) {
+                cache.deferredRefresh = undefined
+                actions.refreshExperimentResults(deferred.forceRefresh, deferred.triggeredBy, deferred.refreshIfStale)
             }
         },
         updateExperimentMetrics: async () => {

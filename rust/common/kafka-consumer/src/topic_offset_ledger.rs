@@ -31,7 +31,13 @@ pub enum Rejection {
     /// The work violated the ledger's contract. The partition's window is
     /// unknown after this, so its ledger was reset to a new generation: work
     /// in flight drops as stale, and the next delivery founds a fresh ledger.
-    Violation(LedgerError),
+    /// `generation` and `held` describe the ledger before that reset.
+    Violation {
+        error: LedgerError,
+        stamp: u64,
+        generation: u64,
+        held: Held,
+    },
 }
 
 /// One batch's settled view of its partition ledger: the frontier after its
@@ -108,9 +114,15 @@ impl TopicOffsetLedger {
         match ledger.charge(offset_charges) {
             Ok(_) => Ok(ledger.held()),
             Err(error) => {
+                let held = ledger.held();
                 *ledger = PartitionOffsetLedger::new(generation + 1);
                 self.generations_version.fetch_add(1, Ordering::Relaxed);
-                Err(Rejection::Violation(error))
+                Err(Rejection::Violation {
+                    error,
+                    stamp,
+                    generation,
+                    held,
+                })
             }
         }
     }
@@ -144,9 +156,15 @@ impl TopicOffsetLedger {
                 generation,
             }),
             Err(error) => {
+                let held = ledger.held();
                 *ledger = PartitionOffsetLedger::new(generation + 1);
                 self.generations_version.fetch_add(1, Ordering::Relaxed);
-                Err(Rejection::Violation(error))
+                Err(Rejection::Violation {
+                    error,
+                    stamp,
+                    generation,
+                    held,
+                })
             }
         }
     }
@@ -528,10 +546,18 @@ mod tests {
         // violation, not a rebalance: the ledger cannot trust its window.
         assert_eq!(
             ledger.charge(&p0, 0, [(Offset(11), Charge::ZERO)]),
-            Err(Rejection::Violation(LedgerError::OffsetNotAboveWindow {
-                offset: Offset(11),
-                next: Offset(12),
-            }))
+            Err(Rejection::Violation {
+                error: LedgerError::OffsetNotAboveWindow {
+                    offset: Offset(11),
+                    next: Offset(12),
+                },
+                stamp: 0,
+                generation: 0,
+                held: Held {
+                    offsets: 2,
+                    charge: Charge::ZERO
+                },
+            })
         );
         assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
@@ -562,9 +588,15 @@ mod tests {
 
         assert_eq!(
             ledger.settle(&p0, 0, [Offset(15)]),
-            Err(Rejection::Violation(LedgerError::CompletionUncharged {
-                offset: Offset(15)
-            }))
+            Err(Rejection::Violation {
+                error: LedgerError::CompletionUncharged { offset: Offset(15) },
+                stamp: 0,
+                generation: 0,
+                held: Held {
+                    offsets: 1,
+                    charge: Charge::ZERO
+                },
+            })
         );
         assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(ledger.generation(&p0), 1);

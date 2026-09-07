@@ -1439,6 +1439,37 @@ export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Record that this user has seen one product intro.
+ *
+ * Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+ * recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+ * would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+ * here changes an account, an organization, or a profile.
+ *
+ * Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+ * other's key, which a read-modify-write of the whole map cannot avoid.
+ */
+export const usersProductIntroSeenPartialUpdateBodyProductKeyMax = 128
+
+export const usersProductIntroSeenPartialUpdateBodySeenDefault = true
+
+export const UsersProductIntroSeenPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        product_key: zod
+            .string()
+            .max(usersProductIntroSeenPartialUpdateBodyProductKeyMax)
+            .optional()
+            .describe(
+                'Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.'
+            ),
+        seen: zod
+            .boolean()
+            .default(usersProductIntroSeenPartialUpdateBodySeenDefault)
+            .describe('Whether the intro counts as seen. Send false to show it again.'),
+    })
+    .describe('Request body for PATCH \/api\/users\/@me\/product_intro_seen.')
+
+/**
  * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
  * @summary Register a push notification token
  */

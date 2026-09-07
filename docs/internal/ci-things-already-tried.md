@@ -68,6 +68,23 @@ A factor of 2.5 in compute is too much for 6 minutes of wall time.
 
 `pytest-xdist` is still a development dependency, and it operates correctly on a local machine. CI does not use it in the shards.
 
+**Re-measured Sep 2026** · [#93810](https://github.com/PostHog/posthog/pull/93810)
+
+The 2025 test moved the runners from 2 cores to 8 at the same time.
+The 2.5x compute came from the larger runners, and not from xdist.
+
+Two workers on the current 2-core runner was never measured.
+It measures -21.9% of wall time over ten Core shards, and the runner size does not change, so the cost falls with the wall time.
+A shard uses about half of its runner, because the test phase waits on the service stack.
+
+That PR did not merge either. Product databases are never created for a worker.
+`posthog/conftest.py` points each product alias at `test_posthog_gwN_<product>`, and nothing creates that database.
+A single-worker run hides this, because both naming schemes then produce the same string.
+Fixing it means provisioning the test databases before pytest starts.
+
+Four other single-process assumptions surfaced first, and each one was deterministic rather than flaky.
+Read the PR before you start again.
+
 _Also asked as:_ parallelize tests within a shard, `-n auto`, use the idle cores on the runner, why is each shard single-process
 
 ### Change the `django_db_setup` fixture from package scope to session scope
@@ -217,6 +234,82 @@ That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) 
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
 _Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass
+
+## Python and pytest runtime
+
+### Tune the Python garbage collector to make the backend tests faster
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+The collector is already tuned.
+`conftest.py` freezes the heap after boot and sets the thresholds to (50000, 20, 20).
+That tuning is worth about 18% of test-phase wall time: the pre-June settings measure +21.6% against it.
+
+Nothing is left beyond it.
+Higher thresholds (200000, 50, 50) measure +0.5%. A collector disabled for the test phase measures +3.1%.
+Both are worse than the current setting.
+
+The suite does not wait on Python.
+CPU is 40% of test-phase wall time on the GitHub Actions runners and 43% on Depot CI.
+The rest waits on Postgres and ClickHouse.
+
+The PR holds the method and the full tables.
+Every variant ran back to back on one runner, and each block ran the baseline twice.
+Two identical baselines on one runner differ by up to 11.7%. Any result below that is noise.
+
+_Also asked as:_ gc.freeze, gc.set_threshold, disable GC during tests, tune Python GC, reduce GC frequency, Python GC cache contention
+
+### Set `PYTHONHASHSEED` to make pytest runtimes consistent
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`PYTHONHASHSEED=0` measures +1.1% on the GitHub Actions runners and -2.9% on Depot CI.
+It also does not reduce the spread, which is the property the proposal asks for.
+
+A constant seed does fix one real problem, and that problem is not a timing one.
+`parameterized.expand` over a set bakes the iteration order into the test ids, so the ids change per process.
+Fix that at the test with `sorted()`. A global seed hides the next one instead.
+
+_Also asked as:_ PYTHONHASHSEED, stabilize pytest runtimes, why do test times vary, make CI timings deterministic
+
+### Use jemalloc or cap `MALLOC_ARENA_MAX` for the backend tests
+
+**Verdict: rejected for speed. The memory result holds.** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+Both cut peak RSS by about 13% on both runner platforms. That part reproduces.
+Neither moves wall time outside the noise.
+
+A backend shard peaks at about 1.6 GB on a 7.6 GB runner, so 13% releases memory that nothing needs.
+Try this again only for a job that runs near its memory limit.
+
+_Also asked as:_ jemalloc, LD_PRELOAD libjemalloc, MALLOC_ARENA_MAX, glibc allocator, reduce pytest memory
+
+### Run the CI Postgres without fsync
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`fsync=off`, `synchronous_commit=off` and `full_page_writes=off` measure -0.0% and +2.4% on the two runner platforms.
+The experiment printed `show fsync` from the container, so the settings did apply.
+
+[#70891](https://github.com/PostHog/posthog/pull/70891) proposed the same settings for `docker-compose.dev.yml` in Jul 2026.
+A reviewer rejected that one for a different reason: an unclean shutdown can corrupt a developer's local database.
+
+_Also asked as:_ postgres fsync off, synchronous_commit off, full_page_writes, disable Postgres durability in CI
+
+### The Depot CI runners are more cache-contended than the GitHub Actions runners
+
+**Verdict: rejected** · Sep 2026 · [#93565](https://github.com/PostHog/posthog/pull/93565)
+
+`lscpu` inside a Depot CI sandbox reports 2 vCPU, one thread per core, an AMD EPYC 9R45, and 32 MiB of L3.
+The `depot-ubuntu-24.04` GitHub Actions runners report the same.
+Measure this before you build on it. An earlier internal note claimed two threads per core on Depot CI, and that reading is wrong.
+
+`depot ci dispatch` needs the workflow on the default branch, the same as GitHub.
+Use `depot ci run --workflow <path>` for a workflow that lives on a branch.
+Depot Cache is separate from the GitHub cache, so the schema cache and `.test_durations` both miss and the shard runs a full migrate.
+Measure the test phase, not the job wall time.
+
+_Also asked as:_ Depot CI is slower, Depot CI hyperthreading, thread to core ratio, is Depot CI a fair comparison
 
 ## Docker and image builds
 
