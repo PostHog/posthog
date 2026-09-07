@@ -30,8 +30,7 @@ interface SessionSummaryPanelProps {
  * it. Nothing here blocks the conversation underneath.
  *
  * A person asks for a summary when the session is in trouble, so the dock sits
- * outside the composer and survives the states that replace it: a disconnected
- * session, a pending permission, and the error overlay.
+ * outside the composer and survives the states that replace it.
  */
 export function SessionSummaryPanel({
   taskId,
@@ -72,8 +71,8 @@ export function SessionSummaryPanel({
   };
 
   return (
-    // The error overlay is a later, positioned sibling, so without a stacking
-    // context of its own the dock would paint underneath it.
+    // The error overlay is a later, positioned sibling, so the dock needs a
+    // stacking context of its own to stay above it.
     <div className="relative z-10 shrink-0">
       <ComposerWidth compact={compact}>
         <SessionSummaryPanelView
