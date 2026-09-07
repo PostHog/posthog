@@ -64,19 +64,17 @@ Variant and rollout changes are detected from the activity log in check 8.
 
 Checks for contradictions between an experiment's conclusion and its current flag state.
 
-**Look at**: `end_date` (non-null means concluded), `archived`, `parameters.recommended_variant`, and the linked flag's active state and variant configuration.
+**Look at**: `end_date` (non-null means concluded), `archived`, and the linked flag's active state and variant configuration.
 
 **Findings**:
-
-- **Conclusion contradicts shipped variant**: The experiment concluded with a recommended variant (in `parameters.recommended_variant`), but the flag is rolled out to a _different_ variant at 100%.
-  - Severity: WARNING · Category: Correctness
-  - Report: "The experiment concluded recommending variant 'X' but the flag is rolled out to variant 'Y'."
-  - Action: Review and align the flag's rollout with the experiment conclusion.
 
 - **Concluded but still splitting**: The experiment has an `end_date` (it's concluded) but the linked flag still has multiple variants with non-zero rollout (traffic is still being split).
   - Severity: WARNING · Category: Waste
   - Report: "This experiment has concluded but its flag is still splitting traffic between variants."
   - Action: Roll out the winning variant or disable the flag.
+
+Note: The experiment records `conclusion` as a status only (won, lost, inconclusive, stopped_early, or invalid) and never records which variant it recommends.
+There is no intended variant to compare the flag's rollout against.
 
 ---
 
