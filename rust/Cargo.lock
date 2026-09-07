@@ -4217,6 +4217,7 @@ dependencies = [
  "metrics",
  "moka",
  "rand 0.8.5",
+ "rdkafka",
  "reqwest 0.12.28",
  "serde",
  "sqlx",

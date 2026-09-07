@@ -2,14 +2,15 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use common_kafka::{
-    kafka_consumer::SingleTopicConsumer, kafka_producer::KafkaContext,
-    transaction::TransactionalProducer,
+    config::KafkaConfig, error::is_transient, kafka_consumer::SingleTopicConsumer,
+    kafka_producer::KafkaContext, transaction::TransactionalProducer,
 };
 use common_types::embedding::{ApiLimits, EmbeddingModel};
 use health::{HealthHandle, HealthRegistry};
 use leaky_bucket::RateLimiter;
 use metrics::{counter, gauge};
 use moka::sync::{Cache, CacheBuilder};
+use rdkafka::error::KafkaError;
 use reqwest::Response;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tokio::sync::{Mutex, RwLock};
@@ -56,12 +57,8 @@ impl AppContext {
             .register("transactional_kafka".to_string(), Duration::from_secs(30))
             .await;
 
-        let transactional_producer = TransactionalProducer::with_context(
-            &config.kafka,
-            &Uuid::now_v7().to_string(),
-            Duration::from_secs(10),
-            KafkaContext::from(kafka_transactional_liveness),
-        )?;
+        let transactional_producer =
+            connect_transactional_producer(&config.kafka, &kafka_transactional_liveness).await?;
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
@@ -156,6 +153,57 @@ impl AppContext {
     }
 }
 
+const KAFKA_CONNECT_ATTEMPTS: u32 = 6;
+const KAFKA_CONNECT_FIRST_BACKOFF: Duration = Duration::from_secs(1);
+const KAFKA_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn connect_transactional_producer(
+    config: &KafkaConfig,
+    liveness: &HealthHandle,
+) -> Result<TransactionalProducer<KafkaContext>, KafkaError> {
+    // One id for every attempt: a retry claims the same transactional
+    // identity, and fences the same previous owner, as the first try.
+    let transactional_id = Uuid::now_v7().to_string();
+
+    retry_kafka_connect(|| {
+        TransactionalProducer::with_context(
+            config,
+            &transactional_id,
+            KAFKA_CONNECT_TIMEOUT,
+            KafkaContext::from(liveness.clone()),
+        )
+    })
+    .await
+}
+
+/// The startup connect to Kafka fetches metadata and claims the transactional
+/// id, so a broker that restarts, or a broker name that does not resolve yet,
+/// stops the worker. Retry a bounded number of times, so a blip of a few
+/// seconds costs the worker a delay instead of a restart.
+async fn retry_kafka_connect<T>(
+    mut attempt_fn: impl FnMut() -> Result<T, KafkaError>,
+) -> Result<T, KafkaError> {
+    let mut backoff = KAFKA_CONNECT_FIRST_BACKOFF;
+    let mut attempt = 1;
+    loop {
+        let error = match attempt_fn() {
+            Ok(value) => return Ok(value),
+            Err(error) => error,
+        };
+
+        if attempt >= KAFKA_CONNECT_ATTEMPTS || !is_transient(&error) {
+            return Err(error);
+        }
+
+        warn!(
+            "Failed to connect to Kafka on attempt {attempt}: {error:?}. Next try in {backoff:?}"
+        );
+        tokio::time::sleep(backoff).await;
+        backoff *= 2;
+        attempt += 1;
+    }
+}
+
 // leaky-bucket adds `refill` tokens once per `interval`. Refilling the whole
 // per-minute budget in a single 60s lump means a drained bucket suspends the
 // next acquire() until the minute boundary - up to ~60s - which stalls the
@@ -226,6 +274,56 @@ impl Limiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn transient() -> KafkaError {
+        KafkaError::MetadataFetch(rdkafka::error::RDKafkaErrorCode::BrokerTransportFailure)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_survives_a_broker_blip() {
+        let mut calls = 0;
+        let result = retry_kafka_connect(|| {
+            calls += 1;
+            if calls < 3 {
+                return Err(transient());
+            }
+            Ok(calls)
+        })
+        .await;
+
+        assert_eq!(
+            result.expect("a transient failure must not end the retry"),
+            3
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_gives_up_after_the_attempt_bound() {
+        let mut calls = 0;
+        let result: Result<(), KafkaError> = retry_kafka_connect(|| {
+            calls += 1;
+            Err(transient())
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(calls, KAFKA_CONNECT_ATTEMPTS);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_reports_a_permanent_failure_at_once() {
+        // Bad credentials or bad configuration stay broken, so a retry only
+        // delays the report the operator needs.
+        let mut calls = 0;
+        let result: Result<(), KafkaError> = retry_kafka_connect(|| {
+            calls += 1;
+            Err(KafkaError::ClientCreation("bad configuration".to_string()))
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
 
     #[tokio::test(start_paused = true)]
     async fn drained_rate_limiter_refills_within_one_interval() {

@@ -1,4 +1,4 @@
-use rdkafka::error::RDKafkaErrorCode;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 
 /// Stable, low-cardinality snake_case tag for an RDKafkaErrorCode.
 /// Usable anywhere -- producer, sink, handler, logging.
@@ -37,6 +37,40 @@ pub fn error_code_tag(code: RDKafkaErrorCode) -> &'static str {
         RDKafkaErrorCode::SaslAuthenticationFailed => "sasl_authentication_failed",
         _ => "rdkafka_other",
     }
+}
+
+/// Can a retry of the same Kafka call clear this error on its own?
+///
+/// True for transport and coordinator errors: a broker that restarts, a broker
+/// name that does not resolve yet, or a coordinator that is still loading. A
+/// caller that retries these absorbs a blip of a few seconds instead of failing.
+///
+/// False for configuration, authorization and protocol errors. These stay
+/// broken until a person changes something, so a retry only delays the report.
+pub fn is_transient(error: &KafkaError) -> bool {
+    match error {
+        KafkaError::MetadataFetch(code) => is_transient_code(*code),
+        // librdkafka marks a transactional call retriable itself, but only for
+        // the calls that take part in a transaction. The startup calls report a
+        // bare code, so read both.
+        KafkaError::Transaction(error) => error.is_retriable() || is_transient_code(error.code()),
+        _ => false,
+    }
+}
+
+fn is_transient_code(code: RDKafkaErrorCode) -> bool {
+    matches!(
+        code,
+        RDKafkaErrorCode::BrokerTransportFailure
+            | RDKafkaErrorCode::AllBrokersDown
+            | RDKafkaErrorCode::Resolve
+            | RDKafkaErrorCode::OperationTimedOut
+            | RDKafkaErrorCode::RequestTimedOut
+            | RDKafkaErrorCode::NetworkException
+            | RDKafkaErrorCode::CoordinatorNotAvailable
+            | RDKafkaErrorCode::CoordinatorLoadInProgress
+            | RDKafkaErrorCode::WaitingForCoordinator
+    )
 }
 
 #[cfg(test)]
@@ -98,5 +132,23 @@ mod tests {
     #[case(RDKafkaErrorCode::GroupAuthorizationFailed)]
     fn error_code_tag_unlisted_codes_fall_through(#[case] code: RDKafkaErrorCode) {
         assert_eq!(error_code_tag(code), "rdkafka_other");
+    }
+
+    #[rstest::rstest]
+    #[case(RDKafkaErrorCode::BrokerTransportFailure, true)]
+    #[case(RDKafkaErrorCode::AllBrokersDown, true)]
+    #[case(RDKafkaErrorCode::Resolve, true)]
+    #[case(RDKafkaErrorCode::OperationTimedOut, true)]
+    #[case(RDKafkaErrorCode::SaslAuthenticationFailed, false)]
+    #[case(RDKafkaErrorCode::ClusterAuthorizationFailed, false)]
+    #[case(RDKafkaErrorCode::UnknownTopicOrPartition, false)]
+    fn metadata_fetch_transience(#[case] code: RDKafkaErrorCode, #[case] expected: bool) {
+        assert_eq!(is_transient(&KafkaError::MetadataFetch(code)), expected);
+    }
+
+    #[test]
+    fn client_creation_is_permanent() {
+        let error = KafkaError::ClientCreation("bad configuration".to_string());
+        assert!(!is_transient(&error));
     }
 }

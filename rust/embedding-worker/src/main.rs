@@ -151,7 +151,17 @@ async fn main() {
     .await
     .unwrap();
 
-    let context = Arc::new(AppContext::new(config.clone()).await.unwrap());
+    // A panic here reaches error tracking as an exception, and a worker that
+    // cannot reach Kafka panics on every restart, so a broker outage files one
+    // exception per restart of every pod. Report the cause and exit instead,
+    // and let the orchestrator restart the worker.
+    let context = match AppContext::new(config.clone()).await {
+        Ok(context) => Arc::new(context),
+        Err(e) => {
+            error!("Failed to start up: {e:?}");
+            std::process::exit(1);
+        }
+    };
 
     start_health_liveness_server(&config, context.clone());
 
