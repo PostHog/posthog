@@ -1440,7 +1440,7 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         label_queries = [q for q in queries.captured_queries if "llmpromptlabel" in q["sql"].lower()]
         assert len(label_queries) == 2
 
-    def test_list_with_label_returns_labeled_versions_and_omits_unlabeled_prompts(self):
+    def test_list_with_label_returns_labeled_versions_and_omits_unlabeled_prompts(self) -> None:
         self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
         self.create_prompt_version(name="prompt-a", version=2)
         self.create_prompt_version(name="prompt-b", version=1)
