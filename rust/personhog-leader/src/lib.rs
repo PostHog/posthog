@@ -10,5 +10,6 @@ pub mod person_update;
 pub mod pg;
 pub mod recovery;
 pub mod service;
+pub mod validation;
 pub mod warming;
 pub mod warnings;
