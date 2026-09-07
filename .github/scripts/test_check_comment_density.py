@@ -117,3 +117,10 @@ def test_render_body_lists_comment_heavy_files_first() -> None:
     diff = diff_for("posthog/a.py", "+# one\n+x = 1\n") + diff_for("posthog/b.py", "+# one\n+# two\n+y = 2\n")
     body = check_comment_density.render_body(check_comment_density.analyze(diff))
     assert body.index("`posthog/b.py` | 2 | 3") < body.index("`posthog/a.py` | 1 | 2")
+
+
+def test_render_body_keeps_hostile_file_paths_inert() -> None:
+    diff = diff_for("posthog/x`|@user|`y.py", "+# one\n+# two\n+z = 3\n")
+    body = check_comment_density.render_body(check_comment_density.analyze(diff))
+    assert "| `posthog/x@usery.py` | 2 | 3 |" in body
+    assert "`|" not in body

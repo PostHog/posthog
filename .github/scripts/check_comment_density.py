@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import uuid
+import unicodedata
 from dataclasses import dataclass, field
 
 # Before agent-assisted PRs were common, the median PR had about 2% comment lines.
@@ -140,6 +141,18 @@ def analyze(diff_text: str) -> Report:
     return report
 
 
+def markdown_cell(value: str) -> str:
+    """Keep a PR-controlled path inert in the shared report.
+
+    Git allows backticks, pipes, and control characters in a file name. A backtick
+    closes the code span so the rest renders as markdown, a pipe adds table cells,
+    and a newline can forge a `<!-- ci-report:section:... -->` marker. This is the
+    Python side of `markdownCell` in `frontend/bin/ci-report/format.mjs`, which the
+    report's other section writers already use.
+    """
+    return "".join(c for c in value if c not in "`|" and not unicodedata.category(c).startswith("C"))
+
+
 def render_summary(report: Report) -> str:
     return f"{round(100 * report.ratio)}% of added code lines are comments ({report.comments} of {report.added})"
 
@@ -163,7 +176,7 @@ def render_body(report: Report) -> str:
             "",
             "| File | Comment lines | Added lines |",
             "| --- | ---: | ---: |",
-            *(f"| `{s.path}` | {s.comments} | {s.added} |" for s in top),
+            *(f"| `{markdown_cell(s.path)}` | {s.comments} | {s.added} |" for s in top),
             "",
         ]
     lines.append("This check does not block merging. It updates on every push and clears when the share drops.")
