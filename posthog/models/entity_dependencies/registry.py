@@ -9,7 +9,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.entity_dependencies.sync import remove_dependencies, sync_dependencies
+from posthog.models.entity_dependencies.sync import plan_sync, remove_dependencies, sync_dependencies
 from posthog.models.entity_dependencies.types import Reference, SyncResult
 
 logger = structlog.get_logger(__name__)
@@ -44,6 +44,14 @@ class DependencySource(ABC, Generic[M]):
 
     @abstractmethod
     def extract_references(self, instance: M) -> list[Reference]: ...
+
+    def get_queryset(self) -> models.QuerySet[M]:
+        """Every instance a backfill must visit. Cross-team by design, so fail-closed managers are unscoped."""
+        manager = self.model._default_manager
+        unscoped = getattr(manager, "unscoped", None)
+        if callable(unscoped):
+            return unscoped()
+        return manager.all()
 
 
 _sources_by_type: dict[str, DependencySource[Any]] = {}
@@ -99,6 +107,17 @@ def sync_instance_dependencies(instance: models.Model) -> SyncResult:
     """
     source = _source_for_instance(instance)
     return sync_dependencies(
+        team_id=_team_id_of(instance),
+        source_type=source.entity_type,
+        source_id=str(instance.pk),
+        references=source.extract_references(instance),
+    )
+
+
+def plan_instance_dependencies(instance: models.Model) -> SyncResult:
+    """Report what `sync_instance_dependencies` would change, without writing. Used by dry runs."""
+    source = _source_for_instance(instance)
+    return plan_sync(
         team_id=_team_id_of(instance),
         source_type=source.entity_type,
         source_id=str(instance.pk),
