@@ -62,8 +62,7 @@ function Header(): JSX.Element {
             } else {
                 lemonToast.error('Could not create the collection. Please try again.')
             }
-            // This click handler is not a kea loader, so it skips the report gate initKea applies to
-            // loader failures. Reapply it here so a genuine 500 still reaches error tracking.
+            // Not a kea loader, so initKea's report gate does not run. Apply the same gate here.
             if (shouldReportApiFailure(error)) {
                 posthog.captureException(error)
             }

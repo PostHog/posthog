@@ -21,10 +21,7 @@ interface ShortcutProps extends Omit<ShortcutType, 'ref' | 'keybind' | 'interact
     interaction: 'click' | 'focus'
     /** If true, the keyboard shortcut will not be registered and tooltip keyboard shortcut will not be added to the childs tooltip */
     disabled?: boolean
-    /**
-     * Reason the child is disabled. A wrapper such as AccessControlAction injects this to guard the
-     * child; it is forwarded to the child so the guard is not silently dropped.
-     */
+    /** Reason the child is disabled, e.g. injected by AccessControlAction. Forwarded to the child. */
     disabledReason?: string | null
 }
 
@@ -34,8 +31,7 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
 ): ReactElement {
     const childProps = (isValidElement(children) ? children.props : {}) as Record<string, unknown>
 
-    // The child is disabled when this Shortcut, a wrapper's forwarded props, or the child itself
-    // say so. A disabled control must not keep a live keybind, so skip registration in that case.
+    // A disabled control must not keep a live keybind, so this also gates registration below.
     const isDisabled =
         disabled || Boolean(disabledReason) || Boolean(childProps.disabled) || Boolean(childProps.disabledReason)
 

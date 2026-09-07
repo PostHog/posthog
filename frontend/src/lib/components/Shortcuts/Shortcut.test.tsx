@@ -13,14 +13,12 @@ import { Shortcut } from './Shortcut'
 import { keyBinds } from './shortcuts'
 
 describe('Shortcut', () => {
-    // jest.setupAfterEnv does not enable RTL auto-cleanup; unmount between tests so `screen` stays isolated.
+    // RTL auto-cleanup is not enabled in this repo, so `screen` leaks between tests without this.
     afterEach(() => {
         cleanup()
     })
 
-    // A wrapper such as AccessControlAction guards the child by injecting disabledReason through Shortcut.
-    // Shortcut must forward that guard to the child, otherwise a viewer sees an enabled create button that
-    // fails with a silent 403 on click.
+    // AccessControlAction injects disabledReason through Shortcut, which must forward it to the child.
     test.each([
         [AccessControlLevel.Viewer, false],
         [AccessControlLevel.Editor, true],
@@ -46,9 +44,8 @@ describe('Shortcut', () => {
         expect(onClick).toHaveBeenCalledTimes(clickable ? 1 : 0)
     })
 
-    // The guard must also survive a wrapper between Shortcut and the button. On the saved insights
-    // scene the Shortcut child is a LemonDropdown, so the guard reaches the dropdown, not the visible
-    // trigger. Without forwarding, a viewer could still open the create menu.
+    // On the saved insights scene the child is a LemonDropdown, so the guard lands on the dropdown
+    // rather than on the visible trigger.
     test.each([
         [AccessControlLevel.Viewer, false],
         [AccessControlLevel.Editor, true],
@@ -69,7 +66,6 @@ describe('Shortcut', () => {
 
         await userEvent.click(screen.getByText('New'))
 
-        // The guarded trigger blocks its click, so the portal never mounts; an unguarded one opens it.
         const menuOpened = screen.queryByText('Create menu item') !== null
         expect(menuOpened).toBe(canOpen)
     })

@@ -19,7 +19,7 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'vis
     /** @default 'click' */
     trigger?: 'click' | 'hover'
     hoverOpenDelayMs?: number
-    /** Disabled state for the trigger, e.g. injected by an access-control guard wrapper. */
+    /** Disabled state for the trigger, e.g. injected by an access-control guard. */
     disabled?: boolean
     /** Reason shown when the trigger is disabled. */
     disabledReason?: string | null
@@ -86,9 +86,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             onVisibilityChange?.(value)
         }
 
-        // A guard wrapper (AccessControlAction via Shortcut) clones disabled/disabledReason onto this
-        // dropdown. Merge them with the trigger's own state and forward to the trigger, otherwise the
-        // visible button stays live and opens the menu even when the keybind is already suppressed.
+        // A guard clones these onto the dropdown, so merge them with whatever the trigger already has.
         const triggerDisabled = disabled || children.props.disabled
         const triggerDisabledReason = disabledReason ?? children.props.disabledReason
 
@@ -159,8 +157,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     },
                     'aria-haspopup': 'true',
                     disabled: triggerDisabled,
-                    // disabledReason is a LemonButton prop, not a DOM attribute, so only forward it when
-                    // set to avoid an "unknown prop" warning on a plain-element trigger.
+                    // `disabledReason` is a LemonButton prop, so React warns if it reaches a plain element.
                     ...(triggerDisabledReason != null ? { disabledReason: triggerDisabledReason } : {}),
                 })}
             </Popover>
