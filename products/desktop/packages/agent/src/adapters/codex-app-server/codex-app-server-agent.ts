@@ -1827,16 +1827,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         }
         // The client displays the full cause. The error data keeps only the
         // fields that can enter wider diagnostic sinks.
-        const classification = classifyAgentError(message);
-        const usage = this.usage.perTurnUsage();
+        const failure = this.classifiedTurnFailure(message);
         void this.failTurn(
-          new RequestError(-32603, describeFatalError(message), {
-            classification,
-            result: sanitizeAgentErrorCause(message, classification),
-            madeProgress: this.turnMadeProgress,
-            ...(usage ? { usage } : {}),
-          }),
-          !isRetryableUpstreamErrorClassification(classification),
+          failure.error,
+          !isRetryableUpstreamErrorClassification(failure.classification),
         );
       }
     }
@@ -2193,10 +2187,31 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         turnId !== undefined &&
         saved.turnId !== turnId;
       const savedCause = saved && !mismatched ? saved.message : "";
-      this.refuseTurnWithMessage(
-        describeFatalError(terminalCause || savedCause),
-      );
+      const cause = terminalCause || savedCause;
+      const failure = this.classifiedTurnFailure(cause);
+      if (isRetryableUpstreamErrorClassification(failure.classification)) {
+        void this.failTurn(failure.error, false);
+        return;
+      }
+      this.refuseTurnWithMessage(describeFatalError(cause));
     }, 250);
+  }
+
+  private classifiedTurnFailure(message: string): {
+    classification: ReturnType<typeof classifyAgentError>;
+    error: RequestError;
+  } {
+    const classification = classifyAgentError(message);
+    const usage = this.usage.perTurnUsage();
+    return {
+      classification,
+      error: new RequestError(-32603, describeFatalError(message), {
+        classification,
+        result: sanitizeAgentErrorCause(message, classification),
+        madeProgress: this.turnMadeProgress,
+        ...(usage ? { usage } : {}),
+      }),
+    };
   }
 
   private refuseTurnWithMessage(message: string): void {

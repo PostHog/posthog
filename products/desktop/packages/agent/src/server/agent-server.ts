@@ -497,6 +497,7 @@ export class AgentServer {
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
   private activeStartupTurnCount = 0;
+  private readonly activeStartupSessions = new WeakSet<ActiveSession>();
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
   private nonSteerDeliveryTail: Promise<void> = Promise.resolve();
@@ -1296,14 +1297,17 @@ export class AgentServer {
 
           const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
-            this.promptWithUpstreamRetry({
-              sessionId: acpSessionId,
-              prompt: [
-                hiddenTextBlock(
-                  "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
-                ),
-              ],
-            });
+            this.promptWithUpstreamRetry(
+              {
+                sessionId: acpSessionId,
+                prompt: [
+                  hiddenTextBlock(
+                    "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
+                  ),
+                ],
+              },
+              false,
+            );
 
           let result: PromptResponse;
           this.suppressAdapterTurnComplete =
@@ -1464,7 +1468,9 @@ export class AgentServer {
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
-        this.cancelledStartupSessions.add(this.session);
+        if (this.activeStartupSessions.has(this.session)) {
+          this.cancelledStartupSessions.add(this.session);
+        }
         await this.session.clientConnection.cancel({
           sessionId: this.session.acpSessionId,
         });
@@ -2234,11 +2240,19 @@ export class AgentServer {
   }
 
   private async runStartupTurn<T>(operation: () => Promise<T>): Promise<T> {
+    const startupSession = this.session;
+    if (startupSession) {
+      this.activeStartupSessions.add(startupSession);
+    }
     this.activeStartupTurnCount += 1;
     try {
       return await this.runOwnedTurn(operation);
     } finally {
       this.activeStartupTurnCount -= 1;
+      if (startupSession) {
+        this.activeStartupSessions.delete(startupSession);
+        this.cancelledStartupSessions.delete(startupSession);
+      }
     }
   }
 
@@ -2261,11 +2275,14 @@ export class AgentServer {
    * case retries with a hidden continuation; failures where the request may
    * never have been processed re-send the original prompt instead.
    */
-  private async promptWithUpstreamRetry(request: {
-    sessionId: string;
-    prompt: ContentBlock[];
-    _meta?: Record<string, unknown>;
-  }): Promise<PromptResponse> {
+  private async promptWithUpstreamRetry(
+    request: {
+      sessionId: string;
+      prompt: ContentBlock[];
+      _meta?: Record<string, unknown>;
+    },
+    recordFailedUsage = true,
+  ): Promise<PromptResponse> {
     const originatingSession = this.session;
     if (
       !originatingSession ||
@@ -2276,7 +2293,7 @@ export class AgentServer {
     let retries = 0;
     let continueInterruptedTurn = false;
     let retryUsage: NonNullable<PromptResponse["usage"]> | undefined;
-    if (this.cancelledStartupSessions.has(originatingSession)) {
+    if (this.cancelledStartupSessions.delete(originatingSession)) {
       return { stopReason: "cancelled" };
     }
     for (;;) {
@@ -2322,7 +2339,7 @@ export class AgentServer {
           !isRetryableUpstreamErrorClassification(classification) ||
           retries >= MAX_UPSTREAM_TURN_RETRIES
         ) {
-          if (this.session === originatingSession) {
+          if (recordFailedUsage && this.session === originatingSession) {
             await this.recordTurnUsage(
               accumulatedUsage,
               originatingSession.payload,
@@ -2353,7 +2370,7 @@ export class AgentServer {
             "Agent session changed before the turn could be retried",
           );
         }
-        if (this.cancelledStartupSessions.has(originatingSession)) {
+        if (this.cancelledStartupSessions.delete(originatingSession)) {
           return {
             stopReason: "cancelled",
             ...(retryUsage ? { usage: retryUsage } : {}),
@@ -2368,7 +2385,7 @@ export class AgentServer {
     phase: "initial" | "resume" | "followup",
     error: unknown,
   ): Promise<TurnFailureDisposition> {
-    const { classification, message, cause } =
+    const { classification, message, cause, usage } =
       this.extractErrorClassification(error);
     const isUpstreamFailure =
       isRetryableUpstreamErrorClassification(classification);
@@ -2406,6 +2423,7 @@ export class AgentServer {
     }
 
     if (recoverable) {
+      await this.recordTurnUsage(usage, payload);
       if (activeSessionOwnsFailure) {
         this.broadcastTurnComplete("error_recoverable");
       }

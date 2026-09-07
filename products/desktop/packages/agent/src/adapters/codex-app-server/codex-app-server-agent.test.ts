@@ -2558,6 +2558,12 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 503",
+      }),
+    });
     stub.emit("turn/started", { turn: { id: "turn_1" } });
     // A retried error carries the only text; turn/completed has none of its own.
     stub.emit("error", {
@@ -2570,17 +2576,16 @@ describe("CodexAppServerAgent", () => {
     });
 
     await vi.advanceTimersByTimeAsync(250);
-    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
-    expect(sessionUpdates).toContainEqual({
-      sessionId: "t",
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
-        },
-      },
-    });
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
     vi.useRealTimers();
   });
 
@@ -2598,6 +2603,12 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 502",
+      }),
+    });
     stub.emit("turn/started", { turn: { id: "turn_1" } });
     // codex reports the cause only on the completion — no error notification arrived.
     stub.emit("turn/completed", {
@@ -2609,17 +2620,16 @@ describe("CodexAppServerAgent", () => {
     });
 
     await vi.advanceTimersByTimeAsync(250);
-    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
-    expect(sessionUpdates).toContainEqual({
-      sessionId: "t",
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: "The agent stopped before completing this request: API Error: 502 Bad Gateway",
-        },
-      },
-    });
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
     vi.useRealTimers();
   });
 
@@ -2637,6 +2647,12 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 500",
+      }),
+    });
     stub.emit("turn/started", { turn: { id: "turn_1" } });
     // A retry reports one cause; the turn then dies for a different terminal reason.
     stub.emit("error", {
@@ -2653,17 +2669,16 @@ describe("CodexAppServerAgent", () => {
     });
 
     await vi.advanceTimersByTimeAsync(250);
-    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
-    expect(sessionUpdates).toContainEqual({
-      sessionId: "t",
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: "The agent stopped before completing this request: API Error: 500 Internal Server Error",
-        },
-      },
-    });
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
     vi.useRealTimers();
   });
 

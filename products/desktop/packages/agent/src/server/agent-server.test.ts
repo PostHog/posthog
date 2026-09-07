@@ -1542,6 +1542,48 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
+    it("records usage from a recoverable interactive follow-up", async () => {
+      const testServer = createFailureTestServer();
+      const error = new RequestError(
+        -32603,
+        "The upstream provider did not complete this request.",
+        {
+          classification: "upstream_timeout",
+          result: "API Error: The operation timed out.",
+          usage: {
+            inputTokens: 100,
+            outputTokens: 50,
+            totalTokens: 150,
+          },
+        },
+      );
+
+      const disposition = await testServer.handleTurnFailure(
+        interactivePayload,
+        "followup",
+        error,
+      );
+
+      expect(disposition).toBe("recoverable");
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        {
+          state: {
+            token_usage: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+              thought_tokens: 0,
+              total_tokens: 150,
+              turns: 1,
+            },
+          },
+        },
+      );
+    });
+
     it("reports the app-server cause, not the generic display text, on a fatal error", async () => {
       // A codex fatal error reaches the host as a RequestError whose display
       // text is generic; the real cause rides on `data.result`. The live client
@@ -1674,13 +1716,17 @@ describe("AgentServer HTTP Mode", () => {
           method: string,
           params: Record<string, unknown>,
         ): Promise<unknown>;
-        promptWithUpstreamRetry(request: {
-          sessionId: string;
-          prompt: ContentBlock[];
-        }): Promise<{
+        promptWithUpstreamRetry(
+          request: {
+            sessionId: string;
+            prompt: ContentBlock[];
+          },
+          recordFailedUsage?: boolean,
+        ): Promise<{
           stopReason: string;
           usage?: { inputTokens?: number; outputTokens?: number };
         }>;
+        runStartupTurn<T>(operation: () => Promise<T>): Promise<T>;
       };
     }
 
@@ -1693,10 +1739,12 @@ describe("AgentServer HTTP Mode", () => {
           .mockResolvedValueOnce({ stopReason: "end_turn" });
         const testServer = createRetryTestServer(prompt);
 
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
+        const resultPromise = testServer.runStartupTurn(() =>
+          testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          }),
+        );
         await vi.advanceTimersByTimeAsync(5_000);
 
         await expect(resultPromise).resolves.toEqual({
@@ -1730,10 +1778,12 @@ describe("AgentServer HTTP Mode", () => {
           .fn()
           .mockRejectedValueOnce(new Error("API Error: Connection error."));
         const testServer = createRetryTestServer(prompt);
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
+        const resultPromise = testServer.runStartupTurn(() =>
+          testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          }),
+        );
         const assertion = expect(resultPromise).rejects.toThrow(
           "Agent session changed before the turn could be retried",
         );
@@ -1791,10 +1841,12 @@ describe("AgentServer HTTP Mode", () => {
           .fn()
           .mockRejectedValueOnce(new Error("API Error: Connection error."));
         const testServer = createRetryTestServer(prompt);
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
+        const resultPromise = testServer.runStartupTurn(() =>
+          testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          }),
+        );
         await Promise.resolve();
         await testServer.executeCommand("cancel", {});
         await vi.advanceTimersByTimeAsync(5_000);
@@ -1811,6 +1863,21 @@ describe("AgentServer HTTP Mode", () => {
     it("does not dispatch a startup prompt after an earlier cancellation", async () => {
       const prompt = vi.fn();
       const testServer = createRetryTestServer(prompt);
+      await expect(
+        testServer.runStartupTurn(async () => {
+          await testServer.executeCommand("cancel", {});
+          return testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          });
+        }),
+      ).resolves.toEqual({ stopReason: "cancelled" });
+      expect(prompt).not.toHaveBeenCalled();
+    }, 20000);
+
+    it("does not carry an idle cancellation into a later retry-wrapped turn", async () => {
+      const prompt = vi.fn(async () => ({ stopReason: "end_turn" }));
+      const testServer = createRetryTestServer(prompt);
       await testServer.executeCommand("cancel", {});
 
       await expect(
@@ -1818,9 +1885,9 @@ describe("AgentServer HTTP Mode", () => {
           sessionId: "acp-1",
           prompt: [{ type: "text", text: "do the task" }],
         }),
-      ).resolves.toEqual({ stopReason: "cancelled" });
-      expect(prompt).not.toHaveBeenCalled();
-    }, 20000);
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      expect(prompt).toHaveBeenCalledOnce();
+    });
 
     it("does not return an old cancellation after session replacement", async () => {
       vi.useFakeTimers();
@@ -1829,10 +1896,12 @@ describe("AgentServer HTTP Mode", () => {
           .fn()
           .mockRejectedValueOnce(new Error("API Error: Connection error."));
         const testServer = createRetryTestServer(prompt);
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
+        const resultPromise = testServer.runStartupTurn(() =>
+          testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          }),
+        );
         const assertion = expect(resultPromise).rejects.toThrow(
           "Agent session changed before the turn could be retried",
         );
