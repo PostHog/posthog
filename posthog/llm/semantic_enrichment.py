@@ -55,6 +55,12 @@ MAX_COLUMNS_PER_TABLE = 200
 # column it never asked about would otherwise be latched as described. Four covers the widest table
 # the column cap allows; the surplus bounds a pathological name set rather than a real one.
 MAX_ENRICHMENT_BATCHES = 4
+# Wall clock after which a run stops starting further batches. The first call always runs, so batching
+# can never push a caller past a deadline a single call would have met; this only bounds the extra
+# ones. Sized well inside the enrichment activity's own timeout, which has to cover the surrounding
+# database work too, and deliberately not derived from it: the two live in different packages and a
+# silent drift would show up as a timeout rather than a shortfall.
+ENRICHMENT_BATCH_BUDGET_SECONDS = 300.0
 # The team's core memory is free-form and unbounded; a large dump alone can push the prompt past the
 # model's 200k-token context window. Cap it — a concise company summary is all the enrichment needs.
 MAX_BUSINESS_CONTEXT_CHARS = 20_000
@@ -357,9 +363,18 @@ def bound_prompt_over_columns(
                 requested=list(needing),
                 deferred=[name for name in columns_needing_description if name not in asked],
             )
-        # Drop ~10% of the tail columns and re-measure. Prune the ask list to the surviving columns too.
+        # Drop ~10% of the tail and re-measure, taking columns nobody asked about first: they cost
+        # prompt space without producing an answer, while dropping an asked column defers real work.
+        # This is also what lets a caller batch. The ask list is the only thing that changes between
+        # batches, so if the tail were dropped blind the same context would push the same names out
+        # again and the next batch would ask for nothing.
         cut = max(1, len(shown_columns) // 10)
-        shown_columns = shown_columns[:-cut]
+        asked = set(needing)
+        tail = range(len(shown_columns) - 1, -1, -1)
+        droppable = [i for i in tail if shown_columns[i]["name"] not in asked]
+        droppable += [i for i in tail if shown_columns[i]["name"] in asked]
+        dropped_indices = set(droppable[:cut])
+        shown_columns = [column for i, column in enumerate(shown_columns) if i not in dropped_indices]
         kept_names = {column["name"] for column in shown_columns}
         needing = [name for name in needing if name in kept_names]
 

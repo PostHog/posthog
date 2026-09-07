@@ -90,6 +90,32 @@ class TestEnrichViewSemanticsSync:
         sq.refresh_from_db()
         assert sq.semantic_enrichment_hash == compute_enrichment_hash(sq)
 
+    def test_an_ordinary_view_is_finished_in_one_call(self):
+        """Pins the ordinary path to a single call. Batching is for views the ceiling cannot hold; if
+        the loop's exit condition were deleted every view would spend the whole batch budget, which
+        no other test here would notice."""
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount", "status"))
+        generated = {"view_description": "v", "columns": {"amount": "a", "status": "s"}}
+
+        result, mock_llm = _run(team, sq, generated=generated)
+
+        assert mock_llm.call_count == 1
+        assert result["status"] == "done"
+
+    def test_a_reply_without_a_view_description_does_not_spend_another_batch(self):
+        """The view description is asked for once. Re-asking carries the same definition, so a reply
+        that omitted it will omit it again, and looping on that would burn the budget."""
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount"))
+        generated = {"columns": {"amount": "a"}}
+
+        result, mock_llm = _run(team, sq, generated=generated)
+
+        assert mock_llm.call_count == 1
+        assert result["status"] == "done"
+        assert "" not in _annotations(team, sq)
+
     def test_a_wide_view_is_finished_in_batches_rather_than_losing_columns(self):
         """The fix. The output ceiling cannot hold every column of a wide view in one reply, and this
         surface records enrichment per view, so a dropped column would be latched as described and
@@ -105,6 +131,25 @@ class TestEnrichViewSemanticsSync:
         assert result["status"] == "done"
         annotations = _annotations(team, sq)
         assert set(annotations) == {*names, ""}, "every column described, plus the view row"
+        sq.refresh_from_db()
+        assert sq.semantic_enrichment_hash == compute_enrichment_hash(sq)
+
+    def test_columns_past_the_cap_are_not_described_and_the_view_still_settles(self):
+        """Documents an acknowledged gap rather than asserting it is fine. Columns past the per-pass
+        cap are never asked about, and the hash IS stored for them: the cap is deterministic, so a
+        retry would repeat the same pass, and withholding would re-run forever. If that trade is ever
+        revisited, this test is what changes."""
+        team = _team()
+        names = [f"c{i:04d}" for i in range(enrich.MAX_COLUMNS_PER_TABLE + 25)]
+        sq = _saved_query(team, columns=_columns(*names))
+        generated = {"view_description": "v", "columns": {name: f"desc {name}" for name in names}}
+
+        result, _ = _run(team, sq, generated=generated)
+
+        assert result["status"] == "done"
+        described = {name for name in _annotations(team, sq) if name}
+        assert len(described) == enrich.MAX_COLUMNS_PER_TABLE
+        assert not described & set(names[enrich.MAX_COLUMNS_PER_TABLE :])
         sq.refresh_from_db()
         assert sq.semantic_enrichment_hash == compute_enrichment_hash(sq)
 

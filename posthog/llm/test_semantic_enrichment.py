@@ -8,6 +8,7 @@ from django.test import override_settings
 from posthog.llm.gateway_client import team_distinct_id, team_trace_id
 from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
+    MAX_ENRICHMENT_BATCHES,
     MAX_OUTPUT_TOKENS,
     MIN_OUTPUT_TOKENS,
     TruncatedCompletionError,
@@ -441,3 +442,74 @@ class TestDeferralContract:
 
         assert bounded.deferred
         assert len(bounded.prompt) <= 1000
+
+
+class TestBatchingConverges:
+    """Batching only helps if each pass asks for something the last one could not fit. The ask list is
+    the only input that changes between batches, so the bounding has to protect it from the drop."""
+
+    def _columns(self, count: int) -> list[dict[str, str]]:
+        return [{"name": f"col_{i:03d}"} for i in range(count)]
+
+    def test_context_columns_are_dropped_before_asked_ones(self):
+        columns = self._columns(100)
+        names = [str(column["name"]) for column in columns]
+        # Ask about the tail only, so a blind tail-drop would shed exactly the asked columns.
+        asked = names[-10:]
+
+        bounded = bound_prompt_over_columns(lambda shown, needing: "x" * (len(shown) * 3000), columns, asked)
+
+        assert bounded.requested == asked, "the ask list must survive while context remains to drop"
+        assert bounded.deferred == []
+
+    def test_a_second_batch_asks_for_what_the_first_deferred(self):
+        """The regression. Dropping the tail blind made every later batch rebuild the same prompt,
+        shed the same names, and ask for nothing, so the deferred columns were never described."""
+        columns = self._columns(200)
+        names = [str(column["name"]) for column in columns]
+
+        def builder(shown, needing):
+            return "x" * (len(shown) * 3000)
+
+        first = bound_prompt_over_columns(builder, columns, names)
+        assert first.deferred, "this fixture must defer, or it is not testing batching"
+
+        second = bound_prompt_over_columns(builder, columns, first.deferred)
+
+        assert second.requested, "a batch that asks for nothing is a wasted call"
+        assert set(second.requested) <= set(first.deferred)
+        assert len(second.deferred) < len(first.deferred), "each batch must make progress"
+
+
+class TestBatchBudgetCoversTheCaps:
+    """The relationship that actually governs correctness after the ceiling became per-table: the
+    batch budget has to finish the widest table the column cap allows at the longest name the
+    annotation key permits. Nothing else pins the three constants against each other."""
+
+    def test_the_budget_finishes_the_widest_table_the_caps_allow(self):
+        names = _wide_names(MAX_COLUMNS_PER_TABLE)
+        columns = [{"name": name} for name in names]
+
+        remaining = names
+        batches = 0
+        while remaining and batches < MAX_ENRICHMENT_BATCHES:
+            bounded = bound_prompt_over_columns(lambda shown, needing: "prompt", columns, remaining)
+            assert bounded.requested, "a batch that asks for nothing spends a call for no answer"
+            remaining = bounded.deferred
+            batches += 1
+
+        assert not remaining, (
+            f"{len(remaining)} columns left after {MAX_ENRICHMENT_BATCHES} batches. "
+            f"MAX_ENRICHMENT_BATCHES={MAX_ENRICHMENT_BATCHES} no longer covers "
+            f"MAX_COLUMNS_PER_TABLE={MAX_COLUMNS_PER_TABLE} at the 400-char annotation key limit; "
+            "raise the budget or lower the column cap."
+        )
+
+    def test_the_cap_bounds_the_ceiling_even_on_the_single_column_escape(self):
+        """The loop gives up at one column. A name whose own reply cannot fit still has to declare a
+        ceiling the provider will accept, so the cap has to survive that exit."""
+        huge = "c" * 400_000
+        bounded = bound_prompt_over_columns(lambda shown, needing: "prompt", [{"name": huge}], [huge])
+
+        assert bounded.max_output_tokens == MAX_OUTPUT_TOKENS
+        assert projected_output_tokens([huge]) > MAX_OUTPUT_TOKENS, "fixture must exceed the cap"

@@ -11,6 +11,7 @@ definition + column set is stored on the saved query so an unchanged view never 
 """
 
 import json
+import time
 import asyncio
 import hashlib
 from typing import Any
@@ -26,6 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import Product
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
+    ENRICHMENT_BATCH_BUDGET_SECONDS,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
     MAX_ENRICHMENT_BATCHES,
@@ -393,11 +395,17 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         # rebuild the same list and drop the same tail. Finishing the remainder here is what converges.
         remaining = columns_needing_description
         wants_view_description = view_needs_description
-        for _batch in range(MAX_ENRICHMENT_BATCHES):
-            # The view-level description still needs one call when every column is user-edited, so an
-            # empty ask list is not on its own a reason to skip the first batch.
-            if not remaining and not wants_view_description:
+        batch_deadline = time.monotonic() + ENRICHMENT_BATCH_BUDGET_SECONDS
+        batch_number = 0
+        # The view-level description still needs one call when every column is user-edited, so an
+        # empty ask list is not on its own a reason to skip the first batch.
+        while (remaining or wants_view_description) and batch_number < MAX_ENRICHMENT_BATCHES:
+            # The first call always runs, so batching cannot push this activity past a deadline one
+            # call would have met. Later batches yield to the clock and leave the rest for the retry.
+            if batch_number and time.monotonic() > batch_deadline:
+                log.info("view_enrichment.batch_budget_exhausted", columns_remaining=len(remaining))
                 break
+            batch_number += 1
             bounded = build_bounded_view_enrichment_prompt(
                 view_name=saved_query.name,
                 query_definition=query_str,
@@ -408,6 +416,11 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
                 columns_needing_description=remaining,
                 business_context=business_context,
             )
+            if not bounded.requested and not wants_view_description:
+                # Nothing fit even after the bounding dropped context first, so the ask list cannot
+                # shrink further and another identical call would buy nothing. Backstop only: the
+                # loop condition covers the ordinary exit.
+                break
             log.info(
                 "view_enrichment.llm_call_started",
                 columns_requested=len(bounded.requested),
@@ -438,9 +451,13 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
                         _upsert(saved_query, team_id, column_name, description.strip())
                         ai_count += 1
 
-            view_description = generated.get("view_description")
-            if wants_view_description and isinstance(view_description, str) and view_description.strip():
-                _upsert(saved_query, team_id, "", view_description.strip())
+            if wants_view_description:
+                view_description = generated.get("view_description")
+                if isinstance(view_description, str) and view_description.strip():
+                    _upsert(saved_query, team_id, "", view_description.strip())
+                # Cleared whether or not the model answered: the next batch carries the same view
+                # definition, so re-asking cannot produce a description this reply withheld, and
+                # leaving it set would spend the whole batch budget on an empty ask list.
                 wants_view_description = False
 
             remaining = bounded.deferred

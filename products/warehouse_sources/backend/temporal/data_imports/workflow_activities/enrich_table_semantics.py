@@ -249,8 +249,9 @@ def _generate_descriptions(
         # simply still unannotated and the next sync asks for it. Logged because the count is
         # otherwise invisible: the event below reports what we asked for, not what we skipped.
         logger.info(
-            "Deferred %s column(s) to a later enrichment pass to fit the request bounds",
-            len(bounded.deferred),
+            "Deferred columns to a later enrichment pass to fit the request bounds",
+            deferred_columns=len(bounded.deferred),
+            requested_columns=len(bounded.requested),
         )
     return generate_json_completion(
         product="warehouse_semantic_enrichment",
