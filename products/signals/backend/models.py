@@ -1413,7 +1413,9 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
-    """One row per (team, scout skill): schedule + emit posture for a `signals-scout-*` skill.
+    """One row per (team, scout skill): schedule + emit posture for a scout skill.
+
+    This row is what makes a skill a scout, so a scout may carry any valid skill name.
 
     Changes are activity-logged (they drive spend). Team-level participation in the
     dogfood program is gated by the `signals-scout` flag at the coordinator, not here.
@@ -1498,10 +1500,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_scout_configs",
     )
-    # The `signals-scout-*` LLMSkill this row references (controlling only its scheduling /
+    # The LLMSkill this row references (controlling only its scheduling /
     # enablement, not the skill itself). The coordinator auto-creates a
     # row when it discovers a scout skill on a participating team, so a user authoring
-    # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
+    # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
+    # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
     # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
     # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
@@ -2226,7 +2229,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         related_name="signal_scout_notes",
     )
-    # Who the note is addressed to: a scout's skill name (`signals-scout-*`), a reserved
+    # Who the note is addressed to: a configured scout's skill name, a reserved
     # pipeline audience (`pipeline:*`), or blank for the whole fleet. A blank target is seen by
     # every reader alongside its own targeted notes.
     skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")
