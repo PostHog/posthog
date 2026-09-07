@@ -47581,12 +47581,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
      * * `60` - 60
      */
     export type IntervalMinutesEnum = typeof IntervalMinutesEnum[keyof typeof IntervalMinutesEnum];
 
 
     export const IntervalMinutesEnum = {
+      Number5: 5,
+      Number15: 15,
+      Number30: 30,
       Number60: 60,
     } as const;
 
@@ -48504,6 +48510,14 @@ export namespace Schemas {
       tags?: string[];
       /** The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account. */
       author_handle?: string;
+    }
+
+    export interface LLMSkillRename {
+      /**
+         * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+         * @maxLength 64
+         */
+      new_name: string;
     }
 
     export interface LLMSkillVersionSummary {
@@ -49833,8 +49847,11 @@ export namespace Schemas {
       serviceName: string;
       /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
       dateRange?: _SeriesBandsDateRange;
-      /** Display grain in minutes for buckets and bands. Only hourly is supported today.
+      /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window.
        *
+       * * `5` - 5
+       * * `15` - 15
+       * * `30` - 30
        * * `60` - 60 */
       intervalMinutes?: IntervalMinutesEnum;
     }
