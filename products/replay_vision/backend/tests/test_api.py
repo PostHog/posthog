@@ -2505,6 +2505,16 @@ class TestBulkObserveAction(_VisionAPITestCase):
         events = [call.args[1] for call in report.call_args_list]
         self.assertEqual(events, ["replay_vision_bulk_scan_started", "replay_vision_quota_exhausted"])
         self.assertEqual(report.call_args.args[2]["trigger"], "bulk")
+        # `requested` minus `started` says two sessions produced nothing but never that quota was why.
+        bulk_properties = report.call_args_list[0].args[2]
+        self.assertEqual(bulk_properties["outcome_skipped_quota"], 1)
+        self.assertEqual(bulk_properties["outcome_started"], 1)
+        # Every outcome is reported, so an untaken path is a measured zero rather than a missing key.
+        self.assertEqual(bulk_properties["outcome_already_scanned"], 0)
+        self.assertEqual(
+            sum(value for key, value in bulk_properties.items() if key.startswith("outcome_")),
+            bulk_properties["requested"],
+        )
 
     def test_bulk_observe_reports_the_scanner_limit_as_the_skip_reason(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -3759,6 +3769,28 @@ class TestInlineScanAction(_VisionAPITestCase):
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
         )
+
+    def test_a_fully_refused_scan_still_reports_the_request(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A batch where nothing starts mints no scanner, but the request still happened. The endpoint must
+        # report it, or the refused batches drop out of the request count and bias every rate built on it.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self._scan()
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(resp.json()["scan_id"])
+        events = [call.args[1] for call in report.call_args_list]
+        self.assertIn("replay_vision_inline_scan_requested", events)
+        properties = report.call_args_list[events.index("replay_vision_inline_scan_requested")].args[2]
+        self.assertIsNone(properties["scan_id"])
+        self.assertEqual(properties["started"], 0)
+        self.assertEqual(properties["requested"], 1)
+        self.assertEqual(properties["outcome_skipped_quota"], 1)
 
     def test_same_prompt_reuses_one_scan_and_a_different_prompt_gets_its_own(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

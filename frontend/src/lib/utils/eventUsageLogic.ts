@@ -183,8 +183,29 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
      */
     retention_period: string | null
     replay_opt_in: boolean
-    /** Replay's default floor drops sessions under 5 active seconds, so it can empty a list. */
+    /**
+     * Whether any duration filter was applied. Replay applies a default floor to every list, so
+     * this is true on nearly every render and separates almost nothing. A dashboard tile reads it,
+     * so its meaning is frozen; the four properties below are what answers whether the floor is
+     * why the list came back empty.
+     */
     duration_filter_active: boolean
+    /** Which duration the floor measures: `active_seconds`, `duration`, or `inactive_seconds`. */
+    duration_filter_key: string | null
+    /** The floor's threshold in seconds. */
+    duration_filter_seconds: number | null
+    /** `gt` for a floor, `lt` for a ceiling. The viewer can flip it in the playlist filter bar. */
+    duration_filter_operator: string | null
+    /**
+     * How many duration filters were applied. The three properties above describe the first, so a
+     * count above one says they describe part of the set rather than all of it.
+     */
+    duration_filter_count: number
+    /**
+     * Whether the applied filter differs from replay's default floor, which counts removing the
+     * filter as a difference. The three properties above are null when the viewer removed it.
+     */
+    duration_filter_customized: boolean
     /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
     exposure_linkable: boolean | null
 }
