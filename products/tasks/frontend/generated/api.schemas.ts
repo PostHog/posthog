@@ -1126,15 +1126,33 @@ export interface PaginatedChannelDTOListApi {
 }
 
 /**
- * Request body for creating (resolve-or-create) or renaming a public channel.
+ * * `public` - public
+ * * `private` - private
  */
+export type TaskChannelWriteTypeEnumApi = (typeof TaskChannelWriteTypeEnumApi)[keyof typeof TaskChannelWriteTypeEnumApi]
+
+export const TaskChannelWriteTypeEnumApi = {
+    Public: 'public',
+    Private: 'private',
+} as const
+
 export interface ChannelWriteApi {
     /**
-     * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+     * Channel name, shown as #<name>. Uses lowercase letters and hyphens.
      * @maxLength 128
      */
     name: string
-    /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+    /** Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
+    /**
+     * User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.
+     * @maxItems 100
+     */
+    member_ids?: number[]
+    /** Star a new channel for the requester. This field does not change stars on an existing channel. */
     star?: boolean
 }
 
@@ -1213,6 +1231,11 @@ export interface PatchedChannelUpdateApi {
      * @nullable
      */
     auto_archive_after_days?: number | null
+    /** Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator and the requester as members. Making it public removes its member list. Personal #me spaces cannot change.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
 }
 
 export interface ChannelDeleteConflictApi {
@@ -1281,6 +1304,14 @@ export interface PaginatedChannelInstructionsDTOListApi {
     /** @nullable */
     previous?: string | null
     results: ChannelInstructionsDTOApi[]
+}
+
+export interface ChannelMembersWriteApi {
+    /**
+     * Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.
+     * @maxItems 100
+     */
+    user_ids: number[]
 }
 
 /**
@@ -1820,13 +1851,6 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
     FullAccess: 'full-access',
 } as const
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface TaskCreateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -1981,13 +2005,6 @@ export interface TaskCreateApi {
     runtime?: TaskRuntimeEnumApi
 }
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface TaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -2120,13 +2137,6 @@ export interface TaskWriteApi {
     channel?: string | null
 }
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface PatchedTaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
