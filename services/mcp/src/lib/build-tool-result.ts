@@ -86,6 +86,17 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's structuredContent field."
 
 /**
+ * Footer appended to the text channel when the same data also renders as an
+ * interactive chart for the user (see `includeUiResponseMeta` in
+ * `buildToolResultPayload`). Inline-exec UI-app hosts (PostHog Desktop, Claude
+ * Code, Cowork) mount that chart from `_meta` without the model knowing — the
+ * model only sees the formatted table — so left alone it transcribes the table
+ * back into its own reply on top of the chart the host already rendered.
+ */
+export const UI_RESOURCE_RENDERED_HINT =
+    'An interactive chart of this data is already shown to the user. Do not repeat the full results in your reply — summarize the key findings instead.'
+
+/**
  * Estimate output tokens from what the client actually receives — the serialized
  * TOON/JSON/formatted string, not the raw handler object. TOON is materially
  * smaller than JSON for tabular results, so measuring the raw object would
@@ -202,6 +213,14 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         if (discoveryHint) {
             text = `${text}\n\n${discoveryHint}`
         }
+    }
+
+    // Same gating as the discovery hint above, plus `includeUiResponseMeta`: that flag is
+    // only set by the exec wrapper's inline-exec-UI-app branch, so it's the signal that a
+    // chart will actually render from this response's `_meta.ui.resourceUri` — telling the
+    // model to stand down only makes sense when a chart is really about to appear.
+    if (includeUiResponseMeta && hasUiResource && !isStringResult && !useJson && !structuredContentOnly) {
+        text = `${text}\n\n${UI_RESOURCE_RENDERED_HINT}`
     }
 
     const payload: ToolResultPayload = {
