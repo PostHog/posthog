@@ -90,9 +90,9 @@ posthog_dev_env_config_files() {
 # other environment.
 posthog_find_venv() {
     if posthog_dev_env_is_devenv; then
-        set -- "$1/.devenv/state/venv" "$1/.flox/cache/venv" "$1/.venv" "$1/env"
+        set -- "$1/.devenv/state/venv" "$1/.flox/cache/venv" "$1/.venv" "$1/venv" "$1/env"
     else
-        set -- "$1/.flox/cache/venv" "$1/.devenv/state/venv" "$1/.venv" "$1/env"
+        set -- "$1/.flox/cache/venv" "$1/.devenv/state/venv" "$1/.venv" "$1/venv" "$1/env"
     fi
     for _ph_venv in "$@"; do
         if [ -d "$_ph_venv" ]; then

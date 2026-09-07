@@ -12,7 +12,7 @@ import os
 # them. Tools that act on a repo they did not activate themselves (worktree
 # cleanup, for one) must handle all of them, because the repo can belong to
 # another developer's setup.
-VENV_PATHS = (".devenv/state/venv", ".flox/cache/venv", ".venv", "env")
+VENV_PATHS = (".devenv/state/venv", ".flox/cache/venv", ".venv", "venv", "env")
 
 
 def is_devenv_active() -> bool:
