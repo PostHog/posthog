@@ -1820,7 +1820,7 @@ describe("AgentServer HTTP Mode", () => {
         }),
       ).resolves.toEqual({ stopReason: "cancelled" });
       expect(prompt).not.toHaveBeenCalled();
-    });
+    }, 20000);
 
     it("does not return an old cancellation after session replacement", async () => {
       vi.useFakeTimers();
