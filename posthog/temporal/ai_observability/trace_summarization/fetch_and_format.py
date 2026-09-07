@@ -280,8 +280,14 @@ def _format_generation_text_repr(generation_data: dict, max_length: int | None =
 
     header_parts.append("")
 
-    input_block = _render_generation_messages(generation_data.get("input"))
-    output_block = _render_generation_messages(generation_data.get("output"))
+    # This path builds its own text instead of going through the formatters, so it repairs
+    # surrogates itself. Repair before anything is measured: the repair can shorten a section, so
+    # measuring first would make the budget arithmetic below describe text that is never returned.
+    # Repairing first also means `_truncate_section` cannot split a pair, since a repaired
+    # character is a single code point that a slice cannot cut in half.
+    header_parts = [sanitize_surrogates(part) for part in header_parts]
+    input_block = sanitize_surrogates(_render_generation_messages(generation_data.get("input")))
+    output_block = sanitize_surrogates(_render_generation_messages(generation_data.get("output")))
 
     def assemble(in_block: str, out_block: str) -> str:
         parts = list(header_parts)
@@ -289,9 +295,7 @@ def _format_generation_text_repr(generation_data: dict, max_length: int | None =
             parts.extend(("--- Input ---", in_block, ""))
         if out_block:
             parts.extend(("--- Output ---", out_block))
-        # This path builds its own text instead of going through the formatters, so it repairs
-        # surrogates itself -- including any the section truncation below splits apart.
-        return sanitize_surrogates("\n".join(parts))
+        return "\n".join(parts)
 
     text_repr = assemble(input_block, output_block)
     if max_length is None or len(text_repr) <= max_length:
