@@ -4,8 +4,9 @@
 Measure the share of added code lines in a pull request diff that are comments.
 
 Reads a unified diff on stdin, counts the added non-blank lines in code files, and
-counts how many of those are full-line comments. Writes `warn` and a Markdown
-comment body to `$GITHUB_OUTPUT` (or to stdout when that variable is unset).
+counts how many of those are full-line comments. Writes `warn`, a one-line
+`summary`, and a Markdown `body` for the shared CI report to `$GITHUB_OUTPUT`
+(or to stdout when that variable is unset).
 
 Usage:
     gh api repos/OWNER/REPO/pulls/N -H "Accept: application/vnd.github.diff" \\
@@ -36,8 +37,6 @@ EXCLUDED_PATHS = re.compile(
     r"(^\.github/|/generated/|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)"
 )
 DIFF_SKIP_PREFIXES = ("+++", "---", "@@", "index ", "new file", "deleted file", "similarity", "rename ", "Binary")
-
-COMMENT_MARKER = "<!-- pr-comment-density -->"
 
 
 @dataclass(frozen=False)
@@ -112,16 +111,16 @@ def analyze(diff_text: str) -> Report:
     return report
 
 
-def render_comment(report: Report) -> str:
-    pct = round(100 * report.ratio)
+def render_summary(report: Report) -> str:
+    return f"{round(100 * report.ratio)}% of added code lines are comments ({report.comments} of {report.added})"
+
+
+def render_body(report: Report) -> str:
     top = sorted(report.files.values(), key=lambda s: (-s.comments, s.path))[:TOP_FILES]
     top = [s for s in top if s.comments]
     lines = [
-        COMMENT_MARKER,
-        "### Comment-heavy changes",
-        "",
-        f"About **{pct}%** of the code lines this PR adds are comments ({report.comments} of {report.added}). "
-        f"This note appears when the share is above {round(100 * WARN_RATIO)}%.",
+        f"This section appears when comments are more than {round(100 * WARN_RATIO)}% of the code lines a PR adds. "
+        "Only full-line comments count. Docstrings, generated files, snapshots, migrations, and workflow files are left out.",
         "",
         "Comments that restate the code, record how the change came about, or narrate the next line "
         "add noise for the next reader. Keep the comments that explain a reason the code cannot show, "
@@ -137,23 +136,24 @@ def render_comment(report: Report) -> str:
             *(f"| `{s.path}` | {s.comments} | {s.added} |" for s in top),
             "",
         ]
-    lines.append("This check does not block merging. It updates on every push and goes away when the share drops.")
+    lines.append("This check does not block merging. It updates on every push and clears when the share drops.")
     return "\n".join(lines)
 
 
 def write_outputs(report: Report) -> None:
-    body = render_comment(report)
+    summary = render_summary(report)
+    body = render_body(report)
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
-        print(f"added={report.added} comments={report.comments} ratio={report.ratio:.3f} warn={report.warn}")
+        print(f"warn={report.warn} {summary}")
         print(body)
         return
     delimiter = f"EOF-{uuid.uuid4()}"
     with open(output_path, "a") as fh:
         fh.write(f"warn={'true' if report.warn else 'false'}\n")
-        fh.write(f"added={report.added}\ncomments={report.comments}\n")
+        fh.write(f"summary={summary}\n")
         fh.write(f"body<<{delimiter}\n{body}\n{delimiter}\n")
-    print(f"added={report.added} comments={report.comments} ratio={report.ratio:.1%} warn={report.warn}")
+    print(f"warn={report.warn} {summary}")
 
 
 def main() -> int:

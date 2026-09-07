@@ -93,8 +93,7 @@ def test_warn_requires_min_size_and_ratio_above_threshold(
     assert report.warn is expected_warn
 
 
-def test_render_comment_lists_marker_and_comment_heavy_files_first() -> None:
+def test_render_body_lists_comment_heavy_files_first() -> None:
     diff = diff_for("posthog/a.py", "+# one\n+x = 1\n") + diff_for("posthog/b.py", "+# one\n+# two\n+y = 2\n")
-    body = check_comment_density.render_comment(check_comment_density.analyze(diff))
-    assert body.startswith(check_comment_density.COMMENT_MARKER)
+    body = check_comment_density.render_body(check_comment_density.analyze(diff))
     assert body.index("`posthog/b.py` | 2 | 3") < body.index("`posthog/a.py` | 1 | 2")
