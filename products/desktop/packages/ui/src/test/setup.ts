@@ -123,6 +123,16 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
+// jsdom does not implement the FontFaceSet API. mcp-app-theme's buildFontCss
+// calls document.fonts.check() to decide whether a custom font is available;
+// treat none as loaded so it takes the safe "no custom font" branch.
+if (typeof document.fonts === "undefined") {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { check: () => false },
+  });
+}
+
 afterEach(() => {
   cleanup();
 });
