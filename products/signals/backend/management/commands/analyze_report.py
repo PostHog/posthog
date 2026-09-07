@@ -271,7 +271,7 @@ class Command(BaseCommand):
             self.stdout.write("Verification note:")
             self.stdout.write(result.verification_note.note)
         else:
-            self.stdout.write("Verification note: N/A (not actionable)")
+            self.stdout.write("Verification note: not generated")
         self.stdout.write("")
         for finding in result.effective_findings():
             self.stdout.write(self.style.WARNING(f"--- Signal: {finding.signal_id} ---"))

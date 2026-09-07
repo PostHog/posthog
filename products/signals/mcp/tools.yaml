@@ -77,13 +77,16 @@ tools:
             `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability /
             priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status),
             and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
-            adding to the log. Research-created verification notes start with `## Steps to verify fix`. Before you
-            change code, find the newest such note and run its checks against current data. The note is a plan, not
-            evidence that the issue still occurs.
+            adding to the log.
         agent_note: >
-            Before you change code for this report, find the newest note that starts with `## Steps to verify fix`. Run
-            those checks against current data. If the issue no longer occurs, do not implement the old fix. Record the
-            result in the report log, and reassess the report.
+            Before changing code for this report, find the newest applicable note that starts with `## Steps to verify fix`.
+            Check that it matches the report's current findings. Treat the note as a plan, not evidence of the issue's
+            current state. Run its `Before changing code` check against current data now. Reserve `After deployment`
+            checks for after rollout.
+
+            Missing, failed, or inconclusive checks are not proof of resolution. If current evidence shows the issue is
+            gone, do not implement the stale fix. Record the result in the report log and reassess the report. If no
+            verification note exists or applies, verify whether the issue still occurs using the report's evidence.
     inbox-report-artefacts-retrieve:
         operation: signals_report_artefacts_retrieve
         enabled: true
@@ -192,10 +195,6 @@ tools:
             identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can
             replace the current owner.
 
-            Read the report's work log via inbox-report-artefacts-list before acting. Before you change code, run the
-            newest `Steps to verify fix` note against current data. If the issue no longer occurs, do not implement the
-            old fix.
-
             If you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to
             attach it. Release the claim if you stop work without completing the report. If the report should be
             considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it
@@ -245,9 +244,9 @@ tools:
             identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can
             replace the current owner.
 
-            Read the report's work log via inbox-report-artefacts-list before acting. Before you change code, run the
-            newest `Steps to verify fix` note against current data. If the issue no longer occurs, do not implement the
-            old fix.
+            Before changing code, fetch the work log with inbox-report-artefacts-list. Find the newest applicable
+            `Steps to verify fix` note. Run its `Before changing code` check now, not its `After deployment` check.
+            Use the verification guidance returned with the work log.
 
             If you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to
             attach it. Release the claim if you stop work without completing the report. If the report should be

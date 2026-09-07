@@ -61,6 +61,11 @@ In production, the `update` path is triggered automatically when a `ready` repor
 
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes. The final verification turn runs only after the actionability, priority, and presentation turns, and only when actionability is not `not_actionable`. The caller appends its `Steps to verify fix` output as a task-attributed `note` artefact.
+The note starts with a `Before changing code` check and then gives `After deployment` checks.
+Each check carries the commands or queries, inputs, measurement windows, and expected results needed to repeat it without the research conversation.
+The prompt reuses successful research checks, forbids invented inputs or thresholds, and treats missing data or failed queries as inconclusive.
+Report retrieval and work-log MCP responses guide consumers; the autostart prompt does not duplicate that guidance.
+
 Only the final verification request and note conversion are best-effort.
 On `Exception`, log the failure with research task, team, and report identifiers.
 Do not add note or model content to the log fields.

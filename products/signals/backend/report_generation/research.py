@@ -119,8 +119,9 @@ class FixVerificationOutput(BaseModel):
         min_length=2,
         max_length=3,
         description=(
-            "Two or three concise steps for verifying a hypothetical fix. Each step names the outcome metric "
-            "and the exact PostHog MCP command or query to use when one applies."
+            "Two or three repeatable checks grounded in the completed research. Start with a 'Before changing code' "
+            "check for whether the issue still occurs, followed by 'After deployment' checks for the hypothetical fix. "
+            "Include runnable commands or queries, their inputs, measurement windows, and expected results."
         ),
     )
 
@@ -157,7 +158,8 @@ class ReportResearchOutput(BaseModel):
     verification_note: NoteArtefact | None = Field(
         default=None,
         description=(
-            "A final note with steps to verify a hypothetical fix. Present only when the report is actionable."
+            "An optional final note with checks to reproduce the issue and verify a hypothetical fix after deployment. "
+            "Present only when the report is actionable."
         ),
     )
     # The run's findings and assessments split by whether they changed: `old_artefacts` were
@@ -726,16 +728,22 @@ def build_fix_verification_prompt() -> str:
     schema = json.dumps(FixVerificationOutput.model_json_schema(), indent=2)
     return f"""As the final step, write the **steps to verify fix** note for this actionable report.
 
-Base the steps only on the research, metrics, and tools you already used in this session. Do not do more research in this turn. Describe how an implementation agent should verify a hypothetical solution after it ships. Do not claim that a fix exists or has shipped.
+Base the steps only on the evidence and successful checks from this research session. Do not do more research in this turn. Do not claim that a fix exists or has shipped.
 
-Return two or three short steps. Do not add a heading or numbers because the pipeline adds them. Each step must:
+Return two or three self-contained steps. Do not add a heading or numbers because the pipeline adds them:
 
-- Name the user or system outcome that should improve.
-- Name the exact metric, event, filter, breakdown, or time window to inspect.
-- Name the exact PostHog MCP command or saved insight to use when one applies, especially a command you used during research.
-- State what result would show that the fix worked.
+- Label the first step `Before changing code`. Explain how to rerun the observed failure check against current data and what result confirms the issue still occurs.
+- Label the remaining steps `After deployment`. Explain how to repeat the measurement after rollout and what result would show that the fix worked.
 
-Use a code or test check only when this report has no meaningful product metric. Do not include implementation instructions.
+Make the note specific enough to execute without reconstructing this conversation:
+
+- Include the exact PostHog MCP command and full arguments, or the complete query, reused from a successful research check. A tool name alone is not enough. For a saved insight, include its actual ID and required date overrides.
+- Preserve the relevant entity IDs, event names, filters, aggregation, breakdowns, and numerator/denominator for rates. Name the user or system outcome being measured.
+- Specify bounded measurement windows. Separate the recorded research baseline from the fresh pre-change observation. For post-deployment checks, state how to set the time bounds from the actual rollout time so pre-fix data is excluded.
+- State the observed baseline and comparison criterion where the research established them. Explain what indicates failure, improvement, or an inconclusive result. Missing data, insufficient traffic, or a failed query does not prove the issue is fixed.
+- Do not invent tool arguments, IDs, events, baselines, or numerical thresholds. If a required input or success criterion is unknown, name it and say what must be established before drawing a conclusion.
+
+If the research established a code or test reproduction rather than a runnable metric check, give the exact command, inputs, and expected failing/passing behavior. Do not force an unrelated product metric. Do not include implementation instructions.
 
 Respond with a JSON object matching this schema. The pipeline will format it as a note with the heading `Steps to verify fix`:
 

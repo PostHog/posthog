@@ -35,5 +35,8 @@ This final request is optional: if generation or note conversion fails, research
 The findings, actionability, priority, title, and summary remain available.
 Core research failures and cancellation still fail the run and trigger session cleanup.
 
-Autostart tasks instruct implementation agents to load the report's work log and run the newest verification note against current data before changing code.
-If the issue no longer occurs, the agent records that result and stops; if no note exists, it verifies the issue from the report's evidence.
+Notes separate a `Before changing code` check from `After deployment` checks, with runnable commands or queries, concrete inputs, bounded windows, and expected results grounded in the research.
+Report retrieval directs any agent to the work log, where verification guidance applies regardless of how the agent started.
+The agent checks that the note matches the current findings and runs only the pre-change check before editing code.
+If current evidence shows the issue is gone, it records that result and stops; if no note applies, it verifies the issue from the report's evidence.
+Missing data, failed checks, and inconclusive results do not establish that the issue is fixed.

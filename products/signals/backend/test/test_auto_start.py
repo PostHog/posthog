@@ -716,13 +716,6 @@ def test_autostart_description_appends_fix_loop_instructions_only_for_metric_rep
     )
 
     assert summary in description
-    assert "`inbox-report-artefacts-list` with report_id `0198c0de-0000-7000-8000-000000000001`" in description
-    assert "newest note starting with `## Steps to verify fix` and run its checks against current data" in description
-    assert "record the result in the report log and stop instead of implementing the old fix" in description
-    assert (
-        "If no verification note exists, verify the issue from the report's evidence before changing code"
-        in description
-    )
     # Every autonomous PR gets the description form rules, not just fix-loop reports: nesting them
     # inside the conditional block below would silently drop them for ordinary one-shot fixes.
     assert "scanning it for about thirty seconds" in description
