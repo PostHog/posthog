@@ -128,8 +128,10 @@ class TestUrlValidation:
     @pytest.mark.parametrize(
         "resolved_ips, expected_error",
         [
-            ({ipaddress.ip_address("10.0.0.1")}, "internal IP"),
-            (set(), "Could not resolve"),
+            # An internal IP and a host that does not resolve report the same thing on purpose,
+            # so the error cannot be used to find which addresses exist inside our network.
+            ({ipaddress.ip_address("10.0.0.1")}, "does not resolve to a valid IP address"),
+            (set(), "does not resolve to a valid IP address"),
             ({ipaddress.ip_address("93.184.216.34")}, None),
         ],
     )
@@ -199,6 +201,9 @@ class TestUrlValidation:
             ("DB.CORP", "Internal domain pattern blocked"),  # matching is case sensitive
             ("db.corp.", "Internal domain pattern blocked"),  # a root dot must not hide a suffix
             ("localhost.", "Local/Loopback host not allowed"),  # nor an exact match
+            # The whole of 127.0.0.0/8 is loopback, not just 127.0.0.1. Caught by parsing the
+            # address, so no DNS lookup happens and every long form is caught the same way.
+            ("127.0.0.2", "Private IP address not allowed"),
         ],
     )
     def test_host_and_url_paths_agree_on_internal_names(self, enforce_destination_validation, host, expected_reason):
@@ -230,7 +235,10 @@ class TestUrlValidation:
         [
             ("db.example.com", True),
             ("8.8.8.8", True),
-            ("2001:db8::1", True),  # a bare IPv6 literal is a host, and its colons are not a path
+            # A bare IPv6 literal is a host, and its colons are not a path. It has to be a
+            # globally routable one, because the name check rejects every internal address.
+            ("2606:4700:4700::1111", True),
+            ("10.example.com", True),  # a name that starts like a private range is still a name
             ("db.example.com.", True),  # the root dot of an absolute FQDN
             ("db.acme.com:5432", False),
             ("user@db.acme.com", False),

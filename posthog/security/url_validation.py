@@ -63,17 +63,16 @@ INTERNAL_DOMAIN_PATTERNS = (
 
 
 def resolve_host_ips(host: str) -> ResolvedIPs:
-    """Resolve a hostname to its IP addresses."""
+    """Resolve a canonical hostname to its IP addresses."""
+    ip = _parse_ip_literal(host)
+    if ip is not None:
+        return {ip}
+
     # Resolving a value that is not a host would put it in the warning below, and dnspython
     # repeats the queried name in its error text, so both fields would carry whatever the
     # caller passed. Callers reject this shape first; this keeps a new one from leaking.
     if _host_shape_error(host) is not None:
         return set()
-
-    try:
-        return {ipaddress.ip_address(host)}
-    except ValueError:
-        pass
 
     try:
         answers = dns.resolver.Resolver().resolve_name(host, lifetime=DNS_RESOLUTION_LIFETIME_SECONDS)
@@ -136,6 +135,19 @@ def resolve_hosts_ips(hosts: Iterable[str]) -> dict[str, ResolvedIPs]:
 _CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 
+def _parse_ip_literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse a host written as an IP address, or None when it is a name."""
+
+    # ``ipaddress.ip_address`` also takes an integer, where 123 becomes 0.0.0.123, so reject
+    # non-string values first
+    if not isinstance(host, str):
+        raise TypeError("host must be a string")
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
 def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Check if an IP address is internal/private and should be blocked."""
     # An IPv4-mapped IPv6 address (::ffff:a.b.c.d) reaches the IPv4 host it embeds, and
@@ -155,29 +167,15 @@ def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
-def _is_private_ip_literal(host: str) -> bool:
-    """Quick check for RFC1918 and link-local IP literals (avoids DNS lookup)."""
-    return (
-        host.startswith("10.")
-        or host.startswith("192.168.")
-        or host.startswith("169.254.")
-        or host.startswith("172.16.")
-        or host.startswith("172.17.")
-        or host.startswith("172.18.")
-        or host.startswith("172.19.")
-        or host.startswith("172.20.")
-        or host.startswith("172.21.")
-        or host.startswith("172.22.")
-        or host.startswith("172.23.")
-        or host.startswith("172.24.")
-        or host.startswith("172.25.")
-        or host.startswith("172.26.")
-        or host.startswith("172.27.")
-        or host.startswith("172.28.")
-        or host.startswith("172.29.")
-        or host.startswith("172.30.")
-        or host.startswith("172.31.")
-    )
+def _is_internal_ip_literal(host: str) -> bool:
+    """True when the host is written as an IP address we must not reach, so DNS is not needed.
+
+    Parses the address rather than matching text prefixes. A prefix match misses the whole of
+    127.0.0.0/8 except 127.0.0.1, and every long form of an IPv6 address, and it blocks an
+    ordinary name such as 10.example.com because the text happens to start with "10.".
+    """
+    ip = _parse_ip_literal(host)
+    return ip is not None and _is_internal_ip(ip)
 
 
 # Labels joined by dots, with an optional root dot. Underscores are not valid in a hostname
@@ -188,23 +186,34 @@ _BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?", re
 _MAX_HOSTNAME_LENGTH = 253
 
 
-def _host_shape_error(host: object) -> str | None:
+def _canonicalize_host(host: str) -> str:
+    """The one form every host check runs on.
+
+    Case and the DNS root dot do not change which server a client reaches, so they are
+    normalized once and each check below sees a single form. The root dot has to go, because
+    an absolute FQDN carries it ("db.corp.") and the block list matches exactly or by suffix,
+    so both would otherwise miss it.
+
+    Nothing else is repaired: a host is validated and then stored and connected to by the
+    caller, so whitespace or the parts of a URL have to be rejected rather than cleaned up.
+    """
+    return host.lower().rstrip(".")
+
+
+def _host_shape_error(host: str) -> str | None:
     """Reason to reject a host on its form alone, or None when the form is usable.
 
-    A host field takes a hostname or an IP address. Customers paste whole connection strings
-    into it, so anything carrying credentials, a scheme, a port or a path is rejected before
-    it reaches DNS or a log line. Takes ``object`` because callers read the value out of
-    untyped config.
+    A host field takes a hostname or an IP address. Customers could, in theory, paste whole
+    connection strings into it, so anything carrying credentials, a scheme, a port or a path is
+    rejected before it reaches DNS or a log line.
+
+    An IP address is accepted first because an IPv6 literal carries colons and so can never
+    match the hostname pattern. An IPv4 literal matches it either way.
     """
-    if not isinstance(host, str):
-        return "Host must be a string"
     if not host.strip():
         return "Host is empty"
-    try:
-        ipaddress.ip_address(host)
+    if _parse_ip_literal(host) is not None:
         return None
-    except ValueError:
-        pass
     if len(host) > _MAX_HOSTNAME_LENGTH or not _BARE_HOSTNAME.fullmatch(host):
         return "Host must be a hostname or IP address"
     return None
@@ -231,12 +240,11 @@ def _blocked_host_reason(host: str) -> str | None:
     These checks run before resolution, so they also catch a name that resolves to a public
     IP: split-horizon DNS, and a registered domain shaped like an internal one.
 
-    Normalizes the host itself rather than trusting the caller to. Matching below is exact
-    or by suffix, so an un-normalized host fails these checks open.
+    Takes a canonical host. Every caller passes one, and it canonicalizes again anyway,
+    because matching below is exact or by suffix: an un-normalized host would fail these
+    checks open, which is the one failure mode worth paying a duplicate call to avoid.
     """
-    # An absolute FQDN carries the DNS root dot ("db.corp."), which every client accepts and
-    # resolves to the same target. Without this, suffix and exact matching both miss it.
-    host = host.lower().rstrip(".")
+    host = _canonicalize_host(host)
     if host in METADATA_HOSTS:
         return "Local/metadata host"
     if host in {"localhost", "127.0.0.1", "::1"}:
@@ -244,7 +252,7 @@ def _blocked_host_reason(host: str) -> str | None:
     for pattern in INTERNAL_DOMAIN_PATTERNS:
         if host.endswith(pattern):
             return f"Internal domain pattern blocked: {pattern}"
-    if _is_private_ip_literal(host):
+    if _is_internal_ip_literal(host):
         return "Private IP address not allowed"
     return None
 
@@ -382,7 +390,7 @@ def resolve_url_hosts_ips(raw_urls: Iterable[str]) -> dict[str, ResolvedIPs]:
             continue
         try:
             parsed_url = urlparse.urlparse(raw_url)
-            host = (parsed_url.hostname or "").lower()
+            host = _canonicalize_host(parsed_url.hostname or "")
         except Exception:
             continue
         # Skip what the validator will reject anyway. This shares the rule rather than restating it.
@@ -442,7 +450,7 @@ def _validate_url_with_ips(
     if shape_reason is not None:
         return _blocked(shape_reason)
     u = urlparse.urlparse(raw_url)
-    host = (u.hostname or "").lower()
+    host = _canonicalize_host(u.hostname or "")
     name_reason = _blocked_host_reason(host)
     if name_reason is not None:
         return _blocked(name_reason, host=host)
@@ -478,6 +486,7 @@ def validate_external_url(url: str) -> None:
     ``FORCE_URL_VALIDATION`` setting is true.
     """
 
+    # The URL could come from untyped config, so check its type first
     if not isinstance(url, str):
         raise ValueError("URL must be a string")
     shape_reason = _url_shape_error(url)
@@ -500,9 +509,14 @@ def validate_external_host(host: str) -> None:
     cannot drift apart. Bypassed in local dev and in tests, unless the
     ``FORCE_URL_VALIDATION`` setting is true.
     """
+
+    # The host could come from untyped config, so check its type first
+    if not isinstance(host, str):
+        raise ValueError("Host must be a string")
     shape_reason = _host_shape_error(host)
     if shape_reason is not None:
         raise ValueError(shape_reason)
+    host = _canonicalize_host(host)
 
     if _dev_bypass_enabled() or _test_bypass_enabled():
         return
@@ -511,8 +525,8 @@ def validate_external_host(host: str) -> None:
     if name_reason is not None:
         raise ValueError(name_reason)
 
+    # Return the same error message in both cases, to avoid exposing details of our internal
+    # network.
     ips = resolve_host_ips(host)
-    if not ips:
-        raise ValueError("Could not resolve host")
-    if any(_is_internal_ip(ip) for ip in ips):
-        raise ValueError("Host resolves to an internal IP")
+    if not ips or any(_is_internal_ip(ip) for ip in ips):
+        raise ValueError("Host does not resolve to a valid IP address")
