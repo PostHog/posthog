@@ -153,6 +153,38 @@ class TestEnrichViewSemanticsSync:
         sq.refresh_from_db()
         assert sq.semantic_enrichment_hash == compute_enrichment_hash(sq)
 
+    def test_the_wall_clock_budget_stops_after_the_first_batch(self):
+        """Pins the deadline. With no budget left, the first call still runs, because batching must
+        never make a caller worse off than the single call it replaced; the rest yield to the clock
+        and the hash stays unstored. Deleting the guard, its first-call exemption, or its log left
+        every other test green."""
+        team = _team()
+        names = [f"c{i:04d}" for i in range(enrich.MAX_COLUMNS_PER_TABLE)]
+        sq = _saved_query(team, columns=_columns(*names))
+        generated = {"view_description": "v", "columns": {name: f"desc {name}" for name in names}}
+
+        with patch.object(enrich, "ENRICHMENT_BATCH_BUDGET_SECONDS", 0.0):
+            result, mock_llm = _run(team, sq, generated=generated)
+
+        assert mock_llm.call_count == 1, "the first batch is exempt; a spent budget must not skip it"
+        assert result["status"] == "partial"
+        assert result["unfinished_columns"] > 0
+        sq.refresh_from_db()
+        assert not sq.semantic_enrichment_hash
+
+    def test_a_generous_budget_does_not_stop_a_converging_run(self):
+        """The other side of the same guard: a run that fits inside the budget is not cut short."""
+        team = _team()
+        names = [f"c{i:04d}" for i in range(enrich.MAX_COLUMNS_PER_TABLE)]
+        sq = _saved_query(team, columns=_columns(*names))
+        generated = {"view_description": "v", "columns": {name: f"desc {name}" for name in names}}
+
+        with patch.object(enrich, "ENRICHMENT_BATCH_BUDGET_SECONDS", 3600.0):
+            result, mock_llm = _run(team, sq, generated=generated)
+
+        assert mock_llm.call_count > 1
+        assert result["status"] == "done"
+
     def test_the_hash_is_withheld_when_the_batch_budget_runs_out(self):
         """Pins the withhold itself. Batching normally finishes the job, so unless the budget is
         forced to run out this guard never decides anything and could be deleted unnoticed while
