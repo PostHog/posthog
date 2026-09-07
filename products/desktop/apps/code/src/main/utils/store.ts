@@ -52,6 +52,11 @@ export interface WindowStateSchema {
   restoreFullScreenOnNextLaunch: boolean;
 }
 
+/** Window state, plus the one-shot flags the next window load reads. */
+interface MainWindowStoreSchema extends WindowStateSchema {
+  quarantinedRoute: string | undefined;
+}
+
 const userDataDir = getUserDataDir();
 
 export const rendererStore = new Store<RendererStoreSchema>({
@@ -80,7 +85,7 @@ export const quickAskStore = new Store<QuickAskStoreSchema>({
   },
 });
 
-export const windowStateStore = new Store<WindowStateSchema>({
+export const windowStateStore = new Store<MainWindowStoreSchema>({
   name: "window-state",
   cwd: userDataDir,
   defaults: {
@@ -93,6 +98,7 @@ export const windowStateStore = new Store<WindowStateSchema>({
     isFullScreen: false,
     fullScreenDisplayBounds: undefined,
     restoreFullScreenOnNextLaunch: false,
+    quarantinedRoute: undefined,
   },
 });
 
@@ -102,9 +108,9 @@ export const windowStateStore = new Store<WindowStateSchema>({
  * non-critical, so swallow and log the error instead of letting it propagate
  * into an event/timer callback and crash the main process.
  */
-function setWindowState<K extends keyof WindowStateSchema>(
+function setWindowState<K extends keyof MainWindowStoreSchema>(
   key: K,
-  value: WindowStateSchema[K],
+  value: MainWindowStoreSchema[K],
 ): void {
   try {
     windowStateStore.set(key, value);
@@ -144,4 +150,20 @@ export function getFullScreenDisplayBounds(): DisplayBounds | undefined {
  */
 export function setRestoreFullScreenOnNextLaunch(restore: boolean): void {
   setWindowState("restoreFullScreenOnNextLaunch", restore);
+}
+
+/**
+ * The in-app route the renderer crashed on repeatedly. It survives a restart
+ * because the app restores the last route it was on, so an unpersisted marker
+ * would send the next launch straight back into the crash.
+ */
+export function setQuarantinedRoute(route: string): void {
+  setWindowState("quarantinedRoute", route);
+}
+
+/** Reads the quarantined route and clears it, so it applies to one load only. */
+export function takeQuarantinedRoute(): string | undefined {
+  const route = windowStateStore.get("quarantinedRoute", undefined);
+  if (route) setWindowState("quarantinedRoute", undefined);
+  return route;
 }
