@@ -1,10 +1,4 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { OnboardingLanding } from "./OnboardingLanding";
@@ -221,7 +215,7 @@ describe("OnboardingLanding", () => {
     expect(onOpenDestination).toHaveBeenCalledWith("self-driving", "/inbox");
   });
 
-  it("shows one cycling path and lets the user choose another path", async () => {
+  it("shows a cycling input with static results and no slider controls", async () => {
     const onOpenDestination = vi.fn();
     render(
       <OnboardingLanding
@@ -237,36 +231,21 @@ describe("OnboardingLanding", () => {
       screen.getByRole("heading", { name: "Build the task" }),
     ).toBeVisible();
     expect(screen.getByRole("heading", { name: "Code change" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Report" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Canvas" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Loops" })).toBeNull();
-
-    await userEvent.click(screen.getByRole("button", { name: "Show input 3" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Loops" })).toBeVisible();
-    });
-    expect(screen.getByText("Coming soon")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Show input/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show result/ })).toBeNull();
     expect(
-      screen.getByRole("heading", { name: "Run the saved task" }),
-    ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Code change" })).toBeVisible();
+      document.querySelector(".onboarding-cycle-flow__traveler"),
+    ).toBeInTheDocument();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Show result 2" }),
-    );
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Report" })).toBeVisible();
-    });
-
-    await userEvent.click(screen.getByRole("button", { name: "Show input 1" }));
-    await waitFor(() => {
-      expect(screen.getByText("Create a task")).toBeVisible();
-    });
     await userEvent.click(screen.getByText("Create a task"));
 
     expect(onOpenDestination).toHaveBeenCalledWith("tasks", "/new");
   });
 
-  it("cycles inputs and results independently and pauses the hovered item", () => {
+  it("cycles inputs and pauses while the input is hovered", () => {
     vi.useFakeTimers();
 
     try {
@@ -276,41 +255,69 @@ describe("OnboardingLanding", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Cycle" }));
 
-      const firstInput = screen.getByRole("button", { name: "Show input 1" });
-      const secondInput = screen.getByRole("button", { name: "Show input 2" });
-      const firstResult = screen.getByRole("button", {
-        name: "Show result 1",
-      });
-      const secondResult = screen.getByRole("button", {
-        name: "Show result 2",
-      });
-      const thirdResult = screen.getByRole("button", {
-        name: "Show result 3",
-      });
       const inputStage = document.querySelector(
         '[data-attr="onboarding-cycle-input-stage"]',
       );
+      const agentStage = document.querySelector(
+        '[data-attr="onboarding-cycle-agent-stage"]',
+      );
       expect(inputStage).toBeInTheDocument();
+      expect(agentStage).toBeInTheDocument();
       if (!inputStage) throw new Error("Expected the cycling input stage");
+      if (!agentStage) throw new Error("Expected the cycling agent stage");
 
-      expect(firstInput).toHaveAttribute("aria-pressed", "true");
-      expect(firstResult).toHaveAttribute("aria-pressed", "true");
-
-      act(() => vi.advanceTimersByTime(2_500));
-
-      expect(firstInput).toHaveAttribute("aria-pressed", "true");
-      expect(secondResult).toHaveAttribute("aria-pressed", "true");
+      expect(inputStage).toHaveAttribute(
+        "data-active-path",
+        "Task to code change",
+      );
+      expect(agentStage).toHaveAttribute(
+        "data-active-path",
+        "Task to code change",
+      );
+      expect(screen.queryByRole("button", { name: /Show input/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Show result/ })).toBeNull();
 
       fireEvent.pointerEnter(inputStage);
-      act(() => vi.advanceTimersByTime(5_000));
+      act(() => vi.advanceTimersByTime(5_100));
 
-      expect(firstInput).toHaveAttribute("aria-pressed", "true");
-      expect(thirdResult).toHaveAttribute("aria-pressed", "true");
+      expect(inputStage).toHaveAttribute(
+        "data-active-path",
+        "Task to code change",
+      );
 
       fireEvent.pointerLeave(inputStage);
       act(() => vi.advanceTimersByTime(5_000));
 
-      expect(secondInput).toHaveAttribute("aria-pressed", "true");
+      expect(inputStage).toHaveAttribute(
+        "data-active-path",
+        "Signal to report",
+      );
+      expect(agentStage).toHaveAttribute(
+        "data-active-path",
+        "Task to code change",
+      );
+
+      act(() => vi.advanceTimersByTime(499));
+      expect(agentStage).toHaveAttribute(
+        "data-active-path",
+        "Task to code change",
+      );
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(agentStage).toHaveAttribute(
+        "data-active-path",
+        "Signal to report",
+      );
+
+      act(() => vi.advanceTimersByTime(5_100));
+      expect(inputStage).toHaveAttribute("data-active-path", "Loop to report");
+      expect(agentStage).toHaveAttribute(
+        "data-active-path",
+        "Signal to report",
+      );
+
+      act(() => vi.advanceTimersByTime(700));
+      expect(agentStage).toHaveAttribute("data-active-path", "Loop to report");
     } finally {
       vi.useRealTimers();
     }

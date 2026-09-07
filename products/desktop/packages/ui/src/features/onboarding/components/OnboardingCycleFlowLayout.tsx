@@ -1,6 +1,5 @@
 import "./OnboardingCycleFlowLayout.css";
 import {
-  ArrowRightIcon,
   ArrowsClockwiseIcon,
   ChartLineUpIcon,
   CheckCircleIcon,
@@ -8,8 +7,6 @@ import {
   FileCodeIcon,
   FileTextIcon,
   PaperPlaneRightIcon,
-  PauseIcon,
-  PlayIcon,
   SquaresFourIcon,
   TrayIcon,
 } from "@phosphor-icons/react";
@@ -19,6 +16,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 const CYCLE_DURATION_MS = 5_000;
+const AGENT_TRANSITION_DELAY_MS = 500;
 
 type CyclePreviewKind =
   | "user-input"
@@ -483,14 +481,9 @@ function renderPreview(kind: CyclePreviewKind): ReactNode {
 interface CycleStageViewProps {
   stage: CycleStage;
   onOpenDestination: OnboardingCycleFlowLayoutProps["onOpenDestination"];
-  controls?: ReactNode;
 }
 
-function CycleStageView({
-  stage,
-  onOpenDestination,
-  controls,
-}: CycleStageViewProps) {
+function CycleStageView({ stage, onOpenDestination }: CycleStageViewProps) {
   const action = stage.action;
 
   return (
@@ -502,15 +495,238 @@ function CycleStageView({
         {renderPreview(stage.preview)}
       </div>
       <div className="mt-4 min-h-40">
-        <div className="flex min-h-6 items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-gray-9 text-xs">
-            <span>{stage.label}</span>
-            {stage.badge && <Badge variant="default">{stage.badge}</Badge>}
-          </div>
-          {controls}
+        <div className="flex min-h-6 items-center gap-2 text-gray-9 text-xs">
+          <span>{stage.label}</span>
         </div>
         <h2 className="mt-1 font-semibold text-lg">{stage.title}</h2>
-        <p className="mt-2 text-gray-11 text-sm leading-6">
+        <p className="mt-2 text-gray-11 text-sm leading-5">
+          {stage.description}
+        </p>
+        {action && (
+          <Button
+            nativeButton={false}
+            variant="outline"
+            size="sm"
+            className="mt-4 active:scale-[0.98] motion-reduce:transform-none"
+            data-attr={`onboarding-cycle-open-${action.destination}`}
+            render={
+              // biome-ignore lint/a11y/useAnchorContent: Base UI adds the button text to this anchor.
+              <a
+                href={action.href}
+                aria-label={`${action.label} in a new tab`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onOpenDestination(action.destination, action.href);
+                }}
+              />
+            }
+          >
+            {action.label}
+          </Button>
+        )}
+        {!action && stage.badge && (
+          <div className="mt-4 flex items-center gap-2">
+            <Button variant="outline" size="sm" disabled>
+              Open loops
+            </Button>
+            <Badge variant="default">{stage.badge}</Badge>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function useCyclingIndex(
+  count: number,
+  paused: boolean,
+  prefersReducedMotion: boolean,
+): number {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [timerRun, setTimerRun] = useState(0);
+  const remainingMs = useRef(CYCLE_DURATION_MS);
+  const startedAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (prefersReducedMotion || paused) return;
+
+    startedAt.current = performance.now();
+    const timer = window.setTimeout(() => {
+      startedAt.current = null;
+      remainingMs.current = CYCLE_DURATION_MS;
+      setActiveIndex((current) => (current + 1) % count);
+      setTimerRun(timerRun + 1);
+    }, remainingMs.current);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (startedAt.current === null) return;
+      remainingMs.current = Math.max(
+        0,
+        remainingMs.current - (performance.now() - startedAt.current),
+      );
+      startedAt.current = null;
+    };
+  }, [count, paused, prefersReducedMotion, timerRun]);
+
+  return activeIndex;
+}
+
+interface AnimatedStageProps extends CycleStageViewProps {
+  motionKey: string;
+  prefersReducedMotion: boolean;
+}
+
+function AnimatedStage({
+  motionKey,
+  prefersReducedMotion,
+  ...stageProps
+}: AnimatedStageProps) {
+  const transition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration: 0.16, ease: [0.23, 1, 0.32, 1] as const };
+
+  return (
+    <div className="relative">
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={motionKey}
+          initial={
+            prefersReducedMotion
+              ? false
+              : { opacity: 0, transform: "translateY(5px)" }
+          }
+          animate={{ opacity: 1, transform: "translateY(0)" }}
+          exit={
+            prefersReducedMotion
+              ? { opacity: 1 }
+              : { opacity: 0, transform: "translateY(-3px)" }
+          }
+          transition={transition}
+        >
+          <CycleStageView {...stageProps} />
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
+
+const MAIN_FLOW_PATH =
+  "M420 104 H950 Q976 104 976 130 V513 Q976 545 944 545 H500";
+const RESULT_FLOW_PATHS = [
+  "M500 545 H159 V570",
+  "M500 545 V570",
+  "M500 545 H841 V570",
+];
+
+function CycleFlowConnector({ motionKey }: { motionKey: string }) {
+  return (
+    <svg
+      key={motionKey}
+      viewBox="0 0 1000 900"
+      preserveAspectRatio="none"
+      className="pointer-events-none absolute inset-0 z-0 @3xl:block hidden size-full overflow-visible text-gray-7"
+      aria-hidden
+    >
+      <title>Work moves from an input through an agent to three results</title>
+      <path
+        d={MAIN_FLOW_PATH}
+        className="onboarding-cycle-flow__path"
+        vectorEffect="non-scaling-stroke"
+      />
+      {RESULT_FLOW_PATHS.map((path) => (
+        <path
+          key={path}
+          d={path}
+          className="onboarding-cycle-flow__path"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+
+      <circle
+        r="3"
+        className="onboarding-cycle-flow__traveler motion-reduce:hidden"
+      >
+        <animateMotion
+          dur="5s"
+          repeatCount="indefinite"
+          path={MAIN_FLOW_PATH}
+          keyPoints="0;1;1"
+          keyTimes="0;0.7;1"
+          calcMode="linear"
+        />
+        <animate
+          attributeName="opacity"
+          dur="5s"
+          repeatCount="indefinite"
+          values="0;1;1;0;0"
+          keyTimes="0;0.04;0.66;0.7;1"
+        />
+      </circle>
+
+      {RESULT_FLOW_PATHS.map((path) => (
+        <circle
+          key={path}
+          r="3"
+          className="onboarding-cycle-flow__traveler motion-reduce:hidden"
+        >
+          <animateMotion
+            dur="5s"
+            repeatCount="indefinite"
+            path={path}
+            keyPoints="0;0;1;1"
+            keyTimes="0;0.7;0.94;1"
+            calcMode="linear"
+          />
+          <animate
+            attributeName="opacity"
+            dur="5s"
+            repeatCount="indefinite"
+            values="0;0;1;1;0;0"
+            keyTimes="0;0.69;0.71;0.9;0.94;1"
+          />
+        </circle>
+      ))}
+    </svg>
+  );
+}
+
+function MobileFlowConnector() {
+  return (
+    <svg viewBox="0 0 24 48" className="h-12 w-6" aria-hidden>
+      <title>Work continues to the next stage</title>
+      <path
+        d="M12 0 V48"
+        className="onboarding-cycle-flow__path"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle
+        r="3"
+        className="onboarding-cycle-flow__traveler motion-reduce:hidden"
+      >
+        <animateMotion dur="1.4s" repeatCount="indefinite" path="M12 0 V48" />
+      </circle>
+    </svg>
+  );
+}
+
+function ResultStageView({
+  stage,
+  onOpenDestination,
+}: Omit<CycleStageViewProps, "controls">) {
+  const action = stage.action;
+
+  return (
+    <article className="min-w-0">
+      <div
+        className="flex h-44 items-center justify-center overflow-hidden rounded-(--radius-4) border border-border bg-card p-5 shadow-sm"
+        aria-hidden
+      >
+        {renderPreview(stage.preview)}
+      </div>
+      <div className="mt-4">
+        <h3 className="font-semibold text-base">{stage.title}</h3>
+        <p className="mt-1.5 text-gray-11 text-sm leading-5">
           {stage.description}
         </p>
         {action && (
@@ -540,223 +756,6 @@ function CycleStageView({
   );
 }
 
-interface CyclingState {
-  activeIndex: number;
-  manuallyPaused: boolean;
-  timerDurationMs: number;
-  timerRun: number;
-  choose: (index: number) => void;
-  toggle: () => void;
-}
-
-function useCyclingState(
-  count: number,
-  paused: boolean,
-  prefersReducedMotion: boolean,
-  initialDelayMs: number,
-): CyclingState {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [manuallyPaused, setManuallyPaused] = useState(false);
-  const [timerRun, setTimerRun] = useState(0);
-  const [timerDurationMs, setTimerDurationMs] = useState(initialDelayMs);
-  const remainingMs = useRef(initialDelayMs);
-  const startedAt = useRef<number | null>(null);
-  const stopped = paused || manuallyPaused;
-
-  useEffect(() => {
-    if (prefersReducedMotion || stopped) return;
-
-    startedAt.current = performance.now();
-    const timer = window.setTimeout(() => {
-      startedAt.current = null;
-      remainingMs.current = CYCLE_DURATION_MS;
-      setTimerDurationMs(CYCLE_DURATION_MS);
-      setActiveIndex((current) => (current + 1) % count);
-      setTimerRun(timerRun + 1);
-    }, remainingMs.current);
-
-    return () => {
-      window.clearTimeout(timer);
-      if (startedAt.current === null) return;
-      remainingMs.current = Math.max(
-        0,
-        remainingMs.current - (performance.now() - startedAt.current),
-      );
-      startedAt.current = null;
-    };
-  }, [count, prefersReducedMotion, stopped, timerRun]);
-
-  const choose = (index: number): void => {
-    remainingMs.current = CYCLE_DURATION_MS;
-    setTimerDurationMs(CYCLE_DURATION_MS);
-    setActiveIndex(index);
-    setTimerRun((current) => current + 1);
-  };
-
-  const toggle = (): void => {
-    if (prefersReducedMotion) {
-      choose((activeIndex + 1) % count);
-      return;
-    }
-    setManuallyPaused((current) => !current);
-  };
-
-  return {
-    activeIndex,
-    manuallyPaused,
-    timerDurationMs,
-    timerRun,
-    choose,
-    toggle,
-  };
-}
-
-interface CycleControlProps {
-  activeIndex: number;
-  count: number;
-  itemLabel: string;
-  manuallyPaused: boolean;
-  paused: boolean;
-  prefersReducedMotion: boolean;
-  timerDurationMs: number;
-  timerRun: number;
-  onChoose: (index: number) => void;
-  onToggle: () => void;
-}
-
-function CycleControl({
-  activeIndex,
-  count,
-  itemLabel,
-  manuallyPaused,
-  paused,
-  prefersReducedMotion,
-  timerDurationMs,
-  timerRun,
-  onChoose,
-  onToggle,
-}: CycleControlProps) {
-  const itemIds = ["first", "second", "third", "fourth"].slice(0, count);
-
-  return (
-    <div
-      className="onboarding-cycle-flow__control flex items-center gap-2"
-      data-paused={paused || prefersReducedMotion ? "true" : "false"}
-    >
-      <fieldset
-        className="m-0 flex items-center gap-1 border-0 p-0"
-        aria-label={`Choose ${itemLabel}`}
-      >
-        {itemIds.map((itemId, index) => (
-          <button
-            key={itemId}
-            type="button"
-            aria-label={`Show ${itemLabel} ${index + 1}`}
-            aria-pressed={activeIndex === index}
-            data-attr={`onboarding-cycle-${itemLabel}-${index + 1}`}
-            className={cn(
-              "size-1.5 rounded-full outline-none transition-[background-color,transform] duration-150 ease-out hover:scale-125 focus-visible:ring-(--accent-8) focus-visible:ring-2 focus-visible:ring-offset-2 active:scale-90 motion-reduce:transform-none motion-reduce:transition-none",
-              activeIndex === index ? "bg-(--accent-9)" : "bg-gray-6",
-            )}
-            onClick={() => onChoose(index)}
-          />
-        ))}
-      </fieldset>
-      <button
-        type="button"
-        aria-label={
-          prefersReducedMotion
-            ? `Show next ${itemLabel}`
-            : manuallyPaused
-              ? `Resume ${itemLabel} cycle`
-              : `Pause ${itemLabel} cycle`
-        }
-        className="flex size-5 items-center justify-center rounded-full text-gray-10 outline-none transition-[background-color,transform] duration-150 ease-out hover:bg-fill-hover focus-visible:ring-(--accent-8) focus-visible:ring-2 active:scale-[0.92] motion-reduce:transform-none motion-reduce:transition-none"
-        onClick={onToggle}
-      >
-        <span className="relative size-4" aria-hidden>
-          <svg viewBox="0 0 12 12" className="size-4">
-            <title>{`${itemLabel} cycle progress`}</title>
-            <circle
-              cx="6"
-              cy="6"
-              r="4"
-              fill="none"
-              stroke="currentColor"
-              strokeOpacity="0.2"
-              strokeWidth="1"
-            />
-            <circle
-              key={`${activeIndex}-${timerRun}`}
-              className="onboarding-cycle-flow__timer-progress text-(--accent-10)"
-              style={{ animationDuration: `${timerDurationMs}ms` }}
-              cx="6"
-              cy="6"
-              r="4"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1"
-            />
-          </svg>
-          <span className="absolute inset-0 flex items-center justify-center">
-            {prefersReducedMotion ? (
-              <ArrowsClockwiseIcon size={8} />
-            ) : manuallyPaused ? (
-              <PlayIcon size={7} weight="fill" />
-            ) : (
-              <PauseIcon size={7} weight="fill" />
-            )}
-          </span>
-        </span>
-      </button>
-    </div>
-  );
-}
-
-interface AnimatedStageProps extends CycleStageViewProps {
-  motionKey: string;
-  prefersReducedMotion: boolean;
-}
-
-function AnimatedStage({
-  motionKey,
-  prefersReducedMotion,
-  ...stageProps
-}: AnimatedStageProps) {
-  const { controls, ...cycleStageProps } = stageProps;
-  const transition = prefersReducedMotion
-    ? { duration: 0 }
-    : { duration: 0.16, ease: [0.23, 1, 0.32, 1] as const };
-
-  return (
-    <div className="relative">
-      {controls && (
-        <div className="absolute top-56 right-0 z-10">{controls}</div>
-      )}
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={motionKey}
-          initial={
-            prefersReducedMotion
-              ? false
-              : { opacity: 0, transform: "translateY(5px)" }
-          }
-          animate={{ opacity: 1, transform: "translateY(0)" }}
-          exit={
-            prefersReducedMotion
-              ? { opacity: 1 }
-              : { opacity: 0, transform: "translateY(-3px)" }
-          }
-          transition={transition}
-        >
-          <CycleStageView {...cycleStageProps} />
-        </motion.div>
-      </AnimatePresence>
-    </div>
-  );
-}
-
 export function OnboardingCycleFlowLayout({
   selfDrivingAvailable,
   onOpenDestination,
@@ -764,32 +763,34 @@ export function OnboardingCycleFlowLayout({
   const visiblePaths = selfDrivingAvailable
     ? cyclePaths
     : cyclePaths.filter((path) => path.input.preview !== "self-driving");
-  const resultStages = [
+  const resultStages: CycleStage[] = [
     cyclePaths[0].result,
-    cyclePaths[1].result,
+    selfDrivingAvailable
+      ? cyclePaths[1].result
+      : { ...cyclePaths[1].result, action: undefined },
     cyclePaths[3].result,
   ];
   const prefersReducedMotion = Boolean(useReducedMotion());
   const [inputHovered, setInputHovered] = useState(false);
   const [inputFocusWithin, setInputFocusWithin] = useState(false);
-  const [resultHovered, setResultHovered] = useState(false);
-  const [resultFocusWithin, setResultFocusWithin] = useState(false);
-  const inputCycle = useCyclingState(
+  const inputIndex = useCyclingIndex(
     visiblePaths.length,
     inputHovered || inputFocusWithin,
     prefersReducedMotion,
-    CYCLE_DURATION_MS,
   );
-  const resultCycle = useCyclingState(
-    resultStages.length,
-    resultHovered || resultFocusWithin,
-    prefersReducedMotion,
-    CYCLE_DURATION_MS / 2,
-  );
+  const [agentPathIndex, setAgentPathIndex] = useState(inputIndex);
 
-  const activePath = visiblePaths[inputCycle.activeIndex % visiblePaths.length];
-  const activeResult =
-    resultStages[resultCycle.activeIndex % resultStages.length];
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setAgentPathIndex(inputIndex),
+      prefersReducedMotion ? 0 : AGENT_TRANSITION_DELAY_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [inputIndex, prefersReducedMotion]);
+
+  const activePath = visiblePaths[inputIndex % visiblePaths.length];
+  const activeAgentPath = visiblePaths[agentPathIndex % visiblePaths.length];
 
   return (
     <div
@@ -799,106 +800,76 @@ export function OnboardingCycleFlowLayout({
       <header className="mb-10">
         <h1 className="font-bold text-xl">How work moves through Desktop</h1>
         <p className="mt-1 max-w-2xl text-gray-11 text-sm leading-5">
-          Inputs and results change independently. The agent adapts its work to
-          the active input.
+          Choose how work starts. The agent adapts its work to the active input.
         </p>
       </header>
 
-      <div className="grid @3xl:grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)_2rem_minmax(0,1fr)] grid-cols-1 gap-5">
-        <div
-          data-attr="onboarding-cycle-input-stage"
-          onPointerEnter={() => setInputHovered(true)}
-          onPointerLeave={() => setInputHovered(false)}
-          onFocusCapture={() => setInputFocusWithin(true)}
-          onBlurCapture={(event) => {
-            if (
-              !event.currentTarget.contains(event.relatedTarget as Node | null)
-            ) {
-              setInputFocusWithin(false);
-            }
-          }}
-        >
-          <AnimatedStage
-            motionKey={activePath.input.title}
-            prefersReducedMotion={prefersReducedMotion}
-            stage={activePath.input}
-            onOpenDestination={onOpenDestination}
-            controls={
-              <CycleControl
-                activeIndex={inputCycle.activeIndex}
-                count={visiblePaths.length}
-                itemLabel="input"
-                manuallyPaused={inputCycle.manuallyPaused}
-                paused={
-                  inputHovered || inputFocusWithin || inputCycle.manuallyPaused
-                }
-                prefersReducedMotion={prefersReducedMotion}
-                timerDurationMs={inputCycle.timerDurationMs}
-                timerRun={inputCycle.timerRun}
-                onChoose={inputCycle.choose}
-                onToggle={inputCycle.toggle}
+      <div className="relative">
+        <CycleFlowConnector motionKey={activePath.name} />
+
+        <div className="relative z-10 grid @3xl:grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] grid-cols-1 gap-5 @3xl:pr-12">
+          <div
+            data-attr="onboarding-cycle-input-stage"
+            data-active-path={activePath.name}
+            onPointerEnter={() => setInputHovered(true)}
+            onPointerLeave={() => setInputHovered(false)}
+            onFocusCapture={() => setInputFocusWithin(true)}
+            onBlurCapture={(event) => {
+              if (
+                !event.currentTarget.contains(
+                  event.relatedTarget as Node | null,
+                )
+              ) {
+                setInputFocusWithin(false);
+              }
+            }}
+          >
+            <AnimatedStage
+              motionKey={activePath.input.title}
+              prefersReducedMotion={prefersReducedMotion}
+              stage={activePath.input}
+              onOpenDestination={onOpenDestination}
+            />
+          </div>
+          <div className="flex @3xl:h-auto h-12 items-center justify-center">
+            <div className="@3xl:hidden">
+              <MobileFlowConnector />
+            </div>
+          </div>
+          <div
+            data-attr="onboarding-cycle-agent-stage"
+            data-active-path={activeAgentPath.name}
+          >
+            <AnimatedStage
+              motionKey={activeAgentPath.agent.title}
+              prefersReducedMotion={prefersReducedMotion}
+              stage={activeAgentPath.agent}
+              onOpenDestination={onOpenDestination}
+            />
+          </div>
+        </div>
+
+        <div className="relative z-10 flex @3xl:hidden h-12 items-center justify-center">
+          <MobileFlowConnector />
+        </div>
+
+        <section className="relative z-10 @3xl:mt-10 border-border border-t pt-8">
+          <div className="mb-5">
+            <h2 className="font-semibold text-lg">Results</h2>
+            <p className="mt-1 max-w-xl text-gray-11 text-sm leading-5">
+              Agent work can produce code changes, reports, or shared canvases.
+            </p>
+          </div>
+          <div className="grid @3xl:grid-cols-3 grid-cols-1 gap-6">
+            {resultStages.map((stage) => (
+              <ResultStageView
+                key={stage.title}
+                stage={stage}
+                onOpenDestination={onOpenDestination}
               />
-            }
-          />
-        </div>
-        <div className="@3xl:mt-24 flex @3xl:h-auto h-8 items-center justify-center">
-          <ArrowRightIcon
-            size={18}
-            className="@3xl:rotate-0 rotate-90 text-gray-8"
-            aria-hidden
-          />
-        </div>
-        <AnimatedStage
-          motionKey={activePath.agent.title}
-          prefersReducedMotion={prefersReducedMotion}
-          stage={activePath.agent}
-          onOpenDestination={onOpenDestination}
-        />
-        <div className="@3xl:mt-24 flex @3xl:h-auto h-8 items-center justify-center">
-          <ArrowRightIcon
-            size={18}
-            className="@3xl:rotate-0 rotate-90 text-gray-8"
-            aria-hidden
-          />
-        </div>
-        <div
-          data-attr="onboarding-cycle-result-stage"
-          onPointerEnter={() => setResultHovered(true)}
-          onPointerLeave={() => setResultHovered(false)}
-          onFocusCapture={() => setResultFocusWithin(true)}
-          onBlurCapture={(event) => {
-            if (
-              !event.currentTarget.contains(event.relatedTarget as Node | null)
-            ) {
-              setResultFocusWithin(false);
-            }
-          }}
-        >
-          <AnimatedStage
-            motionKey={activeResult.title}
-            prefersReducedMotion={prefersReducedMotion}
-            stage={activeResult}
-            onOpenDestination={onOpenDestination}
-            controls={
-              <CycleControl
-                activeIndex={resultCycle.activeIndex}
-                count={resultStages.length}
-                itemLabel="result"
-                manuallyPaused={resultCycle.manuallyPaused}
-                paused={
-                  resultHovered ||
-                  resultFocusWithin ||
-                  resultCycle.manuallyPaused
-                }
-                prefersReducedMotion={prefersReducedMotion}
-                timerDurationMs={resultCycle.timerDurationMs}
-                timerRun={resultCycle.timerRun}
-                onChoose={resultCycle.choose}
-                onToggle={resultCycle.toggle}
-              />
-            }
-          />
-        </div>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   );
