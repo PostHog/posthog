@@ -15,17 +15,17 @@ use cohort_core::filters::CohortId;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use crate::domain::{
-    plan_days, Lookback, PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps,
-    RunId,
+    plan_days, ConditionAnalyses, ConditionClass, Lookback, PersonRunValidation, PinnedPersonRun,
+    PinnedRun, PinnedWarning, PlanCaps, RunId,
 };
 use crate::observability::metrics::{
-    BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_DROPPED,
-    LOOKBACK_TRUNCATED, RUNS_DISCOVERED, RUNS_PLANNING_STAMPED, RUNS_PLANNING_WITHHELD,
-    RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS, RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES,
-    TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
+    team_label, BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
+    CONDITIONS_DROPPED, CONDITIONS_UNANALYZABLE, LOOKBACK_TRUNCATED, RUNS_DISCOVERED,
+    RUNS_PLANNING_STAMPED, RUNS_PLANNING_WITHHELD, RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS,
+    RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES, TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
 };
 use crate::store::chunks::{PgChunkStore, PlanOutcome};
 use crate::store::completion::{mark_chunks_planned, read_planning_stamp, PlanningStampOutcome};
@@ -39,8 +39,19 @@ use super::person_plan::PersonPlanRequest;
 
 /// A run validated to the point of claim eligibility, by kind.
 pub(super) enum PreparedRun {
-    Behavioral(Arc<PinnedRun>),
+    Behavioral(Arc<PreparedBehavioral>),
     Person(Arc<PinnedPersonRun>),
+}
+
+/// A behavioral run and the static analysis of its conditions, which every chunk of it shares.
+///
+/// The analysis lives here rather than on the scan because it is a pure function of the pinned
+/// payload: a run's answer is the same for all of its chunks, for a chunk retried after a failure,
+/// and on whichever replica claims it. Deriving it per chunk instead would re-walk the whole
+/// condition catalog up to once per planned day per attempt, on the worker that owes the scan.
+pub(super) struct PreparedBehavioral {
+    pub(super) run: PinnedRun,
+    pub(super) analyses: ConditionAnalyses,
 }
 
 /// One refresh pass's result: the claim-eligible runs plus the person runs still needing their
@@ -87,10 +98,10 @@ pub(super) async fn refresh_runs(
     for run in discovered {
         seen_runs.insert(run.run_id);
         let kind = run.kind;
-        match prepare_run(pool, store, plan_caps, reported_runs, run).await {
+        match prepare_run(pool, store, allowlist, plan_caps, reported_runs, run).await {
             PrepareOutcome::Eligible(prepared) => {
                 let run_id = match &prepared {
-                    PreparedRun::Behavioral(run) => run.run_id,
+                    PreparedRun::Behavioral(prepared) => prepared.run.run_id,
                     PreparedRun::Person(run) => run.run_id,
                 };
                 eligible.insert(run_id, prepared);
@@ -130,6 +141,7 @@ pub(super) async fn refresh_runs(
 async fn prepare_run(
     pool: &PgPool,
     store: &PgChunkStore,
+    allowlist: &TeamAllowlist,
     plan_caps: PlanCaps,
     reported_runs: &mut HashSet<RunId>,
     run: DiscoveredRun,
@@ -146,7 +158,7 @@ async fn prepare_run(
     };
     match kind {
         RunKind::Behavioral => {
-            prepare_behavioral(pool, store, plan_caps, reported_runs, boundary).await
+            prepare_behavioral(pool, store, allowlist, plan_caps, reported_runs, boundary).await
         }
         RunKind::PersonProperty => prepare_person(pool, store, reported_runs, boundary).await,
     }
@@ -184,6 +196,7 @@ async fn resolve_boundary(pool: &PgPool, run: DiscoveredRun) -> Option<Resolved>
 async fn prepare_behavioral(
     pool: &PgPool,
     store: &PgChunkStore,
+    allowlist: &TeamAllowlist,
     plan_caps: PlanCaps,
     reported_runs: &mut HashSet<RunId>,
     boundary: SeedableRun,
@@ -197,8 +210,10 @@ async fn prepare_behavioral(
         }
     };
     let lookback_truncated = lookback_was_truncated(&validated.run, plan_caps);
+    let analyses = ConditionAnalyses::build(&validated.run.conditions, &validated.run.filters);
     if reported_runs.insert(run_id) {
         record_pinned_warnings(&validated.warnings);
+        record_condition_census(allowlist, run_id, &validated.run, &analyses);
         if lookback_truncated {
             counter!(LOOKBACK_TRUNCATED).increment(1);
         }
@@ -257,7 +272,10 @@ async fn prepare_behavioral(
             return PrepareOutcome::Skipped;
         }
     }
-    PrepareOutcome::Eligible(PreparedRun::Behavioral(Arc::new(validated.run)))
+    PrepareOutcome::Eligible(PreparedRun::Behavioral(Arc::new(PreparedBehavioral {
+        run: validated.run,
+        analyses,
+    })))
 }
 
 /// The person pipeline: validate the pinned payload (zero surviving hashes with an active
@@ -395,6 +413,73 @@ async fn persist_run_warning(pool: &PgPool, run_id: RunId, note: RunWarningNote)
     if let Err(error) = record_run_warning(pool, run_id, note).await {
         warn!(run_id = ?run_id, error = %error, "persisting run warning failed");
     }
+}
+
+/// Publish what a static read of the run's condition bytecode found: which event names a projection
+/// narrows, and what blocks the rest.
+///
+/// Reports once per run per stretch, behind the `reported_runs` gate, while the analysis it reads is
+/// built for every eligible run on every poll tick — the scan needs it, so it cannot sit behind a
+/// report gate. That cost is bounded per run rather than per condition, which matters because
+/// nothing caps behavioral conditions on a run and this runs inline on the task that owes the
+/// liveness heartbeat: `ConditionAnalyses::build` gives the run's conditions one shared budget. The
+/// same tick already parses every discovered run's whole pinned payload during validation, which is
+/// more work than analyzing that payload once.
+fn record_condition_census(
+    allowlist: &TeamAllowlist,
+    run_id: RunId,
+    run: &PinnedRun,
+    analyses: &ConditionAnalyses,
+) {
+    let census = analyses.census(&run.conditions);
+    if census.total() == 0 {
+        return;
+    }
+    let team = team_label(allowlist, run.team_id);
+    for class in ConditionClass::ALL {
+        let count = census.count(class);
+        if count > 0 {
+            counter!(
+                CONDITIONS_CLASSIFIED,
+                "class" => class.as_str(),
+                "team_id" => team.clone(),
+            )
+            .increment(count);
+        }
+    }
+    for (label, count) in &census.unanalyzable_reasons {
+        counter!(
+            CONDITIONS_UNANALYZABLE,
+            "reason" => label.reason,
+            "op" => label.op.clone().unwrap_or_else(|| Arc::from("none")),
+            "team_id" => team.clone(),
+        )
+        .increment(*count);
+    }
+    info!(
+        ?run_id,
+        team_id = run.team_id.0,
+        conditions = census.total(),
+        event_only = census.count(ConditionClass::EventOnly),
+        projectable = census.count(ConditionClass::Projectable),
+        full_columns = census.count(ConditionClass::FullColumns),
+        unanalyzable = census.count(ConditionClass::Unanalyzable),
+        property_projectable_fraction = census.property_projectable_fraction(),
+        eligible_events = census.projection_eligible_event_names().len(),
+        blocked_events = %census.render_blocked_events(),
+        "condition bytecode analysis census",
+    );
+    // The read sets and the uncapped blocked list carry customer-defined event names and property
+    // keys, and run to several kilobytes on a large catalog. Values are never included, but the
+    // keys alone are enough to keep this off the default level. Named apart from the line above's
+    // `blocked_events` because that one is truncated and this one is not, and a query that mixed
+    // them would read a partial list as a whole one.
+    debug!(
+        ?run_id,
+        reads = %census.render_reads(),
+        all_blocked_events = %census.render_all_blocked_events(),
+        "condition bytecode analysis reads and blockers",
+    );
 }
 
 fn record_pinned_warnings(warnings: &[PinnedWarning]) {

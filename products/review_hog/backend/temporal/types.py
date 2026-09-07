@@ -4,8 +4,6 @@ Lives apart from `workflow.py` so the client (and any sync trigger) can build th
 input without importing the workflow code (which pulls in the heavy activity dependencies).
 """
 
-from dataclasses import dataclass
-
 from posthog.dataclasses import frozen
 
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
@@ -18,7 +16,7 @@ TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
 
 
-@dataclass
+@frozen
 class ReviewPRWorkflowInputs:
     """Input for one single-turn `ReviewPRWorkflow`.
 
@@ -54,6 +52,9 @@ class ReviewPRWorkflowInputs:
     # The signals report whose implementation this run reviews (inbox trigger only): stamped onto the
     # ReviewReport as provenance, and the target of the `code_review` artefact receipt.
     signal_report_id: str | None = None
+    # The report's priority (a `ReportPriority` value) as the inbox trigger read it, before the
+    # implementation agent could write its own. Decides the tier of a new report; None otherwise.
+    signal_priority: str | None = None
     # Branch target (PR-less review): the pushed head branch to review when no PR URL is known.
     head_branch: str | None = None
     # Per-run override for chaining the resolution stage after this turn (fire-and-forget

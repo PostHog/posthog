@@ -6,7 +6,7 @@ import type {
   SessionConfigSelectOption,
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
-import type { Adapter } from "./adapter";
+import type { Adapter, ModelAccess } from "./adapter";
 import type { SkillButtonId } from "./analytics-events";
 import type { TaskRunArtifact, TaskRunStatus } from "./domain-types";
 import type { ExecutionMode } from "./exec-types";
@@ -77,6 +77,8 @@ export interface AgentSession {
   processedLineCount?: number;
   framework?: "claude";
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   executionMode?: ExecutionMode;
   reasoningLevel?: string;

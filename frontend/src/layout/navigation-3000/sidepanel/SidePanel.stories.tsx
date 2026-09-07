@@ -61,6 +61,12 @@ const meta: Meta<StoryArgs> = {
                 '/api/projects/:team_id/feature_flags/:flagId/status': {
                     status: 'active',
                     reason: 'Feature flag is active',
+                    rollout: {
+                        effectively_full_rollout: false,
+                        has_targeting_conditions: false,
+                        max_rollout_percentage: 50,
+                        is_multivariate: false,
+                    },
                 },
                 '/api/projects/:team_id/feature_flags/:flagId/activity': { results: [], count: 0 },
                 '/api/projects/:team_id/feature_flags/:flagId/access_controls': {

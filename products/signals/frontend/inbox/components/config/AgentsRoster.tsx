@@ -95,8 +95,11 @@ interface AgentSourceState {
     entities: RosterEntity[]
     /** The entity list is still loading, so the count would read as a wrong zero. */
     entitiesLoading: boolean
-    /** The source's `SignalSourceConfig` row, for sources that persist one. Steering writes to it. */
-    sourceConfig: SignalSourceConfig | null
+    /**
+     * The source's `SignalSourceConfig` rows, for sources that persist them. Guidance writes to all
+     * of them, so a source with a row per signal type is steered from its one card.
+     */
+    steeringConfigs: SignalSourceConfig[]
 }
 
 function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element | null {
@@ -335,7 +338,7 @@ function Expansion({
             {onSteer && (
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-secondary">
-                        {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
+                        {state.steeringConfigs.some(sourceSteeringIsSet)
                             ? 'Guidance is set for this source.'
                             : 'Tell the agent what matters and what to skip.'}
                     </span>
@@ -346,9 +349,7 @@ function Expansion({
                         onClick={onSteer}
                         data-attr="signal-source-steering-open"
                     >
-                        {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
-                            ? 'Edit guidance'
-                            : 'Add guidance'}
+                        {state.steeringConfigs.some(sourceSteeringIsSet) ? 'Edit guidance' : 'Add guidance'}
                     </LemonButton>
                 </div>
             )}
@@ -597,6 +598,7 @@ export function AgentsRoster(): JSX.Element {
         ciSignalsConfig,
         ciSignalsConfigLoading,
         ciSignalsIsFullyEnabled,
+        errorTrackingConfigs,
         errorTrackingTypeStates,
         visionScanners,
         visionScannersLoading,
@@ -629,7 +631,7 @@ export function AgentsRoster(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
-    const [steeringTarget, setSteeringTarget] = useState<{ config: SignalSourceConfig; label: string } | null>(null)
+    const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -659,7 +661,7 @@ export function AgentsRoster(): JSX.Element {
             const base = {
                 entities: [] as RosterEntity[],
                 entitiesLoading: false,
-                sourceConfig: null as SignalSourceConfig | null,
+                steeringConfigs: [] as SignalSourceConfig[],
             }
             const dwState = (config: SignalSourceConfig | null, loading: boolean): AgentSourceState => ({
                 ...base,
@@ -668,7 +670,7 @@ export function AgentsRoster(): JSX.Element {
                 // No config row yet → the source has never been connected; surface a Connect button.
                 requiresSetup: config === null,
                 syncStatus: config?.status,
-                sourceConfig: config,
+                steeringConfigs: config ? [config] : [],
             })
             switch (source) {
                 case 'error_tracking':
@@ -681,6 +683,7 @@ export function AgentsRoster(): JSX.Element {
                         requiresSetup: false,
                         syncStatus: null,
                         entities: errorTrackingEntities,
+                        steeringConfigs: errorTrackingConfigs,
                     }
                 case 'conversations':
                     return {
@@ -689,7 +692,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isConversationsToggling,
                         requiresSetup: false,
                         syncStatus: conversationsConfig?.status,
-                        sourceConfig: conversationsConfig,
+                        steeringConfigs: conversationsConfig ? [conversationsConfig] : [],
                     }
                 case 'replay_vision':
                     return {
@@ -724,6 +727,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isHealthChecksToggling,
                         requiresSetup: false,
                         syncStatus: healthChecksConfig?.status,
+                        steeringConfigs: healthChecksConfig ? [healthChecksConfig] : [],
                     }
                 case 'github':
                     return dwState(githubIssuesConfig, isGithubIssuesToggling)
@@ -746,6 +750,7 @@ export function AgentsRoster(): JSX.Element {
         },
         [
             errorTrackingEntities,
+            errorTrackingConfigs,
             errorTrackingTypeStates,
             isErrorTrackingToggling,
             conversationsConfig,
@@ -857,9 +862,11 @@ export function AgentsRoster(): JSX.Element {
                             // placeholder rows wait until the reload lands. Disabled sources keep
                             // the control: enabling starts a sync immediately, so rules must be
                             // settable before the first sync runs.
-                            const steeringConfig =
-                                agent.steerable && state.sourceConfig && !state.sourceConfig.id.startsWith('new_')
-                                    ? state.sourceConfig
+                            const steeringConfigs =
+                                agent.steerable &&
+                                state.steeringConfigs.length > 0 &&
+                                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
+                                    ? state.steeringConfigs
                                     : null
                             return (
                                 <AgentRow
@@ -879,8 +886,8 @@ export function AgentsRoster(): JSX.Element {
                                     onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
                                     onConfigureFilters={undefined}
                                     onSteer={
-                                        steeringConfig
-                                            ? () => setSteeringTarget({ config: steeringConfig, label: agent.label })
+                                        steeringConfigs
+                                            ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
                                             : undefined
                                     }
                                     onRetryData={loadToolDataEvents}
@@ -894,8 +901,8 @@ export function AgentsRoster(): JSX.Element {
             {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
             {steeringTarget && (
                 <SourceSteeringModal
-                    key={steeringTarget.config.id}
-                    sourceConfig={steeringTarget.config}
+                    key={steeringTarget.configs.map((config) => config.id).join(',')}
+                    sourceConfigs={steeringTarget.configs}
                     sourceLabel={steeringTarget.label}
                     onClose={() => setSteeringTarget(null)}
                 />

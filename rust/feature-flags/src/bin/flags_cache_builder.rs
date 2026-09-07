@@ -25,7 +25,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use axum::{routing::get, Router};
 use chrono::{DateTime, Utc};
@@ -115,7 +115,7 @@ const SHADOW_TRACKER_STORE_ERRORS: &str = "flags_cache_shadow_tracker_store_erro
 // same buckets as the real-build duration histogram.
 const SHADOW_BUILD_DURATION_SECONDS: &str = "flags_cache_shadow_build_duration_seconds";
 
-/// Caps on the confirmed-mismatch log line (see `summarize_diffs`).
+/// Caps on the mismatch log lines (see `summarize_diffs`).
 const SHADOW_LOG_MAX_ENTRIES: usize = 20;
 const SHADOW_LOG_MAX_BYTES: usize = 4096;
 
@@ -665,11 +665,24 @@ async fn process_shadow_team(
                 metrics::counter!(SHADOW_MISMATCH_FIRST_SIGHT, "issue_type" => diff.issue_type.as_label())
                     .increment(1);
             }
+            // A first sighting logs at WARN and a confirmed mismatch at ERROR,
+            // because a single-shot disagreement is expected: a shadow build races
+            // Python's own rebuild. `mismatch_stage` splits the two in a log query
+            // without a text match on the message.
             if !observation.confirmed.is_empty() {
                 tracing::error!(
                     team_id,
+                    mismatch_stage = "confirmed",
                     diff = %summarize_diffs(&observation.confirmed, SHADOW_LOG_MAX_ENTRIES, SHADOW_LOG_MAX_BYTES),
                     "Shadow compare mismatch persisted across consecutive builds"
+                );
+            }
+            if !observation.first_sight.is_empty() {
+                tracing::warn!(
+                    team_id,
+                    mismatch_stage = "first_sight",
+                    diff = %summarize_diffs(&observation.first_sight, SHADOW_LOG_MAX_ENTRIES, SHADOW_LOG_MAX_BYTES),
+                    "Shadow compare mismatch seen for the first time"
                 );
             }
         }
@@ -711,7 +724,7 @@ async fn shadow_compare(
     };
 
     let diffs = diff_live_entry(&built, &live);
-    let observation = tracker.observe(team_id, diffs).await;
+    let observation = tracker.observe(team_id, diffs, SystemTime::now()).await;
     // Counted here and not next to the outcome metrics, because a clean build can
     // fail to clear its pending state, and that build reports as a match.
     for op in &observation.store_errors {
@@ -1241,13 +1254,13 @@ mod tests {
     ) -> feature_flags::flags::cache_shadow::ShadowObservation {
         use common_redis::{MockRedisClient, MockRedisValue};
         use feature_flags::flags::cache_shadow::{
-            diff_live_entry, MismatchTracker, ShadowLiveEntry,
+            diff_live_entry, MismatchTracker, ShadowLiveEntry, MIN_CONFIRM_INTERVAL,
         };
         use feature_flags::flags::flag_models::{
             EvaluationMetadata, FeatureFlag, HypercacheFlagsWrapper,
         };
         use std::sync::Arc;
-        use std::time::Duration as StdDuration;
+        use std::time::{Duration as StdDuration, SystemTime};
 
         let flag = |has_experiment: bool| -> FeatureFlag {
             serde_json::from_value(serde_json::json!({
@@ -1273,9 +1286,10 @@ mod tests {
         };
 
         let ttl = StdDuration::from_secs(3600);
+        let first_at = SystemTime::UNIX_EPOCH + StdDuration::from_secs(1_000);
         let redis = MockRedisClient::new();
         let first = MismatchTracker::new(Arc::new(redis.clone()), ttl)
-            .observe(1, diff_live_entry(&built, &live))
+            .observe(1, diff_live_entry(&built, &live), first_at)
             .await;
         if !confirmed {
             return first;
@@ -1289,8 +1303,14 @@ mod tests {
                 next.get_ret(&call.key, Ok(value));
             }
         }
+        // The second observation has to sit at least MIN_CONFIRM_INTERVAL past the
+        // first, or the confirmation window is still closed and nothing confirms.
         MismatchTracker::new(Arc::new(next), ttl)
-            .observe(1, diff_live_entry(&built, &live))
+            .observe(
+                1,
+                diff_live_entry(&built, &live),
+                first_at + MIN_CONFIRM_INTERVAL,
+            )
             .await
     }
 

@@ -1,12 +1,15 @@
+from collections.abc import Collection
 from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Prefetch
+from django.db.models import F, Func, IntegerField, OuterRef, Prefetch, Subquery, Value
+from django.db.models.functions import Greatest
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
 
 
@@ -27,6 +30,10 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
+    # The destinations this run delivers to, snapshotted when the run started so a config
+    # change mid-run cannot alter where an in-flight run lands or what it bills. Empty means
+    # the PostHog warehouse alone, which is every run that predates destinations.
+    destination_ids = models.JSONField(default=list, blank=True, db_default=[])
     finished_at = models.DateTimeField(null=True, blank=True)
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
     # Also stores `cdc_write_mode` (`incremental_merge` | `scd2_append`) so the Syncs UI can
@@ -55,6 +62,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["updated_at"],
                 name="idx_extdatajob_updated_at",
             ),
+            # Serves the rows-synced aggregates (usage report, source health): equality on
+            # pipeline/status with a finished_at range. Without it the FK index walks every
+            # job for the pipeline and filters most of them out.
+            models.Index(
+                fields=["pipeline", "status", "finished_at"],
+                name="idx_extdatajob_pipe_stat_fin",
+            ),
         ]
 
     def folder_path(self) -> str:
@@ -79,6 +93,34 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     ).get(pk=job_id)
 
 
+def latest_completed_job_prefetch(
+    team_id: int, lookup: str, to_attr: str, source_ids: Collection[UUID | str] | None = None
+) -> Prefetch:
+    """Prefetch each source's newest completed job as a one-element list on `to_attr`.
+
+    Do not replace this with a sliced prefetch queryset (`order_by("-created_at")[:1]`). Django
+    compiles that to a ROW_NUMBER window over every completed job of every listed source, so
+    Postgres reads and sorts the team's whole job history to keep one row per source. Selecting
+    each source's newest job id in a correlated subquery costs one index probe per source.
+
+    The probes run for every live source of the team unless `source_ids` narrows them, because a
+    prefetch queryset cannot see which parent rows it is loaded for.
+    """
+    sources = ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True)
+    if source_ids is not None:
+        sources = sources.filter(id__in=source_ids)
+    latest_job_ids = sources.values(
+        latest_job_id=Subquery(
+            ExternalDataJob.objects.filter(
+                pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED
+            )
+            .order_by("-created_at")
+            .values("id")[:1]
+        )
+    )
+    return Prefetch(lookup, queryset=ExternalDataJob.objects.filter(id__in=latest_job_ids), to_attr=to_attr)
+
+
 @database_sync_to_async
 def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob | None:
     job = (
@@ -91,3 +133,16 @@ def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob
     )
 
     return job
+
+
+def billable_destination_multiplier() -> Greatest:
+    """How many destinations a run billed for, derived from the ids it snapshotted.
+
+    An empty list means the PostHog warehouse alone, so the floor is one. Derived rather than
+    stored beside the ids: the count is exactly `len(destination_ids)`, and a second column
+    holding the same fact can drift from it without anything noticing.
+    """
+    return Greatest(
+        Func(F("destination_ids"), function="jsonb_array_length", output_field=IntegerField()),
+        Value(1),
+    )

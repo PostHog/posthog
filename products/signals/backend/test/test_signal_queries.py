@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -109,7 +109,8 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
-        result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+        with self.assertNumQueries(FuzzyInt(0, 1)):
+            result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
 
         assert result == {
             "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),

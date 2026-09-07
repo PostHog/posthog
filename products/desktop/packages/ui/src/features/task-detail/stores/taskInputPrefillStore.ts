@@ -6,7 +6,7 @@ export interface TaskInputReportAssociation {
   title: string;
 }
 
-export interface TaskInputPrefill {
+interface TaskInputPrefill {
   requestId?: string;
   folderId?: string;
   /** `owner/repo` of the picked sidebar group, for groups with no folder. */
@@ -24,7 +24,7 @@ export interface TaskInputPrefill {
    * outlives the transient prefill until the prompt is safely in the composer.
    */
   recoveredFromKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";

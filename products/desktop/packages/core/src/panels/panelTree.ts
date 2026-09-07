@@ -40,18 +40,6 @@ export const addTabToPanel = (node: PanelNode, tab: Tab): PanelNode => {
   };
 };
 
-export const setActiveTabInPanel = (
-  node: PanelNode,
-  tabId: string,
-): PanelNode => {
-  if (!isLeafNode(node)) return node;
-
-  return {
-    ...node,
-    content: { ...node.content, activeTabId: tabId },
-  };
-};
-
 export const findTabInPanel = (
   panel: Extract<PanelNode, { type: "leaf" }>,
   tabId: string,
@@ -148,85 +136,3 @@ export const cleanupNode = (node: PanelNode): PanelNode | null => {
     sizes: finalSizes,
   };
 };
-
-export const mergeTreeContent = (
-  existingTree: PanelNode,
-  newTree: PanelNode,
-): PanelNode => {
-  if (existingTree.type !== newTree.type) {
-    return existingTree;
-  }
-
-  if (isLeafNode(existingTree) && isLeafNode(newTree)) {
-    const newTabsMap = new Map(
-      newTree.content.tabs.map((tab) => [tab.id, tab]),
-    );
-    const existingTabIds = new Set(existingTree.content.tabs.map((t) => t.id));
-
-    const updatedTabs = existingTree.content.tabs
-      .map((existingTab) => {
-        const newTab = newTabsMap.get(existingTab.id);
-        if (newTab) {
-          return {
-            ...existingTab,
-            component: newTab.component,
-            onClose: newTab.onClose,
-            onSelect: newTab.onSelect,
-            label: newTab.label,
-            icon: newTab.icon,
-          };
-        }
-        return existingTab;
-      })
-      .filter((tab) => newTabsMap.has(tab.id));
-
-    const newTabsToAdd = newTree.content.tabs.filter(
-      (tab) => !existingTabIds.has(tab.id),
-    );
-
-    const finalTabs = [...updatedTabs, ...newTabsToAdd];
-
-    const activeTabId = finalTabs.some(
-      (t) => t.id === existingTree.content.activeTabId,
-    )
-      ? existingTree.content.activeTabId
-      : finalTabs[0]?.id || "";
-
-    return {
-      ...existingTree,
-      content: {
-        ...existingTree.content,
-        tabs: finalTabs,
-        activeTabId,
-      },
-    };
-  }
-
-  if (isGroupNode(existingTree) && isGroupNode(newTree)) {
-    const mergedChildren = existingTree.children.map((existingChild, index) => {
-      const newChild = newTree.children[index];
-      if (newChild) {
-        return mergeTreeContent(existingChild, newChild);
-      }
-      return existingChild;
-    });
-
-    const childrenChanged = mergedChildren.some(
-      (child, index) => child !== existingTree.children[index],
-    );
-
-    if (!childrenChanged) {
-      return existingTree;
-    }
-
-    return {
-      ...existingTree,
-      children: mergedChildren,
-    };
-  }
-
-  return existingTree;
-};
-
-export const isLeaf = isLeafNode;
-export const isGroup = isGroupNode;

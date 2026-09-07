@@ -22,7 +22,7 @@ export const PUSH_MAX_CSS = `${PUSH_MAX_SHARE * 100}%`;
 export const ROW_CEILING_CSS = `calc(100% - ${ROW_INSET_PX}px)`;
 
 /** Widest the panel may be drawn in a row this wide. */
-export function panelCeiling(rowWidth: number): number {
+function panelCeiling(rowWidth: number): number {
   return Math.max(0, rowWidth - ROW_INSET_PX);
 }
 

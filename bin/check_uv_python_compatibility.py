@@ -165,6 +165,141 @@ def check_uv_python_compatibility(uv_version: str, python_version: str) -> tuple
         return True, f"unable to verify ({type(e).__name__})"
 
 
+def _section(title: str) -> None:
+    print(title)
+    print("-" * 60)
+
+
+def _divider() -> None:
+    print()
+    print("=" * 60)
+    print()
+
+
+def label_workflow_pins(workflow_usages: dict[str, list[str | None]]) -> tuple[list[str], dict[str, list[str]]]:
+    """Split workflow usages into missing pins and pins grouped by version.
+
+    Returns (missing_pins, pin_locations). Each usage is labelled with its
+    workflow name, plus a `(usage N)` suffix when a workflow has several.
+    """
+    missing_pins: list[str] = []
+    pin_locations: dict[str, list[str]] = {}
+
+    for workflow_name, versions in sorted(workflow_usages.items()):
+        for i, version in enumerate(versions):
+            usage = f"{workflow_name} (usage {i + 1})" if len(versions) > 1 else workflow_name
+            if version is None:
+                missing_pins.append(usage)
+            else:
+                pin_locations.setdefault(version, []).append(usage)
+
+    return missing_pins, pin_locations
+
+
+def check_workflow_pins() -> tuple[bool, str | None]:
+    """Check 1: pins present, exact literals, and identical across workflows.
+
+    Returns (ok, workflow_pin). The pin is the single agreed version, or None
+    when it is missing or ambiguous.
+    """
+    _section("Check 1: CI workflow uv version pins")
+
+    workflow_usages = get_uv_versions_from_workflows()
+    missing_pins, pin_locations = label_workflow_pins(workflow_usages)
+    distinct_pins = set(pin_locations)
+
+    ok = True
+    if missing_pins:
+        print("✗ setup-uv usages missing version pin (add `version: 'x.y.z'`):")
+        for name in missing_pins:
+            print(f"  - {name}")
+        print()
+        print("  Without an exact pin, setup-uv may resolve via GitHub API and")
+        print("  hit rate limits under concurrent load (astral-sh/setup-uv#325).")
+        ok = False
+
+    workflow_pin: str | None = None
+    if len(distinct_pins) > 1:
+        print("✗ setup-uv usages pinned to different versions (must all match):")
+        for pin in sorted(distinct_pins):
+            print(f"  {pin}:")
+            for loc in pin_locations[pin]:
+                print(f"    - {loc}")
+        ok = False
+    elif len(distinct_pins) == 1:
+        workflow_pin = next(iter(distinct_pins))
+        if not missing_pins:
+            print(f"✓ All {sum(len(v) for v in workflow_usages.values())} setup-uv usages pinned to {workflow_pin}")
+    elif not missing_pins:
+        print("⚠ No setup-uv usages found in workflows")
+
+    return ok, workflow_pin
+
+
+def check_floor_satisfied(workflow_pin: str | None, floor: str | None) -> bool:
+    """Check 2: the workflow pin is at or above the pyproject floor."""
+    _section("Check 2: Workflow pin satisfies pyproject floor")
+
+    if not (floor and workflow_pin):
+        print("⚠ Skipped: missing workflow pin or pyproject floor")
+        return True
+
+    try:
+        if parse_version(workflow_pin) >= parse_version(floor):
+            print(f"✓ Workflow pin {workflow_pin} >= pyproject floor {floor}")
+            return True
+        print(f"✗ Workflow pin {workflow_pin} is below pyproject floor {floor}")
+        print("  Either raise the workflow pin or lower the floor.")
+        return False
+    except ValueError as e:
+        print(f"⚠ Skipped: {e}")
+        return True
+
+
+def check_python_downloadable(workflow_pin: str | None, python_version: str) -> bool:
+    """Check 3: the workflow pin can download the required Python version."""
+    _section("Check 3: uv Python compatibility")
+
+    if not workflow_pin:
+        print("⚠ Skipped: no workflow pin to test")
+        return True
+
+    compatible, message = check_uv_python_compatibility(workflow_pin, python_version)
+    if compatible:
+        print(f"✓ uv {workflow_pin} can download Python {python_version}")
+        print(f"  {message}")
+        return True
+
+    print(f"✗ uv {workflow_pin} cannot download Python {python_version}")
+    print(f"  {message}")
+    print()
+    print("  To fix: pick a uv version whose `uv python list X.Y.Z --only-downloads` succeeds.")
+    print("  See: https://github.com/astral-sh/uv/releases")
+    return False
+
+
+def check_flox_alignment(workflow_pin: str | None) -> bool:
+    """Check 4: the flox manifest matches the workflow pin on major.minor."""
+    _section("Check 4: Flox manifest uv version alignment")
+
+    flox_uv = get_uv_version_from_flox()
+    if not flox_uv:
+        print("⚠ Skipped: No flox manifest or uv version found")
+        return True
+    if not workflow_pin:
+        print("⚠ Skipped: No workflow pin to compare against")
+        return True
+
+    flox_mm = ".".join(flox_uv.split(".")[:2])
+    pin_mm = ".".join(workflow_pin.split(".")[:2])
+    if flox_mm == pin_mm:
+        print(f"✓ Flox uv {flox_uv} matches workflow pin {workflow_pin} on major.minor")
+        return True
+    print(f"✗ Flox uv {flox_uv} diverges from workflow pin {workflow_pin}")
+    print("  Update .flox/env/manifest.toml to match the workflow pin.")
+    return False
+
+
 def main() -> int:
     """Main entry point for the validation script."""
     print("Validating uv configuration...")
@@ -180,127 +315,15 @@ def main() -> int:
     floor = get_uv_floor_from_pyproject()
     print(f"uv floor (pyproject.toml): >={floor}" if floor else "uv floor: not set")
 
-    print()
-    print("=" * 60)
-    print()
-
-    # Check 1: workflow pins present, exact, and identical
-    print("Check 1: CI workflow uv version pins")
-    print("-" * 60)
-
-    workflow_usages = get_uv_versions_from_workflows()
-    missing_pins: list[str] = []
-    distinct_pins: set[str] = set()
-    pin_locations: dict[str, list[str]] = {}
-
-    for workflow_name, versions in sorted(workflow_usages.items()):
-        for i, version in enumerate(versions):
-            usage = f"{workflow_name} (usage {i + 1})" if len(versions) > 1 else workflow_name
-            if version is None:
-                missing_pins.append(usage)
-            else:
-                distinct_pins.add(version)
-                pin_locations.setdefault(version, []).append(usage)
-
-    workflow_pin: str | None = None
-    pins_ok = True
-
-    if missing_pins:
-        print("✗ setup-uv usages missing version pin (add `version: 'x.y.z'`):")
-        for name in missing_pins:
-            print(f"  - {name}")
-        print()
-        print("  Without an exact pin, setup-uv may resolve via GitHub API and")
-        print("  hit rate limits under concurrent load (astral-sh/setup-uv#325).")
-        pins_ok = False
-
-    if len(distinct_pins) > 1:
-        print("✗ setup-uv usages pinned to different versions (must all match):")
-        for pin in sorted(distinct_pins):
-            print(f"  {pin}:")
-            for loc in pin_locations[pin]:
-                print(f"    - {loc}")
-        pins_ok = False
-    elif len(distinct_pins) == 1:
-        workflow_pin = next(iter(distinct_pins))
-        if not missing_pins:
-            print(f"✓ All {sum(len(v) for v in workflow_usages.values())} setup-uv usages pinned to {workflow_pin}")
-    elif not missing_pins:
-        print("⚠ No setup-uv usages found in workflows")
-
-    print()
-    print("=" * 60)
-    print()
-
-    # Check 2: workflow pin satisfies pyproject floor
-    print("Check 2: Workflow pin satisfies pyproject floor")
-    print("-" * 60)
-
-    floor_ok = True
-    if floor and workflow_pin:
-        try:
-            if parse_version(workflow_pin) >= parse_version(floor):
-                print(f"✓ Workflow pin {workflow_pin} >= pyproject floor {floor}")
-            else:
-                print(f"✗ Workflow pin {workflow_pin} is below pyproject floor {floor}")
-                print("  Either raise the workflow pin or lower the floor.")
-                floor_ok = False
-        except ValueError as e:
-            print(f"⚠ Skipped: {e}")
-    else:
-        print("⚠ Skipped: missing workflow pin or pyproject floor")
-
-    print()
-    print("=" * 60)
-    print()
-
-    # Check 3: workflow pin can download required Python
-    print("Check 3: uv Python compatibility")
-    print("-" * 60)
-
-    python_ok = True
-    if workflow_pin:
-        compatible, message = check_uv_python_compatibility(workflow_pin, python_version)
-        if compatible:
-            print(f"✓ uv {workflow_pin} can download Python {python_version}")
-            print(f"  {message}")
-        else:
-            print(f"✗ uv {workflow_pin} cannot download Python {python_version}")
-            print(f"  {message}")
-            print()
-            print("  To fix: pick a uv version whose `uv python list X.Y.Z --only-downloads` succeeds.")
-            print("  See: https://github.com/astral-sh/uv/releases")
-            python_ok = False
-    else:
-        print("⚠ Skipped: no workflow pin to test")
-
-    print()
-    print("=" * 60)
-    print()
-
-    # Check 4: flox matches workflow pin on major.minor
-    print("Check 4: Flox manifest uv version alignment")
-    print("-" * 60)
-
-    flox_uv = get_uv_version_from_flox()
-    flox_ok = True
-    if not flox_uv:
-        print("⚠ Skipped: No flox manifest or uv version found")
-    elif not workflow_pin:
-        print("⚠ Skipped: No workflow pin to compare against")
-    else:
-        flox_mm = ".".join(flox_uv.split(".")[:2])
-        pin_mm = ".".join(workflow_pin.split(".")[:2])
-        if flox_mm == pin_mm:
-            print(f"✓ Flox uv {flox_uv} matches workflow pin {workflow_pin} on major.minor")
-        else:
-            print(f"✗ Flox uv {flox_uv} diverges from workflow pin {workflow_pin}")
-            print("  Update .flox/env/manifest.toml to match the workflow pin.")
-            flox_ok = False
-
-    print()
-    print("=" * 60)
-    print()
+    _divider()
+    pins_ok, workflow_pin = check_workflow_pins()
+    _divider()
+    floor_ok = check_floor_satisfied(workflow_pin, floor)
+    _divider()
+    python_ok = check_python_downloadable(workflow_pin, python_version)
+    _divider()
+    flox_ok = check_flox_alignment(workflow_pin)
+    _divider()
 
     if pins_ok and floor_ok and python_ok and flox_ok:
         print("✓ All checks passed")

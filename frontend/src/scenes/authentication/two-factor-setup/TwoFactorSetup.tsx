@@ -12,7 +12,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { twoFactorLogic } from './twoFactorLogic'
 
 export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
-    const { startSetupLoading, startSetup, generalError } = useValues(twoFactorLogic({ onSuccess }))
+    const { startSetupLoading, startSetup, generalError, isTokenSubmitting } = useValues(twoFactorLogic({ onSuccess }))
     if (startSetupLoading) {
         return null
     }
@@ -49,16 +49,33 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                 </div>
                 {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
                 <LemonField name="token" label="Authenticator token">
-                    <LemonInput
-                        className="ph-ignore-input"
-                        autoFocus
-                        data-attr="token"
-                        placeholder="123456"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                    />
+                    {({ value, onChange, id }) => (
+                        <LemonInput
+                            id={id}
+                            className="ph-ignore-input"
+                            autoFocus
+                            data-attr="token"
+                            placeholder="123456"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            value={value ?? ''}
+                            // Password-manager autofill can set the field without firing a React change event.
+                            // Read the value on change, blur, and Enter so the store matches what the field shows.
+                            // Enter submits the form without blurring, so sync the value before validation runs.
+                            onChange={(newValue) => onChange(newValue.replace(/\D/g, ''))}
+                            onBlur={(e) => onChange(e.currentTarget.value.replace(/\D/g, ''))}
+                            onPressEnter={(e) => onChange(e.currentTarget.value.replace(/\D/g, ''))}
+                        />
+                    )}
                 </LemonField>
-                <LemonButton htmlType="submit" data-attr="2fa-setup" fullWidth type="primary" center loading={false}>
+                <LemonButton
+                    htmlType="submit"
+                    data-attr="2fa-setup"
+                    fullWidth
+                    type="primary"
+                    center
+                    loading={isTokenSubmitting}
+                >
                     Submit
                 </LemonButton>
             </Form>
