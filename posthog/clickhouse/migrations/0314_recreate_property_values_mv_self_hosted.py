@@ -1,0 +1,22 @@
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.property_values import (
+    DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL,
+    DROP_PROPERTY_VALUES_MV_SQL,
+    KAFKA_PROPERTY_VALUES_TABLE_SQL_FN,
+    PROPERTY_VALUES_MV_SQL,
+)
+from posthog.run_mode import run_mode
+
+# Recreate property_values_mv and kafka_property_values only on self-hosted / hobby
+# deployments. Cloud already has the corrected schema with property_count column.
+
+if not run_mode().is_deployed_cloud:
+    operations = [
+        run_sql_with_exceptions(DROP_PROPERTY_VALUES_MV_SQL(), node_roles=[NodeRole.AUX]),
+        run_sql_with_exceptions(DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL(), node_roles=[NodeRole.AUX]),
+        run_sql_with_exceptions(KAFKA_PROPERTY_VALUES_TABLE_SQL_FN(), node_roles=[NodeRole.AUX]),
+        run_sql_with_exceptions(PROPERTY_VALUES_MV_SQL(), node_roles=[NodeRole.AUX]),
+    ]
+else:
+    operations = []
