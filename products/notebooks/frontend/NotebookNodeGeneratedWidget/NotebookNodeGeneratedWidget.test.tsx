@@ -355,7 +355,18 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(container.querySelector('iframe')?.getAttribute('title')).toBe('Widget')
     })
 
-    it('requires exact-build consent when the security review passes', async () => {
+    it.each([
+        {
+            label: 'runs a green widget immediately when it has no data access',
+            frameNames: [],
+            autoRuns: true,
+        },
+        {
+            label: 'requires consent for a green widget with dataframe access',
+            frameNames: ['events_df'],
+            autoRuns: false,
+        },
+    ])('$label', async ({ frameNames, autoRuns }) => {
         const versionId = '00000000-0000-0000-0000-000000000008'
         const buildHash = 'c'.repeat(64)
         const securityReview = {
@@ -370,7 +381,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             lifecycle_status: 'ready',
             error_detail: null,
             artifact_url: 'https://example.com/reviewed-widget.html',
-            frame_names: [],
+            frame_names: frameNames,
             current_version_id: versionId,
             widget_id: '00000000-0000-0000-0000-000000000009',
             instance_id: '00000000-0000-0000-0000-000000000010',
@@ -392,7 +403,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                     created_at: '2026-08-31T10:00:00Z',
                     build_status: 'ready',
                     artifact_url: 'https://example.com/reviewed-widget.html',
-                    frame_names: [],
+                    frame_names: frameNames,
                     is_current: true,
                     security_review: securityReview,
                     build_hash: buildHash,
@@ -407,14 +418,13 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        await screen.findByText('Review this widget before running it')
-        expect(container.querySelector('iframe')).toBeNull()
-        expect(screen.getByText('Automated review: No potential issues flagged')).toBeTruthy()
-
-        fireEvent.click(container.querySelector('[data-attr="notebook-widget-run"]')!)
-
-        await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull())
-        expect(container.querySelector('[data-attr="notebook-widget-run"]')).toBeNull()
+        await screen.findByText('Automated review: No potential issues flagged')
+        await waitFor(() => expect(container.querySelector('iframe') !== null).toBe(autoRuns))
+        expect(screen.queryByText('Review this widget before running it') !== null).toBe(!autoRuns)
+        expect(container.querySelector('[data-attr="notebook-widget-run"]') !== null).toBe(!autoRuns)
+        expect(container.querySelector('iframe')?.getAttribute('src') ?? null).toBe(
+            autoRuns ? 'https://example.com/reviewed-widget.html#theme=light' : null
+        )
     })
 
     it('opens regeneration from a failed preview when the filters are closed', async () => {

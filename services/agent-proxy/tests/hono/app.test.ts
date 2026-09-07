@@ -40,6 +40,7 @@ describe('app onError', () => {
             taskId: 'task-abc',
             teamId: 42,
             presenceGated: false,
+            thinTail: false,
             originProduct: 'unknown',
         })
     })
