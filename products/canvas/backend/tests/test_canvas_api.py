@@ -760,10 +760,11 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             self.client.force_login(other_user)
         base = f"/api/projects/{self.team.id}/canvases/{canvas_id}"
 
-        for action, payload in [
+        rename_payloads: list[tuple[str, dict[str, object]]] = [
             ("publish", {"project": self._project()}),
             ("edit", {"operations": [{"path": "src/canvas.tsx", "content": "export default () => 1"}]}),
-        ]:
+        ]
+        for action, payload in rename_payloads:
             with self.subTest(action=action):
                 rename = self.client.post(
                     f"{base}/{action}/",
