@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0064_alter_emailthreadaccountlink_match_source"),
+        ("conversations", "0065_log_ticket_assigned_to_rows"),
     ]
 
     operations = [

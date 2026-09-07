@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("conversations", "0065_drop_ticket_assigned_to_column"),
+        ("conversations", "0066_drop_ticket_assigned_to_column"),
     ]
 
     operations = [

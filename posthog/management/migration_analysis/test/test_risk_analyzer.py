@@ -1261,7 +1261,7 @@ class TestDropTableValidation:
         # name alone, so a staged FK column drop must still resolve to its state removal.
         mock_migration = MagicMock()
         mock_migration.app_label = "conversations"
-        mock_migration.name = "0065_drop_ticket_assigned_to_column"
+        mock_migration.name = "0066_drop_ticket_assigned_to_column"
         mock_migration.dependencies = [("conversations", "0014_remove_ticket_assigned_to")]
 
         drop_op = create_mock_operation(
@@ -1285,12 +1285,12 @@ class TestDropTableValidation:
         mock_loader = MagicMock()
         mock_loader.disk_migrations = {
             ("conversations", "0014_remove_ticket_assigned_to"): parent_migration,
-            ("conversations", "0065_drop_ticket_assigned_to_column"): mock_migration,
+            ("conversations", "0066_drop_ticket_assigned_to_column"): mock_migration,
         }
 
         migration_risk = self.analyzer.analyze_migration_with_context(
             mock_migration,
-            "products/conversations/backend/migrations/0065_drop_ticket_assigned_to_column.py",
+            "products/conversations/backend/migrations/0066_drop_ticket_assigned_to_column.py",
             mock_loader,
         )
 
