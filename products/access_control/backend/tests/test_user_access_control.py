@@ -130,6 +130,21 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert self.user_access_control._user_role_ids == [self.role_a.id]
         assert self.user_access_control.get_user_access_level(self.team) == expected_level
 
+    def test_role_membership_linked_to_another_organization_is_ignored(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._create_access_control(resource_id=str(self.team.id), access_level="none")
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        RoleMembership.objects.create(role=self.role_b, user=self.user, organization_member=other_membership)
+        self._create_access_control(resource_id=str(self.team.id), access_level="admin", role=self.role_b)
+
+        self._clear_uac_caches()
+        assert self.user_access_control._user_role_ids == [self.role_a.id]
+        assert self.user_access_control.get_user_access_level(self.team) == "none"
+
     @parameterized.expand(
         [
             ("denial", "none", "member", "member"),
@@ -1759,6 +1774,22 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         resource_access = self.user_access_control.access_level_for_resource("session_recording_playlist")
         assert resource_access and resource_access.access_level == "none"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is False
+
+    def test_customer_task_inherits_customer_analytics_access(self):
+        assert RESOURCE_INHERITANCE_MAP["customer_task"] == "customer_analytics"
+
+        self._create_access_control(
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        customer_task_access = self.user_access_control.access_level_for_resource("customer_task")
+        assert customer_task_access and customer_task_access.access_level == "viewer"
+        assert self.user_access_control.check_access_level_for_resource("customer_task", "viewer") is True
+        assert self.user_access_control.check_access_level_for_resource("customer_task", "editor") is False
 
     def test_support_ticket_rule_does_not_gate_the_posthog_ai_conversation_scope(self):
         """`conversation` must not inherit from `ticket`.

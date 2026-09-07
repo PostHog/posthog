@@ -105,8 +105,24 @@ class MetricQuality(StrEnum):
 
 
 class WorkflowHealthRunScope(StrEnum):
+    """Which population of runs a workflow surface reports on.
+
+    - ``all``: every run in the window.
+    - ``default_branch``: runs whose head branch is master or main.
+    - ``pull_request``: runs on a non-default branch that carry PR attribution and are not
+      merge-queue gate runs.
+    - ``merge_queue``: gate runs the merge queue fired before a merge landed.
+
+    The three narrow values never overlap, so a caller can compare them without double-counting.
+    They do not cover ``all``: a run on a non-default branch with no PR attribution (a fork PR,
+    a release branch) appears only under ``all``, because GitHub does not associate a fork PR
+    with its runs.
+    """
+
     ALL = "all"
+    DEFAULT_BRANCH = "default_branch"
     PULL_REQUEST = "pull_request"
+    MERGE_QUEUE = "merge_queue"
 
 
 class BrokenTestState(StrEnum):
@@ -1042,6 +1058,10 @@ class WorkflowHealthItem:
     # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
     # a duration comparison should size its min-sample gate on this, not on `successful_run_count`.
     percentile_run_count: int = 0
+    # Runs on merge-queue gate branches in the window, counted regardless of the branch/run_scope
+    # filter, so the list can rank queue-gating workflows (the closest proxy for a required check)
+    # even when a scope is active.
+    merge_queue_run_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -1336,18 +1356,12 @@ class DoraOverview:
 
     # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
     deploy_data_available: bool
-    # What the environment filter resolved to: the exact environment name(s) it matches —
-    # the caller's picks (comma-joined when several), or by default the busiest environment
-    # GitHub marks production, falling back to the busiest persistent environment, so a
-    # multi-region repo doesn't multiply every count — or 'persistent' (no persistent
-    # environment deployed in the window at all, so every non-transient one counts). Transient
-    # environments (ephemeral per-PR previews) never join a default scope. The scope resolves
-    # from deployments in the scan window, so two different windows can resolve different
-    # scopes and are not always comparable.
+    # Display label only; selected_environments carries the exact names without delimiter ambiguity.
     environment_scope: str
     # Distinct persistent environments deployed to in the scan window, most-deployed first — the
     # picker's options. Transient environments are omitted but stay reachable by exact name.
     environments: list[str]
+    selected_environments: list[str]
     # True when the optional team-membership snapshot is synced (the github_team filter's substrate).
     has_membership_data: bool
     # Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options.
