@@ -1404,6 +1404,12 @@ export interface ClusteringRunRequestApi {
      */
     hdbscan_min_samples?: number
     /**
+     * Maximum cluster size as fraction of total samples (e.g., 0.5 = 50%). A cluster above this is split into its sub-clusters
+     * @minimum 0.02
+     * @maximum 1
+     */
+    max_cluster_size_fraction?: number
+    /**
      * Minimum number of clusters to try for k-means
      * @minimum 2
      * @maximum 50

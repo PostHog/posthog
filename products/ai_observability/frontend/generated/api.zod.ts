@@ -1003,6 +1003,10 @@ export const llmAnalyticsClusteringRunsCreateBodyMinClusterSizeFractionMax = 0.5
 export const llmAnalyticsClusteringRunsCreateBodyHdbscanMinSamplesDefault = 5
 export const llmAnalyticsClusteringRunsCreateBodyHdbscanMinSamplesMax = 100
 
+export const llmAnalyticsClusteringRunsCreateBodyMaxClusterSizeFractionDefault = 0.5
+export const llmAnalyticsClusteringRunsCreateBodyMaxClusterSizeFractionMin = 0.02
+export const llmAnalyticsClusteringRunsCreateBodyMaxClusterSizeFractionMax = 1
+
 export const llmAnalyticsClusteringRunsCreateBodyKmeansMinKDefault = 2
 export const llmAnalyticsClusteringRunsCreateBodyKmeansMinKMin = 2
 export const llmAnalyticsClusteringRunsCreateBodyKmeansMinKMax = 50
@@ -1069,6 +1073,14 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
             .max(llmAnalyticsClusteringRunsCreateBodyHdbscanMinSamplesMax)
             .default(llmAnalyticsClusteringRunsCreateBodyHdbscanMinSamplesDefault)
             .describe('HDBSCAN min_samples parameter (higher = more conservative clustering)'),
+        max_cluster_size_fraction: zod
+            .number()
+            .min(llmAnalyticsClusteringRunsCreateBodyMaxClusterSizeFractionMin)
+            .max(llmAnalyticsClusteringRunsCreateBodyMaxClusterSizeFractionMax)
+            .default(llmAnalyticsClusteringRunsCreateBodyMaxClusterSizeFractionDefault)
+            .describe(
+                'Maximum cluster size as fraction of total samples (e.g., 0.5 = 50%). A cluster above this is split into its sub-clusters'
+            ),
         kmeans_min_k: zod
             .number()
             .min(llmAnalyticsClusteringRunsCreateBodyKmeansMinKMin)
