@@ -11,6 +11,7 @@ from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
+from posthog.personhog_client.client import PersonHogNotConfigured
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -254,22 +255,40 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         mock_skip_counter.labels.assert_called_once_with(namespace="feature_flags", value="flags_with_cohorts.json")
         assert mock_skip_counter.labels.return_value.inc.call_count == 1
 
+    @parameterized.expand(
+        [
+            # A personhog outage is an incident an operator can act on, so it is captured.
+            ("personhog_outage", None, True),
+            # A deployment with no PERSONHOG_ADDR skips every rebuild for the life of the
+            # process. Capturing that repeats one unchanging fact and buries the outages.
+            ("personhog_not_configured", PersonHogNotConfigured("personhog client not configured"), False),
+        ]
+    )
+    @patch("posthog.utils.capture_exception")
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_REBUILD_SKIPPED_COUNTER")
-    def test_skips_write_on_group_types_unavailable(self, mock_skipped_counter):
+    def test_skips_write_on_group_types_unavailable(
+        self, _name, cause, expect_capture, mock_skipped_counter, mock_capture
+    ):
+        safe_cache_delete("flag_cache_group_types_unavailable_capture_throttle")
+
         # Warm with the real fetch so a prior good entry exists
         update_flag_caches(self.team)
         assert self._cached_group_type_mapping() == {"0": "organization"}
 
+        unavailable = GroupTypesUnavailable([self.team.project_id])
+        unavailable.__cause__ = cause
+
         # Persons DB now unavailable with no recoverable last-known-good
         with patch(
             "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
-            side_effect=GroupTypesUnavailable([self.team.project_id]),
+            side_effect=unavailable,
         ):
             with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
                 update_flag_caches(self.team)
                 mock_set.assert_not_called()
 
         mock_skipped_counter.labels.assert_called_once_with(namespace="feature_flags", reason="group_types_unavailable")
+        assert mock_capture.called is expect_capture
         # Prior good entry survives untouched
         assert self._cached_group_type_mapping() == {"0": "organization"}
 
