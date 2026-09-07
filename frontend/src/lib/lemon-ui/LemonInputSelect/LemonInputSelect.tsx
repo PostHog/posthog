@@ -465,6 +465,11 @@ export function LemonInputSelect<T = string>({
             onChange?.([actualTypedValue])
             return
         }
+        // Option rows disable themselves at the limit, but Enter and blur add values without
+        // going through a row, so the cap has to hold here as well.
+        if (currentValues.length >= limit && !currentValues.includes(actualTypedValue)) {
+            return
+        }
         if (mode === 'multiple' && inputValue) {
             setFrozenOptions(visibleOptions.filter((o) => !o.__isInput))
         }

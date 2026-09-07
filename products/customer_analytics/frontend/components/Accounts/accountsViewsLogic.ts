@@ -18,7 +18,7 @@ import type { UserType } from '../../../../../frontend/src/types'
 import { ACCOUNTS_COLUMN_CONFIG_KEY, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import { accountsLogic } from './accountsLogic'
-import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
+import type { AccountSortOrder, AssignmentStatus, RoleFilterValue } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
 import type { AccountsOverviewTile, TileFilter } from './accountsOverviewTilesLogic'
 import type { AccountFilter } from './accountsPropertyFilters'
@@ -38,8 +38,8 @@ export interface accountsViewsLogicValues {
     columnDisplay: AccountColumnDisplayState // accountsColumnConfigLogic
     selectColumns: string[] // accountsColumnConfigLogic
     accountFilters: AccountFilter[] // accountsLogic
-    allRolesUnassigned: boolean // accountsLogic
     assignedToFilter: RoleFilterValue // accountsLogic
+    assignmentStatus: AssignmentStatus // accountsLogic
     searchQuery: string // accountsLogic
     sortOrder: AccountSortOrder // accountsLogic
     tagsFilter: string[] // accountsLogic
@@ -122,11 +122,11 @@ export interface accountsViewsLogicActions {
     setAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
     } // accountsLogic
-    setAllRolesUnassigned: (value: boolean) => {
-        value: boolean
-    } // accountsLogic
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
+    } // accountsLogic
+    setAssignmentStatus: (status: AssignmentStatus) => {
+        status: AssignmentStatus
     } // accountsLogic
     setAwaitingSavedView: (awaiting: boolean) => {
         awaiting: boolean
@@ -366,7 +366,7 @@ export interface accountsViewsLogicMeta {
             selectColumns: string[],
             searchQuery: string,
             tagsFilter: string[],
-            allRolesUnassigned: boolean,
+            assignmentStatus: AssignmentStatus,
             assignedToFilter: RoleFilterValue,
             sortOrder: AccountSortOrder,
             tileFilter: TileFilter | null,
@@ -398,7 +398,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             accountsColumnConfigLogic,
             ['selectColumns', 'columnDisplay'],
             accountsLogic,
-            ['searchQuery', 'tagsFilter', 'allRolesUnassigned', 'assignedToFilter', 'sortOrder', 'accountFilters'],
+            ['searchQuery', 'tagsFilter', 'assignmentStatus', 'assignedToFilter', 'sortOrder', 'accountFilters'],
             accountsOverviewTilesLogic,
             ['tiles', 'tileFilter'],
         ],
@@ -409,7 +409,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             [
                 'setSearchQuery',
                 'setTagsFilter',
-                'setAllRolesUnassigned',
+                'setAssignmentStatus',
                 'setAssignedToFilter',
                 'setSortOrder',
                 'setAccountFilters',
@@ -515,7 +515,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 s.selectColumns,
                 s.searchQuery,
                 s.tagsFilter,
-                s.allRolesUnassigned,
+                s.assignmentStatus,
                 s.assignedToFilter,
                 s.sortOrder,
                 s.tileFilter,
@@ -527,7 +527,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 selectColumns: string[],
                 searchQuery: string,
                 tagsFilter: string[],
-                allRolesUnassigned: boolean,
+                assignmentStatus: AssignmentStatus,
                 assignedToFilter: import('./accountsLogic').RoleFilterValue,
                 sortOrder: import('./accountsLogic').AccountSortOrder,
                 tileFilter: null | import('./accountsOverviewTilesLogic').TileFilter,
@@ -539,9 +539,9 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 sortOrder,
                 filters: {
                     search: searchQuery,
-                    tags: tagsFilter,
-                    unassigned: allRolesUnassigned,
+                    assignmentStatus,
                     assignedTo: assignedToFilter,
+                    tags: tagsFilter,
                     tileFilter,
                     customProperties: accountFilters,
                 },
@@ -615,10 +615,11 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             actions.setColumnDisplayConfig(state.columnDisplay)
             actions.setSearchQuery(state.filters.search)
             actions.setTagsFilter(state.filters.tags)
-            // accountsLogic cross-clears the assigned-to filter vs "unassigned only", so set the
-            // unassigned flag first so the assigned-to filter below isn't wiped by that cross-listener.
-            actions.setAllRolesUnassigned(state.filters.unassigned)
-            actions.setAssignedToFilter(state.filters.assignedTo)
+            // accountsLogic cross-clears the assigned-to filter when the status is not
+            // `assigned`, so set the status first, then restore the users (only meaningful
+            // within the assigned status) so they aren't wiped by that cross-listener.
+            actions.setAssignmentStatus(state.filters.assignmentStatus)
+            actions.setAssignedToFilter(state.filters.assignmentStatus === 'assigned' ? state.filters.assignedTo : [])
             actions.setAccountFilters(state.filters.customProperties)
             actions.setSortOrder(state.sortOrder)
             actions.setTiles(state.tiles)

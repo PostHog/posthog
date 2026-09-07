@@ -93,7 +93,7 @@ export const NotebooksCreateBody = () => zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -167,7 +167,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -256,7 +256,7 @@ export const NotebooksSqlV2RunsInterruptCreateParams = () => zod.object({
 })
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
  */
 export const NotebooksSqlV2StateRetrieveParams = () => zod.object({
     project_id: zod

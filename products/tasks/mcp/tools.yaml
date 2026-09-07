@@ -46,6 +46,8 @@ tools:
                 description: ID of the channel whose instructions to read.
         feature_flag: context-layer
         feature_flag_behavior: disable
+        superseded_by:
+            - context-wiki-page-retrieve
     channel-instructions-update:
         operation: task_channels_instructions_update
         enabled: true
@@ -67,6 +69,8 @@ tools:
                 input_schema: ChannelInstructionsBaseVersionSchema
         feature_flag: context-layer
         feature_flag_behavior: disable
+        superseded_by:
+            - context-wiki-page-update
     channel-list:
         operation: task_channels_list
         enabled: true
