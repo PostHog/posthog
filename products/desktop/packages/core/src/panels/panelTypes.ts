@@ -1,3 +1,5 @@
+import type { InjectedBlock } from "../editor/injectedBlocks";
+
 export type PanelId = string;
 export type TabId = string;
 export type GroupId = string;
@@ -28,25 +30,10 @@ export type TabData =
       type: "review";
     }
   | {
-      // A read-only snapshot of a channel's CONTEXT.md, shown exactly as it was
-      // sent with the task's prompt (carried inline, not fetched from disk).
-      type: "context";
-      channelName: string | null;
-      body: string;
-    }
-  | {
-      // A read-only snapshot of the canvas generation instructions (authoring
-      // contract + publishing/data rules) sent with a canvas-generation task's
-      // prompt, shown exactly as the agent received them.
-      type: "canvas-instructions";
-      body: string;
-    }
-  | {
-      // A read-only snapshot of the PostHog app context blocks sent with a
-      // message from the web app's AI chat, shown exactly as the agent received
-      // them.
-      type: "posthog-context";
-      body: string;
+      // A read-only snapshot of a block folded into a prompt at send time,
+      // shown exactly as the agent received it.
+      type: "injected-block";
+      block: InjectedBlock;
     }
   | {
       type: "autoresearch";

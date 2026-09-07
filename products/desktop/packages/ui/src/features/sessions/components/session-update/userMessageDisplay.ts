@@ -1,55 +1,34 @@
-import { extractCanvasInstructions } from "./canvasInstructions";
-import { extractChannelContext } from "./channelContext";
-import { extractCustomInstructions } from "./customInstructions";
-import { extractOnboardingBrief } from "./onboardingBrief";
-import { extractPeerAgentMessage } from "./peerAgentMessage";
+import {
+  type InjectedBlock,
+  splitInjectedBlocks,
+} from "@posthog/core/editor/injectedBlocks";
+import {
+  extractPeerAgentMessage,
+  type PeerAgentMessage,
+} from "./peerAgentMessage";
 import { collapsePiSkillInvocation } from "./piSkillInvocation";
-import { extractPosthogContext } from "./posthogContext";
 
-// A stored user message can carry blocks folded in at send time that nobody
-// typed. Every surface showing the message peels the same blocks in the same
-// order from here, so a new block cannot be handled in the bubble yet still leak
-// as raw XML through the jump picker or the minimap. The bubble puts each
-// extracted block behind its own tag; surfaces that only label a message take
-// `displayContent`.
 export interface UserMessageParts {
-  peerAgentMessage: ReturnType<typeof extractPeerAgentMessage>;
-  posthogContext: ReturnType<typeof extractPosthogContext>;
-  channelContext: ReturnType<typeof extractChannelContext>;
-  canvasInstructions: ReturnType<typeof extractCanvasInstructions>;
-  customInstructions: ReturnType<typeof extractCustomInstructions>;
-  onboardingBrief: ReturnType<typeof extractOnboardingBrief>;
-  /** What the user wrote, with every injected block peeled off. */
+  peerAgentMessage: PeerAgentMessage | null;
+  /** Everything folded into the message at send time, in registry order. */
+  blocks: InjectedBlock[];
+  /** What the user wrote. */
   displayContent: string;
 }
 
+// Every surface that shows a user message reads it through here: the bubble
+// puts each block behind a chip, and surfaces that only label a message take
+// `displayContent`. A message relayed from another agent run carries the
+// sender's body inside a provenance envelope, so that unwraps first.
 export function splitUserMessage(content: string): UserMessageParts {
-  // A message relayed from another agent run carries the sender's body inside a
-  // provenance envelope, so unwrap that before looking for injected blocks.
   const peerAgentMessage = extractPeerAgentMessage(content);
-  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
-  const posthogContext = extractPosthogContext(baseContent);
-  const afterPosthogContext = posthogContext?.stripped ?? baseContent;
-  const channelContext = extractChannelContext(afterPosthogContext);
-  const afterChannelContext = channelContext?.stripped ?? afterPosthogContext;
-  const canvasInstructions = extractCanvasInstructions(afterChannelContext);
-  const afterCanvasInstructions =
-    canvasInstructions?.stripped ?? afterChannelContext;
-  const customInstructions = extractCustomInstructions(afterCanvasInstructions);
-  const afterCustomInstructions =
-    customInstructions?.stripped ?? afterCanvasInstructions;
-  const onboardingBrief = extractOnboardingBrief(afterCustomInstructions);
-
+  const { blocks, text } = splitInjectedBlocks(
+    peerAgentMessage ? peerAgentMessage.body : content,
+  );
   return {
     peerAgentMessage,
-    posthogContext,
-    channelContext,
-    canvasInstructions,
-    customInstructions,
-    onboardingBrief,
-    displayContent: collapsePiSkillInvocation(
-      onboardingBrief?.stripped ?? afterCustomInstructions,
-    ),
+    blocks,
+    displayContent: collapsePiSkillInvocation(text),
   };
 }
 

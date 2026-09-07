@@ -1,8 +1,6 @@
 import {
-  AppWindow,
   Check,
   Copy,
-  FileText,
   Robot,
   Scroll,
   ThumbsDown,
@@ -10,7 +8,6 @@ import {
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -46,12 +43,10 @@ import type {
   AgentConversationEvent,
   AgentTurnFeedbackSentiment,
 } from "@posthog/shared";
-import { ANALYTICS_EVENTS, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import type {
   BuildResult,
   ConversationItem,
@@ -99,15 +94,13 @@ import { GitActionResult } from "@posthog/ui/features/sessions/components/GitAct
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import {
-  ONBOARDING_BRIEF_LABEL,
-  ONBOARDING_BRIEF_TOOLTIP,
-} from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
+import { InjectedBlockChips } from "@posthog/ui/features/sessions/components/session-update/InjectedBlockChips";
 import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
+import { useVisibleInjectedBlocks } from "@posthog/ui/features/sessions/components/session-update/useVisibleInjectedBlocks";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -512,11 +505,9 @@ function CopyButton({ value, label }: { value: string; label: string }) {
  * from character count (it depends on wrapping width), so we measure `scrollHeight` against the
  * clamped `clientHeight` — which holds even while clamped — and re-measure on resize.
  *
- * A channel's CONTEXT.md and the canvas generation instructions, if injected into this prompt, are
- * collapsed into a clickable `ChatMessageHeader` chip above the bubble (opening the snapshot as a
- * split tab) rather than rendered inline — a project-bluebird feature. The blocks are always stripped
- * (along with the always-on personalization block) so the raw XML never leaks for flag-off viewers.
- * The send timestamp sits in a `ChatMessageFooter` revealed on hover.
+ * Blocks folded into the prompt at send time (see `INJECTED_BLOCK_PRESENTATION`) collapse into
+ * `ChatMessageHeader` chips above the bubble instead of rendering inline. The send timestamp sits
+ * in a `ChatMessageFooter` revealed on hover.
  */
 function UserBubble({
   content,
@@ -529,42 +520,18 @@ function UserBubble({
   attachments?: UserMessageAttachment[];
   keyboardFocused?: boolean;
 }) {
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
   // A message relayed from another agent run renders as an incoming agent
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
-  const {
-    peerAgentMessage,
-    posthogContext,
-    channelContext,
-    canvasInstructions,
-    onboardingBrief,
-    displayContent,
-  } = useMemo(() => splitUserMessage(content), [content]);
-  const showChannelContextTag = !!channelContext && bluebirdEnabled;
-  const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
-  const showPosthogContextTag = !!posthogContext && bluebirdEnabled;
+  const { peerAgentMessage, blocks, displayContent } = useMemo(
+    () => splitUserMessage(content),
+    [content],
+  );
+  const visibleBlocks = useVisibleInjectedBlocks(blocks);
   // Provenance is never flag-gated: a peer message must not read as the user's.
-  const showHeaderChips =
-    !!peerAgentMessage ||
-    showChannelContextTag ||
-    showCanvasInstructionsTag ||
-    showPosthogContextTag ||
-    !!onboardingBrief;
+  const showHeaderChips = !!peerAgentMessage || visibleBlocks.length > 0;
   const taskId = useSessionTaskId();
-  const openChannelContextInSplit = usePanelLayoutStore(
-    (s) => s.openChannelContextInSplit,
-  );
-  const openCanvasInstructionsInSplit = usePanelLayoutStore(
-    (s) => s.openCanvasInstructionsInSplit,
-  );
-  const openPosthogContextInSplit = usePanelLayoutStore(
-    (s) => s.openPosthogContextInSplit,
-  );
 
   const footerRevealed = useContext(FooterRevealContext);
 
@@ -580,60 +547,7 @@ function UserBubble({
                   label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
                 />
               )}
-              {onboardingBrief && (
-                <MentionChip
-                  icon={<Robot size={12} />}
-                  label={ONBOARDING_BRIEF_LABEL}
-                  tooltip={ONBOARDING_BRIEF_TOOLTIP}
-                />
-              )}
-              {showChannelContextTag && channelContext && (
-                <MentionChip
-                  icon={<FileText size={12} />}
-                  label={`${
-                    channelContext.mention.name
-                      ? `${channelDisplayLabel(channelContext.mention.name)} `
-                      : ""
-                  }CONTEXT.md`}
-                  onClick={
-                    taskId
-                      ? () =>
-                          openChannelContextInSplit(taskId, {
-                            channelName: channelContext.mention.name,
-                            body: channelContext.mention.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
-              {showCanvasInstructionsTag && canvasInstructions && (
-                <MentionChip
-                  icon={<Scroll size={12} />}
-                  label="Canvas instructions"
-                  onClick={
-                    taskId
-                      ? () =>
-                          openCanvasInstructionsInSplit(taskId, {
-                            body: canvasInstructions.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
-              {showPosthogContextTag && posthogContext && (
-                <MentionChip
-                  icon={<AppWindow size={12} />}
-                  label="PostHog context"
-                  onClick={
-                    taskId
-                      ? () =>
-                          openPosthogContextInSplit(taskId, {
-                            body: posthogContext.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
+              <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </ChatMessageHeader>
           )}
           {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
