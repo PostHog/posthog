@@ -1,7 +1,7 @@
 """DRF viewsets exposing the Signals scout surface over HTTP for MCP consumption.
 
 These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
-(and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
+(and any other agent on the team's PostHog MCP) can call the scout
 tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
 `memory-create`, `memory-delete`, `project-profile-get`, and `members-list` — over
 the standard PostHog MCP plumbing.
@@ -67,7 +67,7 @@ from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
-from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
+from products.signals.backend.scout_harness.lazy_seed import SCOUT_SKILL_CATEGORY, scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
@@ -1478,7 +1478,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Leave a note for the scouts",
         description=(
             "Leave a steering note the scout fleet reads on its next runs. Address it to one scout "
-            "via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved "
+            "via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved "
             "audience (`pipeline:report-research`), or omit it for a general note every scout sees. "
             "Each call creates a new note (no upsert); delete retires one. Attributed to the "
             "authenticated user."
@@ -1912,6 +1912,13 @@ def create_scout_for_source(
             request=request,
             serializer_context=serializer_context,
         )
+        # `create_skill` derives the server-owned `category` from the name prefix, so a scout under
+        # any other name lands uncategorized: off the skills UI's Scouts tab, and refused by the
+        # duplicate-name branch above, which reads the category as proof that the stored skill is a
+        # scout. Stamp after the config row exists, since that row is what makes it one. The
+        # queryset update leaves the in-memory row stale, so mirror it onto the returned instance.
+        ensure_scout_category(team.id, skill_name=name)
+        skill.category = SCOUT_SKILL_CATEGORY
 
     return ScoutCreationOutcome(skill=skill, config=config, created=skill_created or config_created)
 
@@ -2126,7 +2133,8 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create a scout",
         description=(
-            "Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the "
+            "Create a scout skill and its runnable config atomically. Any valid skill name works — the "
+            "config row is what makes the skill a scout. The skill always receives the "
             "report-channel tools. The optional config controls schedule, enablement, dry-run posture, network "
             "access, and typed destinations such as Slack. Repeating the same definition is safe and applies any "
             "supplied config fields; "
@@ -2189,8 +2197,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     `readOnly`, so it must never write. `create`, `partial_update`, and `destroy` are
     user-grantable writes (`signal_scout:write`) — config changes drive spend, so enablement is
     activity-logged and `enabled_by` records who flipped it on. `create` exists so a freshly
-    authored `signals-scout-*` skill can be configured immediately instead of waiting for the
-    coordinator tick to auto-register a row. `destroy` removes a row outright — the cleanup path
+    authored skill can be configured immediately instead of waiting for the coordinator tick to
+    auto-register a row — and it is the only way a skill without the `signals-scout-` prefix
+    becomes a scout, since auto-registration still scans for that prefix. `destroy` removes a row outright — the cleanup path
     for an orphaned config whose skill was archived/deleted, which `partial_update` can only make
     inert (`enabled=false`), not remove.
     """
@@ -2207,14 +2216,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        # Setting a `structured_output_schema` injects text a privileged agent reads verbatim in
-        # its run prompt (schema `description` fields are free prose), so it is skill-authoring-level
-        # steering: keys need `llm_skill:write` on top of the config write — the same two-leg gate as
-        # scout notes. Only the *setting* write escalates; reads, other config edits, and clearing
-        # the schema (privilege-reducing) stay on the base config scopes.
-        if getattr(view, "action", None) in ("create", "partial_update") and self._sets_structured_output_schema(
-            request
-        ):
+        # Registering a config puts a skill on the schedule under any name, and the skill body is
+        # the run's whole prompt, so `create` carries the skill-authoring scope on top of the config
+        # write — the same two-leg gate as creating a scout from scratch and as scout notes.
+        # On `partial_update` only setting a `structured_output_schema` escalates, because the
+        # schema is rendered verbatim into the run prompt (its `description` fields are free prose).
+        # Reads, other config edits, and clearing the schema stay on the base config scopes.
+        action = getattr(view, "action", None)
+        if action == "create":
+            return ["signal_scout:write", "llm_skill:write"]
+        if action == "partial_update" and self._sets_structured_output_schema(request):
             return ["signal_scout:write", "llm_skill:write"]
         return None
 
@@ -2223,13 +2234,23 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.data
         return isinstance(data, dict) and data.get("structured_output_schema") is not None
 
-    def _assert_can_author_structured_output_schema(self) -> None:
-        # RBAC leg of the schema-write gate, mirroring the scout-notes steering gate: session
-        # callers (and key holders) must clear the same `llm_skill` editor bar that editing a
-        # scout's skill body requires, bound to the canonical team whose scouts read the prompt.
+    def _has_skill_editor_access(self) -> bool:
+        # RBAC leg of the skill-authoring gates, bound to the canonical team whose scouts read the
+        # prompt: session callers (and key holders) must clear the same `llm_skill` editor bar
+        # that editing a scout's skill body requires.
         canonical_team = self.team.parent_team or self.team
         access = UserAccessControl(user=cast(User, self.request.user), team=canonical_team)
-        if not access.check_access_level_for_resource("llm_skill", "editor"):
+        return access.check_access_level_for_resource("llm_skill", "editor")
+
+    def _assert_can_register_scout(self) -> None:
+        if not self._has_skill_editor_access():
+            raise exceptions.PermissionDenied(
+                "Registering a scout config requires editor access to skills, since the skill body "
+                "is the prompt the scout agent runs."
+            )
+
+    def _assert_can_author_structured_output_schema(self) -> None:
+        if not self._has_skill_editor_access():
             raise exceptions.PermissionDenied(
                 "Setting structured_output_schema requires editor access to skills, since the schema "
                 "is read verbatim by the scout agent."
@@ -2283,27 +2304,30 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(
                 description=(
-                    "No such skill on this project, the name lacks the `signals-scout-` prefix, "
+                    "No such skill on this project, the name is reserved by the inbox, "
                     "or the project is already at its enabled-scouts maximum."
                 )
             ),
+            403: OpenApiResponse(description="The caller lacks editor access to skills on this project."),
         },
         summary="Create a scout config",
         description=(
-            "Register the config for a `signals-scout-*` skill immediately, without waiting "
-            "for the coordinator to auto-register it. The same call can optionally set "
+            "Register the config for a skill immediately, without waiting for the coordinator "
+            "to auto-register it — and the way to make a skill without the `signals-scout-` "
+            "prefix a scout at all. The same call can optionally set "
             "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, "
             "and output destinations. "
             "The skill must already exist on this project. Upsert: if a config already exists "
-            "for the skill, the provided fields are applied to it."
+            "for the skill, the provided fields are applied to it. Registering puts the skill's "
+            "body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and "
+            "editor access to skills on top of `signal_scout:write`, like creating a scout."
         ),
         operation_id="signals_scout_config_create",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team = _canonical_team(self)
         team_id = team.id
-        if self._sets_structured_output_schema(request):
-            self._assert_can_author_structured_output_schema()
+        self._assert_can_register_scout()
         serializer = SignalScoutConfigCreateSerializer(
             data=request.data,
             context={**self.get_serializer_context(), "project_id": self.team.project_id},
@@ -2525,12 +2549,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Delete a scout config",
         description=(
             "Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row "
-            "outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was "
+            "outright. The point is cleaning up an orphaned config whose skill was "
             "archived or deleted — it lingers in `list` with an empty `description`, never runs (the "
             "coordinator skips it and the skill can't load), but can't otherwise be removed over the "
-            "API. Deletion is activity-logged. Note: if the skill still exists, the coordinator "
-            "re-creates a default-schedule config on its next tick — to retire a live scout, archive "
-            "its skill (or set `enabled=false` to make it inert) rather than deleting the config."
+            "API. Deletion is activity-logged. Note: auto-registration only scans live "
+            "`signals-scout-*` skills, so a config deleted for one of those is back on the "
+            "coordinator's next tick. A scout under any other name does not come back on its own: "
+            "its config stays deleted until you re-register it, and its skill still reads as a "
+            "scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to "
+            "make it inert) rather than deleting the config."
         ),
         operation_id="signals_scout_config_destroy",
     )
