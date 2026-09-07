@@ -52,6 +52,18 @@ describe('newWorkflowLogic', () => {
     describe('trigger prefill forwarding', () => {
         const triggerJson = '{"type":"batch","filters":{}}'
 
+        it('showNewWorkflowModalForPrefill opens the modal in place with the prefill on the URL', () => {
+            const logic = newWorkflowLogic()
+            logic.mount()
+            router.actions.push('/cohorts/6', { page: '1' }, {})
+
+            logic.actions.showNewWorkflowModalForPrefill(triggerJson, 'email')
+
+            expect(logic.values.newWorkflowModalVisible).toBe(true)
+            expect(router.values.location.pathname).toBe('/cohorts/6')
+            expect(router.values.searchParams).toEqual({ page: '1', trigger: triggerJson, scaffold: 'email' })
+        })
+
         it.each([
             ['createWorkflowFromTemplate', { templateId: 'template-1' }],
             ['createEmptyWorkflow', {}],

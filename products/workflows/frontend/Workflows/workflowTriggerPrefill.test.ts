@@ -1,13 +1,11 @@
 import type { HogFlow } from './hogflows/types'
 import {
-    SCAFFOLD_PREFILL_PARAM,
-    TRIGGER_PREFILL_PARAM,
     type WorkflowTriggerConfig,
     applyEmailScaffold,
+    applyTriggerPrefill,
     parseWorkflowScaffold,
     parseWorkflowTriggerPrefill,
-    urlForNewWorkflowWithTrigger,
-    urlForWorkflowChooserWithTrigger,
+    serializeWorkflowTriggerPrefill,
 } from './workflowTriggerPrefill'
 
 describe('workflowTriggerPrefill', () => {
@@ -16,11 +14,8 @@ describe('workflowTriggerPrefill', () => {
         filters: { properties: [{ key: 'id', type: 'cohort', value: 7, operator: 'in' }] },
     }
 
-    it('round-trips a trigger config through the URL', () => {
-        const url = urlForNewWorkflowWithTrigger(config)
-        const raw = new URLSearchParams(url.split('?')[1]).get(TRIGGER_PREFILL_PARAM)
-
-        expect(parseWorkflowTriggerPrefill(raw ?? undefined)).toEqual(config)
+    it('round-trips a trigger config through serialize and parse', () => {
+        expect(parseWorkflowTriggerPrefill(serializeWorkflowTriggerPrefill(config))).toEqual(config)
     })
 
     it.each([
@@ -32,25 +27,24 @@ describe('workflowTriggerPrefill', () => {
         expect(parseWorkflowTriggerPrefill(raw)).toBeNull()
     })
 
-    it('urlForWorkflowChooserWithTrigger opens the chooser modal with the prefill params attached', () => {
-        const url = urlForWorkflowChooserWithTrigger(config, 'email')
-        const [path, rest] = url.split('?')
-        const [search, hash] = rest.split('#')
-        const params = new URLSearchParams(search)
-
-        expect(path).toBe('/workflows')
-        expect(hash).toContain('newWorkflow')
-        expect(parseWorkflowTriggerPrefill(params.get(TRIGGER_PREFILL_PARAM) ?? undefined)).toEqual(config)
-        expect(params.get(SCAFFOLD_PREFILL_PARAM)).toBe('email')
-    })
-
-    it('round-trips the email scaffold through the URL and rejects unknown scaffolds', () => {
-        const url = urlForNewWorkflowWithTrigger(config, 'email')
-        const raw = new URLSearchParams(url.split('?')[1]).get(SCAFFOLD_PREFILL_PARAM)
-
-        expect(parseWorkflowScaffold(raw ?? undefined)).toBe('email')
+    it('parses the email scaffold and rejects unknown scaffolds', () => {
+        expect(parseWorkflowScaffold('email')).toBe('email')
         expect(parseWorkflowScaffold('nonsense')).toBeNull()
         expect(parseWorkflowScaffold(undefined)).toBeNull()
+    })
+
+    it('applyTriggerPrefill replaces only the trigger action config', () => {
+        const workflow = {
+            actions: [
+                { id: 'trigger_node', type: 'trigger', config: { type: 'event', filters: {} } },
+                { id: 'exit_node', type: 'exit', config: { reason: 'Default exit' } },
+            ],
+        } as HogFlow
+
+        const result = applyTriggerPrefill(workflow, config)
+
+        expect(result.actions[0].config).toEqual(config)
+        expect(result.actions[1]).toEqual(workflow.actions[1])
     })
 
     it('applyEmailScaffold wires an email step between the trigger and the exit', () => {

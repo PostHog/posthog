@@ -4,12 +4,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
-import { SCAFFOLD_PREFILL_PARAM, TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+import { PREFILL_PARAMS, SCAFFOLD_PREFILL_PARAM, TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 // Read before hideNewWorkflowModal fires: its actionToUrl strips these params from the URL.
 function currentPrefillParams(): Record<string, string> {
     const params: Record<string, string> = {}
-    for (const key of [TRIGGER_PREFILL_PARAM, SCAFFOLD_PREFILL_PARAM]) {
+    for (const key of PREFILL_PARAMS) {
         const value = router.values.searchParams[key]
         if (typeof value === 'string') {
             params[key] = value
@@ -37,6 +37,13 @@ export interface newWorkflowLogicActions {
     showNewWorkflowModal: () => {
         value: true
     }
+    showNewWorkflowModalForPrefill: (
+        trigger: string,
+        scaffold?: string
+    ) => {
+        trigger: string
+        scaffold?: string
+    }
 }
 
 export type newWorkflowLogicType = MakeLogicType<newWorkflowLogicValues, newWorkflowLogicActions>
@@ -45,6 +52,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     path(['products', 'workflows', 'frontend', 'newWorkflowLogic']),
     actions({
         showNewWorkflowModal: true,
+        showNewWorkflowModalForPrefill: (trigger: string, scaffold?: string) => ({ trigger, scaffold }),
         hideNewWorkflowModal: true,
         createWorkflowFromTemplate: (template: HogFlowTemplate) => ({ template }),
         createEmptyWorkflow: true,
@@ -59,6 +67,20 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
+        showNewWorkflowModalForPrefill: ({ trigger, scaffold }) => {
+            // Stash the prefill on the current URL: the create listeners below read it from there,
+            // and hideNewWorkflowModal strips it again on dismissal.
+            router.actions.replace(
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    [TRIGGER_PREFILL_PARAM]: trigger,
+                    ...(scaffold ? { [SCAFFOLD_PREFILL_PARAM]: scaffold } : {}),
+                },
+                router.values.hashParams
+            )
+            actions.showNewWorkflowModal()
+        },
         createWorkflowFromTemplate: ({ template }) => {
             const prefillParams = currentPrefillParams()
             actions.hideNewWorkflowModal()
@@ -87,8 +109,9 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             const hashParams = { ...router.values.hashParams }
             delete hashParams['newWorkflow']
             const searchParams = { ...router.values.searchParams }
-            delete searchParams[TRIGGER_PREFILL_PARAM]
-            delete searchParams[SCAFFOLD_PREFILL_PARAM]
+            for (const key of PREFILL_PARAMS) {
+                delete searchParams[key]
+            }
             return [router.values.location.pathname, searchParams, hashParams]
         },
         showNewWorkflowModal: () => {

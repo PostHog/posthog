@@ -154,6 +154,10 @@ const DEFAULT_COLUMN_FEATURES = [
 
 let uniqueNode = 0
 
+function toActionArray(actions: JSX.Element | JSX.Element[] | undefined): JSX.Element[] {
+    return actions ? (Array.isArray(actions) ? actions : [actions]) : []
+}
+
 export function DataTable({
     uniqueKey,
     query,
@@ -961,11 +965,7 @@ export function DataTable({
         sourceFeatures.has(QueryFeature.linkDataButton) && hasCustomerAnalyticsEnabled ? (
             <ViewLinkButton key="view-link-button" tableName="groups" />
         ) : null,
-        ...(context?.customActions
-            ? Array.isArray(context.customActions)
-                ? context.customActions
-                : [context.customActions]
-            : []),
+        ...toActionArray(context?.customActions),
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={queryWithDefaults} setQuery={setQuery} />
@@ -982,6 +982,7 @@ export function DataTable({
         showExport && showOpenEditorButton ? (
             <DataTableOpenEditor key="data-table-open-editor" query={query} setQuery={setQuery} />
         ) : null,
+        ...toActionArray(context?.customActionsEnd),
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)

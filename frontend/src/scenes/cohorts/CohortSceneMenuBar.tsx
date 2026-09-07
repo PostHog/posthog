@@ -9,7 +9,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { cohortWorkflowDisabledReason, urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
+import { cohortWorkflowDisabledReason, workflowTriggerPrefillForCohort } from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -22,6 +22,8 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { CohortType } from '~/types'
+
+import { newWorkflowLogic } from 'products/workflows/frontend/Workflows/newWorkflowLogic'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -37,6 +39,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const logic = cohortEditLogic({ id })
     const { cohort, cohortLoading } = useValues(logic)
     const { duplicateCohort, deleteCohort, restoreCohort } = useActions(logic)
+    const { showNewWorkflowModalForPrefill } = useActions(newWorkflowLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     if (!cohort) {
@@ -56,7 +59,9 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                     <>
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
-                                onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
+                                onClick={() =>
+                                    showNewWorkflowModalForPrefill(workflowTriggerPrefillForCohort(cohort), 'email')
+                                }
                                 disabled={!!workflowDisabledReason}
                                 tooltip={workflowDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}

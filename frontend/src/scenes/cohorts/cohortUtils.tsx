@@ -37,7 +37,7 @@ import {
     TimeUnitType,
 } from '~/types'
 
-import { urlForWorkflowChooserWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
+import { serializeWorkflowTriggerPrefill } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 /**
  * Single source of truth for whether a HaveProperty/NotHaveProperty criterion targets a
@@ -700,24 +700,21 @@ export function cohortWorkflowDisabledReason(cohort: CohortType): string | null 
     return null
 }
 
-export function urlForCohortWorkflow(cohort: CohortType): string {
-    return urlForWorkflowChooserWithTrigger(
-        {
-            type: 'batch',
-            filters: {
-                properties: [
-                    {
-                        key: 'id',
-                        type: PropertyFilterType.Cohort,
-                        value: cohort.id as number,
-                        operator: PropertyOperator.In,
-                        cohort_name: cohort.name,
-                    },
-                ],
-            },
+export function workflowTriggerPrefillForCohort(cohort: CohortType): string {
+    return serializeWorkflowTriggerPrefill({
+        type: 'batch',
+        filters: {
+            properties: [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: cohort.id as number,
+                    operator: PropertyOperator.In,
+                    cohort_name: cohort.name,
+                },
+            ],
         },
-        'email'
-    )
+    })
 }
 
 export const COHORT_MATCHING_DAYS = {

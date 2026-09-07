@@ -78,6 +78,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     limitContext?: 'posthog_ai'
     /** Custom action buttons rendered in the DataTable toolbar (second row, right side) */
     customActions?: JSX.Element | JSX.Element[]
+    /** Custom action buttons rendered at the far right of the DataTable toolbar, after export and open-editor */
+    customActionsEnd?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
     /** Wired by the web analytics scene so a pre-computed tile's badge can offer "always query live data". */

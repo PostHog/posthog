@@ -56,7 +56,12 @@ import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
-import { applyEmailScaffold, parseWorkflowScaffold, parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
+import {
+    applyEmailScaffold,
+    applyTriggerPrefill,
+    parseWorkflowScaffold,
+    parseWorkflowTriggerPrefill,
+} from './workflowTriggerPrefill'
 
 export interface WorkflowLogicProps {
     id?: string
@@ -3086,21 +3091,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
-                            if (triggerConfig) {
-                                newWorkflow.actions = newWorkflow.actions.map((action) =>
-                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
-                                )
-                            }
-
-                            return newWorkflow
+                            return triggerConfig ? applyTriggerPrefill(newWorkflow, triggerConfig) : newWorkflow
                         }
                         if (triggerConfig) {
-                            const prefilled: HogFlow = {
-                                ...NEW_WORKFLOW,
-                                actions: NEW_WORKFLOW.actions.map((action) =>
-                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
-                                ),
-                            }
+                            const prefilled: HogFlow = applyTriggerPrefill(NEW_WORKFLOW, triggerConfig)
                             if (parseWorkflowScaffold(props.scaffold) === 'email') {
                                 let emailInputs: Record<string, CyclotronJobInputType> = {}
                                 try {
@@ -4024,6 +4018,15 @@ export const workflowLogic = kea<workflowLogicType>([
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.replayDeferredResourceEdited()
+            // A new workflow opened from a trigger prefill (e.g. "Message cohort") is created right
+            // away: saveWorkflowSuccess then swaps the URL from /new to the created workflow.
+            if (
+                (!props.id || props.id === 'new') &&
+                !props.editTemplateId &&
+                parseWorkflowTriggerPrefill(props.triggerPrefill)
+            ) {
+                actions.saveWorkflow(originalWorkflow)
+            }
             const triggerType = originalWorkflow.trigger?.type
             if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
                 try {

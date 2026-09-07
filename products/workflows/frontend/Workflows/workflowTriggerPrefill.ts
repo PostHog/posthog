@@ -1,7 +1,3 @@
-import { combineUrl } from 'kea-router'
-
-import { urls } from 'scenes/urls'
-
 import { CyclotronJobInputType } from '~/types'
 
 import { HogFlowTriggerSchema } from './hogflows/steps/types'
@@ -11,25 +7,12 @@ export type WorkflowTriggerConfig = Extract<HogFlowAction, { type: 'trigger' }>[
 
 export const TRIGGER_PREFILL_PARAM = 'trigger'
 export const SCAFFOLD_PREFILL_PARAM = 'scaffold'
+export const PREFILL_PARAMS = [TRIGGER_PREFILL_PARAM, SCAFFOLD_PREFILL_PARAM] as const
 
 export type WorkflowScaffold = 'email'
 
-export function urlForNewWorkflowWithTrigger(config: WorkflowTriggerConfig, scaffold?: WorkflowScaffold): string {
-    return combineUrl(urls.workflowNew(), {
-        [TRIGGER_PREFILL_PARAM]: JSON.stringify(config),
-        ...(scaffold ? { [SCAFFOLD_PREFILL_PARAM]: scaffold } : {}),
-    }).url
-}
-
-export function urlForWorkflowChooserWithTrigger(config: WorkflowTriggerConfig, scaffold?: WorkflowScaffold): string {
-    return combineUrl(
-        urls.workflows(),
-        {
-            [TRIGGER_PREFILL_PARAM]: JSON.stringify(config),
-            ...(scaffold ? { [SCAFFOLD_PREFILL_PARAM]: scaffold } : {}),
-        },
-        { newWorkflow: 'modal' }
-    ).url
+export function serializeWorkflowTriggerPrefill(config: WorkflowTriggerConfig): string {
+    return JSON.stringify(config)
 }
 
 export function parseWorkflowTriggerPrefill(raw: string | undefined): WorkflowTriggerConfig | null {
@@ -46,6 +29,13 @@ export function parseWorkflowTriggerPrefill(raw: string | undefined): WorkflowTr
 
 export function parseWorkflowScaffold(raw: string | undefined): WorkflowScaffold | null {
     return raw === 'email' ? 'email' : null
+}
+
+export function applyTriggerPrefill<T extends Pick<HogFlow, 'actions'>>(workflow: T, config: WorkflowTriggerConfig): T {
+    return {
+        ...workflow,
+        actions: workflow.actions.map((action) => (action.type === 'trigger' ? { ...action, config } : action)),
+    }
 }
 
 // The step panel snapshots its inputs on mount, so emailInputs must carry the template-email
