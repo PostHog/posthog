@@ -765,6 +765,9 @@ function BrowserTabStripImpl() {
           case "context":
             navigate({ to: "/context", search: { path: undefined }, state });
             break;
+          case "onboarding":
+            navigate({ to: "/onboarding-landing", state });
+            break;
           case "settings":
             navigate({ to: "/settings", state });
             break;

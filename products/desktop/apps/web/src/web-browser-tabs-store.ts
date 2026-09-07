@@ -100,6 +100,7 @@ class WebBrowserTabsStore extends TypedEventEmitter<SnapshotChangeEvents> {
         channelSection?: string | null;
         appView?: string | null;
         tabId?: string;
+        activate?: boolean;
       },
   ): TabsSnapshot {
     const providedId = input.tabId;

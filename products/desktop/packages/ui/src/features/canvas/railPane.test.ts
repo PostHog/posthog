@@ -17,6 +17,7 @@ describe("railPaneForPath", () => {
     ["/loops/$loopId/edit", "loops"],
     ["/feeds/", "feeds"],
     ["/feeds/$feedId", "feeds"],
+    ["/onboarding-landing", "onboarding"],
   ] as const)("puts %s on %s", (path, pane) => {
     expect(railPaneForPath(path)).toBe(pane);
   });
@@ -76,7 +77,7 @@ describe("isRestorableVisitHref", () => {
 });
 
 describe("railPaneHasSidebar", () => {
-  it.each(["home", "inbox", "command-center", "loops"] as const)(
+  it.each(["home", "inbox", "command-center", "loops", "onboarding"] as const)(
     "gives %s the whole screen",
     (pane) => {
       expect(railPaneHasSidebar(pane)).toBe(false);

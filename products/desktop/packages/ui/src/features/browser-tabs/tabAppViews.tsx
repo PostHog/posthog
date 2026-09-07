@@ -8,6 +8,7 @@ import {
   PlugsConnectedIcon,
   RepeatIcon,
   RobotIcon,
+  SparkleIcon,
   SquaresFourIcon,
   TrayIcon,
 } from "@phosphor-icons/react";
@@ -26,6 +27,7 @@ export type TabAppView = Extract<
   | "context"
   | "skills"
   | "mcp-servers"
+  | "onboarding"
   | "settings"
 >;
 
@@ -52,6 +54,15 @@ export const TAB_APP_VIEW_META: Record<
     icon: <SquaresFourIcon size={14} />,
   },
   context: { label: "Context", icon: <BookOpenTextIcon size={14} /> },
+  onboarding: {
+    label: "Onboarding",
+    icon: (
+      <SparkleIcon
+        size={14}
+        className="animate-pulse text-foreground motion-reduce:animate-none"
+      />
+    ),
+  },
   settings: { label: "Settings", icon: <GearIcon size={14} /> },
 };
 
