@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconChevronDown, IconDownload, IconGear, IconUser, IconGlobe, IconPlus } from '@posthog/icons'
 import {
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonMenu,
     LemonMenuItem,
@@ -51,10 +52,24 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                                             size="small"
                                             fullWidth
                                             onClick={() => {
-                                                const newName = prompt('Rename view', view.name)
-                                                if (newName && newName !== view.name) {
-                                                    updateView(view.id, { name: newName })
-                                                }
+                                                LemonDialog.openForm({
+                                                    title: 'Rename view',
+                                                    initialValues: { name: view.name },
+                                                    content: (
+                                                        <LemonField name="name">
+                                                            <LemonInput autoFocus />
+                                                        </LemonField>
+                                                    ),
+                                                    errors: {
+                                                        name: (name) =>
+                                                            !name?.trim() ? 'You must enter a name' : undefined,
+                                                    },
+                                                    onSubmit: ({ name }) => {
+                                                        if (name.trim() !== view.name) {
+                                                            updateView(view.id, { name: name.trim() })
+                                                        }
+                                                    },
+                                                })
                                             }}
                                         >
                                             Rename

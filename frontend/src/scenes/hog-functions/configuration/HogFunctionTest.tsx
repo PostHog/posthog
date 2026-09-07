@@ -8,7 +8,9 @@ import { IconInfo, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonDivider,
+    LemonInput,
     LemonLabel,
     LemonSegmentedButton,
     LemonSwitch,
@@ -297,10 +299,29 @@ export function HogFunctionTest(): JSX.Element {
                                                         fullWidth
                                                         data-attr="save-hog-test-data"
                                                         onClick={() => {
-                                                            const name = prompt('Name this test data')
-                                                            if (name) {
-                                                                saveGlobals(name, JSON.parse(testInvocation.globals))
-                                                            }
+                                                            LemonDialog.openForm({
+                                                                title: 'Save test data',
+                                                                initialValues: { name: '' },
+                                                                content: (
+                                                                    <LemonField name="name">
+                                                                        <LemonInput
+                                                                            placeholder="Name this test data"
+                                                                            autoFocus
+                                                                        />
+                                                                    </LemonField>
+                                                                ),
+                                                                errors: {
+                                                                    name: (name) =>
+                                                                        !name?.trim()
+                                                                            ? 'You must enter a name'
+                                                                            : undefined,
+                                                                },
+                                                                onSubmit: ({ name }) =>
+                                                                    saveGlobals(
+                                                                        name.trim(),
+                                                                        JSON.parse(testInvocation.globals)
+                                                                    ),
+                                                            })
                                                         }}
                                                         disabledReason={(() => {
                                                             try {
