@@ -12,8 +12,9 @@ import { TimestampCitation } from './TimestampCitation'
  * and that structure only reads as structure once it is rendered.
  *
  * The text is model output derived from a customer recording, so it is treated as hostile: an image must
- * not get to fire a request from the reader's browser, and no link may be clickable. A citation is the
- * one interactive thing here, and it seeks a player rather than navigating anywhere.
+ * not get to fire a request from the reader's browser, no link may be clickable, and an `@member:<id>` in
+ * it must stay text rather than become a chip naming a real colleague. A citation is the one interactive
+ * thing here, and it seeks a player rather than navigating anywhere.
  */
 export function CitedMarkdown({
     text,
@@ -31,8 +32,9 @@ export function CitedMarkdown({
             className="text-sm"
             // A heading inside one card's body is a lead-in, not a section of the page.
             lowKeyHeadings
-            disableImages
+            disableImages="all"
             disableLinks
+            disableMentions
             renderTimestampRef={(timestampMs) => <TimestampCitation timestampMs={timestampMs} onSeek={onSeek} />}
         >
             {markdown}

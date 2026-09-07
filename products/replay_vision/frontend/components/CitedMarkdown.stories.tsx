@@ -38,10 +38,12 @@ export const PlainProse: Story = {
 }
 
 /**
- * Reasoning is model output derived from a page a stranger wrote, so a link in it is a phishing vector.
- * Every markdown form that reaches a link is here, including the reference forms that a regex over the
- * source misses. The assertion runs in a real browser under `test-storybook`, which is the only place
- * this can be checked: `react-markdown` is ESM-only and mocked out under Jest.
+ * Reasoning is model output derived from a page a stranger wrote, so a link in it is a phishing vector, an
+ * image is a request it gets to aim from the reader's browser, and a mention is a colleague it gets to
+ * name. Every markdown form that reaches one of those is here, including the reference forms that a regex
+ * over the source misses and the same-origin image that the ordinary `disableImages` lets through. The
+ * assertion runs in a real browser under `test-storybook`, which is the only place this can be checked:
+ * `react-markdown` is ESM-only and mocked out under Jest.
  */
 export const HostileLinks: Story = {
     args: {
@@ -49,8 +51,10 @@ export const HostileLinks: Story = {
             'Inline [click here](https://evil.example/phish).',
             'Reference [click here][ref] and collapsed [click here][].',
             'Image by reference ![a banner][img].',
+            'Same-origin image ![a probe](/api/projects/@current/session_recordings) fires a credentialed GET.',
             'Autolink <https://evil.example/auto> and bare https://evil.example/bare.',
             'Scheme [click here](javascript:alert(1)).',
+            'Mentions @member:1 and @role:1 name whoever holds those ids.',
             '',
             '[ref]: https://evil.example/phish',
             '[img]: https://evil.example/banner.png',
@@ -59,7 +63,10 @@ export const HostileLinks: Story = {
     },
     play: async ({ canvasElement }) => {
         await expect(canvasElement.querySelectorAll('a')).toHaveLength(0)
-        // The labels survive as plain text, so the reader still sees what the model wrote.
+        await expect(canvasElement.querySelectorAll('img')).toHaveLength(0)
+        // The labels and the raw mention syntax survive as plain text, so the reader still sees what the
+        // model wrote. A chip would show the member's name in its place.
         await expect(canvasElement.textContent).toContain('click here')
+        await expect(canvasElement.textContent).toContain('@member:1 and @role:1')
     },
 }

@@ -87,8 +87,18 @@ export interface LemonMarkdownProps {
      * URL — leaking the viewer's IP, acting as a tracking pixel, or probing internal addresses.
      * When set, only images served from PostHog (same-origin or a `posthog.com` host) render inline
      * as <img>; every other image is rendered as a plain click-to-open link instead.
+     *
+     * `'all'` drops that exception too, so no <img> is emitted at all. Use it for content that has no
+     * business carrying an image: a same-origin `src` is still a credentialed GET the content gets to
+     * aim at any path on this host, which is not something to hand model output.
      */
-    disableImages?: boolean
+    disableImages?: boolean | 'all'
+    /**
+     * Whether to leave `@member:<id>` / `@role:<id>` as plain text rather than resolving them into
+     * mention chips. Use for content we don't control: a chip names a real colleague, tooltip with
+     * their email included, so without this the content gets to fake a mention of anyone in the org.
+     */
+    disableMentions?: boolean
     /**
      * Whether to render every link as plain text rather than an anchor, keeping its label. Use for
      * content we don't control (e.g. LLM/agent output derived from a page a stranger wrote), where a
@@ -170,6 +180,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableDocsRedirect = false,
     disableImages = false,
     disableLinks = false,
+    disableMentions = false,
     wrapCode = false,
     codeMaxLines,
     generateHeadingIds = false,
@@ -275,7 +286,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             ...(disableImages
                 ? {
                       img: ({ src, alt }: any): JSX.Element => {
-                          if (isTrustedPostHogUrl(src)) {
+                          if (disableImages !== 'all' && isTrustedPostHogUrl(src)) {
                               return <img src={src} alt={alt} loading="lazy" />
                           }
                           // The click-to-open fallback is itself an anchor, so it has to answer to
@@ -365,14 +376,16 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
     // two-trailing-spaces hard-break rule (e.g. agent-written report summaries) renders with the
     // line breaks the author intended.
+    // Mentions are gated at the plugin: with it out of the pipeline no `ph-mention` node is ever
+    // produced, and `skipHtml` already keeps a hand-written one out.
+    const remarkPlugins = useMemo(
+        () => (disableMentions ? [remarkGfm, remarkBreaks] : [remarkGfm, remarkBreaks, remarkMentions]),
+        [disableMentions]
+    )
+
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown
-            components={components}
-            remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]}
-            urlTransform={urlTransform}
-            skipHtml
-        >
+        <ReactMarkdown components={components} remarkPlugins={remarkPlugins} urlTransform={urlTransform} skipHtml>
             {children}
         </ReactMarkdown>
     )
@@ -385,6 +398,7 @@ function LemonMarkdownComponent({
     disableDocsRedirect = false,
     disableImages = false,
     disableLinks = false,
+    disableMentions = false,
     wrapCode = false,
     codeMaxLines,
     generateHeadingIds = false,
@@ -400,6 +414,7 @@ function LemonMarkdownComponent({
                 disableDocsRedirect={disableDocsRedirect}
                 disableImages={disableImages}
                 disableLinks={disableLinks}
+                disableMentions={disableMentions}
                 wrapCode={wrapCode}
                 codeMaxLines={codeMaxLines}
                 generateHeadingIds={generateHeadingIds}

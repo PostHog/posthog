@@ -11,6 +11,12 @@ describe('flattenMarkdownToLine', () => {
             expected: 'Checkout blocked. The form rejected it.',
         },
         {
+            // Only spaces indent a block marker: a tab makes it literal text, in the backend flattener too.
+            name: 'leaves a tab-indented hash as text',
+            text: '\t# literal hash',
+            expected: '# literal hash',
+        },
+        {
             name: 'reads a bullet list as prose',
             text: '- Reached payment\n- Card rejected',
             expected: 'Reached payment. Card rejected',

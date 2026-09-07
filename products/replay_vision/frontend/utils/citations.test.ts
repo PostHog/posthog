@@ -119,6 +119,16 @@ describe('citedMarkdown', () => {
             expected: 'Saw [an offer](https://evil.example)[00:05](t:5000)',
         },
         {
+            // `t:` takes digits only, so anything else in the target would render as a dead label.
+            name: 'rounds a fractional offset and clamps a negative one so the target stays parseable',
+            text: '',
+            segments: [
+                { kind: 'chip', timestamp_ms: 92_000.6 },
+                { kind: 'chip', timestamp_ms: -5 },
+            ],
+            expected: '[01:32](t:92001)[00:00](t:0)',
+        },
+        {
             name: 'keeps text without citations untouched',
             text: 'No citations here.',
             segments: [],

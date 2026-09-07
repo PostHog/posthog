@@ -11,11 +11,13 @@ EVENT_ID_CITATION_RE = re.compile(r"\(event_id [0-9a-f]{16}\)", re.IGNORECASE)
 SEARCH_SNIPPET_LIMIT = 600
 
 # Markdown a scanner can emit in its free-text fields. Block markers are matched per line, the way a
-# markdown parser reads them; inline markers are matched anywhere on the line.
-_FENCE_RE = re.compile(r"^\s{0,3}(?:```|~~~)")
-_RULE_RE = re.compile(r"^\s{0,3}(?:[-*_]\s*){3,}$")
-_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+")
-_QUOTE_RE = re.compile(r"^\s{0,3}>\s?")
+# markdown parser reads them; inline markers are matched anywhere on the line. Kept identical to the
+# frontend's `flattenMarkdownToLine` (products/replay_vision/frontend/utils/markdown.ts): the two have to
+# agree on what is syntax, or a snippet flattens differently in a Slack message and in the seekbar.
+_FENCE_RE = re.compile(r"^ {0,3}(?:```|~~~)")
+_RULE_RE = re.compile(r"^ {0,3}(?:[-*_]\s*){3,}$")
+_HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s+")
+_QUOTE_RE = re.compile(r"^ {0,3}>\s?")
 _BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d{1,9}[.)])\s+")
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")

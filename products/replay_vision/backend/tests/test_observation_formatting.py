@@ -40,6 +40,8 @@ class TestPlainSnippet:
             ("prose_after_bracket", "[Save]: clicked twice before it took", "[Save]: clicked twice before it took"),
             ("image", "![a screenshot](https://example.com/x.png) followed.", "a screenshot followed."),
             ("escaped_star", r"Priced at 5\* the usual.", "Priced at 5* the usual."),
+            # Only spaces indent a block marker: a tab makes it literal text, in the browser flattener too.
+            ("tab_indented_heading", "\t# literal hash", "# literal hash"),
             ("already_one_sentence_per_line", "Reached payment.\nCard rejected.", "Reached payment. Card rejected."),
             ("existing_terminal_punctuation", "Two problems:\n- one\n- two", "Two problems: one. two"),
         ]

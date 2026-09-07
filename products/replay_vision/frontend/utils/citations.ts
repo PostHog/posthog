@@ -82,8 +82,11 @@ export function citedMarkdown(text: string, segments: unknown): string {
         }
         // Glued to the preceding word, matching how the chips render outside markdown — except after a
         // `!`, where gluing a link turns the pair into an image. One space there reads as normal prose.
-        const label = colonDelimitedDuration(Math.max(0, Math.floor(segment.timestamp_ms / 1000)), null)
-        out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${segment.timestamp_ms})`
+        // The target has to be a whole non-negative number: LemonMarkdown reads `t:<digits>` and nothing
+        // else, so a fractional or negative offset would silently render as a dead label.
+        const timestampMs = Math.max(0, Math.round(segment.timestamp_ms))
+        const label = colonDelimitedDuration(Math.floor(timestampMs / 1000), null)
+        out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${timestampMs})`
     }
     return out
 }
