@@ -9,6 +9,7 @@ import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/se
 import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
@@ -50,8 +51,13 @@ export function RecordingPreview({ sessionId, seekTime, exportedAssetId, alt }: 
         hasRecording,
     })
 
+    const playerUrl = urls.replaySingle(
+        sessionId,
+        seekTime ? { unixTimestampMillis: seekTime.valueOf() } : undefined
+    )
+
     return (
-        <>
+        <div className="mb-2">
             <button
                 type="button"
                 onClick={openRecording}
@@ -59,7 +65,7 @@ export function RecordingPreview({ sessionId, seekTime, exportedAssetId, alt }: 
                 title={typeof disabledReason === 'string' ? disabledReason : undefined}
                 aria-label="Play recording"
                 data-attr="inbox-signal-recording-preview"
-                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
+                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary cursor-pointer disabled:cursor-default disabled:opacity-70"
             >
                 {thumbnailSrc && (
                     // Defer this full-frame screenshot: the evidence rail opens expanded and can hold
@@ -89,9 +95,19 @@ export function RecordingPreview({ sessionId, seekTime, exportedAssetId, alt }: 
                     )}
                 </div>
             </button>
+            <div className="flex justify-end mt-1">
+                <a
+                    href={playerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-tertiary hover:text-primary"
+                >
+                    Open full recording
+                </a>
+            </div>
             {hasRecording === false && (
-                <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+                <p className="text-xs text-tertiary mt-1">This recording is no longer available.</p>
             )}
-        </>
+        </div>
     )
 }
