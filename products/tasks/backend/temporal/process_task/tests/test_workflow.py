@@ -22,6 +22,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.workflow import ParentClosePolicy
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
@@ -98,6 +99,7 @@ def _build_context(
     custom_image_name: str | None = None,
     origin_product: str | None = None,
     create_pr: bool = True,
+    sandbox_backend: str = "modal",
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -117,7 +119,38 @@ def _build_context(
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         custom_image_name=custom_image_name,
+        sandbox_backend=sandbox_backend,
     )
+
+
+class TestTriggerSnapshotWorkflow:
+    def _workflow(self) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, repository="PostHog/posthog", sandbox_backend="hogland")
+        return wf
+
+    @pytest.mark.asyncio
+    async def test_the_bake_is_detached_and_carries_the_backend(self, monkeypatch):
+        start = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "start_child_workflow", start)
+
+        await self._workflow()._trigger_snapshot_workflow()
+
+        assert start.await_args is not None
+        kwargs = start.await_args.kwargs
+        assert kwargs["id"] == "create-snapshot-for-repository-123-PostHog-posthog-hogland"
+        assert kwargs["arg"].sandbox_backend == "hogland"
+        # ABANDON keeps the bake off the run's critical path: the run can finish or fail
+        # while the child keeps going.
+        assert kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
+
+    @pytest.mark.asyncio
+    async def test_a_bake_that_cannot_start_never_fails_the_run(self, monkeypatch):
+        start = AsyncMock(side_effect=RuntimeError("Workflow execution already started"))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "start_child_workflow", start)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await self._workflow()._trigger_snapshot_workflow()
 
 
 def test_activity_error_properties_includes_failed_activity_context():

@@ -1,12 +1,15 @@
+import uuid
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from hogland import ExecEvent, ExecResult, NotFoundError
+from hogland import APIError, ExecEvent, ExecResult, NotFoundError
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
     SandboxProvisionError,
@@ -27,6 +30,7 @@ from products.tasks.backend.logic.services.sandbox import (
     build_agent_runtime_env_prefix,
     get_sandbox_class_for_sandbox_id,
 )
+from products.tasks.backend.models import SandboxSnapshot
 
 
 def _exec_result(**overrides) -> ExecResult:
@@ -225,12 +229,158 @@ class TestHoglandSandboxLifecycle:
         assert credentials.url == "https://hogland.example/v1/hogboxes/hb-abc123/proxy/8080"
         assert sandbox.sandbox_url == credentials.url
 
-    def test_snapshots_are_rejected(self):
-        sandbox = _running_sandbox()
+    def test_create_snapshot_returns_the_hogland_snapshot_id(self):
+        box = _mock_box()
+        box.snapshot.return_value.id = "sn-8a91"
+        sandbox = _running_sandbox(box)
+
+        assert sandbox.create_snapshot() == "sn-8a91"
+
+    def test_create_snapshot_wraps_provider_errors(self):
+        box = _mock_box()
+        box.snapshot.side_effect = RuntimeError("boom")
+        sandbox = _running_sandbox(box)
+
         with pytest.raises(SnapshotCreationError):
             sandbox.create_snapshot()
+
+    def test_directory_snapshots_are_rejected(self):
+        sandbox = _running_sandbox()
         with pytest.raises(SnapshotCreationError):
             sandbox.create_directory_snapshot("/tmp/workspace")
+
+    @parameterized.expand([(204,), (404,)])
+    def test_delete_snapshot_accepts_deleted_and_missing(self, status_code: int):
+        client = MagicMock()
+        client.base_url = "https://hogland.example"
+        client.token = "bearer-token"
+        response = MagicMock(status_code=status_code)
+        with (
+            patch("products.tasks.backend.logic.services.hogland_sandbox.get_hogland_client", return_value=client),
+            patch(
+                "products.tasks.backend.logic.services.hogland_sandbox.httpx.delete", return_value=response
+            ) as delete,
+        ):
+            HoglandSandbox.delete_snapshot("sn-8a91")
+
+        assert delete.call_args.args[0] == "https://hogland.example/v1/snapshots/sn-8a91"
+        assert delete.call_args.kwargs["headers"] == {"Authorization": "Bearer bearer-token"}
+
+    def test_delete_snapshot_raises_on_server_error(self):
+        client = MagicMock()
+        client.base_url = "https://hogland.example"
+        client.token = "bearer-token"
+        response = MagicMock(status_code=500, text="internal error")
+        with (
+            patch("products.tasks.backend.logic.services.hogland_sandbox.get_hogland_client", return_value=client),
+            patch("products.tasks.backend.logic.services.hogland_sandbox.httpx.delete", return_value=response),
+        ):
+            with pytest.raises(SandboxCleanupError):
+                HoglandSandbox.delete_snapshot("sn-8a91")
+
+
+@pytest.mark.django_db
+class TestHoglandRepositorySnapshotRestore:
+    def _snapshot_row(self, **overrides) -> SandboxSnapshot:
+        fields = {
+            "external_id": f"sn-{uuid.uuid4().hex[:8]}",
+            "repos": ["PostHog/posthog"],
+            "status": SandboxSnapshot.Status.COMPLETE,
+            "metadata": {"sandbox_backend": "hogland", "snapshot_kind": "filesystem"},
+        }
+        fields.update(overrides)
+        return SandboxSnapshot.objects.create(**fields)
+
+    def _create(self, config: SandboxConfig, client: MagicMock) -> HoglandSandbox:
+        with patch("products.tasks.backend.logic.services.hogland_sandbox.get_hogland_client", return_value=client):
+            return HoglandSandbox.create(config)
+
+    def test_restores_from_a_hogland_repository_snapshot(self):
+        row = self._snapshot_row()
+        client = MagicMock()
+        client.create.return_value = _mock_box()
+        config = SandboxConfig(name="sandbox-task-1", snapshot_id=str(row.id))
+
+        self._create(config, client)
+
+        assert client.create.call_args.kwargs["snapshot_id"] == row.external_id
+        assert config.snapshot_restored is True
+        assert config.image_fallback is None
+
+    @parameterized.expand(
+        [
+            ("modal_row", {"metadata": {}}),
+            ("incomplete_row", {"status": SandboxSnapshot.Status.IN_PROGRESS}),
+            ("directory_row", {"metadata": {"sandbox_backend": "hogland", "snapshot_kind": "directory"}}),
+        ]
+    )
+    def test_unusable_rows_fall_back_to_the_golden_snapshot(self, _name: str, overrides: dict):
+        row = self._snapshot_row(**overrides)
+        client = MagicMock()
+        client.create.return_value = _mock_box()
+        config = SandboxConfig(name="sandbox-task-1", snapshot_id=str(row.id))
+
+        self._create(config, client)
+
+        assert client.create.call_args.kwargs["snapshot_id"] == "alias:posthog-tasks-default"
+        assert config.snapshot_restored is False
+
+    def test_missing_row_falls_back_to_the_golden_snapshot(self):
+        client = MagicMock()
+        client.create.return_value = _mock_box()
+        config = SandboxConfig(name="sandbox-task-1", snapshot_id=str(uuid.uuid4()))
+
+        self._create(config, client)
+
+        assert client.create.call_args.kwargs["snapshot_id"] == "alias:posthog-tasks-default"
+        assert config.snapshot_restored is False
+
+    def test_resume_snapshot_external_id_still_cold_boots_the_golden(self):
+        client = MagicMock()
+        client.create.return_value = _mock_box()
+        config = SandboxConfig(name="sandbox-task-1", snapshot_external_id="im-resume")
+
+        self._create(config, client)
+
+        assert client.create.call_args.kwargs["snapshot_id"] == "alias:posthog-tasks-default"
+        assert config.snapshot_restored is False
+
+    @parameterized.expand(
+        [
+            # A client-side rejection retires the row; a server blip keeps it for retry.
+            ("client_rejection", 422, SandboxSnapshot.Status.ERROR),
+            ("server_error", 500, SandboxSnapshot.Status.COMPLETE),
+        ]
+    )
+    def test_restore_failure_falls_back_to_the_golden_snapshot(
+        self, _name: str, status_code: int, expected_row_status: SandboxSnapshot.Status
+    ):
+        row = self._snapshot_row()
+        client = MagicMock()
+        client.create.side_effect = [APIError("restore failed", status_code=status_code), _mock_box()]
+        config = SandboxConfig(name="sandbox-task-1", snapshot_id=str(row.id))
+
+        self._create(config, client)
+
+        assert client.create.call_count == 2
+        assert client.create.call_args_list[0].kwargs["snapshot_id"] == row.external_id
+        assert client.create.call_args_list[1].kwargs["snapshot_id"] == "alias:posthog-tasks-default"
+        assert config.snapshot_restored is False
+        assert config.image_fallback == f"repository snapshot {row.external_id} -> golden snapshot"
+        row.refresh_from_db()
+        assert row.status == expected_row_status
+
+    def test_golden_failure_after_fallback_raises(self):
+        row = self._snapshot_row()
+        client = MagicMock()
+        client.create.side_effect = [
+            APIError("restore failed", status_code=500),
+            APIError("golden failed", status_code=500),
+        ]
+        config = SandboxConfig(name="sandbox-task-1", snapshot_id=str(row.id))
+
+        with pytest.raises(SandboxProvisionError):
+            self._create(config, client)
 
 
 class TestSandboxIdPrefixDispatch:

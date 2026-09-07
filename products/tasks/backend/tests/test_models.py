@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
@@ -21,6 +21,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import (
+    HOGLAND_REPOSITORY_SNAPSHOT_MAX_AGE,
     MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
     MAX_PENDING_FOLLOWUP_MESSAGES,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -1836,6 +1837,64 @@ class TestSandboxSnapshot(TestCase):
             self.integration.id, ["PostHog/posthog", "PostHog/posthog-js"]
         )
         self.assertIsNone(result)
+
+    def test_get_latest_snapshot_with_repos_filters_by_backend(self):
+        modal_snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+        hogland_snapshot = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"sn-{uuid.uuid4()}",
+            metadata={"sandbox_backend": "hogland"},
+        )
+
+        # A snapshot only restores on the provider that minted it. Rows without the
+        # metadata key predate hogland support, so they read as Modal's.
+        self.assertEqual(
+            SandboxSnapshot.get_latest_snapshot_with_repos(self.integration.id, ["PostHog/posthog"]),
+            modal_snapshot,
+        )
+        self.assertEqual(
+            SandboxSnapshot.get_latest_snapshot_with_repos(
+                self.integration.id, ["PostHog/posthog"], sandbox_backend="hogland"
+            ),
+            hogland_snapshot,
+        )
+
+    def test_get_latest_snapshot_with_repos_expires_old_hogland_snapshots(self):
+        old_hogland = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"sn-{uuid.uuid4()}",
+            metadata={"sandbox_backend": "hogland"},
+        )
+        expired_at = django_timezone.now() - HOGLAND_REPOSITORY_SNAPSHOT_MAX_AGE - timedelta(hours=1)
+        SandboxSnapshot.objects.filter(id=old_hogland.id).update(created_at=expired_at)
+        old_modal = SandboxSnapshot.objects.create(
+            integration=self.integration,
+            repos=["PostHog/posthog"],
+            status=SandboxSnapshot.Status.COMPLETE,
+            external_id=f"snapshot-{uuid.uuid4()}",
+        )
+        SandboxSnapshot.objects.filter(id=old_modal.id).update(created_at=expired_at)
+
+        # Hogland snapshots freeze the golden's tooling, so they expire; Modal rows keep
+        # their original no-expiry behavior.
+        self.assertIsNone(
+            SandboxSnapshot.get_latest_snapshot_with_repos(
+                self.integration.id, ["PostHog/posthog"], sandbox_backend="hogland"
+            )
+        )
+        self.assertEqual(
+            SandboxSnapshot.get_latest_snapshot_with_repos(self.integration.id, ["PostHog/posthog"]),
+            old_modal,
+        )
 
     def test_multiple_snapshots_per_integration(self):
         snapshot1 = SandboxSnapshot.objects.create(integration=self.integration, external_id=f"snapshot-{uuid.uuid4()}")

@@ -201,7 +201,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 origin_product=ctx.origin_product,
                 runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
             ) as snapshot_lookup_timer:
-                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
+                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(
+                    github_integration_id, [repository], sandbox_backend=ctx.sandbox_backend
+                )
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:

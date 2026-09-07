@@ -3,7 +3,7 @@ import re
 import json
 import uuid
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.db.models.signals import post_delete, post_save, pre_delete
@@ -3387,6 +3387,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         return f"Sandbox session {self.sandbox_id} for run {self.task_run_id}"
 
 
+# Hogland repository snapshots freeze the golden's tooling alongside the repo, so cap
+# their age: an expired snapshot reads as "none", the run boots the current golden, and
+# the post-run bake replaces it. This bounds tool staleness and storage together.
+HOGLAND_REPOSITORY_SNAPSHOT_MAX_AGE = timedelta(days=7)
+
+
 class SandboxSnapshot(UUIDModel):
     """Tracks sandbox snapshots used for sandbox environments in tasks."""
 
@@ -3440,6 +3446,13 @@ class SandboxSnapshot(UUIDModel):
     def is_complete(self) -> bool:
         return self.status == self.Status.COMPLETE
 
+    @property
+    def sandbox_backend(self) -> str:
+        """Provider this snapshot restores on. Rows predating the key are Modal's."""
+        if isinstance(self.metadata, dict):
+            return self.metadata.get("sandbox_backend", "modal")
+        return "modal"
+
     def has_repo(self, repo: str) -> bool:
         repo_lower = repo.lower()
         return any(r.lower() == repo_lower for r in self.repos)
@@ -3464,33 +3477,52 @@ class SandboxSnapshot(UUIDModel):
 
     @classmethod
     def get_latest_snapshot_with_repos(
-        cls, integration_id: int, required_repos: list[str]
+        cls, integration_id: int, required_repos: list[str], sandbox_backend: str = "modal"
     ) -> Optional["SandboxSnapshot"]:
+        """Latest complete snapshot covering the repos, for one provider only.
+
+        Snapshot external ids only restore on the provider that minted them, so a run
+        must never receive another backend's snapshot. Hogland rows also expire by age
+        (see HOGLAND_REPOSITORY_SNAPSHOT_MAX_AGE) so restores track golden rebakes.
+        """
         snapshots = cls.objects.filter(
             integration_id=integration_id,
             status=cls.Status.COMPLETE,
         ).order_by("-created_at")
+        if sandbox_backend == "hogland":
+            snapshots = snapshots.filter(created_at__gte=django_timezone.now() - HOGLAND_REPOSITORY_SNAPSHOT_MAX_AGE)
 
         for snapshot in snapshots:
+            if snapshot.sandbox_backend != sandbox_backend:
+                continue
             if snapshot.has_repos(required_repos):
                 return snapshot
         return None
 
     def delete(self, *args, **kwargs):
         if self.external_id:
-            from products.tasks.backend.logic.services.sandbox import Sandbox
+            if self.sandbox_backend == "hogland":
+                from products.tasks.backend.logic.services.hogland_sandbox import HoglandSandbox
 
-            if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
-                try:
-                    # Modal-only: hogland runs never create SandboxSnapshot rows today. When
-                    # hogland resume snapshots land, this needs a backend branch keyed on the
-                    # snapshot's provider rather than the MODAL_TOKEN_* env gate above.
-                    Sandbox.delete_snapshot(self.external_id)
-                except Exception as e:
-                    raise Exception(
-                        f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
-                        f"The database record has not been deleted."
-                    ) from e
+                if settings.HOGLAND_API_URL and not settings.TEST:
+                    try:
+                        HoglandSandbox.delete_snapshot(self.external_id)
+                    except Exception as e:
+                        raise Exception(
+                            f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
+                            f"The database record has not been deleted."
+                        ) from e
+            else:
+                from products.tasks.backend.logic.services.sandbox import Sandbox
+
+                if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
+                    try:
+                        Sandbox.delete_snapshot(self.external_id)
+                    except Exception as e:
+                        raise Exception(
+                            f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
+                            f"The database record has not been deleted."
+                        ) from e
 
         super().delete(*args, **kwargs)
 
