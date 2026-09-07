@@ -202,30 +202,78 @@ jobs:
 
             - name: Run E2E smoke tests
               id: run-e2e
-              # continue-on-error so the web host below still runs and the "Fail on E2E failure"
-              # step at the end is the verdict for both hosts.
-              continue-on-error: true
               run: pnpm --filter code run test:e2e
               env:
                   CI: true
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-              # Keys off the step outcome, not failure(): the test step is continue-on-error, so a
-              # failing suite no longer reds the job on its own and failure() would never fire here.
               if: ${{ !cancelled() && steps.run-e2e.outcome == 'failure' }}
               with:
                   name: playwright-report
                   path: products/desktop/apps/code/playwright-report/
                   retention-days: 7
 
-            # Web host e2e: a plain SPA over the Vite dev server (Playwright starts it),
-            # no Electron packaging. Reuses the cached Chromium above. Runs even if the
-            # desktop suite failed so both hosts report independently.
+    # Web host e2e: a plain SPA over the Vite dev server (Playwright starts it),
+    # no Electron packaging. It needs no macOS, so it gets its own Linux job
+    # instead of holding a slot in the fixed macOS runner pool.
+    web-test:
+        needs: changes
+        # Fail closed: if change detection itself failed, run instead of skipping.
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Explicit restore/save instead of setup-node's `cache: pnpm`: that
+            # auto-saves on every run (PRs included, ungatable), which the workflow
+            # lint forbids. desktop-warm-caches.yml seeds this key on master.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+              env:
+                  # The web host is a browser SPA, so it never loads the Electron ABI.
+                  SKIP_ELECTRON_REBUILD: '1'
+
+            # `pnpm dev` is plain Vite, so the workspace packages that publish a dist/
+            # must be built first.
+            - name: Build web dependencies
+              run: pnpm exec turbo build --filter=@posthog/web^...
+
+            - name: Install Playwright
+              run: pnpm --filter @posthog/web exec playwright install --with-deps chromium
+
             - name: Run web E2E smoke tests
               id: run-web-e2e
-              if: ${{ !cancelled() }}
-              continue-on-error: true
               run: pnpm run test:e2e:web
               env:
                   CI: true
@@ -238,24 +286,20 @@ jobs:
                   path: products/desktop/apps/web/playwright-report/
                   retention-days: 7
 
-            # Both hosts report independently, so either one failing is enough to red the job.
-            - name: Fail on E2E failure
-              if: ${{ !cancelled() && (steps.run-e2e.outcome == 'failure' || steps.run-web-e2e.outcome == 'failure') }}
-              shell: bash
-              run: exit 1
-
     e2e:
         # Live-model e2e for the @posthog/agent adapters (claude + codex). Runs only
-        # after the unit + integration jobs pass — a red tree never reaches the
-        # gateway — and only when a products/desktop/packages/ file changed. Each arm still
+        # after the unit job passes — a red tree never reaches the gateway — and only
+        # when a products/desktop/packages/ file changed. It deliberately does not wait
+        # on integration-test: that job queues for the fixed macOS runner pool, and
+        # waiting put the whole macOS queue on this job's critical path. Each arm still
         # self-skips unless the POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY secret is
         # present (fork PRs never see it) and POSTHOG_CODE_E2E_GATEWAY_URL points at
         # a runner-reachable gateway. Drives cheap models (claude-haiku-4-5 /
         # gpt-5-mini), so a run is a handful of short turns.
-        needs: [changes, unit-test, integration-test]
+        needs: [changes, unit-test]
         # Always run on any products/desktop/packages/ change (or a change to this workflow),
-        # once unit-test + integration-test have passed. There is intentionally NO
-        # gate on the gateway config being present: if the POSTHOG_CODE_E2E_*
+        # once unit-test has passed. There is intentionally NO gate on the gateway
+        # config being present: if the POSTHOG_CODE_E2E_*
         # secret/vars are missing, the fail-loud guard
         # (products/desktop/packages/agent/e2e/guard.e2e.test.ts) REDS the run rather than
         # skipping to green. Only fork PRs are skipped, since they never receive the
@@ -342,7 +386,7 @@ jobs:
     # Collation job for the required status check; must be registered as the
     # required check instead of the individual jobs.
     desktop-tests-pass:
-        needs: [changes, unit-test, integration-test, e2e]
+        needs: [changes, unit-test, integration-test, web-test, e2e]
         name: Desktop Tests Pass
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
@@ -360,6 +404,10 @@ jobs:
                   fi
                   if [[ "${{ needs.integration-test.result }}" != "success" && "${{ needs.integration-test.result }}" != "skipped" ]]; then
                     echo "The desktop integration-test job did not succeed (result: ${{ needs.integration-test.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.web-test.result }}" != "success" && "${{ needs.web-test.result }}" != "skipped" ]]; then
+                    echo "The desktop web-test job did not succeed (result: ${{ needs.web-test.result }})."
                     exit 1
                   fi
                   if [[ "${{ needs.e2e.result }}" != "success" && "${{ needs.e2e.result }}" != "skipped" ]]; then
