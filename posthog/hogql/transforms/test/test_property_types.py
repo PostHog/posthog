@@ -266,8 +266,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 True,
                 None,
                 None,
-                ("events.properties.`$feature_flags`", "events._active_feature_flags"),
-                ("events.properties.`$active_feature_flags`",),
+                ("events.properties.`$feature_flags`", "mapFilter("),
+                ("events.properties.`$active_feature_flags`", "events._active_feature_flags"),
             ),
             (
                 "legacy_restricted",
