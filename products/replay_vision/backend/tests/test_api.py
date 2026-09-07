@@ -1445,6 +1445,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
 
+        # `now` is an accepted upper bound, so a caller can bound a query at the current time.
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["recent"])
+
     def test_list_date_range_bounds_use_project_timezone(self) -> None:
         self.team.timezone = "US/Pacific"
         self.team.save()
@@ -3243,6 +3248,12 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertIsNotNone(filters.date_from)
         # A date-only upper bound covers its whole day, like the observation list filter.
         self.assertEqual((filters.date_to.hour, filters.date_to.minute, filters.date_to.second), (23, 59, 59))
+
+        # `now` is an accepted upper bound here too, and reaches the filters as the current time.
+        before = timezone.now()
+        resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertGreaterEqual(mock_rank.call_args[0][5].date_to, before)
 
     @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
     @patch("products.replay_vision.backend.search.generate_embedding")
