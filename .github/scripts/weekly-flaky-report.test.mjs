@@ -206,7 +206,7 @@ describe('weekly flaky report', () => {
         )
     })
 
-    it('filters PR-only regressions after an available Trunk lookup', async () => {
+    it('filters unproved regressions after an available Trunk lookup', async () => {
         const common = {
             runner: 'pytest',
             classification: 'suspected_regression',
@@ -248,7 +248,7 @@ describe('weekly flaky report', () => {
 
         assert.deepEqual(
             candidates.map((candidate) => candidate.selector),
-            [trunked.selector, confirmed.selector, master.selector, fileQuarantined.selector]
+            [trunked.selector, confirmed.selector, fileQuarantined.selector]
         )
 
         const [{ candidates: candidatesWithoutTrunk }] = await buildRunnerReports(

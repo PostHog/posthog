@@ -365,13 +365,7 @@ async function buildRunnerReports(
             const trunkFor = await getTrunk(runner)
             const statusFor = quarantineStatusFor(trunkFor)
             const candidatesWithTrunkStatus = trunkFor
-                ? candidates.filter(
-                      (item) =>
-                          item.classification !== 'suspected_regression' ||
-                          item.master_failed_run_count !== 0 ||
-                          item.same_commit_recovery_run_count !== 0 ||
-                          trunkFor(item)
-                  )
+                ? candidates.filter((item) => item.classification !== 'suspected_regression' || trunkFor(item))
                 : candidates
             const queue = collapseClusters(candidatesWithTrunkStatus.slice(0, CANDIDATE_POOL), statusFor)
             const extrasFor = await getEnrichment(runner, queue)
