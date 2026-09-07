@@ -34,6 +34,7 @@ type BuiltLogic = ReturnType<typeof pinnedProfilePropertiesLogic.build>
 describe('pinnedProfilePropertiesLogic', () => {
     let mounted: BuiltLogic[]
     let patchedBodies: Record<string, any>[]
+    let postedBodies: Record<string, any>[]
 
     const mocksForScopes = (
         pinnedByScope: Partial<Record<CustomerProfileScope, string[]>>
@@ -53,15 +54,29 @@ describe('pinnedProfilePropertiesLogic', () => {
                 return [200, teamConfig(body.pinned_properties)]
             },
         },
+        post: {
+            [CONFIGS_URL]: async ({ request }) => {
+                const body = (await request.json()) as Record<string, any>
+                postedBodies.push(body)
+                return [201, teamConfig(body.pinned_properties ?? [], body.scope)]
+            },
+        },
     })
 
     const mocksFor = (pinned_properties: string[] | null): Parameters<typeof useMocks>[0] =>
         mocksForScopes(pinned_properties === null ? {} : { [CustomerProfileScope.PERSON]: pinned_properties })
 
-    const mount = async (scope: CustomerProfileScope = CustomerProfileScope.PERSON): Promise<BuiltLogic> => {
+    // Mounts without waiting for the config list request, so the caller acts inside the window
+    // where the team default is still unknown.
+    const mountWhileLoading = (scope: CustomerProfileScope = CustomerProfileScope.PERSON): BuiltLogic => {
         const logic = pinnedProfilePropertiesLogic({ scope })
         logic.mount()
         mounted.push(logic)
+        return logic
+    }
+
+    const mount = async (scope: CustomerProfileScope = CustomerProfileScope.PERSON): Promise<BuiltLogic> => {
+        const logic = mountWhileLoading(scope)
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
@@ -71,6 +86,7 @@ describe('pinnedProfilePropertiesLogic', () => {
         localStorage.clear()
         mounted = []
         patchedBodies = []
+        postedBodies = []
     })
 
     afterEach(() => {
@@ -124,6 +140,32 @@ describe('pinnedProfilePropertiesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(patchedBodies).toEqual([{ pinned_properties: ['plan', 'arr'] }])
+    })
+
+    it.each<[string, (logic: BuiltLogic) => void]>([
+        ['pinning', (logic) => logic.actions.pinProperty('arr')],
+        ['unpinning', (logic) => logic.actions.unpinProperty('plan')],
+    ])('ignores %s before the team default arrives', async (_, act) => {
+        useMocks(mocksFor(['plan', 'arr']))
+        const logic = mountWhileLoading()
+
+        act(logic)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.hasOwnPins).toBe(false)
+        expect(logic.values.pinnedProperties).toEqual(['plan', 'arr'])
+    })
+
+    it('writes no config when sharing before the team default arrives', async () => {
+        useMocks(mocksFor(['plan']))
+        const logic = mountWhileLoading()
+
+        logic.actions.setAsTeamDefault()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(postedBodies).toEqual([])
+        expect(patchedBodies).toEqual([])
+        expect(logic.values.savingTeamDefault).toBe(false)
     })
 
     it('keeps the pins of one group type apart from another', async () => {
