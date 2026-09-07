@@ -35,7 +35,7 @@ export function UpsertDashboardWidget(props: ToolRendererProps): JSX.Element {
     }
 
     const to = dashboardTarget
-        ? urls.dashboard(dashboardTarget.dashboardId)
+        ? urls.dashboard(dashboardTarget.dashboardId, undefined, dashboardTarget.tileId)
         : dashboard.id !== undefined
           ? urls.dashboard(dashboard.id)
           : dashboard.url

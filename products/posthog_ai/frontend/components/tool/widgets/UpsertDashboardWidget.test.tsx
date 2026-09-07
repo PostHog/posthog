@@ -10,7 +10,12 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 import { UpsertDashboardWidget } from './UpsertDashboardWidget'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-jest.mock('scenes/urls', () => ({ urls: { dashboard: (id: number): string => `/dashboard/${id}` } }))
+jest.mock('scenes/urls', () => ({
+    urls: {
+        dashboard: (id: number, _highlightInsightId?: string, highlightTileId?: number): string =>
+            `/dashboard/${id}${highlightTileId ? `?highlightTileId=${highlightTileId}` : ''}`,
+    },
+}))
 jest.mock('../DataToolRow', () => ({
     DataToolRow: ({ children }: { children: React.ReactNode }) => <div data-attr="data-tool-row">{children}</div>,
 }))

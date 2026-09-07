@@ -1,4 +1,3 @@
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -32,9 +31,7 @@ export function CreateInsightWidget(props: ToolRendererProps): JSX.Element {
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
     const dashboardAction = dashboardTarget ? (
         <LemonButton
-            to={
-                combineUrl(urls.dashboard(dashboardTarget.dashboardId), { highlightTileId: dashboardTarget.tileId }).url
-            }
+            to={urls.dashboard(dashboardTarget.dashboardId, undefined, dashboardTarget.tileId)}
             size="xsmall"
             onClick={() =>
                 posthog.capture('posthog ai dashboard reveal clicked', {

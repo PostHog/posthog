@@ -11,6 +11,28 @@
     }
 }
 
+@keyframes DashboardItems__aiTileHighlight {
+    from {
+        outline-offset: 6px;
+    }
+
+    to {
+        outline-offset: 2px;
+    }
+}
+
+.dashboard-items-wrapper [data-dashboard-tile-highlighted='true'] {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    animation: DashboardItems__aiTileHighlight 3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-items-wrapper [data-dashboard-tile-highlighted='true'] {
+        animation: none;
+    }
+}
+
 .react-grid-layout {
     position: relative;
     transition: height 100ms ease;

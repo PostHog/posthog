@@ -12,7 +12,8 @@ import { CreateInsightWidget } from './CreateInsightWidget'
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
 jest.mock('scenes/urls', () => ({
     urls: {
-        dashboard: (id: number): string => `/dashboard/${id}`,
+        dashboard: (id: number, _highlightInsightId?: string, highlightTileId?: number): string =>
+            `/dashboard/${id}${highlightTileId ? `?highlightTileId=${highlightTileId}` : ''}`,
         insightView: (id: string): string => `/insight/${id}`,
         insightNew: (): string => '/insights/new',
     },

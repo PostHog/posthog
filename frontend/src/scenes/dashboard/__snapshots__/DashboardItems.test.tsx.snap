@@ -22,8 +22,10 @@ exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1
     >
       <div
         data-attr="insight-card"
+        data-dashboard-tile-id="1"
         data-show-resize-handles="false"
         data-tile-id="1"
+        tabindex="-1"
       />
     </div>
     <div

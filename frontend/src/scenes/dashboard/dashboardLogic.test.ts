@@ -358,6 +358,42 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('dashboard tile reveal query', () => {
+        it('keeps parameter presence separate from a valid positive safe integer', () => {
+            router.actions.push('/dashboard/5', { highlightTileId: '42', highlightInsightId: 'legacy-target' })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            expect(logic.values.hasHighlightTileIdParam).toBe(true)
+            expect(logic.values.highlightTileIdParam).toBe('42')
+            expect(logic.values.highlightedTileId).toBe(42)
+        })
+
+        it.each(['invalid', '0', '-1', '1.5', String(Number.MAX_SAFE_INTEGER + 1)])(
+            'preserves explicit parameter presence but rejects %s',
+            (highlightTileId) => {
+                router.actions.push('/dashboard/5', { highlightTileId, highlightInsightId: 'legacy-target' })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+
+                expect(logic.values.hasHighlightTileIdParam).toBe(true)
+                expect(logic.values.highlightTileIdParam).toBe(highlightTileId)
+                expect(logic.values.highlightedTileId).toBeNull()
+            }
+        )
+
+        it('reports an absent tile parameter without hiding the legacy insight target', () => {
+            router.actions.push('/dashboard/5', { highlightInsightId: 'legacy-target' })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            expect(logic.values.hasHighlightTileIdParam).toBe(false)
+            expect(logic.values.highlightTileIdParam).toBeUndefined()
+            expect(logic.values.highlightedTileId).toBeNull()
+            expect(logic.values.highlightedInsightId).toBe('legacy-target')
+        })
+    })
+
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })

@@ -321,13 +321,16 @@ export interface dashboardLogicValues {
     error404: boolean
     externalFilters: DashboardFilter
     filtersOverrideForLoad: DashboardFilter
+    hasHighlightTileIdParam: boolean
     hasIntermittentFilters: boolean
     hasInvalidDashboardId: boolean
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
     hasUrlFilters: boolean
     hasVariables: boolean
+    highlightTileIdParam: unknown
     highlightedInsightId: any
+    highlightedTileId: number | null
     initialVariablesLoaded: boolean
     insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     intermittentFilters: DashboardFilter
@@ -1131,7 +1134,10 @@ export interface dashboardLogicMeta {
         ) => boolean
         isRefreshingQueued: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
         isRefreshing: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
+        hasHighlightTileIdParam: (searchParams: Record<string, any>) => boolean
         highlightedInsightId: (searchParams: Record<string, any>) => any
+        highlightTileIdParam: (searchParams: Record<string, any>) => unknown
+        highlightedTileId: (searchParams: Record<string, any>) => number | null
         sortedDates: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => Dayjs[]
         oldestRefreshed: (sortedDates: Dayjs[], pageVisibility: boolean) => Dayjs | null
         effectiveLastRefresh: (lastDashboardRefresh: Dayjs | null, oldestRefreshed: Dayjs | null) => Dayjs | null
@@ -2909,9 +2915,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.refreshStatus],
             (refreshStatus: Record<string, RefreshStatus>) => (id: string) => !!refreshStatus[id]?.loading,
         ],
+        hasHighlightTileIdParam: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): boolean =>
+                Object.prototype.hasOwnProperty.call(searchParams, 'highlightTileId'),
+        ],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, any>) => searchParams.highlightInsightId,
+        ],
+        highlightTileIdParam: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): unknown => searchParams.highlightTileId,
+        ],
+        highlightedTileId: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): number | null => {
+                const value = searchParams.highlightTileId
+                const parsed = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
+                return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+            },
         ],
         sortedDates: [
             (s) => [s.insightTiles],

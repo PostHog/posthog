@@ -1,4 +1,3 @@
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconDashboard } from '@posthog/icons'
@@ -25,9 +24,7 @@ export function DashboardTileMutationWidget(props: ToolRendererProps): JSX.Eleme
     }
 
     const revealsTile = target.tileId !== undefined
-    const to = revealsTile
-        ? combineUrl(urls.dashboard(target.dashboardId), { highlightTileId: target.tileId }).url
-        : urls.dashboard(target.dashboardId)
+    const to = urls.dashboard(target.dashboardId, undefined, target.tileId)
     const captureReveal = (): void => {
         posthog.capture('posthog ai dashboard reveal clicked', {
             source: 'tool_card',
