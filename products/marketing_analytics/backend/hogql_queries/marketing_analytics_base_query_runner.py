@@ -890,7 +890,15 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     @property
     def filter_test_accounts(self) -> bool:
-        return bool(getattr(self.query, "filterTestAccounts", False))
+        """The query decides, and the project's setting answers when it says nothing.
+
+        The setting is also what the Dagster warmer reads. A read that fell back to a different value
+        would ask for a job the warmer never builds, and pay the materialization inline.
+        """
+        requested = getattr(self.query, "filterTestAccounts", None)
+        if requested is None:
+            return self.team.marketing_analytics_config.filter_test_accounts
+        return bool(requested)
 
     def _test_account_conditions(self) -> list[ast.Expr]:
         """Applied at every `events` scan, never at a warehouse one. Test-account filters are written

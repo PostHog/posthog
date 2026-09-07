@@ -52,6 +52,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     conversion_goals: [],
     attribution_window_days: DEFAULT_ATTRIBUTION_WINDOW_DAYS,
     attribution_mode: AttributionMode.LastTouch,
+    filter_test_accounts: false,
     campaign_name_mappings: {},
     custom_source_mappings: {},
     campaign_field_preferences: {},
@@ -68,6 +69,7 @@ export interface marketingAnalyticsSettingsLogicValues {
     currentTeamId: number | null // teamLogic
     attribution_mode: AttributionMode
     attribution_window_days: number
+    filter_test_accounts: boolean
     conversion_goals: ConversionGoalFilter[]
     integrationCampaignTables: Record<string, string>
     integrationCampaigns: Record<
@@ -166,6 +168,9 @@ export interface marketingAnalyticsSettingsLogicActions {
     updateAttributionMode: (mode: AttributionMode) => {
         mode: AttributionMode
     }
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
+    }
     updateAttributionWindowDays: (days: number) => {
         days: number
     }
@@ -248,6 +253,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }),
         updateAttributionMode: (mode: AttributionMode) => ({
             mode,
+        }),
+        updateFilterTestAccounts: (filterTestAccounts: boolean) => ({
+            filterTestAccounts,
         }),
         updateCampaignNameMappings: (campaignNameMappings: Record<string, Record<string, string[]>>) => ({
             campaignNameMappings,
@@ -362,6 +370,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         return { ...createEmptyConfig(), attribution_mode: mode }
                     }
                     return { ...state, attribution_mode: mode }
+                },
+                updateFilterTestAccounts: (state: MarketingAnalyticsConfig | null, { filterTestAccounts }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), filter_test_accounts: filterTestAccounts }
+                    }
+                    return { ...state, filter_test_accounts: filterTestAccounts }
                 },
                 updateCampaignNameMappings: (state: MarketingAnalyticsConfig | null, { campaignNameMappings }) => {
                     if (!state) {
@@ -481,6 +495,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.attribution_mode ?? AttributionMode.LastTouch
             },
         ],
+        filter_test_accounts: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
+                return marketingAnalyticsConfig?.filter_test_accounts ?? false
+            },
+        ],
         integrationCampaignTables: [
             (s) => [s.dataWarehouseTables, s.dataWarehouseSources],
             (
@@ -553,6 +573,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             removeConversionGoal: trackSettingsUpdated,
             updateAttributionWindowDays: trackSettingsUpdated,
             updateAttributionMode: trackSettingsUpdated,
+            // Persist only: this one is a dashboard filter, not a trip to the settings screen.
+            updateFilterTestAccounts: () => updateCurrentTeam(),
             updateCampaignNameMappings: trackSettingsUpdated,
             updateCustomSourceMappings: trackSettingsUpdated,
             updateCampaignFieldPreferences: trackSettingsUpdated,

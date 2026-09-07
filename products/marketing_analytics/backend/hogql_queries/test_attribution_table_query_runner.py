@@ -129,7 +129,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         date_to: str = "2023-01-31",
         lookback_days: int | None = None,
         allow_multiple_conversions: bool | None = None,
-        filter_test_accounts: bool = False,
+        filter_test_accounts: bool | None = False,
     ):
         flush_persons_and_events()
         query = MarketingAnalyticsAttributionQuery(
@@ -150,8 +150,18 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         """{breakdown value: {model: conversions}} — the shape every weight assertion needs."""
         return {row.breakdownValue: {cell.model: cell.conversions for cell in row.models} for row in response.results}
 
-    @parameterized.expand([("off", False, 2.0), ("on", True, 1.0)])
-    def test_filter_test_accounts_drops_internal_traffic(self, _name, filter_test_accounts, expected_conversions):
+    @parameterized.expand(
+        [
+            ("query says off", False, False, 2.0),
+            ("query says on", True, False, 1.0),
+            # A query that says nothing takes the project's answer, which is also the one the warmer
+            # materializes. Disagreeing here would read a job nothing warms.
+            ("query silent, project on", None, True, 1.0),
+        ]
+    )
+    def test_filter_test_accounts_drops_internal_traffic(
+        self, _name, filter_test_accounts, project_setting, expected_conversions
+    ):
         # The conversion count catches either arm being missed: filtering only the conversion scan leaves
         # the internal person's touchpoints diluting the weights, only the touchpoint scan leaves their
         # conversion unattributed.
@@ -159,6 +169,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
         ]
         self.team.save()
+        self.team.marketing_analytics_config.filter_test_accounts = project_setting
+        self.team.marketing_analytics_config.save()
         create_person(team=self.team, distinct_ids=["customer"], properties={"email": "buyer@example.com"})
         create_person(team=self.team, distinct_ids=["staff"], properties={"email": "qa@internal.example.com"})
         for distinct_id in ("customer", "staff"):

@@ -307,6 +307,7 @@ export interface marketingAnalyticsLogicValues {
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
+    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
     shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
@@ -322,6 +323,9 @@ export interface marketingAnalyticsLogicActions {
     reloadAll: () => {} // dataNodeCollectionLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
+    } // marketingAnalyticsSettingsLogic
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
     } // marketingAnalyticsSettingsLogic
     loadDatabase: (
         args_0?:
@@ -435,9 +439,6 @@ export interface marketingAnalyticsLogicActions {
     }
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
-    }
-    setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => {
-        shouldFilterTestAccounts: boolean
     }
     setTileColumnSelection: (column: validColumnsForTiles) => {
         column: validColumnsForTiles
@@ -599,7 +600,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts'],
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
@@ -611,7 +612,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -639,7 +640,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
-        setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -714,14 +714,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
                         }
                     },
-                },
-            ],
-            // Off by default and persisted per team, matching web analytics next door.
-            shouldFilterTestAccounts: [
-                false as boolean,
-                persistConfig,
-                {
-                    setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
                 },
             ],
             integrationFilter: [
@@ -1237,6 +1229,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
+        ],
+        shouldFilterTestAccounts: [
+            (s) => [s.filter_test_accounts],
+            (filter_test_accounts: boolean): boolean => filter_test_accounts,
         ],
         overviewQuery: [
             (s) => [
