@@ -112,25 +112,21 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
-def _parse_row_shift(diff_metadata_raw: dict | None) -> contracts.RowShift | None:
+def _to_row_shift(parsed: StoredRowShift | None) -> contracts.RowShift | None:
     """Translate the stored row shift into the wire shape.
 
-    Split out from `_parse_diff_metadata` so the history view can read the
-    shift without also building the cluster dataclasses its contract does not
-    carry. None for legacy rows and for pairs pixelhog could not align.
+    Takes the already validated model rather than the raw column, so a caller
+    that has parsed `DiffMetadata` does not pay for a second validation. The
+    contract carries fewer fields than storage does: the pixel counts behind
+    the residual are diagnostics, not something the UI renders.
     """
-    raw = (diff_metadata_raw or {}).get("row_shift")
-    if not raw:
+    if parsed is None:
         return None
-    parsed = StoredRowShift.model_validate(raw)
     return contracts.RowShift(
         inserted_rows=parsed.inserted_rows,
         deleted_rows=parsed.deleted_rows,
-        changed_rows=parsed.changed_rows,
-        residual_pixel_count=parsed.residual_pixel_count,
         residual_percentage=parsed.residual_percentage,
         raw_diff_percentage=parsed.raw_diff_percentage,
-        raw_ssim_score=parsed.raw_ssim_score,
         bands=[contracts.ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in parsed.bands],
     )
 
@@ -166,7 +162,7 @@ def _parse_diff_metadata(
             total=cs.total,
             truncated=cs.truncated,
         )
-    return cluster_summary, parsed.size_mismatch, _parse_row_shift(diff_metadata_raw)
+    return cluster_summary, parsed.size_mismatch, _to_row_shift(parsed.row_shift)
 
 
 def _to_snapshot(
@@ -556,31 +552,33 @@ def get_run_snapshots(
     return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
 
 
+def _to_history_entry(entry, repo_id: UUID) -> contracts.SnapshotHistoryEntry:
+    # Validate the stored column once and read both fields off it. The history
+    # contract has no `cluster_summary`, so the parse stops at the pydantic
+    # model rather than building the cluster dataclasses that would be thrown
+    # away. Defaults mirror `DiffMetadata`.
+    stored = DiffMetadata.model_validate(entry.diff_metadata or {})
+    return contracts.SnapshotHistoryEntry(
+        run_id=entry.run_id,
+        snapshot_id=entry.id,
+        result=entry.result,
+        branch=entry.run.branch,
+        commit_sha=entry.run.commit_sha,
+        created_at=entry.run.created_at,
+        pr_number=entry.run.pr_number,
+        diff_percentage=entry.diff_percentage,
+        review_state=entry.review_state,
+        current_artifact=_to_artifact(entry.current_artifact, repo_id) if entry.current_artifact else None,
+        ssim_score=entry.ssim_score,
+        change_kind=entry.change_kind or "",
+        size_mismatch=stored.size_mismatch,
+        row_shift=_to_row_shift(stored.row_shift),
+    )
+
+
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
     entries = history.get_snapshot_history(repo_id, identifier, run_type)
-    return [
-        contracts.SnapshotHistoryEntry(
-            run_id=e.run_id,
-            snapshot_id=e.id,
-            result=e.result,
-            branch=e.run.branch,
-            commit_sha=e.run.commit_sha,
-            created_at=e.run.created_at,
-            pr_number=e.run.pr_number,
-            diff_percentage=e.diff_percentage,
-            review_state=e.review_state,
-            current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
-            ssim_score=e.ssim_score,
-            change_kind=e.change_kind or "",
-            # Read the flag directly instead of round-tripping through the
-            # full Pydantic parse — `cluster_summary` isn't on the history
-            # entry contract and we'd just be allocating cluster dataclasses
-            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
-            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
-            row_shift=_parse_row_shift(e.diff_metadata),
-        )
-        for e in entries
-    ]
+    return [_to_history_entry(entry, repo_id) for entry in entries]
 
 
 def mark_snapshot_as_tolerated(

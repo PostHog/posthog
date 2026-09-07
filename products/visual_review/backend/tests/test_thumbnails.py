@@ -79,7 +79,6 @@ def _make_compare_result(thumbnail: bytes = b"fake-webp") -> CompareResult:
         cluster_summary=None,
         aligned_diff_pixel_count=100,
         aligned_diff_percentage=5.0,
-        aligned_ssim_score=0.95,
         row_shift=None,
     )
 

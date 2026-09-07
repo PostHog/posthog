@@ -236,20 +236,22 @@ class RowShift:
     """A vertical shift between baseline and current, separated from the real change.
 
     Row alignment pairs the rows that exist in both images, so the pixels
-    below an inserted row stop counting as differences. `residual_*` is what
-    survives that pairing and is what the classifier thresholds on. `raw_*`
-    is what the same pair measured without alignment, which is how the UI can
-    say what the shift would otherwise have cost.
+    below an inserted row stop counting as differences. `residual_percentage`
+    is what survives that pairing and is what the classifier thresholds on.
+    `raw_diff_percentage` is what the same pair measured without alignment,
+    which is how the UI can say what the shift would otherwise have cost.
     """
 
     inserted_rows: int
     deleted_rows: int
-    changed_rows: int
-    residual_pixel_count: int
     residual_percentage: float
     raw_diff_percentage: float
-    raw_ssim_score: float
     bands: list[ShiftBand]
+
+    @property
+    def shifted_rows(self) -> int:
+        """Rows that moved, whichever direction they went. What the absorb cap judges."""
+        return self.inserted_rows + self.deleted_rows
 
 
 @dataclass(frozen=True)

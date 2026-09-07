@@ -24,7 +24,12 @@ from products.visual_review.backend.facade.enums import (
 from products.visual_review.backend.logic import artifact_store, runs
 from products.visual_review.backend.models import RunSnapshot, ToleratedHash
 from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
+from products.visual_review.backend.tests.conftest import (
+    PRODUCT_DATABASES,
+    VisualReviewTeamScopedTestMixin,
+    insert_background_rows,
+    make_striped_png,
+)
 
 
 def _make_png(color: tuple[int, int, int, int], size: tuple[int, int] = (10, 10)) -> bytes:
@@ -42,32 +47,9 @@ def _make_png_with_single_changed_pixel() -> bytes:
     return buffer.getvalue()
 
 
-def _make_striped_page(width: int = 100, height: int = 100) -> bytes:
-    """A page where every row has its own color, so no two rows hash alike."""
-    image = Image.new("RGBA", (width, height))
-    for y in range(height):
-        for x in range(width):
-            image.putpixel((x, y), (10 + (y * 2) % 240, 40 + y % 100, 200 - y % 150, 255))
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
-def _make_png_with_inserted_row(rows: int = 1) -> bytes:
-    """A striped page with `rows` background rows pushed in near the top.
-
-    Every row has its own color, so row alignment has one answer: the page
-    below the insert moved down and nothing else changed.
-    """
-    baseline = _make_striped_page()
-    image = Image.open(io.BytesIO(baseline)).convert("RGBA")
-    width, height = image.size
-    out = Image.new("RGBA", (width, height + rows), (255, 255, 255, 255))
-    out.paste(image.crop((0, 0, width, 20)), (0, 0))
-    out.paste(image.crop((0, 20, width, height)), (0, 20 + rows))
-    buffer = io.BytesIO()
-    out.save(buffer, format="PNG")
-    return buffer.getvalue()
+# Every row has its own color, so row alignment has one answer: the page below
+# an insert moved down and nothing else changed.
+STRIPED_PAGE_ROWS = [(10 + (y * 2) % 240, 40 + y % 100, 200 - y % 150, 255) for y in range(100)]
 
 
 def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> RunSnapshot:
@@ -430,8 +412,10 @@ class TestProcessRunDiffs:
         snapshot = _process_one_diff(
             repo,
             mocker,
-            baseline_png=_make_striped_page(),
-            current_png=_make_png_with_inserted_row(),
+            baseline_png=make_striped_png(STRIPED_PAGE_ROWS, width=100),
+            current_png=insert_background_rows(
+                make_striped_png(STRIPED_PAGE_ROWS, width=100), y=20, rows=1, fill=(255, 255, 255, 255)
+            ),
         )
 
         assert snapshot.result == SnapshotResult.UNCHANGED

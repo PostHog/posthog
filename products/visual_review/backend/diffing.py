@@ -33,30 +33,26 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     drives `_diff_snapshot` below; keeping it here means the production
     branch and the tests can't drift.
 
-    Without a row shift the two tiers run on the naive metrics. With one,
-    they run on the residual and the aligned SSIM instead, so a page that
-    only moved down is judged on what changed rather than on everything the
-    shift dragged along. A shift taller than the absorb cap is its own kind,
-    because moving a block is a change a reviewer can act on even when the
-    content in it is identical.
+    When the pair aligned, the pixel tier reads the residual and `ssim_score`
+    is already measured over the matched rows, so a page that only moved down
+    is judged on what changed rather than on everything the shift dragged
+    along. A shift taller than the absorb cap is its own kind, because moving
+    a block is a change a reviewer can act on even when the content in it is
+    identical.
 
     Size mismatch is *not* a kind — pixelhog pads to the largest dims and
     we still get a real pixel/SSIM answer over that padded image. The fact
     that sizes differed is recorded separately on `DiffMetadata`.
     """
-    if result.row_shift is None:
-        if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
-            return ChangeKind.PIXEL
-        if (1.0 - result.ssim_score) >= SSIM_DISSIMILARITY_THRESHOLD:
-            return ChangeKind.STRUCTURAL
-        return None
+    shift = result.row_shift
+    pixel_percentage = shift.residual_percentage if shift else result.diff_percentage
+    shifted_rows = shift.shifted_rows if shift else 0
 
-    shifted_rows = result.row_shift.inserted_rows + result.row_shift.deleted_rows
-    if result.row_shift.residual_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
+    if pixel_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
         return ChangeKind.PIXEL
     if shifted_rows > SHIFT_ABSORB_MAX_ROWS:
         return ChangeKind.LAYOUT
-    if (1.0 - result.aligned_ssim_score) >= SSIM_DISSIMILARITY_THRESHOLD:
+    if (1.0 - result.ssim_score) >= SSIM_DISSIMILARITY_THRESHOLD:
         return ChangeKind.STRUCTURAL
     return None
 
@@ -99,6 +95,15 @@ def _write_diff_artifact(snapshot: RunSnapshot, result: CompareResult) -> Artifa
     )
 
 
+def _diff_metadata(result: CompareResult) -> DiffMetadata:
+    """The metadata block both storage paths write."""
+    return DiffMetadata(
+        cluster_summary=result.cluster_summary,
+        size_mismatch=result.size_mismatch,
+        row_shift=result.row_shift,
+    )
+
+
 def _store_diff(
     snapshot: RunSnapshot,
     result: CompareResult,
@@ -110,24 +115,16 @@ def _store_diff(
     if not result.diff_image:
         return
 
-    diff_artifact = _write_diff_artifact(snapshot, result)
-
-    diff_metadata = DiffMetadata(
-        cluster_summary=result.cluster_summary,
-        size_mismatch=result.size_mismatch,
-        row_shift=result.row_shift,
-    )
-
     # The aligned metrics equal the naive ones when the pair could not be
     # aligned, so this stores the honest cost of the change either way.
     snapshot_diffs.update_snapshot_diff(
         snapshot_id=snapshot.id,
-        diff_artifact=diff_artifact,
+        diff_artifact=_write_diff_artifact(snapshot, result),
         diff_percentage=result.aligned_diff_percentage,
         diff_pixel_count=result.aligned_diff_pixel_count,
-        ssim_score=result.aligned_ssim_score,
+        ssim_score=result.ssim_score,
         change_kind=change_kind,
-        diff_metadata=diff_metadata,
+        diff_metadata=_diff_metadata(result),
         team_id=snapshot.team_id,
     )
 
@@ -138,11 +135,56 @@ def _store_diff(
         change_kind=change_kind.value,
         diff_percentage=result.aligned_diff_percentage,
         diff_pixel_count=result.aligned_diff_pixel_count,
-        ssim_score=result.aligned_ssim_score,
+        ssim_score=result.ssim_score,
         size_mismatch=result.size_mismatch,
         cluster_count=result.cluster_summary.total if result.cluster_summary else 0,
         inserted_rows=result.row_shift.inserted_rows if result.row_shift else 0,
         deleted_rows=result.row_shift.deleted_rows if result.row_shift else 0,
+    )
+
+
+def _store_absorbed(snapshot: RunSnapshot, result: CompareResult) -> None:
+    """Reclassify a below-threshold snapshot as noise and record what it cost.
+
+    The aligned metrics equal the naive ones when nothing aligned, so an
+    absorbed shift is recorded at what it really cost (a residual of a
+    fraction of a percent) instead of at the whole page below the shift.
+    `FlakinessEntry.headroom` is measured against these numbers.
+
+    A shift that actually moved rows also keeps its diff image and its
+    metadata, so a reviewer can see the line that moved. A pair that aligned
+    with nothing moved is plain noise and gets neither, because that would be
+    an artifact upload per snapshot for a picture of nothing.
+    """
+    from .logic import snapshot_diffs
+
+    shift = result.row_shift
+    has_shift = shift is not None and shift.shifted_rows > 0
+
+    snapshot.result = SnapshotResult.UNCHANGED
+    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
+    snapshot.save(update_fields=["result", "classification_reason"])
+
+    snapshot_diffs.update_snapshot_diff(
+        snapshot_id=snapshot.id,
+        diff_artifact=_write_diff_artifact(snapshot, result) if has_shift and result.diff_image else None,
+        diff_percentage=result.aligned_diff_percentage,
+        diff_pixel_count=result.aligned_diff_pixel_count,
+        ssim_score=result.ssim_score,
+        change_kind=None,
+        diff_metadata=_diff_metadata(result) if has_shift else None,
+        team_id=snapshot.team_id,
+    )
+
+    logger.info(
+        "visual_review.diff_below_threshold",
+        snapshot_id=str(snapshot.id),
+        identifier=snapshot.identifier,
+        diff_percentage=result.aligned_diff_percentage,
+        ssim_score=result.ssim_score,
+        inserted_rows=shift.inserted_rows if shift else 0,
+        deleted_rows=shift.deleted_rows if shift else 0,
+        residual_percentage=shift.residual_percentage if shift else None,
     )
 
 
@@ -156,9 +198,9 @@ def _diff_snapshot(snapshot: RunSnapshot) -> bool:
        (tall-page dilution safety net)
     4. All below -> UNCHANGED (noise), auto-populate tolerance cache.
 
-    When the pair aligned, the thresholds run on the residual and the aligned
-    SSIM, so a page that moved down by a row or two is absorbed instead of
-    reading as a page-wide change.
+    When the pair aligned, the thresholds run on the residual and on the SSIM
+    of the matched rows, so a page that moved down by a row or two is absorbed
+    instead of reading as a page-wide change.
 
     Size mismatch is recorded as `diff_metadata.size_mismatch` and surfaced
     separately in the UI — a snapshot can have a different viewport AND a
@@ -195,43 +237,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> bool:
         _store_diff(snapshot, result, kind)
         return True
 
-    # Every tier below threshold — genuine noise, reclassify and cache for future runs.
-    # The aligned metrics equal the naive ones when nothing aligned, so an
-    # absorbed shift is recorded at what it really cost (a residual of a
-    # fraction of a percent) instead of at the whole page below the shift.
-    # `FlakinessEntry.headroom` is measured against these numbers.
-    snapshot.result = SnapshotResult.UNCHANGED
-    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
-    snapshot.diff_percentage = result.aligned_diff_percentage
-    snapshot.diff_pixel_count = result.aligned_diff_pixel_count
-    snapshot.ssim_score = result.aligned_ssim_score
-    update_fields = ["result", "classification_reason", "diff_percentage", "diff_pixel_count", "ssim_score"]
-
-    if result.row_shift is not None:
-        snapshot.diff_metadata = DiffMetadata(
-            cluster_summary=result.cluster_summary,
-            row_shift=result.row_shift,
-            size_mismatch=result.size_mismatch,
-        ).model_dump(mode="json")
-        update_fields.append("diff_metadata")
-        if result.diff_image:
-            # An absorbed run still gets a diff image so a reviewer can see the
-            # one line that moved. `snapshot_diffs.update_snapshot_diff` refuses
-            # anything that is not CHANGED, so attach the artifact directly.
-            snapshot.diff_artifact = _write_diff_artifact(snapshot, result)
-            update_fields.append("diff_artifact")
-
-    snapshot.save(update_fields=update_fields)
-    logger.info(
-        "visual_review.diff_below_threshold",
-        snapshot_id=str(snapshot.id),
-        identifier=snapshot.identifier,
-        diff_percentage=result.aligned_diff_percentage,
-        ssim_score=result.aligned_ssim_score,
-        inserted_rows=result.row_shift.inserted_rows if result.row_shift else 0,
-        deleted_rows=result.row_shift.deleted_rows if result.row_shift else 0,
-        residual_percentage=result.row_shift.residual_percentage if result.row_shift else None,
-    )
+    _store_absorbed(snapshot, result)
 
     # Auto-populate tolerance cache so future runs skip diffing for this hash.
     # Explicit team_id in the lookup (not just defaults) so the IDOR audit

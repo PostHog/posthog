@@ -108,18 +108,14 @@ class RowShiftSerializer(DataclassSerializer):
     )
     inserted_rows = serializers.IntegerField(help_text="Rows the current image gained.")
     deleted_rows = serializers.IntegerField(help_text="Rows the current image lost.")
-    changed_rows = serializers.IntegerField(help_text="Rows present in both images whose content differs.")
-    residual_pixel_count = serializers.IntegerField(
-        help_text="Differing pixels inside the changed rows, excluding the shift itself."
-    )
     residual_percentage = serializers.FloatField(
-        help_text="residual_pixel_count as a percentage of the image, 0 to 100. The classifier thresholds on this."
+        help_text=(
+            "Percentage of pixels that differ inside the rows present in both images, 0 to 100. "
+            "Excludes the shift itself, and is what the classifier thresholds on."
+        )
     )
     raw_diff_percentage = serializers.FloatField(
         help_text="Percentage of pixels that differ without alignment, which is what the shift would have cost."
-    )
-    raw_ssim_score = serializers.FloatField(
-        help_text="Structural similarity without alignment, 0 to 1, where 1 is identical."
     )
 
     class Meta:

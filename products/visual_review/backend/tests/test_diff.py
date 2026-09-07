@@ -5,22 +5,12 @@ import io
 from PIL import Image
 
 from products.visual_review.backend.diff import compare_images
+from products.visual_review.backend.tests.conftest import make_striped_png
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
     """Create a solid color PNG image."""
     img = Image.new("RGBA", (width, height), color)
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
-def _make_striped_png(rows: list[tuple[int, int, int, int]], width: int = 20) -> bytes:
-    """Create a PNG where every row has its own color."""
-    img = Image.new("RGBA", (width, len(rows)))
-    for y, color in enumerate(rows):
-        for x in range(width):
-            img.putpixel((x, y), color)
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -51,8 +41,8 @@ class TestCompareImages:
         assert result.width == 10
         assert result.height == 10
         assert len(result.diff_hash) == 64  # BLAKE3 hex
-        assert result.row_shift is not None
-        assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (0, 0)
+        # No pixel differs, so there is nothing to align and no alignment runs.
+        assert result.row_shift is None
 
     def test_completely_different_images_full_diff(self):
         red = (255, 0, 0, 255)
@@ -126,7 +116,7 @@ class TestCompareImages:
         baseline_rows = [(10 * i % 250, 40, 200, 255) for i in range(20)]
         current_rows = [*baseline_rows[:8], (255, 255, 255, 255), *baseline_rows[8:]]
 
-        result = compare_images(_make_striped_png(baseline_rows), _make_striped_png(current_rows))
+        result = compare_images(make_striped_png(baseline_rows), make_striped_png(current_rows))
 
         assert result.row_shift is not None
         assert result.row_shift.inserted_rows == 1
@@ -146,7 +136,7 @@ class TestCompareImages:
         baseline_rows = [(10 * i % 250, 40, 200, 255) for i in range(20)]
         current_rows = [*baseline_rows[:8], *baseline_rows[9:]]
 
-        result = compare_images(_make_striped_png(baseline_rows), _make_striped_png(current_rows))
+        result = compare_images(make_striped_png(baseline_rows), make_striped_png(current_rows))
 
         assert result.row_shift is not None
         assert [(b.y, b.rows, b.kind) for b in result.row_shift.bands] == [(8, 1, "deleted")]

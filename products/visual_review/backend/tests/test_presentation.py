@@ -178,7 +178,6 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
                     "residual_pixel_count": 0,
                     "residual_percentage": 0.0,
                     "raw_diff_percentage": 2.4,
-                    "raw_ssim_score": 0.76,
                     "bands": [{"y": 210, "rows": 1, "kind": "inserted"}],
                 }
             }

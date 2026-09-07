@@ -63,7 +63,7 @@ class RowShift(BaseModel):
     Row alignment pairs the rows that exist in both images, so the pixels
     below an inserted row stop counting as differences. `residual_*` is what
     is left after that pairing, which is the number the classifier thresholds
-    on. `raw_*` keeps the naive numbers the same pair produced without
+    on. `raw_diff_percentage` keeps what the same pair measured without
     alignment, so the UI can say what the shift would have cost.
     """
 
@@ -75,8 +75,12 @@ class RowShift(BaseModel):
     residual_pixel_count: int = Field(ge=0)
     residual_percentage: float
     raw_diff_percentage: float
-    raw_ssim_score: float
     bands: list[ShiftBand]
+
+    @property
+    def shifted_rows(self) -> int:
+        """Rows that moved, whichever direction they went. What the absorb cap judges."""
+        return self.inserted_rows + self.deleted_rows
 
 
 class DiffMetadata(BaseModel):

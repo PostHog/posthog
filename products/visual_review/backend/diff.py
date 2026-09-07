@@ -7,6 +7,7 @@ re-decode.
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 from blake3 import blake3
 from pixelhog import ClustersResult, Comparison, RowAlignment
@@ -48,7 +49,10 @@ class CompareResult:
     diff_hash: str
     diff_percentage: float  # 0.0 to 100.0 — fraction of pixels that differ
     diff_pixel_count: int
-    ssim_score: float  # 0.0 to 1.0 — 1.0 = identical, lower = more different
+    # 0.0 to 1.0 — 1.0 = identical, lower = more different. Measured over the
+    # matched rows when the pair aligned, so it is the effective score the
+    # classifier reads either way.
+    ssim_score: float
     # Dimensions of `diff_image`, which is the padded size for a naive diff and
     # the current image's own size for an aligned one. The percentages above
     # are always measured over the padded size.
@@ -58,15 +62,14 @@ class CompareResult:
     thumbnail_hash: str
     size_mismatch: bool  # baseline and current have different dimensions
     cluster_summary: ClusterSummary | None  # None when not computed (size mismatch / no thumbnail-only mode)
-    # Metrics measured after row alignment paired the rows that exist in both
-    # images. They fall back to the naive numbers above when `row_shift` is
-    # None, so a caller that always stores the aligned numbers keeps the
-    # unaligned behavior for free.
+    # The residual after row alignment paired the rows that exist in both
+    # images. Falls back to the naive numbers above when `row_shift` is None,
+    # so a caller that always stores these keeps the unaligned behavior for
+    # free.
     aligned_diff_pixel_count: int
     aligned_diff_percentage: float
-    aligned_ssim_score: float
-    # None when pixelhog could not align the pair, which is what happens once
-    # the two images differ by more than the alignment budget.
+    # None when there was nothing to align, or when pixelhog could not align
+    # the pair because the two images differ by more than its budget.
     row_shift: RowShift | None
 
 
@@ -85,17 +88,6 @@ def _to_cluster_summary(clusters_result: ClustersResult) -> ClusterSummary:
     )
 
 
-def _inserted_band_pixels(alignment: RowAlignment, width: int) -> int:
-    """Count the pixels of the rows the current image gained.
-
-    `residual_count` covers only rows present in both images, so an inserted
-    band contributes nothing to it. A band is new content, so it has to be
-    counted somewhere; charging it a full row of pixels keeps a tall inserted
-    block above the pixel threshold instead of hiding it.
-    """
-    return sum(band.rows * width for band in alignment.bands if band.kind == "inserted")
-
-
 def compare_images(
     baseline_bytes: bytes,
     current_bytes: bytes,
@@ -111,16 +103,15 @@ def compare_images(
     padded region surfaces as a cluster of its own, which is the right
     answer ("here's the new content area") rather than something to hide.
 
-    Row alignment runs on top of that. When it succeeds, the diff image and
-    the clusters describe the residual instead of the whole page below a
-    shift, and the aligned metrics measure what actually changed. The naive
-    metrics stay on the result so a caller can still see what the shift cost
-    without alignment.
+    Row alignment runs on top of that. When it succeeds, the diff image, the
+    clusters and the SSIM describe the residual instead of the whole page
+    below a shift, and the shift itself is reported separately as a row
+    count. The naive pixel numbers stay on the result so a caller can still
+    see what the shift would have cost without alignment.
     """
     cmp = Comparison(baseline_bytes, current_bytes)
 
     diff_pixel_count = cmp.diff_count(threshold=threshold)
-    ssim_score = cmp.ssim()
     thumbnail = cmp.current_thumbnail(width=THUMB_WIDTH, height=THUMB_HEIGHT) if with_thumbnail else None
 
     width = cmp.width
@@ -128,27 +119,28 @@ def compare_images(
     total_pixels = width * height
     diff_percentage = (diff_pixel_count / total_pixels * 100) if total_pixels > 0 else 0.0
 
-    alignment = cmp.row_alignment(threshold=threshold)
+    # Nothing to align when no pixel differs, which is also true of a pair
+    # that only differs in how its PNG was encoded.
+    alignment: RowAlignment | None = cmp.row_alignment(threshold=threshold) if diff_pixel_count > 0 else None
+    aligned = alignment is not None and alignment.aligned
+
     row_shift: RowShift | None = None
     aligned_diff_pixel_count = diff_pixel_count
     aligned_diff_percentage = diff_percentage
-    aligned_ssim_score = ssim_score
     # Dimensions of the diff image the result carries, which is what the diff
     # artifact row records and what the frontend scales its overlays by.
     diff_width, diff_height = width, height
-    if alignment.aligned:
-        aligned_diff_pixel_count = alignment.residual_count + _inserted_band_pixels(alignment, width)
+    if alignment is not None and aligned:
+        aligned_diff_pixel_count = alignment.residual_count
         aligned_diff_percentage = (aligned_diff_pixel_count / total_pixels * 100) if total_pixels > 0 else 0.0
-        aligned_ssim_score = cmp.aligned_ssim(alignment)
-        residual_percentage = (alignment.residual_count / total_pixels * 100) if total_pixels > 0 else 0.0
+        ssim_score = cmp.aligned_ssim(alignment)
         row_shift = RowShift(
             inserted_rows=alignment.inserted_rows,
             deleted_rows=alignment.deleted_rows,
             changed_rows=alignment.changed_rows,
             residual_pixel_count=alignment.residual_count,
-            residual_percentage=round(residual_percentage, 4),
+            residual_percentage=round(aligned_diff_percentage, 4),
             raw_diff_percentage=round(diff_percentage, 4),
-            raw_ssim_score=ssim_score,
             bands=[ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in alignment.bands],
         )
         diff_image = cmp.aligned_diff_image(alignment, threshold=threshold, alpha=0.1)
@@ -158,34 +150,32 @@ def compare_images(
         # over the padded total; only the image dimensions follow the image.
         diff_width, diff_height = cmp.current_size
     else:
+        ssim_score = cmp.ssim()
         diff_image = cmp.diff_image(threshold=threshold, alpha=0.1)
 
     diff_hash = blake3(diff_image).hexdigest() if diff_image else ""
     thumbnail_hash = blake3(thumbnail).hexdigest() if thumbnail else ""
 
+    # Typed loosely on purpose: the tunables are int and float together, so a
+    # narrower value type makes the ** expansion fail against pixelhog's
+    # per-parameter types.
+    cluster_kwargs: dict[str, Any] = {
+        "threshold": threshold,
+        "min_pixels": CLUSTER_MIN_PIXELS,
+        "min_side": CLUSTER_MIN_SIDE,
+        "dilation": CLUSTER_DILATION,
+        "max_clusters": CLUSTER_MAX,
+        "merge_gap": CLUSTER_MERGE_GAP_PX,
+        "merge_overlap": CLUSTER_MERGE_OVERLAP_RATIO,
+    }
     cluster_summary: ClusterSummary | None = None
-    if with_clusters and diff_pixel_count > 0:
-        if row_shift is not None:
-            clusters_result = cmp.aligned_clusters(
-                alignment,
-                threshold=threshold,
-                min_pixels=CLUSTER_MIN_PIXELS,
-                min_side=CLUSTER_MIN_SIDE,
-                dilation=CLUSTER_DILATION,
-                max_clusters=CLUSTER_MAX,
-                merge_gap=CLUSTER_MERGE_GAP_PX,
-                merge_overlap=CLUSTER_MERGE_OVERLAP_RATIO,
-            )
-        else:
-            clusters_result = cmp.clusters(
-                threshold=threshold,
-                min_pixels=CLUSTER_MIN_PIXELS,
-                min_side=CLUSTER_MIN_SIDE,
-                dilation=CLUSTER_DILATION,
-                max_clusters=CLUSTER_MAX,
-                merge_gap=CLUSTER_MERGE_GAP_PX,
-                merge_overlap=CLUSTER_MERGE_OVERLAP_RATIO,
-            )
+    has_pixels_to_cluster = aligned_diff_pixel_count > 0 if aligned else diff_pixel_count > 0
+    if with_clusters and has_pixels_to_cluster:
+        clusters_result = (
+            cmp.aligned_clusters(alignment, **cluster_kwargs)
+            if alignment is not None and aligned
+            else cmp.clusters(**cluster_kwargs)
+        )
         cluster_summary = _to_cluster_summary(clusters_result)
 
     return CompareResult(
@@ -202,6 +192,5 @@ def compare_images(
         cluster_summary=cluster_summary,
         aligned_diff_pixel_count=aligned_diff_pixel_count,
         aligned_diff_percentage=round(aligned_diff_percentage, 4),
-        aligned_ssim_score=aligned_ssim_score,
         row_shift=row_shift,
     )

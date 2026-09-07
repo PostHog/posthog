@@ -15,6 +15,7 @@ from products.visual_review.backend.facade.contracts import (
     SSIM_DISSIMILARITY_THRESHOLD,
 )
 from products.visual_review.backend.facade.enums import ChangeKind
+from products.visual_review.backend.tests.conftest import insert_background_rows, open_png, to_png
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
@@ -56,41 +57,11 @@ def _make_tall_settings_page(width: int = 400, height: int = 3000, extra_element
     return buf.getvalue()
 
 
-def _to_png(img: Image.Image) -> bytes:
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+PAGE_BACKGROUND = (245, 245, 245, 255)
 
 
-def _open(png_bytes: bytes) -> Image.Image:
-    return Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-
-
-def _insert_background_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
-    """Push everything below `y` down by `rows` rows of page background.
-
-    The image grows by `rows`, which is what a panel that gained a pixel of
-    padding does to a full-page screenshot.
-    """
-    img = _open(png_bytes)
-    width, height = img.size
-    out = Image.new("RGBA", (width, height + rows), (245, 245, 245, 255))
-    out.paste(img.crop((0, 0, width, y)), (0, 0))
-    out.paste(img.crop((0, y, width, height)), (0, y + rows))
-    return _to_png(out)
-
-
-def _insert_bordered_block(png_bytes: bytes, y: int, rows: int) -> bytes:
-    """Insert a block of new content at `y` and push everything below it down."""
-    img = _open(png_bytes)
-    width, height = img.size
-    out = Image.new("RGBA", (width, height + rows), (245, 245, 245, 255))
-    out.paste(img.crop((0, 0, width, y)), (0, 0))
-    ImageDraw.Draw(out).rectangle(
-        [(20, y), (width - 20, y + rows - 1)], fill=(255, 243, 224, 255), outline=(200, 160, 100, 255)
-    )
-    out.paste(img.crop((0, y, width, height)), (0, y + rows))
-    return _to_png(out)
+def _insert_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
+    return insert_background_rows(png_bytes, y, rows, PAGE_BACKGROUND)
 
 
 def _classify(baseline_bytes: bytes, current_bytes: bytes) -> ChangeKind | None:
@@ -245,7 +216,7 @@ class TestRowShiftClassification:
     )
     def test_background_row_insert_ladder(self, inserted_rows: int, expected_kind: ChangeKind | None):
         baseline = _make_tall_settings_page()
-        current = _insert_background_rows(baseline, y=200, rows=inserted_rows)
+        current = _insert_rows(baseline, y=200, rows=inserted_rows)
 
         result = compare_images(baseline, current, with_thumbnail=False)
         assert result.row_shift is not None
@@ -267,26 +238,12 @@ class TestRowShiftClassification:
 
         assert classify_compare_result(result) == expected_kind
 
-    def test_inserted_block_counts_its_own_pixels(self):
-        # The residual only covers rows present in both images, so an inserted
-        # block would otherwise cost nothing. Charging it a full row of pixels
-        # keeps a real block of new content visible in the stored percentage.
-        baseline = _make_tall_settings_page()
-        current = _insert_bordered_block(baseline, y=200, rows=40)
-
-        result = compare_images(baseline, current, with_thumbnail=False)
-
-        assert result.row_shift is not None
-        assert result.row_shift.inserted_rows == 40
-        assert result.aligned_diff_percentage > result.row_shift.residual_percentage
-        assert classify_compare_result(result) == ChangeKind.LAYOUT
-
     def test_shift_plus_real_change_is_not_absorbed(self):
         baseline = _make_tall_settings_page()
-        shifted = _open(_insert_background_rows(baseline, y=200, rows=1))
+        shifted = open_png(_insert_rows(baseline, y=200, rows=1))
         ImageDraw.Draw(shifted).rectangle([(20, 1000), (380, 1060)], fill=(255, 0, 0, 255))
 
-        result = compare_images(baseline, _to_png(shifted), with_thumbnail=False)
+        result = compare_images(baseline, to_png(shifted), with_thumbnail=False)
 
         assert result.row_shift is not None
         assert result.row_shift.inserted_rows == 1
@@ -296,10 +253,10 @@ class TestRowShiftClassification:
         # Only the right half of a block moves down a row. That is not a page
         # shift, so it must not ride the absorb path out of review.
         baseline = _make_tall_settings_page()
-        drifted = _open(baseline)
+        drifted = open_png(baseline)
         width, _ = drifted.size
         half = drifted.crop((width // 2, 500, width, 900))
         drifted.paste((245, 245, 245, 255), (width // 2, 500, width, 900))
         drifted.paste(half, (width // 2, 501))
 
-        assert _classify(baseline, _to_png(drifted)) is not None
+        assert _classify(baseline, to_png(drifted)) is not None
