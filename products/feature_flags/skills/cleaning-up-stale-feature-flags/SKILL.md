@@ -95,7 +95,7 @@ For each candidate you assess, gather context before recommending action:
   The status reflects recent evaluation, not rollout completeness — use `rollout` for that.
 - **`posthog:feature-flag-get-definition`** returns the full definition:
   `experiment_set`, linked surveys, early access features, session replay settings, variants, and filters,
-  including any `payloads` the flag carries.
+  including any `payloads` the flag carries, plus `evaluation_runtime` and `evaluation_contexts`.
 - **`posthog:feature-flags-dependent-flags-retrieve`** lists other active flags that depend on this one.
 - **`posthog:scheduled-changes-list`** with `model_name: "FeatureFlag"` and `record_id` set to the flag's id
   lists the changes queued for it. It returns executed and failed schedules too, so read the unexecuted future ones.
@@ -141,6 +141,11 @@ Classify each selected flag from the `rollout` object in the status response —
   while evaluation resolves the first condition that matches.
   So a targeted condition with a `variant` override serves its segment a path the summary never names.
   Do not edit code for these. Explain what decision the user has to make, and stop.
+
+`effectively_full_rollout` covers release conditions only.
+A flag whose `evaluation_runtime` is `server` or `client`, or whose `evaluation_contexts` is not empty,
+is left out of the flag payload everywhere else, so it has always resolved false outside that scope.
+Treat such a flag as ambiguous unless every call site step 4 finds sits inside the runtime and contexts it reaches.
 
 Re-read the flag immediately before editing code, so a rollout changed since assessment never picks the wrong branch.
 
