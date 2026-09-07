@@ -1766,7 +1766,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta, ZSTD(1)"
+      codec = "DoubleDelta"
     }
     column "metric_type" {
       type = "LowCardinality(String)"
@@ -1839,7 +1839,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta, ZSTD(1)"
+      codec = "DoubleDelta"
     }
     column "metric_type" {
       type = "LowCardinality(String)"
@@ -2147,7 +2147,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta, ZSTD(1)"
+      codec = "DoubleDelta"
     }
     column "resource_fingerprint" {
       type    = "UInt64"
@@ -2155,7 +2155,7 @@ SQL
     }
     column "timestamp" {
       type  = "DateTime64(6)"
-      codec = "DoubleDelta, ZSTD(1)"
+      codec = "DoubleDelta"
     }
     column "observed_timestamp" {
       type = "DateTime64(6)"
@@ -2175,12 +2175,12 @@ SQL
     }
     column "value" {
       type  = "Float64"
-      codec = "Gorilla(8), ZSTD(1)"
+      codec = "Gorilla(8)"
     }
     column "count" {
       type    = "UInt64"
       default = "1"
-      codec   = "T64, ZSTD(1)"
+      codec   = "T64"
     }
     column "histogram_bounds" {
       type = "Array(Float64)"
@@ -2321,7 +2321,7 @@ SQL
     }
     column "series_fingerprint" {
       type  = "UInt64"
-      codec = "DoubleDelta, ZSTD(1)"
+      codec = "DoubleDelta"
     }
     column "resource_fingerprint" {
       type    = "UInt64"
@@ -2329,7 +2329,7 @@ SQL
     }
     column "timestamp" {
       type  = "DateTime64(6)"
-      codec = "DoubleDelta, ZSTD(1)"
+      codec = "DoubleDelta"
     }
     column "observed_timestamp" {
       type = "DateTime64(6)"
@@ -2349,12 +2349,12 @@ SQL
     }
     column "value" {
       type  = "Float64"
-      codec = "Gorilla(8), ZSTD(1)"
+      codec = "Gorilla(8)"
     }
     column "count" {
       type    = "UInt64"
       default = "1"
-      codec   = "T64, ZSTD(1)"
+      codec   = "T64"
     }
     column "histogram_bounds" {
       type = "Array(Float64)"
