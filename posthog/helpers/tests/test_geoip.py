@@ -58,6 +58,9 @@ def _total_failure_count() -> float:
         pytest.param("169.254.42.42", id="link_local"),
         pytest.param("240.0.0.42", id="reserved"),
         pytest.param("0.0.0.0", id="unspecified"),
+        pytest.param("100.64.0.42", id="rfc6598_shared"),
+        pytest.param("224.0.0.42", id="multicast"),
+        pytest.param("fec0::42", id="ipv6_site_local"),
     ],
 )
 def test_geoip_skips_non_public_addresses_without_a_lookup(non_public_ip: str) -> None:

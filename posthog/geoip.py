@@ -56,11 +56,17 @@ type IPClassification = Literal[
     "link_local",
     "reserved",
     "unspecified",
+    "multicast",
+    "shared",
+    "site_local",
 ]
 
 _NON_PUBLIC_IP_CATEGORIES: frozenset[IPClassification] = frozenset(
-    {"private", "loopback", "link_local", "reserved", "unspecified"}
+    {"private", "loopback", "link_local", "reserved", "unspecified", "multicast", "shared", "site_local"}
 )
+
+# RFC 6598 shared address space, which Python reports as neither private nor reserved.
+_SHARED_ADDRESS_SPACE = ipaddress.IPv4Network("100.64.0.0/10")
 
 
 def _classify_ip(ip_address: str) -> IPClassification:
@@ -83,6 +89,15 @@ def _classify_ip(ip_address: str) -> IPClassification:
         return "reserved"
     if parsed.is_private:
         return "private"
+    # Python's private and reserved predicates miss these three, and none of them can have a location:
+    # multicast is never a unicast source, RFC 6598 shared space sits behind a carrier or cloud NAT, and
+    # RFC 3879 deprecated IPv6 site-local.
+    if parsed.is_multicast:
+        return "multicast"
+    if parsed in _SHARED_ADDRESS_SPACE:
+        return "shared"
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.is_site_local:
+        return "site_local"
     return "public"
 
 
