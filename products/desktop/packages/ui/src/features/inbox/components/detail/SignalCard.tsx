@@ -579,7 +579,7 @@ function SessionProblemSignalCard({
           sessionId={extra.session_id}
           seekSeconds={
             extra.start_time
-              ? (colonOffsetToSeconds(extra.start_time) ?? undefined)
+              ? colonOffsetToSeconds(extra.start_time)
               : undefined
           }
         />
@@ -641,6 +641,22 @@ function SessionProblemSignalCard({
   );
 }
 
+function RecordingPlayerLink({ url, label }: { url: string; label: string }) {
+  return (
+    <Flex mt="1" justify="end">
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
+      >
+        {label}
+        <ArrowSquareOutIcon size={12} />
+      </a>
+    </Flex>
+  );
+}
+
 function SessionRecordingVideo({
   exportedAssetId,
   sessionId,
@@ -648,8 +664,7 @@ function SessionRecordingVideo({
 }: {
   exportedAssetId?: number;
   sessionId: string;
-  /** Recording-relative offset (seconds) the player should open at. */
-  seekSeconds?: number;
+  seekSeconds?: number | null;
 }) {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -674,26 +689,13 @@ function SessionRecordingVideo({
   );
 
   const playerUrl = sessionRecordingUrl(sessionId, {
-    secondsOffsetFromStart: seekSeconds ?? null,
+    secondsOffsetFromStart: seekSeconds,
   });
 
-  // No playable mp4 export: fall back to a link that opens the recording in the
-  // PostHog web player, so the evidence stays one click away from the real thing.
   if (videoQuery.isError || videoQuery.data === null) {
-    if (!playerUrl) return null;
-    return (
-      <Flex mt="2" justify="end">
-        <a
-          href={playerUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
-        >
-          Watch the recording
-          <ArrowSquareOutIcon size={12} />
-        </a>
-      </Flex>
-    );
+    return playerUrl ? (
+      <RecordingPlayerLink url={playerUrl} label="Watch the recording" />
+    ) : null;
   }
   if (videoQuery.isLoading || videoQuery.data === undefined) {
     return (
@@ -722,17 +724,7 @@ function SessionRecordingVideo({
         }}
       />
       {playerUrl && (
-        <Flex mt="1" justify="end">
-          <a
-            href={playerUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
-          >
-            Open full recording
-            <ArrowSquareOutIcon size={12} />
-          </a>
-        </Flex>
+        <RecordingPlayerLink url={playerUrl} label="Open full recording" />
       )}
     </Box>
   );

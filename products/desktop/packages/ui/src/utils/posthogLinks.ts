@@ -241,7 +241,6 @@ export function errorTrackingIssueUrl(
   }, overrides);
 }
 
-/** Parse a recording-relative "MM:SS" / "HH:MM:SS" offset to whole seconds. */
 export function colonOffsetToSeconds(offset: string): number | null {
   const parts = offset.split(":");
   if (parts.length < 2 || parts.length > 3) return null;
@@ -251,10 +250,6 @@ export function colonOffsetToSeconds(offset: string): number | null {
   return Math.round(h * 3600 + m * 60 + s);
 }
 
-/**
- * PostHog web URL that opens a session recording in the replay player, seeking to
- * `secondsOffsetFromStart` when given (mirrors `replaySingle` in the web app).
- */
 export function sessionRecordingUrl(
   sessionId: string,
   options?: { secondsOffsetFromStart?: number | null },
