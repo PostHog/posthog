@@ -4120,6 +4120,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(tile1.layouts["xs"]["w"], 1)
         self.assertEqual(tile2.layouts["xs"]["w"], 1)
 
+    def test_reorder_tiles_preserve_legacy_string_layouts_use_defaults(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        legacy_tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=Insight.objects.create(team=self.team, name="Legacy insight"),
+            layouts=json.dumps({"sm": {"x": 0, "y": 0, "w": 12, "h": 8}}),
+        )
+        default_tile = DashboardTile.objects.create(
+            dashboard=dashboard, insight=Insight.objects.create(team=self.team, name="Default insight")
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [legacy_tile.pk, default_tile.pk]},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        legacy_tile.refresh_from_db()
+        default_tile.refresh_from_db()
+        self.assertEqual(legacy_tile.layouts["sm"], {"x": 0, "y": 0, "w": 6, "h": 5})
+        self.assertEqual(default_tile.layouts["sm"], {"x": 6, "y": 0, "w": 6, "h": 5})
+        self.assertEqual(legacy_tile.layouts["xs"], {"x": 0, "y": 0, "w": 1, "h": 5})
+        self.assertEqual(default_tile.layouts["xs"], {"x": 0, "y": 5, "w": 1, "h": 5})
+
     def test_reorder_tiles_preserve_packs_mixed_widths(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         insight1 = Insight.objects.create(team=self.team, name="Insight 1")
@@ -4242,6 +4267,218 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(tile2.layouts["sm"], expected_second)
         self.assertEqual(tile1.layouts["xs"]["w"], 1)
         self.assertEqual(tile2.layouts["xs"]["w"], 1)
+
+    def test_reorder_tiles_three_column_keeps_legacy_string_layout_text_header_full_width(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        header_tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            text=Text.objects.create(body="# Website health", team=self.team),
+            layouts=json.dumps({"sm": {"x": 0, "y": 0, "w": 6, "h": 1}}),
+        )
+        insight_tiles = [
+            DashboardTile.objects.create(
+                dashboard=dashboard, insight=Insight.objects.create(team=self.team, name=f"Insight {index}")
+            )
+            for index in range(3)
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [header_tile.pk, *[tile.pk for tile in insight_tiles]], "layout": "three_column"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for tile in [header_tile, *insight_tiles]:
+            tile.refresh_from_db()
+        self.assertEqual(header_tile.layouts["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
+        self.assertEqual(header_tile.layouts["xs"], {"x": 0, "y": 0, "w": 1, "h": 1})
+        self.assertEqual(
+            [tile.layouts["sm"] for tile in insight_tiles],
+            [
+                {"x": 0, "y": 1, "w": 4, "h": 5},
+                {"x": 4, "y": 1, "w": 4, "h": 5},
+                {"x": 8, "y": 1, "w": 4, "h": 5},
+            ],
+        )
+        self.assertEqual(
+            [tile.layouts["xs"] for tile in insight_tiles],
+            [
+                {"x": 0, "y": 1, "w": 1, "h": 5},
+                {"x": 0, "y": 6, "w": 1, "h": 5},
+                {"x": 0, "y": 11, "w": 1, "h": 5},
+            ],
+        )
+
+    def test_reorder_tiles_three_column_uses_rendered_height_for_layoutless_text(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        header_tile = DashboardTile.objects.create(
+            dashboard=dashboard, text=Text.objects.create(body="# Website health", team=self.team)
+        )
+        insight_tile = DashboardTile.objects.create(
+            dashboard=dashboard, insight=Insight.objects.create(team=self.team, name="Insight")
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [header_tile.pk, insight_tile.pk], "layout": "three_column"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        header_tile.refresh_from_db()
+        insight_tile.refresh_from_db()
+        self.assertEqual(header_tile.layouts["sm"], {"x": 0, "y": 0, "w": 12, "h": 2})
+        self.assertEqual(header_tile.layouts["xs"], {"x": 0, "y": 0, "w": 1, "h": 2})
+        self.assertEqual(insight_tile.layouts["sm"], {"x": 0, "y": 2, "w": 4, "h": 5})
+        self.assertEqual(insight_tile.layouts["xs"], {"x": 0, "y": 2, "w": 1, "h": 5})
+
+    def test_reorder_tiles_three_column_requires_every_visible_tile(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        first_tile = DashboardTile.objects.create(
+            dashboard=dashboard, insight=Insight.objects.create(team=self.team, name="First insight")
+        )
+        missing_tile = DashboardTile.objects.create(
+            dashboard=dashboard, insight=Insight.objects.create(team=self.team, name="Missing insight")
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [first_tile.pk], "layout": "three_column"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            "three_column layout requires tile_order to contain exactly the tile IDs returned by dashboard-get. "
+            f"Missing tile IDs: [{missing_tile.pk}]",
+        )
+
+    def test_reorder_tiles_three_column_ignores_deleted_insight_tiles_but_rejects_them_if_submitted(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        visible_tile = DashboardTile.objects.create(
+            dashboard=dashboard, insight=Insight.objects.create(team=self.team, name="Visible insight")
+        )
+        deleted_insight = Insight.objects.create(team=self.team, name="Deleted insight")
+        hidden_tile = DashboardTile.objects.create(dashboard=dashboard, insight=deleted_insight)
+        Insight.objects.filter(pk=deleted_insight.pk).update(deleted=True)
+
+        visible_response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [visible_tile.pk], "layout": "three_column"},
+            content_type="application/json",
+        )
+        rejected_response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [visible_tile.pk, hidden_tile.pk], "layout": "three_column"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(visible_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(rejected_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            rejected_response.json()["detail"],
+            "three_column layout requires tile_order to contain exactly the tile IDs returned by dashboard-get. "
+            f"Unexpected tile IDs: [{hidden_tile.pk}]",
+        )
+
+    def test_reorder_tiles_three_column_rejections_are_atomic(self) -> None:
+        for case in ("omitted", "hidden", "foreign", "duplicate"):
+            with self.subTest(case=case):
+                dashboard = Dashboard.objects.create(team=self.team, name=f"Dashboard {case}")
+                other_dashboard = Dashboard.objects.create(team=self.team, name=f"Other {case}")
+                first_tile = DashboardTile.objects.create(
+                    dashboard=dashboard,
+                    insight=Insight.objects.create(team=self.team, name=f"First {case}"),
+                    layouts={"sm": {"x": 7, "y": 11, "w": 2, "h": 3}, "xs": {"x": 0, "y": 4, "w": 1, "h": 3}},
+                )
+                second_tile = DashboardTile.objects.create(
+                    dashboard=dashboard,
+                    insight=Insight.objects.create(team=self.team, name=f"Second {case}"),
+                    layouts={"sm": {"x": 1, "y": 2, "w": 8, "h": 4}, "xs": {"x": 0, "y": 9, "w": 1, "h": 4}},
+                )
+                deleted_insight = Insight.objects.create(team=self.team, name=f"Deleted {case}", deleted=True)
+                hidden_tile = DashboardTile.objects.create(
+                    dashboard=dashboard,
+                    insight=deleted_insight,
+                    layouts={"sm": {"x": 3, "y": 6, "w": 6, "h": 2}},
+                )
+                foreign_tile = DashboardTile.objects.create(
+                    dashboard=other_dashboard,
+                    insight=Insight.objects.create(team=self.team, name=f"Foreign {case}"),
+                    layouts={"sm": {"x": 5, "y": 8, "w": 5, "h": 6}},
+                )
+                request_order = {
+                    "omitted": [second_tile.pk],
+                    "hidden": [second_tile.pk, first_tile.pk, hidden_tile.pk],
+                    "foreign": [second_tile.pk, first_tile.pk, foreign_tile.pk],
+                    "duplicate": [second_tile.pk, first_tile.pk, first_tile.pk],
+                }[case]
+                expected_status = {
+                    "omitted": status.HTTP_400_BAD_REQUEST,
+                    "hidden": status.HTTP_400_BAD_REQUEST,
+                    "foreign": status.HTTP_404_NOT_FOUND,
+                    "duplicate": status.HTTP_400_BAD_REQUEST,
+                }[case]
+                expected_layouts = {
+                    tile.pk: tile.layouts for tile in (first_tile, second_tile, hidden_tile, foreign_tile)
+                }
+
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+                    {"tile_order": request_order, "layout": "three_column"},
+                    content_type="application/json",
+                )
+
+                self.assertEqual(response.status_code, expected_status)
+                for tile in (first_tile, second_tile, hidden_tile, foreign_tile):
+                    tile.refresh_from_db()
+                    self.assertEqual(tile.layouts, expected_layouts[tile.pk])
+
+    def test_reorder_tiles_three_column_starts_new_rows_around_separator_after_partial_row(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        tiles = [
+            DashboardTile.objects.create(
+                dashboard=dashboard, insight=Insight.objects.create(team=self.team, name=f"Insight {index}")
+            )
+            for index in range(6)
+        ]
+        separator = DashboardTile.objects.create(
+            dashboard=dashboard,
+            text=Text.objects.create(body="## Next section", team=self.team),
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": 1}},
+        )
+        ordered_tiles = [*tiles[:2], separator, *tiles[2:]]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [tile.pk for tile in ordered_tiles], "layout": "three_column"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for tile in ordered_tiles:
+            tile.refresh_from_db()
+        self.assertEqual(tiles[0].layouts["sm"], {"x": 0, "y": 0, "w": 4, "h": 5})
+        self.assertEqual(tiles[1].layouts["sm"], {"x": 4, "y": 0, "w": 4, "h": 5})
+        self.assertEqual(separator.layouts["sm"], {"x": 0, "y": 5, "w": 12, "h": 1})
+        self.assertEqual(tiles[2].layouts["sm"], {"x": 0, "y": 6, "w": 4, "h": 5})
+        self.assertEqual(tiles[3].layouts["sm"], {"x": 4, "y": 6, "w": 4, "h": 5})
+        self.assertEqual(tiles[4].layouts["sm"], {"x": 8, "y": 6, "w": 4, "h": 5})
+        self.assertEqual(tiles[5].layouts["sm"], {"x": 0, "y": 11, "w": 4, "h": 5})
+        self.assertEqual(
+            [tile.layouts["xs"] for tile in ordered_tiles],
+            [
+                {"x": 0, "y": 0, "w": 1, "h": 5},
+                {"x": 0, "y": 5, "w": 1, "h": 5},
+                {"x": 0, "y": 10, "w": 1, "h": 1},
+                {"x": 0, "y": 11, "w": 1, "h": 5},
+                {"x": 0, "y": 16, "w": 1, "h": 5},
+                {"x": 0, "y": 21, "w": 1, "h": 5},
+                {"x": 0, "y": 26, "w": 1, "h": 5},
+            ],
+        )
 
     def test_reorder_tiles_invalid_layout_returns_400(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
