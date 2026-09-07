@@ -1,16 +1,20 @@
 import datetime as dt
 from enum import auto
 from typing import Optional
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import ClickhouseDestroyTablesMixin
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team
 
 from products.demo.backend.logic.matrix.manager import MatrixManager
 from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
-from products.demo.backend.logic.matrix.models import SimPerson, SimSessionIntent
+from products.demo.backend.logic.matrix.models import SimEvent, SimPerson, SimSessionIntent
 
 
 class DummySessionIntent(SimSessionIntent):
@@ -130,3 +134,49 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             )[0][0]
             >= 3
         )
+
+
+class TestMatrixManagerKafkaBackpressure(SimpleTestCase):
+    QUEUE_CAPACITY = 20
+
+    def test_saves_more_events_than_the_producer_queue_holds(self):
+        # A full librdkafka queue makes produce() raise BufferError instead of blocking,
+        # so the loop has to drain the queue itself.
+        queued: list[str] = []
+        delivered: list[str] = []
+
+        def fake_create_event(*, distinct_id, **kwargs):
+            if len(queued) >= self.QUEUE_CAPACITY:
+                raise BufferError("Local: Queue full")
+            queued.append(distinct_id)
+
+        def fake_flush_all_producers(timeout=None) -> int:
+            delivered.extend(queued)
+            queued.clear()
+            return 0
+
+        timestamp = dt.datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))
+        events = [
+            SimEvent(
+                event="$pageview",
+                distinct_id=f"person-{i}",
+                properties={},
+                timestamp=timestamp,
+                person_id=uuid4(),
+                person_properties={},
+                person_created_at=timestamp,
+            )
+            for i in range(self.QUEUE_CAPACITY * 3)
+        ]
+        manager = MatrixManager(DummyMatrix(n_clusters=1))
+        team = Team(id=1, project_id=1)
+
+        with (
+            patch("posthog.models.event.util.create_event", fake_create_event),
+            patch("products.demo.backend.logic.matrix.manager.flush_all_producers", fake_flush_all_producers),
+            patch("products.demo.backend.logic.matrix.manager.EVENTS_PER_KAFKA_FLUSH", self.QUEUE_CAPACITY // 2),
+        ):
+            manager._save_past_sim_events(team, events)
+            manager._flush_kafka()
+
+        assert delivered == [event.distinct_id for event in events]
