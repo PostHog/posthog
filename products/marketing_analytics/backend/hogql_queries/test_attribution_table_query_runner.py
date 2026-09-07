@@ -28,6 +28,7 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -182,6 +183,24 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
 
         self.assertEqual(rows["google"][AttributionMode.LAST_TOUCH], expected_conversions)
+
+    def test_a_cohort_test_account_filter_does_not_make_the_query_ambiguous(self):
+        # A cohort filter resolves to a bare `person_id`, and the touchpoint scan joins the converters
+        # subquery, which has one too. Unqualified, that combination fails to resolve at all.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            groups=[{"properties": [{"key": "email", "value": "@internal.example.com", "type": "person"}]}],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        self.team.save()
+        create_person(team=self.team, distinct_ids=["customer"], properties={"email": "buyer@example.com"})
+        self._session("customer", "2023-01-10T12:00:00Z", utm_source="google")
+        self._conversion("customer", "2023-01-11T12:00:00Z")
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, filter_test_accounts=True)
+
+        self.assertIsNotNone(response.results)
 
     def test_visitors_include_lookback_arrivals_that_can_earn_credit(self):
         # Credit looks back attribution_window_days before the date range, so reach must too: a visitor
