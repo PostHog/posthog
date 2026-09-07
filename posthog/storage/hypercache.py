@@ -210,7 +210,7 @@ class HyperCache:
             self.cache_client = cache
             self.redis_url = settings.REDIS_URL
 
-        # Optional secondary cache; writes are mirrored on a best-effort basis.
+        # Optional secondary cache; writes and deletes are mirrored on a best-effort basis.
         self.secondary_cache_client = (
             caches[secondary_cache_alias]
             if secondary_cache_alias and secondary_cache_alias in settings.CACHES
@@ -581,24 +581,31 @@ class HyperCache:
         """
         kinds = kinds or ["redis", "s3"]
         try:
+            cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                self.cache_client.delete(self.get_cache_key(key))
+                etag_key = self.get_etag_key(key)
+                self.cache_client.delete(cache_key)
                 # Always delete ETag key to clean up stale ETags from when enable_etag was True
-                self.cache_client.delete(self.get_etag_key(key))
+                self.cache_client.delete(etag_key)
+                # Mirror the delete so the secondary never serves an entry the primary dropped.
+                self._mirror_to_secondary(lambda c: c.delete(cache_key))
+                self._mirror_to_secondary(lambda c: c.delete(etag_key))
             if "s3" in kinds and self.s3_enabled:
-                object_storage.delete(self.get_cache_key(key))
+                object_storage.delete(cache_key)
         finally:
             self._remove_expiry_tracking(key)
 
     def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
-        """Best-effort mirror write; failures are logged and captured, never propagated."""
+        """Best-effort mirror op; failures are logged and captured, never propagated."""
         if self.secondary_cache_client is None:
             return
         try:
             op(self.secondary_cache_client)
         except Exception as e:
+            # The traceback names the calling frame, which says whether a set or a
+            # delete failed more precisely than a label could.
             logger.warning(
-                "HyperCache secondary cache write failed",
+                "HyperCache secondary cache op failed",
                 namespace=self.namespace,
                 value=self.value,
                 exc_info=True,

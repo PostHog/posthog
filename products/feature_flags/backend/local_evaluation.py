@@ -414,8 +414,7 @@ def _build_flag_definitions_hypercache() -> HyperCache:
         expiry_sorted_set_key=FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET,
         cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
         # Mirror to the shared Redis while the /flags/definitions reader still reads
-        # from it. delete_cache_entry does not mirror, so a staff cache clear leaves
-        # the shared copy behind.
+        # from it.
         secondary_cache_alias="default" if has_dedicated_cache else None,
     )
 
