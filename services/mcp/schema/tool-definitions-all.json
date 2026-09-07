@@ -1115,6 +1115,20 @@
             "readOnlyHint": true
         }
     },
+    "canvas-connectors-retrieve": {
+        "description": "List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`: every native provider (GitHub) and every MCP store server the authenticated user has connected, each with its tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows pull requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare each provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own connection at view time, never the author's, so results are never baked into the source. Only read-only tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "List canvas connectors",
+        "title": "List canvas connectors",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "canvas-create": {
         "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link — share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.",
         "category": "Canvas",

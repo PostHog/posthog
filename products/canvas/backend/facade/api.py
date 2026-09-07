@@ -1,3 +1,11 @@
+from products.canvas.backend.connectors import (
+    ConnectorCallStatus as ConnectorCallStatus,
+    ConnectorKind as ConnectorKind,
+    call_connector_tool as call_connector_tool,
+    canvas_connectors_enabled as canvas_connectors_enabled,
+    connector_listings as connector_listings,
+    mcp_provider_host as mcp_provider_host,
+)
 from products.canvas.backend.layout import (
     CANVAS_LAYOUT_SCHEMA_VERSION as CANVAS_LAYOUT_SCHEMA_VERSION,
     MAX_LAYOUT_PATCH_OPERATIONS as MAX_LAYOUT_PATCH_OPERATIONS,
