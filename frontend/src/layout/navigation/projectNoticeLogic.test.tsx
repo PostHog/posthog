@@ -309,11 +309,16 @@ describe('projectNoticeLogic', () => {
 
             expect(logic.values.projectNoticeVariant).toEqual('unverified_email')
 
+            router.actions.push('/project/997/insights', { q: 'trend' }, { panel: 'support' })
+
             await expectLogic(verifyEmailLogic, () => {
                 logic.values.projectNotice?.action?.onClick?.({} as any)
             }).toDispatchActions(['requestVerificationCode'])
 
             expect(router.values.location.pathname).toEqual(urls.verifyEmail('user-uuid'))
+            // Without `next`, verifying drops the reader on the project home instead of the page
+            // they were reading when the banner interrupted them.
+            expect(router.values.searchParams.next).toEqual('/project/997/insights?q=trend#panel=support')
 
             logic.unmount()
         })

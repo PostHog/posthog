@@ -670,8 +670,12 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                         return
                                     }
                                     verifyEmailLogic.actions.requestVerificationCode(user.uuid)
+                                    const { pathname, search, hash } = router.values.location
                                     // The code has nowhere to go until the code entry is on screen.
-                                    router.actions.push(urls.verifyEmail(user.uuid))
+                                    // `next` carries the reader back to this page once the code verifies.
+                                    router.actions.push(urls.verifyEmail(user.uuid), {
+                                        next: `${pathname}${search}${hash}`,
+                                    })
                                 },
                                 children: 'Send verification email',
                             },
