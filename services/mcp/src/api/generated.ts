@@ -75309,7 +75309,7 @@ export namespace Schemas {
     }
 
     export interface QuotaResourceLimit {
-      /** True when the team is currently over its quota for this resource and limits are in effect. A deactivated organization additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
+      /** True when the team is currently over its quota for this resource and limits are in effect. An organization whose access was revoked additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
       limited: boolean;
       /**
          * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.

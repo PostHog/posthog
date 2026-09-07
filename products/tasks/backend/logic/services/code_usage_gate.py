@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import OAuthAccessToken
+from posthog.organization_access import organization_access_revocation_for_team
 from posthog.permissions import get_authenticator_scopes
 
 if TYPE_CHECKING:
@@ -24,7 +25,6 @@ from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.compute_quota import (
     COMPUTE_QUOTA_DENIAL_CODE,
     ORGANIZATION_DEACTIVATED_DENIAL_CODE,
-    organization_deactivated,
 )
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
@@ -262,7 +262,7 @@ def usage_limit_response(user, team_id: int) -> Response | None:
     removing the backstop is visible, not just logged. Deactivated organizations are blocked
     locally first, so that block holds even when the gateway check fails open.
     """
-    if organization_deactivated(team_id):
+    if organization_access_revocation_for_team(team_id) is not None:
         observe_code_usage_gate_check(outcome="org_deactivated")
         return organization_deactivated_response()
 

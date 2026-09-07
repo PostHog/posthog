@@ -2,7 +2,8 @@ import logging
 
 from django.conf import settings
 
-from posthog.models import Team, User
+from posthog.models import User
+from posthog.organization_access import organization_access_revocation_for_team
 
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.metrics import observe_compute_quota_check
@@ -13,10 +14,6 @@ ORGANIZATION_DEACTIVATED_DENIAL_CODE = ComputeQuotaDenialReason.ORGANIZATION_DEA
 
 
 logger = logging.getLogger(__name__)
-
-
-def organization_deactivated(team_id: int) -> bool:
-    return Team.objects.filter(id=team_id, organization__is_active=False).exists()
 
 
 def task_creator_is_staff(task: Task) -> bool:
@@ -50,7 +47,7 @@ def is_billable_compute(
 
 
 def get_compute_quota_denial_reason(task: Task) -> ComputeQuotaDenialReason | None:
-    if organization_deactivated(task.team_id):
+    if organization_access_revocation_for_team(task.team_id) is not None:
         observe_compute_quota_check("checked_blocked")
         return ComputeQuotaDenialReason.ORGANIZATION_DEACTIVATED
     if task_creator_is_staff(task):

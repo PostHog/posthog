@@ -53,6 +53,7 @@ from posthog.models.activity_logging.utils import (
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
+from posthog.organization_access import OrganizationAccessRevocation, organization_access_revocation_by_id
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -1325,10 +1326,18 @@ class SocialAuthExceptionMiddleware:
 
 class ActiveOrganizationMiddleware:
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    Middleware to send a session whose organization lost its access to that organization's
+    revocation screen. `/api` is excluded because token requests are gated by
+    `ActiveOrganizationPermission` instead, which lets this middleware keep the revocation screens
+    and the billing flow that reactivates an organization usable.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
+
+    _REVOCATION_PATHS = {
+        OrganizationAccessRevocation.PENDING_DELETION: "/organization-pending-deletion",
+        OrganizationAccessRevocation.DEACTIVATED: "/organization-deactivated",
+    }
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1343,25 +1352,20 @@ class ActiveOrganizationMiddleware:
 
         user = cast(User, request.user)
 
-        if user.current_organization is None:
+        if user.current_organization_id is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        # Read the id, not the foreign key, so the check is served from the organization access
+        # cache instead of a query on every page load.
+        revocation = organization_access_revocation_by_id(user.current_organization_id)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if revocation is None:
+            if request.path in self._REVOCATION_PATHS.values():
+                return redirect("/")
+            return self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        destination = self._REVOCATION_PATHS[revocation]
+        return self.get_response(request) if request.path == destination else redirect(destination)
 
 
 # Session key used to mark an impersonation session as read-only

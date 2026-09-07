@@ -5,13 +5,15 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.cdp.backend.models.plugin import Plugin
+
 UNPAID = "Access revoked due to unpaid balance."
 
 
 class TestDeactivatedOrganizationAPIAccess(APIBaseTest):
-    """A deactivated organization keeps its session pathway into the app, which the
-    deactivated-organization screen and the billing flow that reactivates it need. Every token
-    pathway is closed, the MCP server included."""
+    """An organization whose access was revoked keeps its session pathway into the app, which the
+    revocation screens and the billing flow that reactivates it need. Every token pathway is
+    closed, the MCP server included."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -64,6 +66,15 @@ class TestDeactivatedOrganizationAPIAccess(APIBaseTest):
         assert response.status_code == 403
         assert "deactivated" in response.json()["detail"]
 
+    def test_pending_deletion_organization_denies_token_access(self) -> None:
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self._token_request("get", self._flags_path())
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Your organization is being deleted."
+
     def test_deactivated_organization_denies_mcp_requests(self) -> None:
         self._deactivate()
 
@@ -112,6 +123,18 @@ class TestDeactivatedOrganizationAPIAccess(APIBaseTest):
         self.user.save()
 
         assert self._token_request("get", self._flags_path(healthy_team.id)).status_code == 200
+
+    def test_a_non_member_is_not_told_why_another_organization_was_revoked(self) -> None:
+        # The plugin viewset omits the membership permission so that global plugins stay readable,
+        # so a caller from any organization reaches this check with a victim organization the URL
+        # names. The denial must not carry the operator's reason across that boundary.
+        victim = Organization.objects.create(name="victim org", is_active=False, is_not_active_reason=UNPAID)
+        plugin = Plugin.objects.create(organization=victim, name="global plugin", is_global=True)
+
+        response = self._token_request("get", f"/api/organizations/{victim.id}/plugins/{plugin.id}/")
+
+        assert response.status_code == 403
+        assert UNPAID not in response.content.decode()
 
     def test_reactivation_restores_token_access(self) -> None:
         self._deactivate()
