@@ -9,7 +9,7 @@ re-decode.
 from dataclasses import dataclass
 
 from blake3 import blake3
-from pixelhog import Comparison
+from pixelhog import ClustersResult, Comparison, RowAlignment
 
 from .diff_metadata import ClusterSummary, DiffCluster, RowShift, ShiftBand
 
@@ -67,7 +67,7 @@ class CompareResult:
     row_shift: RowShift | None
 
 
-def _to_cluster_summary(clusters_result) -> ClusterSummary:
+def _to_cluster_summary(clusters_result: ClustersResult) -> ClusterSummary:
     return ClusterSummary(
         items=[
             DiffCluster(
@@ -82,7 +82,7 @@ def _to_cluster_summary(clusters_result) -> ClusterSummary:
     )
 
 
-def _inserted_band_pixels(alignment, width: int) -> int:
+def _inserted_band_pixels(alignment: RowAlignment, width: int) -> int:
     """Count the pixels of the rows the current image gained.
 
     `residual_count` covers only rows present in both images, so an inserted
@@ -154,19 +154,28 @@ def compare_images(
 
     cluster_summary: ClusterSummary | None = None
     if with_clusters and diff_pixel_count > 0:
-        cluster_kwargs = {
-            "threshold": threshold,
-            "min_pixels": CLUSTER_MIN_PIXELS,
-            "min_side": CLUSTER_MIN_SIDE,
-            "dilation": CLUSTER_DILATION,
-            "max_clusters": CLUSTER_MAX,
-            "merge_gap": CLUSTER_MERGE_GAP_PX,
-            "merge_overlap": CLUSTER_MERGE_OVERLAP_RATIO,
-        }
         if row_shift is not None:
-            cluster_summary = _to_cluster_summary(cmp.aligned_clusters(alignment, **cluster_kwargs))
+            clusters_result = cmp.aligned_clusters(
+                alignment,
+                threshold=threshold,
+                min_pixels=CLUSTER_MIN_PIXELS,
+                min_side=CLUSTER_MIN_SIDE,
+                dilation=CLUSTER_DILATION,
+                max_clusters=CLUSTER_MAX,
+                merge_gap=CLUSTER_MERGE_GAP_PX,
+                merge_overlap=CLUSTER_MERGE_OVERLAP_RATIO,
+            )
         else:
-            cluster_summary = _to_cluster_summary(cmp.clusters(**cluster_kwargs))
+            clusters_result = cmp.clusters(
+                threshold=threshold,
+                min_pixels=CLUSTER_MIN_PIXELS,
+                min_side=CLUSTER_MIN_SIDE,
+                dilation=CLUSTER_DILATION,
+                max_clusters=CLUSTER_MAX,
+                merge_gap=CLUSTER_MERGE_GAP_PX,
+                merge_overlap=CLUSTER_MERGE_OVERLAP_RATIO,
+            )
+        cluster_summary = _to_cluster_summary(clusters_result)
 
     return CompareResult(
         diff_image=diff_image,

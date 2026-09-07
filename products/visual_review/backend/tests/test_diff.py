@@ -26,6 +26,18 @@ def _make_striped_png(rows: list[tuple[int, int, int, int]], width: int = 20) ->
     return buffer.getvalue()
 
 
+def _red_row_indices(image: Image.Image) -> set[int]:
+    """Row indices where the diff image marks at least one pixel as changed."""
+    rows: set[int] = set()
+    for y in range(image.height):
+        for x in range(image.width):
+            pixel = image.getpixel((x, y))
+            if isinstance(pixel, tuple) and pixel[:3] == (255, 0, 0):
+                rows.add(y)
+                break
+    return rows
+
+
 class TestCompareImages:
     def test_identical_images_zero_diff(self):
         red = (255, 0, 0, 255)
@@ -123,9 +135,4 @@ class TestCompareImages:
         assert result.diff_image is not None
         diff_img = Image.open(io.BytesIO(result.diff_image)).convert("RGBA")
         assert diff_img.size == (20, 21)  # the current image, one row taller than the baseline
-        red_rows = {
-            y
-            for y in range(diff_img.height)
-            if any(diff_img.getpixel((x, y))[:3] == (255, 0, 0) for x in range(diff_img.width))
-        }
-        assert red_rows == {8}
+        assert _red_row_indices(diff_img) == {8}
