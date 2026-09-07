@@ -16,10 +16,12 @@ that can drift. What is coverable, with invented flag keys seeded into the case 
   zero references. Graded: skill load, flag lookup, no edits, no mutation. The "report the
   no-op, open no empty PR" half of the rule is not graded; no scorer reads branch, commit,
   or PR state.
-* ``partial_flag_untouched`` — a direct removal ask for a 40%-rollout flag. Graded the
+* ``partial_flag_lookup_shape`` — a direct removal ask for a 40%-rollout flag. Graded the
   same way as ``no_references_is_noop``: the scorers cannot tell a partial-rule refusal
-  from a no-references no-op, because hedgebox has no flag call sites either way. The case
-  earns its keep by feeding the partial-rollout shape through the lookup.
+  from a no-references no-op, because hedgebox has no flag call sites either way. So the
+  name says what it grades, which is the partial-rollout shape through the lookup. It does
+  not verify the step-3 refusal. It can still fail differently from the no-references case,
+  because a partial flag is the shape most likely to draw a speculative edit or a mutation.
 
 Every case shares ``NoToolCall`` over the flag write verbs — Phase A of the skill never
 mutates a flag, whatever else happens. Direction over a tool group is graded by
@@ -126,7 +128,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
         ),
         SandboxedEvalCase(
-            name="partial_flag_untouched",
+            name="partial_flag_lookup_shape",
             prompt=(
                 f"Remove the feature flag '{STALE_PARTIAL_ROLLOUT_FLAG_KEY}' from this "
                 "repository and clean up its code."
