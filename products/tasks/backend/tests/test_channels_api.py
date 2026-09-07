@@ -17,7 +17,15 @@ from posthog.models.utils import generate_random_token_personal
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
-from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import (
+    Channel,
+    ChannelFeedMessage,
+    ChannelMembership,
+    Task,
+    TaskActivity,
+    TaskRun,
+    TaskThreadMessage,
+)
 from products.tasks.backend.push_dispatcher import (
     notify_task_run_awaiting_input,
     notify_task_run_completed,
@@ -138,6 +146,8 @@ class ChannelsAPITestCase(TestCase):
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         rename = self.client.patch(f"{self._channels_url()}{personal.id}/", {"name": "not-me"})
         self.assertEqual(rename.status_code, status.HTTP_403_FORBIDDEN)
+        open_up = self.client.patch(f"{self._channels_url()}{personal.id}/", {"channel_type": "public"})
+        self.assertEqual(open_up.status_code, status.HTTP_403_FORBIDDEN)
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -361,6 +371,190 @@ class ChannelsAPITestCase(TestCase):
         other_client.force_authenticate(self.other_user)
         listed = other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"]
         self.assertEqual([t["id"] for t in listed], [created.json()["id"]])
+
+    def _create_private_channel(self, name: str = "squad", member_ids: list[int] | None = None, client=None) -> dict:
+        response = (client or self.client).post(
+            self._channels_url(),
+            {"name": name, "channel_type": "private", "member_ids": member_ids or []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        return response.json()
+
+    def _third_member_client(self) -> APIClient:
+        third = User.objects.create_user(email="third@example.com", first_name="Cy", password="password")
+        self.organization.members.add(third)
+        client = APIClient()
+        client.force_authenticate(third)
+        return client
+
+    def test_private_channel_is_visible_only_to_members(self):
+        created = self._create_private_channel()
+        channel_id = created["id"]
+        self.assertEqual(created["channel_type"], "private")
+
+        self.assertIn(channel_id, [c["id"] for c in self.client.get(self._channels_url()).json()])
+        self.assertEqual(self.client.get(f"{self._channels_url()}{channel_id}/").status_code, status.HTTP_200_OK)
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertNotIn(channel_id, [c["id"] for c in other_client.get(self._channels_url()).json()])
+        self.assertEqual(
+            other_client.get(f"{self._channels_url()}{channel_id}/").status_code, status.HTTP_404_NOT_FOUND
+        )
+
+    def test_creating_a_private_channel_seeds_memberships_including_creator(self):
+        created = self._create_private_channel(member_ids=[self.other_user.id])
+        members = {m["id"] for m in self.client.get(f"{self._channels_url()}{created['id']}/members/").json()}
+        self.assertEqual(members, {self.user.id, self.other_user.id})
+
+    def test_task_in_a_private_channel_inherits_its_visibility(self):
+        channel_id = self._create_private_channel()["id"]
+        created = self.client.post(
+            self._tasks_url(),
+            {"title": "Secret", "description": "d", "channel": channel_id},
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.content)
+        task_id = created.json()["id"]
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertEqual(other_client.get(f"{self._tasks_url()}{task_id}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"], [])
+
+    def test_a_non_member_cannot_create_a_task_in_a_private_channel(self):
+        channel_id = self._create_private_channel()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        response = other_client.post(
+            self._tasks_url(),
+            {"title": "Sneak in", "description": "d", "channel": channel_id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_setting_members_adds_and_removes_but_keeps_the_creator(self):
+        channel_id = self._create_private_channel(member_ids=[self.other_user.id])["id"]
+        members_url = f"{self._channels_url()}{channel_id}/members/"
+
+        response = self.client.put(members_url, {"user_ids": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual({m["id"] for m in response.json()}, {self.user.id})
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertEqual(
+            other_client.get(f"{self._channels_url()}{channel_id}/").status_code, status.HTTP_404_NOT_FOUND
+        )
+
+        response = self.client.put(members_url, {"user_ids": [self.other_user.id]}, format="json")
+        self.assertEqual({m["id"] for m in response.json()}, {self.user.id, self.other_user.id})
+
+    def test_making_a_private_channel_public_opens_it_and_drops_its_members(self):
+        channel_id = self._create_private_channel(member_ids=[self.other_user.id])["id"]
+
+        response = self.client.patch(f"{self._channels_url()}{channel_id}/", {"channel_type": "public"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["channel_type"], "public")
+        self.assertFalse(ChannelMembership.objects.unscoped().filter(channel_id=channel_id).exists())
+
+        third_client = self._third_member_client()
+        self.assertIn(channel_id, [c["id"] for c in third_client.get(self._channels_url()).json()])
+
+    def test_making_a_public_channel_private_keeps_only_the_requester_and_creator(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+
+        response = other_client.patch(f"{self._channels_url()}{channel_id}/", {"channel_type": "private"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["channel_type"], "private")
+        members = {m["id"] for m in other_client.get(f"{self._channels_url()}{channel_id}/members/").json()}
+        self.assertEqual(members, {self.user.id, self.other_user.id})
+
+        third_client = self._third_member_client()
+        self.assertNotIn(channel_id, [c["id"] for c in third_client.get(self._channels_url()).json()])
+
+    def test_making_a_private_channel_public_rejects_a_taken_name(self):
+        self.client.post(self._channels_url(), {"name": "squad"})
+        channel_id = self._create_private_channel(name="squad")["id"]
+
+        response = self.client.patch(f"{self._channels_url()}{channel_id}/", {"channel_type": "public"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(self.client.get(f"{self._channels_url()}{channel_id}/").json()["channel_type"], "private")
+
+    def test_setting_members_rejects_a_public_channel(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        response = self.client.put(f"{self._channels_url()}{channel_id}/members/", {"user_ids": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_a_non_member_cannot_reach_the_members_endpoints(self):
+        channel_id = self._create_private_channel()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        members_url = f"{self._channels_url()}{channel_id}/members/"
+        self.assertEqual(other_client.get(members_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            other_client.put(members_url, {"user_ids": [self.other_user.id]}, format="json").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_setting_members_rejects_a_user_without_project_access(self):
+        outsider = User.objects.create_user(email="outsider@example.com", first_name="Cy", password="password")
+        channel_id = self._create_private_channel()["id"]
+        response = self.client.put(
+            f"{self._channels_url()}{channel_id}/members/", {"user_ids": [outsider.id]}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertFalse(
+            ChannelMembership.objects.unscoped().filter(channel_id=channel_id, user_id=outsider.id).exists()
+        )
+
+    def test_a_non_member_cannot_patch_or_delete_a_private_channel(self):
+        channel_id = self._create_private_channel()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertEqual(
+            other_client.patch(f"{self._channels_url()}{channel_id}/", {"name": "hijack"}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            other_client.delete(f"{self._channels_url()}{channel_id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        listed = {c["id"]: c["name"] for c in self.client.get(self._channels_url()).json()}
+        self.assertEqual(listed.get(channel_id), "squad")
+
+        renamed = self.client.patch(f"{self._channels_url()}{channel_id}/", {"name": "squad-2"})
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
+
+    def test_setting_members_requires_the_user_ids_field(self):
+        channel_id = self._create_private_channel(member_ids=[self.other_user.id])["id"]
+        members_url = f"{self._channels_url()}{channel_id}/members/"
+
+        self.assertEqual(self.client.put(members_url, {}, format="json").status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.put(members_url, {"user_ids": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual({m["id"] for m in response.json()}, {self.user.id})
+
+    def test_members_can_be_managed_after_the_creator_leaves_the_project(self):
+        creator = User.objects.create_user(email="creator@example.com", first_name="Cara", password="password")
+        self.organization.members.add(creator)
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        creator_client = APIClient()
+        creator_client.force_authenticate(creator)
+        channel_id = self._create_private_channel(member_ids=[self.user.id], client=creator_client)["id"]
+
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
+
+        response = self.client.put(
+            f"{self._channels_url()}{channel_id}/members/", {"user_ids": [self.other_user.id]}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual({m["id"] for m in response.json()}, {creator.id, self.other_user.id})
 
     def test_deleting_github_integration_clears_channel_repositories(self):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})

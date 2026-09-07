@@ -509,7 +509,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
 })
 
 /**
- * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
 export const SignalsScoutCreateParams = () => zod.object({
@@ -558,7 +558,7 @@ export const SignalsScoutCreateBody = () => zod
             .string()
             .max(signalsScoutCreateBodyNameMax)
             .describe(
-                'Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.'
+                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
@@ -760,7 +760,7 @@ export const SignalsScoutConfigListQueryParams = () => zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
  * @summary Create a scout config
  */
 export const SignalsScoutConfigCreateParams = () => zod.object({
@@ -931,7 +931,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
             .describe(
-                'The `signals-scout-\*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.'
+                'The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.'
             ),
     })
     .describe(
@@ -1116,7 +1116,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
- * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
  * @summary Delete a scout config
  */
 export const SignalsScoutConfigDestroyParams = () => zod.object({
@@ -1253,12 +1253,12 @@ export const SignalsScoutNotesListQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            'Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-\*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.'
+            "Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project."
         ),
 })
 
 /**
- * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */
 export const SignalsScoutNotesCreateParams = () => zod.object({
@@ -1286,7 +1286,7 @@ export const SignalsScoutNotesCreateBody = () => zod
             .max(signalsScoutNotesCreateBodySkillNameMax)
             .optional()
             .describe(
-                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
+                'Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
             ),
         expires_at: zod
             .string()
