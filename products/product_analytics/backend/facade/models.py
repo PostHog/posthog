@@ -17,6 +17,11 @@ from products.product_analytics.backend.models.insight import Insight, generate_
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
+def insight_queryset() -> QuerySet[Insight]:
+    """Base queryset for relationship fields; consumers apply their own access scoping."""
+    return Insight.objects.all()
+
+
 def resolve_insight_by_id_or_short_id(queryset: QuerySet[Insight], reference: str | int) -> Insight | None:
     """Resolve an insight reference, preferring its numeric primary key when ambiguous."""
     lookup_value = str(reference).strip()
@@ -27,4 +32,10 @@ def resolve_insight_by_id_or_short_id(queryset: QuerySet[Insight], reference: st
     return queryset.filter(short_id=lookup_value).first()
 
 
-__all__ = ["Insight", "InsightVariable", "generate_insight_filters_hash", "resolve_insight_by_id_or_short_id"]
+__all__ = [
+    "Insight",
+    "InsightVariable",
+    "generate_insight_filters_hash",
+    "insight_queryset",
+    "resolve_insight_by_id_or_short_id",
+]

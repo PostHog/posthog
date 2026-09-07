@@ -2771,25 +2771,7 @@ class FilterLogicalOperator(StrEnum):
 
 class ForecastConditionType(StrEnum):
     FUTURE_BREACH = "future_breach"
-    BAND_DEVIATION = "band_deviation"
     TARGET_BY_DATE = "target_by_date"
-
-
-class ForecastDirection(StrEnum):
-    BOTH = "both"
-    ABOVE = "above"
-    BELOW = "below"
-
-
-class ForecastErrorMode(StrEnum):
-    PREDICTION_INTERVAL = "prediction_interval"
-    RELATIVE = "relative"
-    ABSOLUTE = "absolute"
-
-
-class ForecastSensitivity(StrEnum):
-    FORECAST = "forecast"
-    BEST_CASE = "best_case"
 
 
 class ForecastTargetDirection(StrEnum):

@@ -21,6 +21,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.forecasting.engine import ForecastExecutionError
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.facade.models import Insight
@@ -30,21 +31,22 @@ TEST_DESTINATION_DELIVERY = AlertDelivery(
 )
 
 
+def _trends_insight_data(
+    *, display: str = "ActionsLineGraph", query_extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    query: dict[str, Any] = {
+        "kind": "TrendsQuery",
+        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        "trendsFilter": {"display": display},
+    }
+    query.update(query_extra or {})
+    return {"query": query}
+
+
 class TestAlert(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
-        self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
-        }
+        self.default_insight_data = _trends_insight_data(display="BoldNumber")
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
     def test_create_and_delete_alert(self) -> None:
@@ -107,18 +109,14 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(alerts.json()["results"]) == 0
 
     def test_create_forecast_alert(self) -> None:
-        time_series_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "trendsFilter": {"display": "ActionsLineGraph"},
-            },
-        }
+        time_series_insight_data = _trends_insight_data()
         time_series_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=time_series_insight_data
         ).json()
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 data={
@@ -141,7 +139,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.json()["forecast_config"]["condition"] == "future_breach"
 
     def test_create_forecast_alert_flag_disabled_returns_400(self) -> None:
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=False
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 data={
@@ -164,7 +164,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert "Forecast alerts are not enabled" in str(response.content)
 
     def test_create_forecast_alert_rejects_invalid_config(self) -> None:
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 data={
@@ -185,7 +187,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_alert_with_both_detector_and_forecast_rejected(self) -> None:
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 data={
@@ -196,7 +200,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                     "config": {"type": "TrendsAlertConfig", "series_index": 0},
                     "condition": {"type": "absolute_value"},
                     "detector_config": {"type": "zscore"},
-                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
                 },
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -1782,22 +1786,10 @@ class TestAlertSimulate(APIBaseTest):
 class TestAlertSimulateForecast(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "ActionsLineGraph"},
-                "interval": "day",
-            },
-        }
+        self.insight_data = _trends_insight_data(query_extra={"interval": "day"})
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
-    @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_returns_valid_response(self, mock_simulate) -> None:
         mock_simulate.return_value = {
             "data": [10.0, 12.0, 11.0],
@@ -1807,11 +1799,12 @@ class TestAlertSimulateForecast(APIBaseTest):
             "forecast_yhat": [13.0],
             "forecast_lower": [10.0],
             "forecast_upper": [16.0],
-            "forecast_components": {"trend": [12.0]},
-            "fit_quality": {"mape": 0.05, "coverage": 0.94, "verdict": "good"},
+            "target_projection": None,
         }
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
@@ -1826,8 +1819,8 @@ class TestAlertSimulateForecast(APIBaseTest):
             )
         assert response.status_code == status.HTTP_200_OK, response.content
         data = response.json()
-        assert data["fit_quality"] == {"mape": 0.05, "coverage": 0.94, "verdict": "good"}
         assert data["forecast_yhat"] == [13.0]
+        assert data["target_projection"] is None
         mock_simulate.assert_called_once()
 
     def test_simulate_forecast_missing_config_returns_400(self) -> None:
@@ -1840,7 +1833,9 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_simulate_forecast_flag_disabled_returns_400(self) -> None:
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=False
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
@@ -1857,7 +1852,9 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert "Forecast alerts are not enabled" in str(response.content)
 
     def test_simulate_forecast_horizon_out_of_range_returns_400(self) -> None:
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
@@ -1872,11 +1869,13 @@ class TestAlertSimulateForecast(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
-    @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_wraps_value_error_as_400(self, mock_simulate) -> None:
         mock_simulate.side_effect = ValueError("Not enough history to forecast.")
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
@@ -1887,10 +1886,12 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Not enough history to forecast." in str(response.json())
 
-    @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
-    def test_simulate_forecast_runtime_error_returns_400(self, mock_simulate_forecast) -> None:
-        mock_simulate_forecast.side_effect = RuntimeError("boom")
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_engine_error_returns_503(self, mock_simulate_forecast) -> None:
+        mock_simulate_forecast.side_effect = ForecastExecutionError("internal details")
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
@@ -1899,9 +1900,9 @@ class TestAlertSimulateForecast(APIBaseTest):
                     "series_index": 0,
                 },
             )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         data = response.json()
-        assert data["detail"] == "Simulation failed: unable to compute results for this insight."
+        assert data["detail"] == "Forecast simulation is temporarily unavailable. Try again."
 
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_forecast_series_index_out_of_range_returns_400(self, mock_calculate) -> None:
@@ -1942,7 +1943,9 @@ class TestAlertSimulateForecast(APIBaseTest):
             ]
         )
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
@@ -1958,17 +1961,12 @@ class TestFinishedTargetAlertIsEditable(APIBaseTest):
     def test_a_finished_target_alert_can_still_be_patched(self) -> None:
         insight = self.client.post(
             f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "ActionsLineGraph"},
-                    "interval": "day",
-                }
-            },
+            data=_trends_insight_data(query_extra={"interval": "day"}),
         ).json()
         future = (datetime.now(UTC).date() + timedelta(days=30)).isoformat()
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             created = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 data={
@@ -2011,18 +2009,11 @@ class TestFinishedTargetAlertIsEditable(APIBaseTest):
 
 
 class TestForecastTargetProjection(APIBaseTest):
-    @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
     def test_simulate_returns_the_target_projection(self, mock_simulate) -> None:
         insight = self.client.post(
             f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "ActionsLineGraph"},
-                    "interval": "day",
-                }
-            },
+            data=_trends_insight_data(query_extra={"interval": "day"}),
         ).json()
         mock_simulate.return_value = {
             "data": [10.0],
@@ -2032,21 +2023,17 @@ class TestForecastTargetProjection(APIBaseTest):
             "forecast_yhat": [500.0],
             "forecast_lower": [400.0],
             "forecast_upper": [600.0],
-            "forecast_components": None,
-            "history_lower": [9.0],
-            "history_upper": [11.0],
-            "latest_deviation": None,
             "target_projection": {
                 "predicted": 500.0,
-                "best_case": 600.0,
                 "target": 1000000.0,
                 "target_date": "2026-12-31",
-                "misses_on_forecast": True,
-                "misses_on_best_case": True,
+                "evaluated_date": "2026-12-31",
+                "misses_target": True,
             },
-            "fit_quality": {"mape": 0.05, "coverage": 0.95, "verdict": "good"},
         }
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
@@ -2064,23 +2051,19 @@ class TestForecastTargetProjection(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         projection = response.json()["target_projection"]
         assert projection["target"] == 1000000
-        assert projection["misses_on_best_case"] is True
+        assert projection["evaluated_date"] == "2026-12-31"
+        assert projection["misses_target"] is True
 
 
 class TestForecastFlagGate(APIBaseTest):
     def test_existing_forecast_alert_can_be_disabled_once_the_flag_is_off(self) -> None:
         insight = self.client.post(
             f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "ActionsLineGraph"},
-                    "interval": "day",
-                }
-            },
+            data=_trends_insight_data(query_extra={"interval": "day"}),
         ).json()
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             created = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 data={
@@ -2096,9 +2079,14 @@ class TestForecastFlagGate(APIBaseTest):
             )
         assert created.status_code == status.HTTP_201_CREATED, created.content
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=False
+        ):
             disabled = self.client.patch(
                 f"/api/projects/{self.team.id}/alerts/{created.json()['id']}", data={"enabled": False}
+            )
+            renamed = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{created.json()['id']}", data={"name": "renamed"}
             )
             recreated = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
@@ -2115,18 +2103,15 @@ class TestForecastFlagGate(APIBaseTest):
             )
         assert disabled.status_code == status.HTTP_200_OK, disabled.content
         assert disabled.json()["enabled"] is False
+        assert renamed.status_code == status.HTTP_400_BAD_REQUEST, renamed.content
         assert recreated.status_code == status.HTTP_400_BAD_REQUEST, recreated.content
 
 
 class TestForecastSimulateGuards(APIBaseTest):
     def _insight(self, query_extra: dict) -> dict:
-        query = {
-            "kind": "TrendsQuery",
-            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-            "trendsFilter": {"display": "ActionsLineGraph"},
-            **query_extra,
-        }
-        return self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query}).json()
+        return self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=_trends_insight_data(query_extra=query_extra)
+        ).json()
 
     @parameterized.expand(
         [
@@ -2146,12 +2131,14 @@ class TestForecastSimulateGuards(APIBaseTest):
     )
     def test_simulate_forecast_rejects_unsupported_insights(self, _name: str, query_extra: dict, message: str) -> None:
         insight = self._insight(query_extra)
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate_forecast",
                 {
                     "insight": insight["id"],
-                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
                 },
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content

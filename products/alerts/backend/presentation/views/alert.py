@@ -63,13 +63,16 @@ from products.alerts.backend.destination_configs import DestinationType
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
-from products.alerts.backend.evaluation.forecast import simulate_forecast_on_insight
 from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
-from products.alerts.backend.forecasting.engine import validate_forecast_horizon_and_width
+from products.alerts.backend.facade.api import (
+    ForecastExecutionError,
+    simulate_forecast_on_insight,
+    validate_forecast_horizon,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -79,7 +82,11 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
+from products.product_analytics.backend.facade.models import (
+    Insight,
+    insight_queryset,
+    resolve_insight_by_id_or_short_id,
+)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
@@ -435,7 +442,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     forecast_config = ForecastConfigField(
         required=False,
         allow_null=True,
-        help_text="Forecast alert configuration (third alert mode). Mutually exclusive with detector_config.",
+        help_text=(
+            "Forecast alert configuration for either a predicted threshold breach or a target by date. "
+            "Mutually exclusive with detector_config. Forecasts are limited to 92 calendar days."
+        ),
     )
     insight = TeamScopedPrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
@@ -827,8 +837,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         else:
             forecast_config = None
 
-        if attrs.get("forecast_config") and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
-            raise ValidationError("Forecast alerts are not enabled for your account.")
+        if forecast_config and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
+            is_disabling = attrs.get("enabled") is False
+            is_removing_forecast = "forecast_config" in attrs and attrs["forecast_config"] is None
+            if not is_disabling and not is_removing_forecast:
+                raise ValidationError("Forecast alerts are not enabled for your account.")
 
         require_threshold_bounds = (
             detector_config is None
@@ -865,6 +878,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 require_threshold_bounds=require_threshold_bounds,
                 forecast_config=forecast_config,
                 require_future_target_date=_target_date_is_changing(forecast_config, self.instance),
+                project_timezone=self.context["get_team"]().timezone,
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
@@ -1080,7 +1094,7 @@ class AlertListFiltersSerializer(serializers.Serializer):
 
 class ForecastSimulateRequestSerializer(serializers.Serializer):
     insight = TeamScopedPrimaryKeyRelatedField(
-        queryset=Insight.objects.all(),
+        queryset=insight_queryset(),
         help_text="Insight ID to simulate the forecast on.",
     )
     forecast_config = ForecastConfigField(
@@ -1107,45 +1121,20 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
         if not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
             raise serializers.ValidationError("Forecast alerts are not enabled for your account.")
         try:
-            validate_forecast_horizon_and_width(ForecastConfig.model_validate(value), None, check_horizon=False)
+            validate_forecast_horizon(ForecastConfig.model_validate(value), None, check_horizon=False)
         except ValueError as e:
             raise serializers.ValidationError(str(e))
         return value
 
 
-class ForecastFitQualitySerializer(serializers.Serializer):
-    mape = serializers.FloatField(
-        allow_null=True, help_text="In-sample mean absolute percentage error of the forecast fit."
-    )
-    coverage = serializers.FloatField(
-        allow_null=True, help_text="Share of training points that fall inside the forecast's prediction interval."
-    )
-    verdict = serializers.ChoiceField(
-        choices=["good", "noisy", "poor", "unknown"],
-        help_text="Distilled fit-quality verdict for the preview: good, noisy, poor, or unknown "
-        "(not enough data to assess).",
-    )
-
-
 class ForecastTargetProjectionSerializer(serializers.Serializer):
-    predicted = serializers.FloatField(help_text="Value the forecast predicts for the target date.")
-    best_case = serializers.FloatField(
-        help_text="Value at the favorable edge of the band for the target date: the upper edge when the target "
-        "is a floor to reach, the lower edge when it is a ceiling to stay under."
-    )
+    predicted = serializers.FloatField(help_text="Value predicted for the evaluated insight bucket.")
     target = serializers.FloatField(help_text="The target value being aimed for.")
     target_date = serializers.CharField(help_text="The date the target must be met.")
-    misses_on_forecast = serializers.BooleanField(help_text="Whether the point forecast misses the target.")
-    misses_on_best_case = serializers.BooleanField(
-        help_text="Whether even the favorable edge misses the target, which is what fires by default."
+    evaluated_date = serializers.CharField(
+        help_text="The latest forecast bucket date on or before the target date used for comparison."
     )
-
-
-class ForecastLatestDeviationSerializer(serializers.Serializer):
-    value = serializers.FloatField(help_text="The latest completed actual value.")
-    lower = serializers.FloatField(help_text="Lower bound of the expected range for that point.")
-    upper = serializers.FloatField(help_text="Upper bound of the expected range for that point.")
-    outside = serializers.BooleanField(help_text="Whether the value falls outside the range, which is what fires.")
+    misses_target = serializers.BooleanField(help_text="Whether the point forecast misses the configured target.")
 
 
 class ForecastSimulateResponseSerializer(serializers.Serializer):
@@ -1166,36 +1155,10 @@ class ForecastSimulateResponseSerializer(serializers.Serializer):
     forecast_upper = serializers.ListField(
         child=serializers.FloatField(), help_text="Upper bound of the forecast uncertainty band for each point."
     )
-    forecast_components = serializers.DictField(
-        child=serializers.ListField(child=serializers.FloatField()),
-        required=False,
-        allow_null=True,
-        help_text="Per-component forecast decomposition (e.g. trend, weekly, yearly), one list per forecast "
-        "point. Present only when the forecast engine outputs a decomposition.",
-    )
-    history_lower = serializers.ListField(
-        child=serializers.FloatField(),
-        allow_null=True,
-        help_text="Lower bound of the expected range for each historical point, aligned with `dates` and `data`. "
-        "Null when the engine produces no in-sample band.",
-    )
-    history_upper = serializers.ListField(
-        child=serializers.FloatField(),
-        allow_null=True,
-        help_text="Upper bound of the expected range for each historical point, aligned with `dates` and `data`.",
-    )
     target_projection = ForecastTargetProjectionSerializer(
         allow_null=True,
-        help_text="Where the forecast lands against the target on the target date, on both the point forecast "
-        "and the favorable edge. Present only for the target_by_date condition.",
+        help_text="Point-forecast comparison for the evaluated target bucket. Null for future breach forecasts.",
     )
-    latest_deviation = ForecastLatestDeviationSerializer(
-        allow_null=True,
-        help_text="The band-deviation check the alert itself runs on the latest completed point. Present only "
-        "for the band_deviation condition, and computed from a separate fit that excludes that point, so the "
-        "bounds here differ from the last entry of history_lower/history_upper.",
-    )
-    fit_quality = ForecastFitQualitySerializer(help_text="In-sample fit diagnostics for the forecast.")
 
 
 @extend_schema_view(
@@ -1599,8 +1562,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
-        except RuntimeError:
-            raise ValidationError("Simulation failed: unable to compute results for this insight.")
+        except ForecastExecutionError:
+            return Response(
+                {"detail": "Forecast simulation is temporarily unavailable. Try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         response_serializer = ForecastSimulateResponseSerializer(result)
         return Response(response_serializer.data)

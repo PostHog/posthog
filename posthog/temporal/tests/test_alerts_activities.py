@@ -52,8 +52,9 @@ from posthog.temporal.alerts.types import (
 )
 
 from products.alerts.backend.destinations import AlertDelivery
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.forecasting.engine import ForecastExecutionError
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 
@@ -326,6 +327,13 @@ class TestPrepareAlert:
     async def test_target_alert_finishes_cleanly_after_its_date(self, ateam) -> None:
         await self._assert_finished_cleanly(await self._finished_target_alert(ateam, "2024-06-01"))
 
+    @freeze_time("2024-06-02T10:30:00Z")
+    async def test_target_alert_expiry_uses_the_project_timezone(self, ateam) -> None:
+        ateam.timezone = "Pacific/Kiritimati"
+        await sync_to_async(ateam.save)(update_fields=["timezone"])
+
+        await self._assert_finished_cleanly(await self._finished_target_alert(ateam, "2024-06-03"))
+
     async def test_auto_disable_when_threshold_bounds_empty(self, ateam) -> None:
         a = await _create_alert(
             ateam,
@@ -465,6 +473,50 @@ class TestEvaluateAlert:
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.FIRING
         assert check.targets_notified == {}
+
+    async def test_inconclusive_forecast_preserves_firing_state_without_notification(self, alert) -> None:
+        alert.state = AlertState.FIRING
+        await sync_to_async(alert.save)(update_fields=["state"])
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            return_value=AlertEvaluationResult(value=None, breaches=[], is_inconclusive=True),
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.new_state == AlertState.FIRING
+        assert result.should_notify is False
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.state == AlertState.FIRING
+        assert check.error is None
+
+    async def test_insufficient_history_fallback_preserves_firing_state_without_notification(self, alert) -> None:
+        alert.state = AlertState.FIRING
+        await sync_to_async(alert.save)(update_fields=["state"])
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=InsufficientHistoryError("not enough history"),
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.new_state == AlertState.FIRING
+        assert result.should_notify is False
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.state == AlertState.FIRING
+        assert check.error is None
+
+    async def test_forecast_execution_error_is_retryable(self, alert) -> None:
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=ForecastExecutionError("timed out"),
+        ):
+            env = ActivityEnvironment()
+            with pytest.raises(ForecastExecutionError, match="timed out"):
+                await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
+        assert count == 0
 
     async def test_evaluate_errored_when_permanent_exception(self, alert) -> None:
         with patch(

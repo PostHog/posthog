@@ -52,6 +52,7 @@ INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 class AlertEvaluationResult:
     value: float | None
     breaches: list[str] | None
+    is_inconclusive: bool = False
     anomaly_scores: list[float | None] | None = None
     triggered_points: list[int] | None = None
     triggered_dates: list[str] | None = None
@@ -471,6 +472,7 @@ def add_alert_check(
     outcome = evaluate_alert_check(
         alert,
         threshold_breached=bool(result.breaches),
+        is_inconclusive=result.is_inconclusive,
         error_message=error_message,
         now=datetime.now(UTC),
     )

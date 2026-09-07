@@ -1,23 +1,24 @@
+import math
 import time
-import logging
-import threading
+import statistics
+from statistics import NormalDist
 
 import structlog
 
 from posthog.schema import IntervalType
 
-from products.alerts.backend.forecasting.engine import SUPPORTED_FORECAST_INTERVALS, ForecastResult
-
-logging.getLogger("cmdstanpy").disabled = True
-logging.getLogger("prophet").setLevel(logging.WARNING)
+from products.alerts.backend.forecasting.engine import (
+    FORECAST_FIT_TIMEOUT_SECONDS,
+    FORECAST_TOTAL_TIMEOUT_SECONDS,
+    MAX_FORECAST_OUTPUT_POINTS,
+    MAX_FORECAST_TRAINING_POINTS,
+    SUPPORTED_FORECAST_INTERVALS,
+    ForecastConfigurationError,
+    ForecastExecutionError,
+    ForecastResult,
+)
 
 logger = structlog.get_logger(__name__)
-
-_UNCERTAINTY_SEED = 20260818
-
-_FIT_LOCK = threading.Lock()
-
-_FIT_TIMEOUT_SECONDS = 60
 
 _FREQ: dict[IntervalType, str] = {
     IntervalType.HOUR: "h",
@@ -31,6 +32,31 @@ if set(_FREQ) != set(SUPPORTED_FORECAST_INTERVALS):
 
 
 class ProphetEngine:
+    def __init__(self, *, condition: str):
+        self._condition = condition
+
+    def _log_outcome(
+        self,
+        outcome: str,
+        start: float,
+        interval: IntervalType | None,
+        input_points: int,
+        output_points: int,
+    ) -> float:
+        duration_ms = (time.monotonic() - start) * 1000
+        log = logger.info if outcome == "success" else logger.warning
+        log(
+            "forecast_fit_completed",
+            engine="prophet",
+            condition=self._condition,
+            interval=(interval or IntervalType.DAY).value,
+            input_points=input_points,
+            output_points=output_points,
+            duration_ms=duration_ms,
+            outcome=outcome,
+        )
+        return duration_ms
+
     def forecast(
         self,
         dates: list[str],
@@ -38,61 +64,59 @@ class ProphetEngine:
         horizon: int,
         interval_width: float,
         interval: IntervalType | None,
-        include_history: bool = False,
     ) -> ForecastResult:
-        import numpy as np  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
         import pandas as pd  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
         from prophet import Prophet  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
 
+        if len(dates) != len(values):
+            raise ForecastConfigurationError("Forecast dates and values must have the same length.")
+        if len(values) > MAX_FORECAST_TRAINING_POINTS:
+            raise ForecastConfigurationError(
+                f"A forecast can use at most {MAX_FORECAST_TRAINING_POINTS:,} training points."
+            )
+        if horizon < 1 or horizon > MAX_FORECAST_OUTPUT_POINTS:
+            raise ForecastConfigurationError(
+                f"A forecast must return between 1 and {MAX_FORECAST_OUTPUT_POINTS} future points."
+            )
+        if interval is not None and interval not in SUPPORTED_FORECAST_INTERVALS:
+            raise ForecastConfigurationError("Forecast interval is not supported.")
+        if not 0 < interval_width < 1:
+            raise ForecastConfigurationError("Forecast interval width must be between 0 and 1.")
+
         df = pd.DataFrame({"ds": pd.to_datetime(dates), "y": values})
-        model = Prophet(interval_width=interval_width, mcmc_samples=0)
+        model = Prophet(interval_width=interval_width, mcmc_samples=0, uncertainty_samples=0)
 
         start = time.monotonic()
-        with _FIT_LOCK:
-            rng_state = np.random.get_state()
-            try:
-                np.random.seed(_UNCERTAINTY_SEED)
-                model.fit(df, timeout=_FIT_TIMEOUT_SECONDS)
-                freq = _FREQ.get(interval or IntervalType.DAY, "D")
-                future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=include_history)
-                prediction = model.predict(future)
-            finally:
-                np.random.set_state(rng_state)
+        try:
+            model.fit(df, timeout=FORECAST_FIT_TIMEOUT_SECONDS)
+            freq = _FREQ.get(interval or IntervalType.DAY, "D")
+            future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=True)
+            prediction = model.predict(future)
+        except TimeoutError as error:
+            self._log_outcome("timeout", start, interval, len(values), horizon)
+            raise ForecastExecutionError("Forecast model execution timed out.") from error
+        except Exception as error:
+            self._log_outcome("failed", start, interval, len(values), horizon)
+            raise ForecastExecutionError("Forecast model execution failed.") from error
+
         duration_ms = (time.monotonic() - start) * 1000
-        logger.info(
-            "forecast_fit_completed", engine="prophet", horizon=horizon, n_points=len(values), duration_ms=duration_ms
-        )
+        if duration_ms > FORECAST_TOTAL_TIMEOUT_SECONDS * 1000:
+            self._log_outcome("timeout", start, interval, len(values), horizon)
+            raise ForecastExecutionError("Forecast model execution timed out.")
+        self._log_outcome("success", start, interval, len(values), horizon)
 
-        history = prediction.iloc[: len(values)] if include_history else None
-        forecast = prediction.iloc[len(values) :] if include_history else prediction
-
-        fit_mape: float | None = None
-        fit_coverage: float | None = None
-        history_lower: list[float] | None = None
-        history_upper: list[float] | None = None
-        if history is not None:
-            actuals = df["y"].to_numpy()
-            fitted = history["yhat"].to_numpy()
-            nonzero = actuals != 0
-            fit_mape = (
-                float(abs((actuals[nonzero] - fitted[nonzero]) / actuals[nonzero]).mean()) if nonzero.any() else None
-            )
-            lower_bounds, upper_bounds = history["yhat_lower"].to_numpy(), history["yhat_upper"].to_numpy()
-            fit_coverage = float(((actuals >= lower_bounds) & (actuals <= upper_bounds)).mean())
-            history_lower = [float(v) for v in lower_bounds]
-            history_upper = [float(v) for v in upper_bounds]
-
-        components = {
-            name: [float(v) for v in forecast[name]] for name in ("trend", "weekly", "yearly") if name in forecast
-        }
+        history = prediction.iloc[: len(values)]
+        forecast = prediction.iloc[len(values) :]
+        # Prophet's uncertainty sampler mutates NumPy's process-global RNG. Keep it disabled and
+        # derive an explicitly contextual (not calibrated) preview band from fitted residuals.
+        residuals = [actual - float(fitted) for actual, fitted in zip(values, history["yhat"], strict=True)]
+        residual_stddev = statistics.stdev(residuals) if len(residuals) > 1 else 0.0
+        z_score = NormalDist().inv_cdf((1 + interval_width) / 2)
+        margins = [z_score * residual_stddev * math.sqrt(1 + step / len(values)) for step in range(1, horizon + 1)]
+        point_forecast = [float(value) for value in forecast["yhat"]]
         return ForecastResult(
             dates=[ts.isoformat() for ts in forecast["ds"]],
-            yhat=[float(v) for v in forecast["yhat"]],
-            lower=[float(v) for v in forecast["yhat_lower"]],
-            upper=[float(v) for v in forecast["yhat_upper"]],
-            components=components or None,
-            fit_mape=fit_mape,
-            fit_coverage=fit_coverage,
-            history_lower=history_lower,
-            history_upper=history_upper,
+            yhat=point_forecast,
+            lower=[value - margin for value, margin in zip(point_forecast, margins, strict=True)],
+            upper=[value + margin for value, margin in zip(point_forecast, margins, strict=True)],
         )

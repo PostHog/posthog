@@ -1152,72 +1152,61 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Simulate a forecast on an insight's historical data. Read-only — no AlertCheck records are created.
  */
-export const alertsSimulateForecastCreateBodyForecastConfigOneEngineDefault = `prophet`
-export const alertsSimulateForecastCreateBodyForecastConfigOneTypeDefault = `ForecastConfig`
+export const alertsSimulateForecastCreateBodyForecastConfigOneOneConditionDefault = `future_breach`
+export const alertsSimulateForecastCreateBodyForecastConfigOneOneEngineDefault = `prophet`
+export const alertsSimulateForecastCreateBodyForecastConfigOneOneTypeDefault = `ForecastConfig`
+export const alertsSimulateForecastCreateBodyForecastConfigOneTwoConditionDefault = `target_by_date`
+export const alertsSimulateForecastCreateBodyForecastConfigOneTwoEngineDefault = `prophet`
+export const alertsSimulateForecastCreateBodyForecastConfigOneTwoTypeDefault = `ForecastConfig`
 export const alertsSimulateForecastCreateBodySeriesIndexDefault = 0
 
 export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the forecast on.'),
     forecast_config: zod
-        .object({
-            condition: zod.enum(['future_breach', 'band_deviation', 'target_by_date']),
-            direction: zod
-                .union([zod.enum(['both', 'above', 'below']), zod.null()])
-                .optional()
-                .describe('Which way a deviation has to go to count (band_deviation only). Default both.'),
-            engine: zod.literal('prophet').default(alertsSimulateForecastCreateBodyForecastConfigOneEngineDefault),
-            error_mode: zod
-                .union([zod.enum(['prediction_interval', 'relative', 'absolute']), zod.null()])
-                .optional()
-                .describe(
-                    'How a deviation from the forecast is measured (band_deviation only). Default prediction_interval.'
-                ),
-            error_threshold_abs: zod
-                .union([zod.number(), zod.null()])
-                .optional()
-                .describe("Distance from the forecast that counts, in the metric's own units (absolute mode only)."),
-            error_threshold_pct: zod
-                .union([zod.number(), zod.null()])
-                .optional()
-                .describe(
-                    'Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only).'
-                ),
-            horizon: zod
-                .union([zod.number(), zod.null()])
-                .optional()
-                .describe(
-                    "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval."
-                ),
-            interval_width: zod
-                .union([zod.number(), zod.null()])
-                .optional()
-                .describe('Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).'),
-            score_threshold: zod
-                .union([zod.number(), zod.null()])
-                .optional()
-                .describe(
-                    'How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode only). Higher fires less, and a well-calibrated band stops firing at all above about 2. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them.'
-                ),
-            sensitivity: zod
-                .union([zod.enum(['forecast', 'best_case']), zod.null()])
-                .optional()
-                .describe(
-                    'Which line the comparison reads. Defaults to the point forecast for future_breach, and to best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`, which decides how far outside the band counts, not which line is read.'
-                ),
-            target: zod
-                .union([zod.number(), zod.null()])
-                .optional()
-                .describe('Value the metric must reach or stay under (target_by_date only).'),
-            target_date: zod
-                .union([zod.string(), zod.null()])
-                .optional()
-                .describe('ISO date the target must be met by (target_by_date only).'),
-            target_direction: zod
-                .union([zod.enum(['at_least', 'at_most']), zod.null()])
-                .optional()
-                .describe('Which side of `target` is acceptable (target_by_date only).'),
-            type: zod.literal('ForecastConfig').default(alertsSimulateForecastCreateBodyForecastConfigOneTypeDefault),
-        })
+        .union([
+            zod.object({
+                condition: zod
+                    .enum(['future_breach'])
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneOneConditionDefault)
+                    .describe(
+                        "Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals."
+                    ),
+                engine: zod
+                    .literal('prophet')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneOneEngineDefault),
+                horizon: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Number of future insight intervals to evaluate. Defaults to 7 and cannot exceed 250 points or 92 days.'
+                    ),
+                type: zod
+                    .literal('ForecastConfig')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneOneTypeDefault),
+            }),
+            zod.object({
+                condition: zod
+                    .enum(['target_by_date'])
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneTwoConditionDefault)
+                    .describe('Fire when the value forecast for `target_date` misses `target` on the wrong side.'),
+                engine: zod
+                    .literal('prophet')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneTwoEngineDefault),
+                target: zod
+                    .number()
+                    .describe('Value the insight must reach or stay under in the evaluated target bucket.'),
+                target_date: zod
+                    .string()
+                    .describe(
+                        'ISO date for the target. The alert expires silently when this date arrives in the project timezone.'
+                    ),
+                target_direction: zod.enum(['at_least', 'at_most']).describe('Which side of `target` is acceptable.'),
+                type: zod
+                    .literal('ForecastConfig')
+                    .default(alertsSimulateForecastCreateBodyForecastConfigOneTwoTypeDefault),
+            }),
+        ])
+        .describe('Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.')
         .describe('Forecast configuration to simulate.'),
     series_index: zod
         .number()

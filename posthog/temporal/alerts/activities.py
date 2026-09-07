@@ -1,6 +1,7 @@
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
@@ -25,6 +26,7 @@ from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investi
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
+    AlertEvaluationResult,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
@@ -53,6 +55,7 @@ from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
 from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.forecasting.engine import ForecastExecutionError
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze, disable_if_target_date_passed
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
@@ -199,7 +202,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         try:
             insight = alert.insight
-            finished_fields = disable_if_target_date_passed(alert, datetime.now(UTC).date())
+            project_today = datetime.now(UTC).astimezone(ZoneInfo(alert.team.timezone)).date()
+            finished_fields = disable_if_target_date_passed(alert, project_today)
             if finished_fields:
                 alert.save(update_fields=finished_fields)
                 return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.TARGET_DATE_PASSED)
@@ -216,6 +220,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     alert.calculation_interval,
                     detector_config=alert.detector_config,
                     forecast_config=alert.forecast_config,
+                    project_timezone=alert.team.timezone,
                 )
         except ValueError as e:
             disable_invalid_alert(alert, str(e))
@@ -277,6 +282,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         try:
             alert_evaluation_result = check_alert_for_insight(alert)
             breaches = alert_evaluation_result.breaches
+        except ForecastExecutionError:
+            raise
         except CH_TRANSIENT_ERRORS:
             raise
         except InsufficientHistoryError:
@@ -286,7 +293,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     .select_related("insight", "team", "threshold")
                     .get(id=inputs.alert_id)
                 )
-                alert_check, _ = add_alert_check(locked, None, None)
+                alert_check, _ = add_alert_check(
+                    locked,
+                    AlertEvaluationResult(value=None, breaches=[], is_inconclusive=True),
+                    None,
+                )
             return EvaluateAlertResult(
                 alert_check_id=str(alert_check.id),
                 should_notify=False,

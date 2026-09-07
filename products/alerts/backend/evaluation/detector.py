@@ -61,14 +61,6 @@ def extract_trends_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    """Run a trends insight over the detector's lookback window and normalize it into series.
-
-    Each ``ComparableSeries`` carries the full (complete-interval) history the detector scores —
-    the incomplete current interval is already dropped by ``_prepare_series``. Raises on a ``None``
-    result (swallowed query error). A genuinely empty query result yields an empty series list with
-    ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
-    an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
-    """
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)

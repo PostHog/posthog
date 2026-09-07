@@ -2,19 +2,17 @@ from datetime import date
 from math import ceil
 from typing import Protocol
 
-from posthog.schema import ForecastConfig, IntervalType
+from posthog.schema import ForecastConfig, FutureBreachForecastConfig, IntervalType
 
 from posthog.dataclasses import frozen
 
 PROPHET_ENGINE = "prophet"
 
-FORECAST_LOOKBACK_POINTS = 90
 DEFAULT_HORIZON = 7
 DEFAULT_INTERVAL_WIDTH = 0.95
 
-MAX_SCORE_THRESHOLD = 3.0
-
-MAX_FORECAST_REACH_DAYS = 183
+MAX_FORECAST_REACH_DAYS = 92
+MAX_FORECAST_OUTPUT_POINTS = 250
 
 _INTERVAL_DAYS: dict[IntervalType, float] = {
     IntervalType.HOUR: 1 / 24,
@@ -25,6 +23,8 @@ _INTERVAL_DAYS: dict[IntervalType, float] = {
 
 MAX_FORECAST_TRAINING_POINTS = 1000
 MAX_FORECAST_LOOKBACK_DAYS = 730
+FORECAST_FIT_TIMEOUT_SECONDS = 60
+FORECAST_TOTAL_TIMEOUT_SECONDS = 70
 
 
 SUPPORTED_FORECAST_INTERVALS = frozenset({IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH})
@@ -46,10 +46,15 @@ def horizon_for_target_date(target_date: date, interval: IntervalType | None, to
         raise ValueError("The target date must be in the future.")
     if days > MAX_FORECAST_REACH_DAYS:
         raise ValueError(
-            "A forecast target must be within 6 months. Move the date closer, or use an insight "
-            "with a coarser interval."
+            "A forecast target must be within 92 days. Move the date closer, or use an insight with a coarser interval."
         )
-    return intervals_between(today, target_date, interval)
+    horizon = intervals_between(today, target_date, interval)
+    if horizon > MAX_FORECAST_OUTPUT_POINTS:
+        raise ValueError(
+            f"A forecast can return at most {MAX_FORECAST_OUTPUT_POINTS} future points. "
+            "Use a coarser insight interval for this target date."
+        )
+    return horizon
 
 
 def intervals_between(start: date, end: date, interval: IntervalType | None) -> int:
@@ -58,22 +63,27 @@ def intervals_between(start: date, end: date, interval: IntervalType | None) -> 
 
 
 def max_evaluable_horizon(interval: IntervalType | None) -> int:
-    return ceil(2 * MAX_FORECAST_REACH_DAYS / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1))
+    return min(
+        MAX_FORECAST_OUTPUT_POINTS,
+        ceil(MAX_FORECAST_REACH_DAYS / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)),
+    )
 
 
-def validate_forecast_horizon_and_width(
+def validate_forecast_horizon(
     parsed: ForecastConfig, interval: IntervalType | None = None, *, check_horizon: bool = True
 ) -> None:
-    if check_horizon and parsed.horizon is not None:
-        if parsed.horizon < 1:
+    config = parsed.root
+    if check_horizon and isinstance(config, FutureBreachForecastConfig):
+        horizon = config.horizon if config.horizon is not None else DEFAULT_HORIZON
+        if horizon < 1:
             raise ValueError("Forecast horizon must be at least 1 interval")
-        if forecast_reach_days(parsed.horizon, interval) > MAX_FORECAST_REACH_DAYS:
+        if horizon > MAX_FORECAST_OUTPUT_POINTS:
+            raise ValueError(f"A forecast can return at most {MAX_FORECAST_OUTPUT_POINTS} future points.")
+        if forecast_reach_days(horizon, interval) > MAX_FORECAST_REACH_DAYS:
             raise ValueError(
-                "A forecast can look ahead at most 6 months. Lower the horizon, or use an insight "
+                "A forecast can look ahead at most 92 days. Lower the horizon, or use an insight "
                 "with a shorter interval."
             )
-    if parsed.interval_width is not None and not (0 < parsed.interval_width < 1):
-        raise ValueError("Forecast interval_width must be between 0 and 1 (e.g. 0.8 or 0.95)")
 
 
 def validate_forecast_interval(interval: IntervalType | None) -> None:
@@ -94,11 +104,14 @@ class ForecastResult:
     yhat: list[float]
     lower: list[float]
     upper: list[float]
-    components: dict[str, list[float]] | None = None
-    fit_mape: float | None = None
-    fit_coverage: float | None = None
-    history_lower: list[float] | None = None
-    history_upper: list[float] | None = None
+
+
+class ForecastConfigurationError(ValueError):
+    pass
+
+
+class ForecastExecutionError(RuntimeError):
+    pass
 
 
 class ForecastEngine(Protocol):
@@ -109,7 +122,6 @@ class ForecastEngine(Protocol):
         horizon: int,
         interval_width: float,
         interval: IntervalType | None,
-        include_history: bool = False,
     ) -> ForecastResult: ...
 
 
@@ -120,5 +132,5 @@ def get_forecast_engine(forecast_config: dict) -> ForecastEngine:
             ProphetEngine,
         )
 
-        return ProphetEngine()
-    raise ValueError(f"Unknown forecast engine: {engine}")
+        return ProphetEngine(condition=str(forecast_config.get("condition") or "unknown"))
+    raise ForecastConfigurationError(f"Unknown forecast engine: {engine}")

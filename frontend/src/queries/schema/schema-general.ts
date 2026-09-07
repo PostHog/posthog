@@ -6467,7 +6467,6 @@ export interface AlertScheduleRestriction {
     blocked_windows: AlertScheduleRestrictionWindow[]
 }
 
-// Forecast alerts (third alert mode alongside threshold and detector)
 export enum ForecastEngineType {
     PROPHET = 'prophet',
 }
@@ -6475,8 +6474,6 @@ export enum ForecastEngineType {
 export enum ForecastConditionType {
     /** Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals. */
     FUTURE_BREACH = 'future_breach',
-    /** Fire when the latest completed actual value falls outside the forecast's uncertainty band. */
-    BAND_DEVIATION = 'band_deviation',
     /** Fire when the value forecast for `target_date` misses `target` on the wrong side. */
     TARGET_BY_DATE = 'target_by_date',
 }
@@ -6488,65 +6485,33 @@ export enum ForecastTargetDirection {
     AT_MOST = 'at_most',
 }
 
-export enum ForecastSensitivity {
-    /** Compare the point forecast, which warns earlier at the cost of flapping while uncertain. */
-    FORECAST = 'forecast',
-    /** Compare the optimistic edge of the band, so the alert fires once a miss is unavoidable. */
-    BEST_CASE = 'best_case',
-}
-
-export enum ForecastDirection {
-    /** Fire whichever way the metric moves away from its forecast. */
-    BOTH = 'both',
-    /** Fire only when the actual comes in above the forecast, for example error rate. */
-    ABOVE = 'above',
-    /** Fire only when the actual comes in below the forecast, for example revenue. */
-    BELOW = 'below',
-}
-
-export enum ForecastErrorMode {
-    /** Fire when the actual falls outside the forecast's uncertainty band. */
-    PREDICTION_INTERVAL = 'prediction_interval',
-    /** Fire when the actual is further than `error_threshold_pct` from the forecast, as a share of it. */
-    RELATIVE = 'relative',
-    /** Fire when the actual is further than `error_threshold_abs` from the forecast, in raw units. */
-    ABSOLUTE = 'absolute',
-}
-
-/** Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. */
-export interface ForecastConfig {
+/** Warn when the point forecast crosses an absolute threshold within the selected horizon. */
+export interface FutureBreachForecastConfig {
     type: 'ForecastConfig'
     engine: ForecastEngineType
-    condition: ForecastConditionType
-    /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval. */
+    condition: ForecastConditionType.FUTURE_BREACH
+    /** Number of future insight intervals to evaluate. Defaults to 7 and cannot exceed 250 points or 92 days. */
     horizon?: integer
-    /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
-    interval_width?: number
-    /** Value the metric must reach or stay under (target_by_date only). */
-    target?: number
-    /** Which side of `target` is acceptable (target_by_date only). */
-    target_direction?: ForecastTargetDirection
-    /** ISO date the target must be met by (target_by_date only). */
-    target_date?: string
-    /** Which line the comparison reads. Defaults to the point forecast for future_breach, and to
-     * best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`,
-     * which decides how far outside the band counts, not which line is read. */
-    sensitivity?: ForecastSensitivity
-    /** Which way a deviation has to go to count (band_deviation only). Default both. */
-    direction?: ForecastDirection
-    /** How a deviation from the forecast is measured (band_deviation only). Default prediction_interval. */
-    error_mode?: ForecastErrorMode
-    /** Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only). */
-    error_threshold_pct?: number
-    /** Distance from the forecast that counts, in the metric's own units (absolute mode only). */
-    error_threshold_abs?: number
-    /** How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode
-     * only). Higher fires less, and a well-calibrated band stops firing at all above about 2.
-     * Half-widths rather than training residuals: those exist only when the engine runs with
-     * history, which is the preview path, and a scheduled check does not. The band already carries
-     * the residual scale, since Prophet built it from them. */
-    score_threshold?: number
 }
+
+/** Warn when the point forecast for a selected date is on the wrong side of a target value. */
+export interface TargetByDateForecastConfig {
+    type: 'ForecastConfig'
+    engine: ForecastEngineType
+    condition: ForecastConditionType.TARGET_BY_DATE
+    /** Value the insight must reach or stay under in the evaluated target bucket. */
+    target: number
+    /** Which side of `target` is acceptable. */
+    target_direction: ForecastTargetDirection
+    /** ISO date for the target. The alert expires silently when this date arrives in the project timezone. */
+    target_date: string
+}
+
+/**
+ * Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.
+ * @discriminator condition
+ */
+export type ForecastConfig = FutureBreachForecastConfig | TargetByDateForecastConfig
 
 // Detector types for anomaly detection alerts
 export enum DetectorType {

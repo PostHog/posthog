@@ -45,6 +45,19 @@ def test_clear_check_resolves_without_notification() -> None:
     assert not should_notify(outcome)
 
 
+def test_inconclusive_check_preserves_firing_state_without_notification() -> None:
+    outcome = evaluate_alert_check(
+        alert_with_state(InsightAlertState.FIRING),
+        threshold_breached=False,
+        is_inconclusive=True,
+        error_message=None,
+        now=NOW,
+    )
+
+    assert outcome.new_state == AlertState.FIRING
+    assert not should_notify(outcome)
+
+
 def test_error_notifies_once_until_a_successful_check_resets_the_streak() -> None:
     alert = alert_with_state(InsightAlertState.NOT_FIRING)
 

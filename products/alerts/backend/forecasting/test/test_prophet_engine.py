@@ -1,22 +1,25 @@
+import logging
 import datetime
+from dataclasses import fields
 
 import pytest
+from unittest.mock import MagicMock, patch
 
-import numpy as np
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.schema import IntervalType
 
 from products.alerts.backend.forecasting.engine import (
     MAX_FORECAST_LOOKBACK_DAYS,
     MAX_FORECAST_REACH_DAYS,
+    ForecastConfigurationError,
+    ForecastExecutionError,
     ForecastResult,
     bounded_training_points,
     forecast_reach_days,
     get_forecast_engine,
     horizon_for_target_date,
-    intervals_between,
-    max_evaluable_horizon,
 )
 
 
@@ -34,14 +37,29 @@ class TestProphetEngine:
         with pytest.raises(ValueError):
             get_forecast_engine({"type": "ForecastConfig", "engine": "nonsense"})
 
-    def test_forecast_shape(self):
-        np.random.seed(42)
-        engine = get_forecast_engine({"engine": "prophet"})
+    def test_forecast_shape_and_structured_log(self):
+        engine = get_forecast_engine({"engine": "prophet", "condition": "future_breach"})
         values = [float(100 + 2 * i) for i in range(60)]
-        result = engine.forecast(_daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
+        with capture_logs() as logs:
+            result = engine.forecast(
+                _daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY
+            )
         assert isinstance(result, ForecastResult)
         assert len(result.dates) == len(result.yhat) == len(result.lower) == len(result.upper) == 7
         assert result.dates[0].startswith("2026-03-02")
+        assert logs == [
+            {
+                "condition": "future_breach",
+                "duration_ms": pytest.approx(logs[0]["duration_ms"]),
+                "engine": "prophet",
+                "event": "forecast_fit_completed",
+                "input_points": 60,
+                "interval": "day",
+                "log_level": "info",
+                "outcome": "success",
+                "output_points": 7,
+            }
+        ]
 
     @parameterized.expand(
         [
@@ -50,48 +68,80 @@ class TestProphetEngine:
         ]
     )
     def test_forecast_follows_trend(self, _name, values, check):
-        np.random.seed(42)
         engine = get_forecast_engine({"engine": "prophet"})
         result = engine.forecast(_daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
         assert check(result)
 
     def test_band_contains_point_forecast(self):
-        np.random.seed(42)
         engine = get_forecast_engine({"engine": "prophet"})
         values = [float(100 + 2 * i + (5 if i % 7 == 0 else 0)) for i in range(60)]
         result = engine.forecast(_daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
         for i in range(7):
             assert result.lower[i] <= result.yhat[i] <= result.upper[i]
 
-    def test_fit_quality_and_components_populated(self):
-        np.random.seed(42)
+    def test_result_exposes_only_future_point_and_context_band(self):
+        assert [field.name for field in fields(ForecastResult)] == ["dates", "yhat", "lower", "upper"]
+
+    def test_rejects_unbounded_training_or_output(self):
+        engine = get_forecast_engine({"engine": "prophet"})
+        with pytest.raises(ForecastConfigurationError, match="1,000"):
+            engine.forecast(_daily_dates(1001), [1.0] * 1001, 1, 0.95, IntervalType.DAY)
+        with pytest.raises(ForecastConfigurationError, match="250"):
+            engine.forecast(_daily_dates(14), [1.0] * 14, 251, 0.95, IntervalType.DAY)
+
+    def test_timeout_is_retryable_and_does_not_change_logger_configuration(self):
+        engine = get_forecast_engine({"engine": "prophet", "condition": "target_by_date"})
+        cmdstan_logger = logging.getLogger("cmdstanpy")
+        prophet_logger = logging.getLogger("prophet")
+        before = (cmdstan_logger.disabled, cmdstan_logger.level, prophet_logger.disabled, prophet_logger.level)
+
+        with capture_logs() as logs:
+            with patch("prophet.Prophet.fit", side_effect=TimeoutError):
+                with pytest.raises(ForecastExecutionError, match="timed out"):
+                    engine.forecast(_daily_dates(14), [1.0] * 14, 1, 0.95, IntervalType.DAY)
+
+        after = (cmdstan_logger.disabled, cmdstan_logger.level, prophet_logger.disabled, prophet_logger.level)
+        assert after == before
+        assert logs[0] == {
+            "condition": "target_by_date",
+            "duration_ms": pytest.approx(logs[0]["duration_ms"]),
+            "engine": "prophet",
+            "event": "forecast_fit_completed",
+            "input_points": 14,
+            "interval": "day",
+            "log_level": "warning",
+            "outcome": "timeout",
+            "output_points": 1,
+        }
+
+    def test_total_runtime_limit_is_retryable(self):
+        engine = get_forecast_engine({"engine": "prophet", "condition": "future_breach"})
+        fake_model = MagicMock()
+
+        with (
+            patch("prophet.Prophet", return_value=fake_model),
+            patch(
+                "products.alerts.backend.forecasting.prophet_engine.time.monotonic",
+                side_effect=[0.0, 71.0, 71.0],
+            ),
+            pytest.raises(ForecastExecutionError, match="timed out"),
+        ):
+            engine.forecast(_daily_dates(14), [1.0] * 14, 1, 0.95, IntervalType.DAY)
+
+    def test_forecast_is_deterministic_without_changing_numpy_random_state(self):
+        import numpy as np
+
         engine = get_forecast_engine({"engine": "prophet"})
         values = [float(100 + 2 * i + (-1) ** i * 0.3) for i in range(60)]
-        result = engine.forecast(
-            _daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY, include_history=True
-        )
-        assert result.fit_mape is not None and result.fit_mape < 0.1
-        assert result.fit_coverage is not None and result.fit_coverage > 0.8
-        assert result.components is not None
-        assert len(result.components["trend"]) == 7
+        state_before = np.random.get_state()
+        first = engine.forecast(_daily_dates(60), values, 7, 0.95, IntervalType.DAY)
+        state_after_first = np.random.get_state()
+        second = engine.forecast(_daily_dates(60), values, 7, 0.95, IntervalType.DAY)
+        state_after_second = np.random.get_state()
 
-    def test_history_band_is_opt_in_and_aligned(self):
-        np.random.seed(42)
-        engine = get_forecast_engine({"engine": "prophet"})
-        values = [float(100 + 2 * i + (-1) ** i * 0.3) for i in range(60)]
-        dates = _daily_dates(60)
-
-        without = engine.forecast(dates, values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
-        assert without.history_lower is None
-        assert without.history_upper is None
-        assert without.fit_mape is None and without.fit_coverage is None
-
-        with_history = engine.forecast(
-            dates, values, horizon=7, interval_width=0.95, interval=IntervalType.DAY, include_history=True
-        )
-        assert with_history.history_lower is not None and len(with_history.history_lower) == len(values)
-        assert with_history.history_upper is not None and len(with_history.history_upper) == len(values)
-        assert len(with_history.dates) == len(without.dates) == 7
+        assert first == second
+        np.testing.assert_equal(state_before, state_after_first)
+        np.testing.assert_equal(state_before, state_after_second)
 
 
 class TestForecastReach:
@@ -112,15 +162,15 @@ class TestForecastReach:
             horizon_for_target_date(datetime.date(2026, 2, 1), IntervalType.DAY, datetime.date(2026, 3, 1))
 
     def test_horizon_rejects_a_date_beyond_the_cap(self) -> None:
-        with pytest.raises(ValueError, match="within 6 months"):
+        with pytest.raises(ValueError, match="within 92 days"):
             horizon_for_target_date(datetime.date(2027, 3, 1), IntervalType.DAY, datetime.date(2026, 3, 1))
 
     @parameterized.expand(
         [
             ("30 days is fine", 30, IntervalType.DAY, True),
-            ("30 weeks reaches 7 months", 30, IntervalType.WEEK, False),
-            ("30 months reaches 2.5 years", 30, IntervalType.MONTH, False),
-            ("6 months of weeks is fine", 26, IntervalType.WEEK, True),
+            ("14 weeks exceeds one quarter", 14, IntervalType.WEEK, False),
+            ("4 months exceeds one quarter", 4, IntervalType.MONTH, False),
+            ("13 weeks fits", 13, IntervalType.WEEK, True),
         ]
     )
     def test_forecast_reach_days_bounds_every_condition(self, _name, horizon, interval, within_cap) -> None:
@@ -145,18 +195,15 @@ class TestForecastReach:
 
     @parameterized.expand(
         [
-            ("daily, one day back", IntervalType.DAY, 1),
-            ("weekly, just after a boundary", IntervalType.WEEK, 7),
-            ("weekly, just before one", IntervalType.WEEK, 13),
-            ("monthly, short gap", IntervalType.MONTH, 28),
-            ("monthly, long gap", IntervalType.MONTH, 61),
+            ("daily", IntervalType.DAY, 1),
+            ("weekly", IntervalType.WEEK, 7),
+            ("monthly", IntervalType.MONTH, 28),
         ]
     )
-    def test_evaluation_reaches_any_date_save_accepted(self, _name, interval, bucket_age_days) -> None:
+    def test_stale_data_can_exceed_the_save_time_reach(self, _name, interval, bucket_age_days) -> None:
         today = datetime.date(2026, 3, 1)
         furthest_saveable = today + datetime.timedelta(days=MAX_FORECAST_REACH_DAYS)
         horizon_for_target_date(furthest_saveable, interval, today)
 
         last_bucket = today - datetime.timedelta(days=bucket_age_days)
-        horizon = intervals_between(last_bucket, furthest_saveable, interval)
-        assert horizon <= max_evaluable_horizon(interval)
+        assert (furthest_saveable - last_bucket).days > MAX_FORECAST_REACH_DAYS

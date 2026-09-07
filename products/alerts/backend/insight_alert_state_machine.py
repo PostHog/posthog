@@ -52,12 +52,17 @@ def evaluate_alert_check(
     alert: AlertConfiguration,
     *,
     threshold_breached: bool,
+    is_inconclusive: bool = False,
     error_message: str | None,
     now: datetime,
 ) -> AlertCheckOutcome:
     return shared_evaluate_alert_check(
         snapshot_from_alert(alert),
-        CheckInput(threshold_breached=threshold_breached, error_message=error_message),
+        CheckInput(
+            threshold_breached=threshold_breached,
+            is_inconclusive=is_inconclusive,
+            error_message=error_message,
+        ),
         now,
         policy=INSIGHT_ALERT_POLICY,
     )

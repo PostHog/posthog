@@ -6,9 +6,17 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
+from products.product_analytics.backend.facade import models as insight_models_facade
 from products.product_analytics.backend.facade.api import insight_variables_for_team, record_insight_view
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+
+class TestInsightModelFacade(BaseTest):
+    def test_insight_queryset_exposes_insights_for_relationship_fields(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Signups")
+
+        assert insight_models_facade.insight_queryset().get(pk=insight.pk) == insight
 
 
 class TestInsightVariableReads(BaseTest):
