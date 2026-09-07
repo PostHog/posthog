@@ -346,8 +346,11 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 
 # Every database build evaluates the same per-team feature-flag decisions, and flag evaluation can
 # fall back to a network call. A short per-process TTL bounds that cost; a flag flip lags at most
-# the TTL. Entries are tiny, but the key space is one per (team, flag), so cap it and drop the whole
-# dict when it fills - simpler than an LRU and the next builds just re-evaluate.
+# the TTL, so authorization-gating flags must not go through this cache. Entries are tiny, but the
+# key space is one per (team, flag), so cap it and drop the whole dict when it fills - simpler than
+# an LRU and the next builds just re-evaluate. Unlocked by design: dict reads/writes are atomic
+# under the GIL, and the worst race between concurrent builds is a duplicate evaluation or a lost
+# cache entry, both benign.
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
 
@@ -1563,19 +1566,18 @@ class Database(BaseModel):
                 team, user, user_access_control
             )
 
-        is_hogql_warehouse_access_control_enabled = _cached_team_flag(
+        # Never cached: this flag gates authorization. A cached False (a flag flip, or a transient
+        # SDK failure that feature_enabled_or_false reports as False) would keep warehouse access
+        # control off for every query on the team until the TTL expires.
+        is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
             "hogql-warehouse-access-control",
-            team,
-            lambda: feature_enabled_or_false(
-                "hogql-warehouse-access-control",
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                send_feature_flag_events=False,
-            ),
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
         )
 
         with timings.measure("modifiers", emit_span=True):

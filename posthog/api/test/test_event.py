@@ -108,8 +108,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
         # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
-        # HogQL database build.
-        with self.assertNumQueries(16):
+        # HogQL database build. +1 for the flag-cache TTL instance setting, cold-cache here but
+        # TTL-cached per worker in production.
+        with self.assertNumQueries(17):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -140,8 +141,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
-        # +1 for the saved-expressions fetch in the HogQL database build.
-        expected_queries = 23 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 24
+        # +1 for the saved-expressions fetch in the HogQL database build. +1 for the flag-cache
+        # TTL instance setting, cold-cache here but TTL-cached per worker in production.
+        expected_queries = 24 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 25
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
