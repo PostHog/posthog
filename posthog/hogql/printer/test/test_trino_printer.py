@@ -975,6 +975,9 @@ def test_rejects_source_ast_with_clickhouse_settings() -> None:
         "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true) DESC LIMIT 1",
         "SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn "
         "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(1.0) DESC LIMIT 1",
+        "SELECT properties.color FROM users ORDER BY user_id LIMIT 1 BY user_id",
+        "SELECT properties.color, row_number() OVER (ORDER BY user_id) AS rn "
+        "FROM users QUALIFY rn = 1 ORDER BY user_id",
     ],
 )
 def test_wrapper_sort_projections_preserve_output(query: str, snapshot: SnapshotAssertion) -> None:

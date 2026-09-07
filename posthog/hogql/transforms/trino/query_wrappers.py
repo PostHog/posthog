@@ -101,7 +101,9 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
                 "TRINO_WRAPPER_OUTPUT_NAME_UNSAFE", "wrapper query without stable output names", node
             )
         node.select = [
-            expr if isinstance(expr, ast.Alias) and expr.alias == name else ast.Alias(alias=name, expr=expr)
+            expr
+            if isinstance(expr, ast.Alias) and expr.alias == name and not expr.hidden
+            else ast.Alias(alias=name, expr=expr)
             for expr, name in zip(visible_select, output_names, strict=True)
         ] + ([node.select[-1]] if helper_name is not None else [])
 

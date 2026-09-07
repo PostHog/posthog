@@ -108,7 +108,7 @@
 # ---
 # name: test_prepared_trino_transpiler_does_not_rebuild_the_schema_database[SELECT user_id FROM users ORDER BY created_at DESC LIMIT 2 BY user_id]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id" FROM (SELECT "users"."user_id", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0", "users"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
+    'SELECT "__hogql_trino_source_0"."user_id" FROM (SELECT "users"."user_id" AS "user_id", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0", "users"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
     dict({
     }),
   )
@@ -123,8 +123,24 @@
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT a.created_at FROM users a JOIN users b ON a.user_id = b.user_id ORDER BY b.created_at DESC LIMIT 2 BY a.user_id]
   tuple(
-    'SELECT "__hogql_trino_source_0"."created_at" FROM (SELECT "a"."created_at", row_number() OVER (PARTITION BY "a"."user_id" ORDER BY "b"."created_at" DESC) AS "__hogql_limit_by_row_0", "b"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "a" JOIN "ducklake"."analytics"."users" AS "b" ON ("a"."user_id" = "b"."user_id")) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
+    'SELECT "__hogql_trino_source_0"."created_at" FROM (SELECT "a"."created_at" AS "created_at", row_number() OVER (PARTITION BY "a"."user_id" ORDER BY "b"."created_at" DESC) AS "__hogql_limit_by_row_0", "b"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "a" JOIN "ducklake"."analytics"."users" AS "b" ON ("a"."user_id" = "b"."user_id")) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
     dict({
+    }),
+  )
+# ---
+# name: test_wrapper_sort_projections_preserve_output[SELECT properties.color FROM users ORDER BY user_id LIMIT 1 BY user_id]
+  tuple(
+    'SELECT "__hogql_trino_source_0"."color" FROM (SELECT json_extract_scalar("users"."properties", %(hogql_val_0)s) AS "color", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."user_id" ASC) AS "__hogql_limit_by_row_0", "users"."user_id" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 1) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" ASC',
+    dict({
+      'hogql_val_0': '$["color"]',
+    }),
+  )
+# ---
+# name: test_wrapper_sort_projections_preserve_output[SELECT properties.color, row_number() OVER (ORDER BY user_id) AS rn FROM users QUALIFY rn = 1 ORDER BY user_id]
+  tuple(
+    'SELECT "__hogql_trino_source_0"."color", "__hogql_trino_source_0"."rn" FROM (SELECT json_extract_scalar("users"."properties", %(hogql_val_0)s) AS "color", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", "users"."user_id" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" = 1) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" ASC',
+    dict({
+      'hogql_val_0': '$["color"]',
     }),
   )
 # ---
@@ -144,56 +160,56 @@
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id FROM users ORDER BY created_at DESC LIMIT 2 BY user_id LIMIT 5 OFFSET 1]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id" FROM (SELECT "users"."user_id", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0", "users"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC OFFSET 1 ROWS LIMIT 5',
+    'SELECT "__hogql_trino_source_0"."user_id" FROM (SELECT "users"."user_id" AS "user_id", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0", "users"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC OFFSET 1 ROWS LIMIT 5',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id FROM users ORDER BY toStartOfDay(created_at) DESC LIMIT 2 BY user_id]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id" FROM (SELECT "users"."user_id", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY date_trunc(\'day\', "users"."created_at") DESC) AS "__hogql_limit_by_row_0", date_trunc(\'day\', "users"."created_at") AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
+    'SELECT "__hogql_trino_source_0"."user_id" FROM (SELECT "users"."user_id" AS "user_id", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY date_trunc(\'day\', "users"."created_at") DESC) AS "__hogql_limit_by_row_0", date_trunc(\'day\', "users"."created_at") AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, count() AS total FROM users GROUP BY user_id ORDER BY max(created_at) DESC LIMIT 2 BY user_id]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."total" FROM (SELECT "users"."user_id", count(*) AS "total", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY max("users"."created_at") DESC) AS "__hogql_limit_by_row_0", max("users"."created_at") AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."total" FROM (SELECT "users"."user_id" AS "user_id", count(*) AS "total", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY max("users"."created_at") DESC) AS "__hogql_limit_by_row_0", max("users"."created_at") AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, created_at FROM users ORDER BY 2 DESC LIMIT 2 BY 1]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."created_at" FROM (SELECT "users"."user_id", "users"."created_at", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY 2 DESC',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."created_at" FROM (SELECT "users"."user_id" AS "user_id", "users"."created_at" AS "created_at", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY 2 DESC',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, created_at FROM users ORDER BY 2 DESC LIMIT 2 BY user_id]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."created_at" FROM (SELECT "users"."user_id", "users"."created_at", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY 2 DESC',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."created_at" FROM (SELECT "users"."user_id" AS "user_id", "users"."created_at" AS "created_at", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC) AS "__hogql_limit_by_row_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY 2 DESC',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, row_number() OVER (ORDER BY created_at) AS position FROM users QUALIFY position = 1 ORDER BY created_at DESC LIMIT 3]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."position" FROM (SELECT "users"."user_id", row_number() OVER (ORDER BY "users"."created_at" ASC) AS "position", "users"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."position" = 1) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 3',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."position" FROM (SELECT "users"."user_id" AS "user_id", row_number() OVER (ORDER BY "users"."created_at" ASC) AS "position", "users"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."position" = 1) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 3',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn FROM users QUALIFY rn > 0 ORDER BY user_id = toString(1.0) DESC LIMIT 1]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(1.0 AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id" AS "user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(1.0 AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
     dict({
     }),
   )
 # ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true) DESC LIMIT 1]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(true AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."bucket", "__hogql_trino_source_0"."rn" FROM (SELECT "users"."user_id" AS "user_id", ("users"."user_id" = CAST(1 AS VARCHAR)) AS "bucket", row_number() OVER (ORDER BY "users"."user_id" ASC) AS "rn", ("users"."user_id" = CAST(true AS VARCHAR)) AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users") AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."rn" > 0) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 1',
     dict({
     }),
   )
