@@ -11,6 +11,7 @@ gating, widening) where the arithmetic is cheap and unit-testable.
 
 import os
 import math
+import time
 import datetime as dt
 from collections.abc import Collection
 from dataclasses import replace
@@ -69,6 +70,9 @@ MIN_MEAN_PER_ALIVE_BUCKET = float(os.environ.get("LOGS_SERIES_BANDS_MIN_MEAN_PER
 BAND_WIDEN_FRACTION = 0.1
 BAND_FLOOR_PER_HOUR = 2.0
 
+# ClickHouse time one request may spend, shared across its passes. The
+# coarsening walk costs one pass per rung, so a per-pass cap would let a
+# request against a sparse service spend the whole cap once per rung.
 MAX_EXECUTION_SECONDS = int(os.environ.get("LOGS_SERIES_BANDS_MAX_EXECUTION_SECONDS", "30"))
 
 
@@ -156,6 +160,7 @@ def fetch_series_slot_rows(
     window_end: dt.datetime,
     interval_minutes: int,
     series_keys: Collection[_SeriesKey] | None = None,
+    max_execution_seconds: int = MAX_EXECUTION_SECONDS,
 ) -> dict[_SeriesKey, _SeriesRows]:
     """One ClickHouse pass: interval rollup over the window plus baseline, folded
     by time-of-week onto the display window's slots, plus each series' lifetime
@@ -284,7 +289,7 @@ def fetch_series_slot_rows(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_SECONDS),
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
         limit_context=LimitContext.QUERY,
         # Constants above are UTC; without this the printer emits them against
         # the project timezone and the weekly fold lands on the wrong slots.
@@ -405,6 +410,12 @@ def _series_key(series: BandSeries) -> _SeriesKey:
     return _SeriesKey(namespace=series.namespace, environment=series.environment, severity=series.severity)
 
 
+def _remaining_execution_seconds(deadline: float) -> int | None:
+    """Whole seconds left in the request's ClickHouse budget, or None once it is spent."""
+    remaining = int(deadline - time.monotonic())
+    return remaining if remaining > 0 else None
+
+
 def _coarsen_sparse_series(
     team: Team,
     service_name: str,
@@ -412,14 +423,17 @@ def _coarsen_sparse_series(
     window_start: dt.datetime,
     window_end: dt.datetime,
     interval_minutes: int,
+    deadline: float,
 ) -> list[BandSeries]:
     """Move each series that is too sparse at the requested grain up the ladder
     to the first rung where it is dense enough, or to the top rung.
 
     Every rung is one ClickHouse pass scoped to the series still failing, so the
-    worst case costs one pass per rung above the requested grain. A coarsened
-    series keeps the reason from the requested grain, because that is the grain
-    the caller asked for and did not get."""
+    worst case costs one pass per rung above the requested grain. The passes
+    share the request's execution budget, so that worst case costs the same
+    ClickHouse time as a single pass, and the walk stops at the rung reached when
+    the budget runs out. A coarsened series keeps the reason from the requested
+    grain, because that is the grain the caller asked for and did not get."""
     settled: list[BandSeries] = []
     reasons: dict[_SeriesKey, CoarsenedReason] = {}
     pending: dict[_SeriesKey, BandSeries] = {}
@@ -435,9 +449,20 @@ def _coarsen_sparse_series(
     for rung in (rung for rung in INTERVAL_LADDER_MINUTES if rung > interval_minutes):
         if not pending:
             break
+        remaining = _remaining_execution_seconds(deadline)
+        if remaining is None:
+            break
         rung_start = floor_to_interval(window_start, rung)
         rung_end = floor_to_interval(window_end, rung)
-        rows = fetch_series_slot_rows(team, service_name, rung_start, rung_end, rung, series_keys=list(pending))
+        rows = fetch_series_slot_rows(
+            team,
+            service_name,
+            rung_start,
+            rung_end,
+            rung,
+            series_keys=list(pending),
+            max_execution_seconds=remaining,
+        )
         still_failing: dict[_SeriesKey, BandSeries] = {}
         for key, fallback in pending.items():
             if key not in rows:
@@ -552,11 +577,14 @@ def run_series_bands(
     window_start = floor_to_interval(window_start, interval_minutes)
     window_end = floor_to_interval(window_end, interval_minutes)
 
+    deadline = time.monotonic() + MAX_EXECUTION_SECONDS
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
     series = [_build_series(key, rows, window_start, window_end, interval_minutes) for key, rows in slot_rows.items()]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
     series_truncated = len(series) > MAX_SERIES
-    series = _coarsen_sparse_series(team, service_name, series[:MAX_SERIES], window_start, window_end, interval_minutes)
+    series = _coarsen_sparse_series(
+        team, service_name, series[:MAX_SERIES], window_start, window_end, interval_minutes, deadline
+    )
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
 
     return SeriesBandsResult(

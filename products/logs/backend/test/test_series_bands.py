@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -9,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
+from products.logs.backend import series_bands
 from products.logs.backend.series_bands import (
     SeriesBandsWindow,
     SeriesBandsWindowInvalid,
@@ -175,6 +177,26 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         ]
         assert quiet.total_count == quiet_count * (24 * 12 // quiet_every_n_buckets)
         assert quiet.buckets[0].observed == quiet_count * max(1, expected_interval // 5 // quiet_every_n_buckets)
+
+    def test_a_spent_execution_budget_stops_the_coarsening_walk(self):
+        service = "svc-budget"
+        window_start = WINDOW_END - dt.timedelta(days=1)
+        self._insert(
+            [
+                (self.team.pk, window_start + i * dt.timedelta(hours=1), service, "ns", "prod", "info", 1)
+                for i in range(24)
+            ]
+        )
+
+        with patch.object(series_bands, "MAX_EXECUTION_SECONDS", 0):
+            result = run_series_bands(
+                self.team, service, window_start=window_start, window_end=WINDOW_END, interval_minutes=5
+            )
+
+        assert len(result.series) == 1
+        series = result.series[0]
+        assert (series.interval_minutes, series.coarsened_reason) == (5, None)
+        assert len(series.buckets) == 24 * 12
 
     @parameterized.expand(
         [
