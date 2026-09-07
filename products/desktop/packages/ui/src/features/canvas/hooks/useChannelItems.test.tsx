@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
     channels: [] as {
       id: string;
       name: string;
-      channelType: "public" | "personal";
+      channelType: "public" | "personal" | "private";
       starred: boolean;
     }[],
     isLoading: true,

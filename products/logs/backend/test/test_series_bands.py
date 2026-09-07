@@ -27,6 +27,11 @@ WINDOW_START = WINDOW_END - dt.timedelta(days=7)
 BASELINE_START = WINDOW_START - dt.timedelta(weeks=5)
 # A display slot a few days into the window, so its weekly samples spread across it.
 SLOT = WINDOW_START + dt.timedelta(days=3, hours=4)
+# Close enough to a sustained start five days later to share one week-long run.
+NEARBY_STRAY = WINDOW_START - dt.timedelta(weeks=1, days=5)
+# Two days of rows clear the sustained-traffic threshold at every grain on the
+# ladder, so a series' lifetime starts at the first of them.
+ALIVE_HOURS = 48
 
 
 class TestSeriesBands(ClickhouseTestMixin, BaseTest):
@@ -40,28 +45,60 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def test_observed_line_and_band_from_prior_weeks(self):
-        service = "svc-banded"
-        rows = [
-            # Anchors the series' lifetime at the full 5-week baseline.
-            (self.team.pk, BASELINE_START, service, "ns", "prod", "error", 1),
+    def _slots(
+        self,
+        service: str,
+        start: dt.datetime,
+        hours: int,
+        count: int,
+        key: tuple[str, str, str] = ("ns", "prod", "error"),
+        interval_minutes: int = 60,
+    ) -> list[tuple]:
+        step = dt.timedelta(minutes=interval_minutes)
+        return [
+            (self.team.pk, start + slot * step, service, *key, count) for slot in range(hours * 60 // interval_minutes)
         ]
+
+    @parameterized.expand(
+        [
+            # (name, interval_minutes, window_days, banded_upper, quiet_upper)
+            # Hourly: floor of 2 per hour lifts the upper edge; 15 minutes gets a quarter of it.
+            # The finer grain charts 5 days, because 7 days of 15 minute buckets is over the cap.
+            ("hourly", 60, 7, 57.0, 2.0),
+            ("quarter_hour", 15, 5, 55.5, 0.5),
+        ]
+    )
+    def test_observed_line_and_band_from_prior_weeks(
+        self, _name: str, interval_minutes: int, window_days: int, banded_upper: float, quiet_upper: float
+    ):
+        service = f"svc-banded-{interval_minutes}"
+        window_start = WINDOW_END - dt.timedelta(days=window_days)
+        step = dt.timedelta(minutes=interval_minutes)
+        # This window's own display slot, far enough in that the run below folds clear of it.
+        slot = window_start + dt.timedelta(days=3, hours=4)
+        # Starts the series' lifetime at the full 5-week baseline.
+        rows = self._slots(
+            service, window_start - dt.timedelta(weeks=5), ALIVE_HOURS, 1, interval_minutes=interval_minutes
+        )
         for week, value in enumerate([10, 20, 30, 40, 50], start=1):
-            rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "error", value))
+            rows.append((self.team.pk, slot - dt.timedelta(weeks=week), service, "ns", "prod", "error", value))
         # Partial rows within one display bucket, including a repeated 5-minute key.
-        rows.append((self.team.pk, SLOT, service, "ns", "prod", "error", 5))
-        rows.append((self.team.pk, SLOT, service, "ns", "prod", "error", 5))
-        rows.append((self.team.pk, SLOT + dt.timedelta(minutes=5), service, "ns", "prod", "error", 15))
+        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
+        rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
+        rows.append((self.team.pk, slot + dt.timedelta(minutes=5), service, "ns", "prod", "error", 15))
         # Excluded: future bucket, other service, other team.
         rows.append((self.team.pk, NOW + dt.timedelta(hours=2), service, "ns", "prod", "error", 999))
-        rows.append((self.team.pk, SLOT, "svc-other", "ns", "prod", "error", 999))
-        rows.append((self.team.pk + 1, SLOT, service, "ns", "prod", "error", 999))
+        rows.append((self.team.pk, slot, "svc-other", "ns", "prod", "error", 999))
+        rows.append((self.team.pk + 1, slot, service, "ns", "prod", "error", 999))
         self._insert(rows)
 
-        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+        result = run_series_bands(
+            self.team, service, window_start=window_start, window_end=WINDOW_END, interval_minutes=interval_minutes
+        )
 
-        assert result.window_start == WINDOW_START
+        assert result.window_start == window_start
         assert result.window_end == WINDOW_END
+        assert result.interval_minutes == interval_minutes
         assert not result.series_truncated
         assert len(result.series) == 1
         series = result.series[0]
@@ -69,39 +106,104 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert series.baseline_weeks == 5
         assert series.band_ready_at is None
         assert series.total_count == 25
-        assert len(series.buckets) == 7 * 24
+        bucket_count = window_days * 24 * 60 // interval_minutes
+        assert [bucket.time for bucket in series.buckets] == [window_start + i * step for i in range(bucket_count)]
 
         by_time = {bucket.time: bucket for bucket in series.buckets}
         # Band folds the five weekly samples 10..50 into a 10% widened envelope,
-        # then lifts the upper edge by the 2-per-hour floor.
-        banded = by_time[SLOT]
+        # then lifts the upper edge by the per-hour floor scaled to the grain.
+        banded = by_time[slot]
         assert banded.observed == 25
         assert banded.lower == pytest.approx(9.0)
-        assert banded.upper == pytest.approx(57.0)
+        assert banded.upper == pytest.approx(banded_upper)
 
-        quiet = by_time[SLOT + dt.timedelta(hours=1)]
+        quiet = by_time[slot + step]
         assert quiet.observed == 0
         assert quiet.lower == 0
-        assert quiet.upper == 2.0
+        assert quiet.upper == quiet_upper
 
-    def test_learning_series_carries_no_band(self):
+    @parameterized.expand(
+        [
+            # A stray row two weeks before the sustained start does not date the lifetime.
+            ("stray_then_sustained", (WINDOW_START - dt.timedelta(weeks=3),), WINDOW_START - dt.timedelta(weeks=1), 1),
+            # A stray row that shares a week-long run with the sustained start does not either.
+            ("nearby_stray", (NEARBY_STRAY,), WINDOW_START - dt.timedelta(weeks=1), 1),
+            # Nor does a pair of stray rows an hour apart, which carries no day of traffic.
+            (
+                "stray_pair",
+                (NEARBY_STRAY, NEARBY_STRAY + dt.timedelta(hours=1)),
+                WINDOW_START - dt.timedelta(weeks=1),
+                1,
+            ),
+            # Traffic that starts mid-week dates the lifetime at that slot, not a week boundary.
+            ("mid_week_start", (), WINDOW_START - dt.timedelta(days=10, hours=19), 1),
+            # No sustained traffic at all dates the lifetime at the window start.
+            ("never_sustained", (WINDOW_START - dt.timedelta(weeks=1),), None, 0),
+        ]
+    )
+    def test_learning_series_dates_history_from_sustained_traffic(
+        self,
+        _name: str,
+        strays: tuple[dt.datetime, ...],
+        sustained_from: dt.datetime | None,
+        baseline_weeks: int,
+    ) -> None:
         service = "svc-learning"
-        self._insert(
-            [
-                (self.team.pk, WINDOW_START - dt.timedelta(weeks=1), service, "", "", "info", 10),
-                (self.team.pk, SLOT, service, "", "", "info", 12),
-            ]
-        )
+        key = ("", "", "info")
+        rows = [(self.team.pk, SLOT, service, *key, 12)]
+        rows += [(self.team.pk, stray, service, *key, 10) for stray in strays]
+        if sustained_from is not None:
+            rows += self._slots(service, sustained_from, ALIVE_HOURS, 1, key)
+        self._insert(rows)
 
         result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         assert len(result.series) == 1
         series = result.series[0]
-        assert series.baseline_weeks == 1
-        assert series.history_start == WINDOW_START - dt.timedelta(weeks=1)
-        assert series.band_ready_at == WINDOW_END + dt.timedelta(weeks=1)
+        history_start = sustained_from if sustained_from is not None else WINDOW_START
+        assert series.history_start == history_start
+        assert series.baseline_weeks == baseline_weeks
+        assert series.band_ready_at == history_start + dt.timedelta(weeks=2, days=7)
         assert all(bucket.lower is None and bucket.upper is None for bucket in series.buckets)
         assert series.total_count == 12
+
+    def test_band_after_stray_row_comes_from_sustained_traffic(self):
+        service = "svc-stray"
+        sustained_from = WINDOW_START - dt.timedelta(weeks=3)
+        rows = [(self.team.pk, sustained_from - dt.timedelta(weeks=2), service, "ns", "prod", "error", 1)]
+        rows += self._slots(service, sustained_from, 4 * 7 * 24, 9)
+        self._insert(rows)
+
+        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+
+        series = result.series[0]
+        assert series.history_start == sustained_from
+        assert series.baseline_weeks == 3
+        assert series.band_ready_at is None
+        # The stray row folds onto the window's first slot; the band there still
+        # comes from the three sustained weeks of 9, not the stray 1.
+        first = series.buckets[0]
+        assert first.time == WINDOW_START
+        assert first.lower == pytest.approx(8.1)
+        assert first.upper == pytest.approx(11.9)
+        assert all(
+            bucket.observed == 9
+            and bucket.lower is not None
+            and bucket.upper is not None
+            and bucket.lower <= bucket.observed <= bucket.upper
+            for bucket in series.buckets
+        )
+
+    def test_silent_window_marks_below_the_band(self):
+        service = "svc-silent"
+        self._insert(self._slots(service, BASELINE_START, 5 * 7 * 24, 9))
+
+        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+
+        series = result.series[0]
+        assert series.baseline_weeks == 5
+        assert series.total_count == 0
+        assert all(bucket.observed == 0 and bucket.lower == pytest.approx(8.1) for bucket in series.buckets)
 
     def test_band_ready_at_is_when_the_gate_opens(self):
         earliest = WINDOW_START - dt.timedelta(weeks=1)
@@ -114,7 +216,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
     def test_missing_baseline_week_drags_floor_to_zero(self):
         service = "svc-gappy"
-        rows = [(self.team.pk, BASELINE_START, service, "ns", "prod", "warn", 1)]
+        rows = self._slots(service, BASELINE_START, ALIVE_HOURS, 1, ("ns", "prod", "warn"))
         for week, value in enumerate([100, 110, 120], start=1):
             rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "warn", value))
         self._insert(rows)
@@ -164,8 +266,8 @@ NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
 
 
 class TestResolveWindow(SimpleTestCase):
-    def _resolve(self, date_from: str | None, date_to: str | None) -> SeriesBandsWindow:
-        return resolve_window(date_from, date_to, now=NOW_FIXED)
+    def _resolve(self, date_from: str | None, date_to: str | None, interval_minutes: int = 60) -> SeriesBandsWindow:
+        return resolve_window(date_from, date_to, interval_minutes=interval_minutes, now=NOW_FIXED)
 
     def test_exactly_seven_days_is_accepted(self):
         assert self._resolve("2026-06-08T00:00:00Z", "2026-06-15T00:00:00Z") == SeriesBandsWindow(
@@ -177,6 +279,13 @@ class TestResolveWindow(SimpleTestCase):
         # Both bounds floor into the same hourly bucket, so the window holds no bucket at all.
         with pytest.raises(SeriesBandsWindowInvalid, match="empty"):
             self._resolve("2026-06-17T15:05:00Z", "2026-06-17T15:20:00Z")
+
+    def test_snaps_to_the_requested_grain(self):
+        # The same bounds that collapse at the hourly grain hold three 5-minute buckets.
+        assert self._resolve("2026-06-17T15:05:00Z", "2026-06-17T15:20:00Z", interval_minutes=5) == SeriesBandsWindow(
+            start=dt.datetime(2026, 6, 17, 15, 5, tzinfo=UTC),
+            end=dt.datetime(2026, 6, 17, 15, 20, tzinfo=UTC),
+        )
 
     def test_thirty_days_back_is_accepted(self):
         assert self._resolve("-30d", "-24d").start == (NOW_FIXED - dt.timedelta(days=30)).replace(minute=0)
@@ -197,11 +306,14 @@ class TestResolveWindow(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("inverted", "2026-06-10T00:00:00Z", "2026-06-09T00:00:00Z"),
-            ("too_long", "-14d", None),
-            ("start_beyond_retention", "-40d", "-34d"),
+            ("inverted", "2026-06-10T00:00:00Z", "2026-06-09T00:00:00Z", 60, "after"),
+            ("too_long", "-14d", None, 60, "at most 7 days"),
+            ("start_beyond_retention", "-40d", "-34d", 60, "at most 35 days ago"),
+            ("over_bucket_cap", "-7d", None, 5, "2016 buckets at the 5 minute grain, over the cap of 500"),
         ]
     )
-    def test_rejects_invalid_windows(self, _name: str, date_from: str, date_to: str | None) -> None:
-        with pytest.raises(SeriesBandsWindowInvalid):
-            self._resolve(date_from, date_to)
+    def test_rejects_invalid_windows(
+        self, _name: str, date_from: str, date_to: str | None, interval_minutes: int, message: str
+    ) -> None:
+        with pytest.raises(SeriesBandsWindowInvalid, match=message):
+            self._resolve(date_from, date_to, interval_minutes=interval_minutes)

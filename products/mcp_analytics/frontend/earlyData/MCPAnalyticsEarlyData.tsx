@@ -6,7 +6,6 @@ import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { dataColorVars } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { urls } from 'scenes/urls'
 
@@ -54,7 +53,7 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
 }
 
 function SummaryCard(): JSX.Element {
-    const { signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+    const { dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
     const { summary } = useValues(mcpEarlyDataLogic)
 
     return (
@@ -62,16 +61,7 @@ function SummaryCard(): JSX.Element {
             <div className="flex items-center gap-3 py-1">
                 <HedgehogExplorer className="h-14 w-14 shrink-0 hidden sm:block" />
                 <div className="min-w-0">
-                    <h3 className="text-lg font-semibold m-0">
-                        {summary}
-                        {/* Omitted on day one — "since today" is noise. */}
-                        {signals?.firstCallAt && !dayjs(signals.firstCallAt).isSame(dayjs(), 'day') ? (
-                            <span className="text-muted font-normal">
-                                {' '}
-                                since {dayjs(signals.firstCallAt).format('MMM D')}
-                            </span>
-                        ) : null}
-                    </h3>
+                    <h3 className="text-lg font-semibold m-0">{summary}</h3>
                     <p className="text-muted text-base m-0 mt-1">
                         This view fills in live as agents use your server.
                         {dashboardStage === 'activity' ? (
@@ -98,7 +88,7 @@ function LiveActivityCard(): JSX.Element {
             <h3 className="mb-2 text-sm font-semibold">Live activity</h3>
             {/* Fills the card so the feed ends where the sidebar does; the rest scrolls. Stacked
                 layouts have no sidebar to match, so they fall back to a fixed cap. */}
-            <div className="flex-1 min-h-0 max-h-[36rem] lg:max-h-none overflow-y-auto">
+            <div className="flex flex-1 min-h-0 max-h-[36rem] overflow-hidden lg:max-h-none">
                 <Query
                     attachTo={mcpEarlyDataLogic}
                     uniqueKey="mcp-analytics-activity"
@@ -106,6 +96,8 @@ function LiveActivityCard(): JSX.Element {
                     setQuery={setActivityQuery}
                     context={{
                         dataTableMaxPaginationRows: MCP_ACTIVITY_MAX_ROWS,
+                        dataTableAllowContentScroll: true,
+                        dataTableNouns: ['tool call', 'tool calls'],
                         compactDataTableToolbar: true,
                         hideRecordingButton: true,
                         columns: {

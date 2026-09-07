@@ -18,6 +18,16 @@ import {
 
 const compressWithGzip = promisify(gzip)
 const IMAGE_SOURCE_METRIC = 'recording_blob_ingestion_v2_ml_image_references_by_property'
+const JSON_LD_EVENT_METRIC = 'recording_blob_ingestion_v2_ml_json_ld_events'
+
+async function metricValue(name: string): Promise<number> {
+    const metric = register.getSingleMetric(name)
+    if (!metric) {
+        return 0
+    }
+    const { values } = await metric.get()
+    return values[0]?.value ?? 0
+}
 
 async function imageSourceMetricValue(source: string, property: string, kind: string): Promise<number> {
     const metric = register.getSingleMetric(IMAGE_SOURCE_METRIC)
@@ -92,6 +102,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
                 consoleLogCount: 1,
                 consoleWarnCount: 2,
                 consoleErrorCount: 3,
+                jsonLdEventCount: 0,
                 events: [{ ts: now, flags: 5 }],
                 ...metaOverrides,
             }),
@@ -103,7 +114,8 @@ describe('createParseAndAnonymizeMessageStep', () => {
     })
 
     it('assembles a pre-serialized ParsedMessageData from the addon output', async () => {
-        addonSuccess()
+        const jsonLdEventsBefore = await metricValue(JSON_LD_EVENT_METRIC)
+        addonSuccess({ jsonLdEventCount: 2 })
         const result = await step({ message: kafkaMessage(), headers, team })
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -120,6 +132,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
         expect(parsed.snapshot_source).toBe('web')
         expect(parsed.snapshot_library).toBe('posthog-js')
         expect(parsed.metadata).toEqual({ partition: 3, topic: 'snapshots', rawSize: 2, offset: 42, timestamp: now })
+        await expect(metricValue(JSON_LD_EVENT_METRIC)).resolves.toBe(jsonLdEventsBefore + 2)
     })
 
     it('normalizes a UUID session id before comparing against the header', async () => {
@@ -253,6 +266,7 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
                 consoleLogCount: 0,
                 consoleWarnCount: 0,
                 consoleErrorCount: 0,
+                jsonLdEventCount: 0,
                 events: [{ ts: now, flags: 0 }],
                 images: imageEntries,
                 imageSources,
@@ -362,6 +376,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
             consoleLogCount: 0,
             consoleWarnCount: 0,
             consoleErrorCount: 0,
+            jsonLdEventCount: 0,
             events: [],
             ...(urls ? { urls } : {}),
         })

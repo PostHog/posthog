@@ -1781,7 +1781,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/signals/scout/notes/{note_id}/"
 
     def _make_scout_skill(self, name: str = "signals-scout-web-analytics") -> None:
+        # A scout is a skill that holds a config, so a note target needs both rows.
         LLMSkill.objects.create(team=self.team, name=name, description="scout", body="watch")
+        SignalScoutConfig.objects.create(team=self.team, skill_name=name)
 
     def test_create_and_list_roundtrip_with_attribution(self) -> None:
         self._make_scout_skill()
@@ -1871,6 +1873,28 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         response = self.client.post(self._list_url(), data=body, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    def test_create_rejects_a_note_for_a_skill_that_is_not_a_scout(self) -> None:
+        # The name now says nothing about whether a skill runs, so the config row is what makes
+        # it addressable. A note left for an ordinary skill would sit unread.
+        LLMSkill.objects.create(team=self.team, name="my-ordinary-skill", description="s", body="b")
+
+        response = self.client.post(
+            self._list_url(), data={"content": "note", "skill_name": "my-ordinary-skill"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    def test_create_accepts_a_note_for_a_scout_without_the_prefix(self) -> None:
+        self._make_scout_skill("my-churn-watch")
+
+        response = self.client.post(
+            self._list_url(), data={"content": "watch weekend churn", "skill_name": "my-churn-watch"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert SignalScoutNote.objects.get(team=self.team).skill_name == "my-churn-watch"
 
     @parameterized.expand(
         [
@@ -3357,16 +3381,80 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_skill", "signals-scout-nonexistent"),
-            ("non_scout_prefix", "my-ordinary-skill"),
+            ("unknown_skill", "signals-scout-nonexistent", False),
+            # The inbox reads these as sub-pages of `/inbox/scouts/`, so a scout under one could
+            # never be opened. They stay valid as ordinary skill names.
+            ("reserved_scratchpad", "scratchpad", True),
+            ("reserved_findings", "findings", True),
+            ("reserved_runs", "runs", True),
+            # `create_skill` and the `skill-create` MCP tool never check the name pattern, so a
+            # colon-bearing row can exist. Registering one as a scout would put its notes under a
+            # `pipeline:` audience the report-research stage reads, crossing the two families
+            # `note_targets` keeps apart.
+            ("pipeline_audience", "pipeline:report-research", True),
+            # `review-hog-` is another product's registered prefix, and both products re-stamp the
+            # server-owned category on sync, so registering one as a scout would thrash its tab.
+            ("foreign_product_prefix", "review-hog-security", True),
         ]
     )
-    def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str) -> None:
-        if not skill_name.startswith("signals-scout-"):
+    def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str, make_skill: bool) -> None:
+        if make_skill:
             self._make_skill(skill_name)
         response = self.client.post(self._list_url(), data={"skill_name": skill_name}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists()
+
+    def test_create_registers_a_skill_without_the_scout_prefix(self) -> None:
+        # Explicit registration is the only way a bare-named skill becomes a scout, since
+        # auto-registration still scans for the prefix.
+        self._make_skill("my-ordinary-skill")
+
+        response = self.client.post(self._list_url(), data={"skill_name": "my-ordinary-skill"}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
+
+    @parameterized.expand(
+        [
+            # Registering puts the skill body on the schedule as the run's prompt, and the run acts
+            # as the skill's author. A config-only key must not reach that, whatever the name.
+            ("config_scope_only_prefixed", "signals-scout-fresh", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("config_scope_only_bare", "my-ordinary-skill", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", "my-ordinary-skill", ["signal_scout:write", "llm_skill:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_requires_skill_authoring_scope(
+        self, _name: str, skill_name: str, scopes: list[str], expected: int
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_skill(skill_name)
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._list_url(), data={"skill_name": skill_name}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists() == (
+            expected == status.HTTP_201_CREATED
+        )
+
+    def test_create_requires_skill_editor_access(self) -> None:
+        # Same RBAC bar as creating a scout from scratch: a member who may tune scouts but may
+        # not author skills cannot put someone else's skill on the schedule.
+        self._make_skill("my-ordinary-skill")
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
+        ) as check_resource:
+            check_resource.side_effect = lambda resource, *args, **kwargs: resource != "llm_skill"
+            response = self.client.post(self._list_url(), data={"skill_name": "my-ordinary-skill"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
 
     def test_create_rejects_skill_belonging_to_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
