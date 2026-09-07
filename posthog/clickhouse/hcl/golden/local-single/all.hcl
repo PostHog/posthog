@@ -3533,7 +3533,7 @@ database "posthog" {
       topic_list           = "clickhouse_logs"
       group_name           = "clickhouse-logs-avro-new"
       format               = "Avro"
-      num_consumers        = 8
+      num_consumers        = 1
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
@@ -3665,7 +3665,7 @@ database "posthog" {
       topic_list           = "clickhouse_metrics"
       group_name           = "clickhouse-metrics-avro-new"
       format               = "Avro"
-      num_consumers        = 8
+      num_consumers        = 1
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
@@ -4123,7 +4123,7 @@ database "posthog" {
       topic_list          = "clickhouse_property_values"
       group_name          = "clickhouse_property_values"
       format              = "JSONEachRow"
-      num_consumers       = 8
+      num_consumers       = 1
       thread_per_consumer = true
     }
   }
@@ -4580,7 +4580,7 @@ database "posthog" {
       topic_list           = "clickhouse_traces"
       group_name           = "clickhouse-traces-avro"
       format               = "Avro"
-      num_consumers        = 8
+      num_consumers        = 1
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000

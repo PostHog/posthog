@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PROPERTY_VALUES, kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PROPERTY_VALUES, kafka_engine, kafka_num_consumers
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_PROPERTY_VALUES
 
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     `property_value` String,
     `property_count` UInt64
 ) ENGINE = {engine}
-SETTINGS kafka_num_consumers = 8, kafka_thread_per_consumer = 1
+SETTINGS kafka_num_consumers = {num_consumers}, kafka_thread_per_consumer = 1
 """
 
 PROPERTY_VALUES_TABLE_BASE_SQL = """
@@ -58,6 +58,7 @@ SETTINGS
 def KAFKA_PROPERTY_VALUES_TABLE_SQL_FN() -> str:
     return KAFKA_PROPERTY_VALUES_TABLE_SQL.format(
         table_name=KAFKA_TABLE_NAME,
+        num_consumers=kafka_num_consumers(8),
         engine=kafka_engine(
             topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES,
             group=CONSUMER_GROUP_PROPERTY_VALUES,
