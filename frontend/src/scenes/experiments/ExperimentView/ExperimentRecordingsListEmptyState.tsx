@@ -151,8 +151,8 @@ function ReasonBanner({
             >
                 <div className="flex flex-col gap-1">
                     <span>
-                        This project has recordings from between {runWindow(context)}, but none of them belongs to a
-                        person exposed to this experiment. Three things cause that:
+                        This project recorded sessions between {runWindow(context)}, but none of them belongs to a
+                        person exposed to this experiment. Common causes:
                     </span>
                     <ul className="list-disc pl-4">
                         <li>Replay sampling, or a surface that does not run this experiment.</li>
