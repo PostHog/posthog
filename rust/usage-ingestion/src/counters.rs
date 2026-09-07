@@ -398,6 +398,9 @@ pub fn spawn_flush_task(
     config: CounterConfig,
 ) {
     tokio::spawn(async move {
+        // Publish the series before the first connect, so a flush loop that dies reads as
+        // disconnected rather than as a projection nobody enabled.
+        metrics::gauge!("usage_ingestion_redis_counter_connected").set(0.0);
         let mut ticker = tokio::time::interval(interval);
         let mut store: Option<Arc<dyn CounterStore>> = None;
         loop {
