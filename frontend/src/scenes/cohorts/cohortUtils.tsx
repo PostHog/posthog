@@ -685,6 +685,11 @@ export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
 }
 
 export function cohortWorkflowDisabledReason(cohort: CohortType): string | null {
+    // Runs before the static exemption below: a deleted cohort still resolves by id in a batch
+    // audience, so the workflow would send to a membership snapshot that is on its way to empty.
+    if (cohort.deleted) {
+        return 'This cohort is deleted. Restore it first.'
+    }
     if (cohort.is_static) {
         return null
     }

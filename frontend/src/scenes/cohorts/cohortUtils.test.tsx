@@ -260,19 +260,25 @@ describe('cohortWorkflowDisabledReason', () => {
         ],
     }
 
-    it.each<[string, Partial<CohortType>, boolean]>([
-        ['dynamic cohort with a nested behavioral criterion', { filters: { properties: behavioralGroup } }, true],
-        ['dynamic cohort with only person-property criteria', { filters: { properties: personPropertyGroup } }, false],
+    it.each<[string, Partial<CohortType>, string | null]>([
+        [
+            'dynamic cohort with a nested behavioral criterion',
+            { filters: { properties: behavioralGroup } },
+            "Workflows can't message",
+        ],
+        ['dynamic cohort with only person-property criteria', { filters: { properties: personPropertyGroup } }, null],
         [
             'static cohort that kept behavioral filters',
             { is_static: true, filters: { properties: behavioralGroup } },
-            false,
+            null,
         ],
-        ['cohort without filters', {}, false],
-    ])('%s', (_name, partial, disabled) => {
+        ['cohort without filters', {}, null],
+        ['deleted cohort', { deleted: true }, 'Restore it first'],
+        ['deleted static cohort', { deleted: true, is_static: true }, 'Restore it first'],
+    ])('%s', (_name, partial, expectedReason) => {
         const reason = cohortWorkflowDisabledReason(cohortWith(partial))
-        if (disabled) {
-            expect(reason).toEqual(expect.stringContaining("Workflows can't message"))
+        if (expectedReason) {
+            expect(reason).toEqual(expect.stringContaining(expectedReason))
         } else {
             expect(reason).toBeNull()
         }
