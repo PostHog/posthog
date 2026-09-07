@@ -22,6 +22,12 @@ External requests and resources require a non-PostHog origin declared in
 blocks all direct network access. This includes external stylesheets; remote scripts remain
 blocked.
 
+Notebook-generated widgets reuse the Canvas artifact sandbox but have a smaller, per-version SDK.
+Their host removes Canvas state, insight loading, capture, navigation, external links, agent
+requests, and registered actions. Depending on the Widget tag, it exposes `ph.readFrame`, inline
+HogQL through `ph.query`, and the notebook-only `ph.tools.call` MCP bridge. Do not assume a Canvas
+API is available in a generated notebook widget.
+
 ## Data hierarchy — back every metric with a saved insight
 
 1. **Preferred — save an insight, load it by reference.** Use the PostHog MCP insight tools to

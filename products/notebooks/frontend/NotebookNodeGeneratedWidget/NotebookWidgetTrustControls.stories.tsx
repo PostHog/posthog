@@ -10,6 +10,7 @@ const meta: Meta<NotebookWidgetTrustControlsProps> = {
     args: {
         buildHash: 'a'.repeat(64),
         isEditable: true,
+        permissions: { notebookData: true, hogqlQueries: true, toolCalls: true },
         securityReview: {
             severity: 'high',
             summary: 'The widget may send notebook data to another window.',

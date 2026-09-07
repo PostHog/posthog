@@ -16,6 +16,8 @@ import { userLogic } from 'scenes/userLogic'
 import {
     formatWidgetElapsed,
     loadWidgetFrame,
+    loadWidgetHogQL,
+    loadWidgetToolCall,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookNodeGeneratedWidgetSettings } from './NotebookNodeGeneratedWidgetSettings'
@@ -25,8 +27,13 @@ import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
 import { DEFAULT_WIDGET_MODEL, isWidgetModel, type WidgetModel } from './widgetModels'
+import {
+    type WidgetPermissionAttributes,
+    widgetPermissionAttributePatch,
+    widgetPermissionsFromAttributes,
+} from './widgetPermissions'
 
-export type NotebookNodeGeneratedWidgetAttributes = {
+export type NotebookNodeGeneratedWidgetAttributes = WidgetPermissionAttributes & {
     prompt?: string
     model?: WidgetModel
 }
@@ -39,7 +46,10 @@ function EmptyState({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
-function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidgetAttributes>): JSX.Element | null {
+function Component({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeGeneratedWidgetAttributes>): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, notebookLogic } = useValues(nodeLogic)
     const { isShared } = useValues(notebookLogic)
@@ -47,13 +57,19 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
     if (!expanded) {
         return null
     }
-    return isShared ? <UnsupportedNodePlaceholder /> : <ExpandedWidget attributes={attributes} />
+    return isShared ? (
+        <UnsupportedNodePlaceholder />
+    ) : (
+        <ExpandedWidget attributes={attributes} updateAttributes={updateAttributes} />
+    )
 }
 
 function ExpandedWidget({
     attributes,
+    updateAttributes,
 }: {
     attributes: NotebookNodeAttributes<NotebookNodeGeneratedWidgetAttributes>
+    updateAttributes: (attributes: Partial<NotebookNodeGeneratedWidgetAttributes>) => void
 }): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const componentPanelState = useComponentPanelState()
@@ -66,13 +82,17 @@ function ExpandedWidget({
     // same way the run-button toolbar and the sibling code/height nodes do.
     const prompt = typeof attributes.prompt === 'string' ? attributes.prompt : ''
     const model = isWidgetModel(attributes.model) ? attributes.model : DEFAULT_WIDGET_MODEL
+    const permissions = widgetPermissionsFromAttributes(attributes)
     const logicProps = {
         projectId: currentTeamId,
         notebookShortId,
         nodeId: attributes.nodeId,
         prompt,
         model,
+        permissions,
         isEditable,
+        updatePermissions: (nextPermissions: ReturnType<typeof widgetPermissionsFromAttributes>) =>
+            updateAttributes(widgetPermissionAttributePatch(nextPermissions)),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,
@@ -88,6 +108,7 @@ function ExpandedWidget({
         artifactUnavailable,
         artifactLoading,
         activeFrameNames,
+        activePermissions,
         cancellationInFlight,
         dataRefreshInFlight,
         elapsedSeconds,
@@ -164,6 +185,7 @@ function ExpandedWidget({
         <NotebookWidgetTrustControls
             buildHash={selectedBuildHash}
             isEditable={isEditable}
+            permissions={activePermissions}
             securityReview={selectedSecurityReview}
             variant={variant}
             onRun={() => {
@@ -193,7 +215,7 @@ function ExpandedWidget({
         )
     }
 
-    if (selectedArtifactUrl && selectedVersionId && currentTeamId) {
+    if (selectedArtifactUrl && selectedVersionId && selectedBuildHash && currentTeamId) {
         if (!widgetTrust.buildTrusted) {
             return (
                 <>
@@ -274,6 +296,8 @@ function ExpandedWidget({
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
+                            allowHogQL={activePermissions.hogqlQueries}
+                            allowTools={activePermissions.toolCalls}
                             onReadFrame={(name, offset, limit, runId, signal) =>
                                 loadWidgetFrame(
                                     String(currentTeamId),
@@ -288,6 +312,18 @@ function ExpandedWidget({
                                 )
                             }
                             onArtifactUnavailable={markArtifactUnavailable}
+                            onQuery={(payload, signal) => loadWidgetHogQL(payload, signal)}
+                            onToolCall={(payload, signal) =>
+                                loadWidgetToolCall(
+                                    String(currentTeamId),
+                                    notebookShortId,
+                                    attributes.nodeId,
+                                    selectedVersionId,
+                                    selectedBuildHash,
+                                    payload,
+                                    signal
+                                )
+                            }
                             onError={(message) =>
                                 setRuntimeError(
                                     message ||
@@ -377,7 +413,7 @@ function ExpandedWidget({
                             ) : (
                                 <LemonButton
                                     type="primary"
-                                    onClick={() => generateWidget(initialPrompt, model, 'initial')}
+                                    onClick={() => generateWidget(initialPrompt, model, 'initial', permissions)}
                                     loading={generationRequestLoading}
                                 >
                                     Generate widget
@@ -445,7 +481,7 @@ function ExpandedWidget({
                 {isEditable ? (
                     <LemonButton
                         type="primary"
-                        onClick={() => generateWidget(initialPrompt, model, 'initial')}
+                        onClick={() => generateWidget(initialPrompt, model, 'initial', permissions)}
                         loading={generationRequestLoading}
                     >
                         Generate widget
@@ -472,5 +508,8 @@ export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeG
     attributes: {
         prompt: { default: '' },
         model: { default: DEFAULT_WIDGET_MODEL },
+        noDataFrames: { default: undefined },
+        allowSQL: { default: undefined },
+        allowTools: { default: undefined },
     },
 })

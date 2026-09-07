@@ -314,6 +314,9 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     generator_version = models.CharField(max_length=32)
     input_contract: JSONField = JSONField(default=list)
     schema_hash = models.CharField(max_length=64)
+    notebook_data_access = models.BooleanField(default=True)
+    hogql_access = models.BooleanField(default=False)
+    tool_access = models.BooleanField(default=False)
     security_review_severity = models.CharField(
         choices=SecurityReviewSeverity,
         max_length=16,
@@ -405,6 +408,9 @@ class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
     phase = models.CharField(max_length=32, blank=True, default="queued")
     input_contract: JSONField = JSONField(default=list)
     schema_hash = models.CharField(max_length=64)
+    notebook_data_access = models.BooleanField(default=True)
+    hogql_access = models.BooleanField(default=False)
+    tool_access = models.BooleanField(default=False)
     error_code = models.CharField(max_length=64, null=True, blank=True)
     error_detail = models.TextField(null=True, blank=True)
     cancel_requested_at = models.DateTimeField(null=True, blank=True)

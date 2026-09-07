@@ -9,6 +9,7 @@ import {
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
 import { MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH, MAX_WIDGET_PROMPT_LENGTH, WIDGET_MODEL_OPTIONS } from './widgetModels'
+import { WidgetPermissionToggles } from './WidgetPermissionToggles'
 
 export function NotebookWidgetGenerationModal({
     logicProps,
@@ -19,14 +20,20 @@ export function NotebookWidgetGenerationModal({
     const {
         generationDraftModel,
         generationDraftPrompt,
+        generationDraftPermissions,
         generationError,
         generationModalOperation,
         generationRequestLoading,
         isWorking,
         selectedVersion,
     } = useValues(logic)
-    const { closeGenerationModal, generateWidget, setGenerationDraftModel, setGenerationDraftPrompt } =
-        useActions(logic)
+    const {
+        closeGenerationModal,
+        generateWidget,
+        setGenerationDraftModel,
+        setGenerationDraftPermissions,
+        setGenerationDraftPrompt,
+    } = useActions(logic)
     const promptId = `widget-change-prompt-${logicProps.nodeId}`
     const modelId = `widget-change-model-${logicProps.nodeId}`
     const isRegenerationVersionLoading = generationModalOperation === 'regenerate' && !selectedVersion
@@ -47,7 +54,13 @@ export function NotebookWidgetGenerationModal({
         ) {
             return
         }
-        generateWidget(prompt, generationDraftModel, generationModalOperation, selectedVersion?.id)
+        generateWidget(
+            prompt,
+            generationDraftModel,
+            generationModalOperation,
+            generationDraftPermissions,
+            selectedVersion?.id
+        )
     }
 
     return (
@@ -114,6 +127,16 @@ export function NotebookWidgetGenerationModal({
                         fullWidth
                         className="mt-1"
                     />
+                </div>
+                <div>
+                    <LemonLabel>Data and actions</LemonLabel>
+                    <div className="mt-1">
+                        <WidgetPermissionToggles
+                            value={generationDraftPermissions}
+                            onChange={setGenerationDraftPermissions}
+                            disabled={isRegenerationVersionLoading || isImprovementVersionLoading}
+                        />
+                    </div>
                 </div>
                 {generationError ? <LemonBanner type="error">{generationError}</LemonBanner> : null}
             </div>

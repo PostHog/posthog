@@ -79,7 +79,14 @@ def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name
     )
 
 
-def _source_project(source: str, input_names: list[str]) -> dict[str, Any]:
+def _source_project(
+    source: str,
+    input_names: list[str],
+    *,
+    notebook_data_access: bool = True,
+    hogql_access: bool = False,
+    tool_access: bool = False,
+) -> dict[str, Any]:
     project = synthetic_source_project(source)
     files = project["files"]
     if isinstance(files, dict) and isinstance(index_html := files.get("index.html"), str):
@@ -90,10 +97,12 @@ def _source_project(source: str, input_names: list[str]) -> dict[str, Any]:
     project["capabilities"] = {
         "posthog": {
             "insights": [],
-            "inlineQueries": False,
+            "inlineQueries": hogql_access,
             "captureEvents": [],
             "state": ["user"],
             "notebookFrames": list(input_names),
+            "notebookDataAccess": notebook_data_access,
+            "notebookToolCalls": tool_access,
         },
         "network": {"origins": []},
     }
@@ -108,10 +117,25 @@ def _strip_legacy_frame_bridge(source: str) -> str:
     return source
 
 
-def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list[dict[str, Any]]:
+def validate_notebook_canvas_source(
+    source: str,
+    input_names: list[str],
+    *,
+    notebook_data_access: bool = True,
+    hogql_access: bool = False,
+    tool_access: bool = False,
+) -> list[dict[str, Any]]:
     return [
         {**diagnostic, "severity": "error"} if diagnostic.get("code") in _NETWORK_DIAGNOSTICS else diagnostic
-        for diagnostic in validate_source_project(_source_project(source, input_names))
+        for diagnostic in validate_source_project(
+            _source_project(
+                source,
+                input_names,
+                notebook_data_access=notebook_data_access,
+                hogql_access=hogql_access,
+                tool_access=tool_access,
+            )
+        )
     ]
 
 
@@ -122,6 +146,9 @@ def prepare_notebook_canvas_source(
     user_id: int,
     source: str,
     input_names: list[str],
+    notebook_data_access: bool = True,
+    hogql_access: bool = False,
+    tool_access: bool = False,
     prompt: str,
     name: str,
     expected_current_version_id: UUID | None,
@@ -134,8 +161,22 @@ def prepare_notebook_canvas_source(
     if canvas is None or not User.objects.filter(id=user_id).exists():
         raise NotebookCanvasNotFoundError
 
-    project = _source_project(source, input_names)
-    if has_errors(validate_notebook_canvas_source(source, input_names)):
+    project = _source_project(
+        source,
+        input_names,
+        notebook_data_access=notebook_data_access,
+        hogql_access=hogql_access,
+        tool_access=tool_access,
+    )
+    if has_errors(
+        validate_notebook_canvas_source(
+            source,
+            input_names,
+            notebook_data_access=notebook_data_access,
+            hogql_access=hogql_access,
+            tool_access=tool_access,
+        )
+    ):
         raise NotebookCanvasSourceInvalidError
 
     try:

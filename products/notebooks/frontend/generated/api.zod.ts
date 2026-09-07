@@ -743,6 +743,9 @@ export const notebooksWidgetGenerateBodyPromptMax = 50000
 
 export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
 export const notebooksWidgetGenerateBodyGenerationOperationDefault = `regenerate`
+export const notebooksWidgetGenerateBodyPermissionsOneNotebookDataDefault = true
+export const notebooksWidgetGenerateBodyPermissionsOneHogqlQueriesDefault = false
+export const notebooksWidgetGenerateBodyPermissionsOneToolCallsDefault = false
 
 export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
     prompt: zod
@@ -772,6 +775,25 @@ export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .optional()
         .describe('Current widget version the improvement is based on. Required for improve operations.'),
+    permissions: zod
+        .object({
+            notebook_data: zod
+                .boolean()
+                .default(notebooksWidgetGenerateBodyPermissionsOneNotebookDataDefault)
+                .describe("Whether the widget can read this notebook's dataframes."),
+            hogql_queries: zod
+                .boolean()
+                .default(notebooksWidgetGenerateBodyPermissionsOneHogqlQueriesDefault)
+                .describe('Whether the widget can run arbitrary HogQL queries.'),
+            tool_calls: zod
+                .boolean()
+                .default(notebooksWidgetGenerateBodyPermissionsOneToolCallsDefault)
+                .describe('Whether the widget can call PostHog MCP tools.'),
+        })
+        .optional()
+        .describe(
+            'Capabilities granted to the generated widget version. New widgets default to notebook data only; later generations inherit the current version when omitted.'
+        ),
 })
 
 /**
@@ -780,4 +802,26 @@ export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
 export const NotebooksWidgetRevertBody = /* @__PURE__ */ zod.object({
     version_id: zod.uuid().describe('Earlier version to restore as a new version.'),
     expected_current_version_id: zod.uuid().describe('Current version used for optimistic concurrency.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetToolCallBodyBuildHashRegExp = new RegExp('^[0-9a-f]{64}$')
+export const notebooksWidgetToolCallBodyToolNameRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,127}$')
+
+export const NotebooksWidgetToolCallBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Immutable widget version requesting the tool call.'),
+    build_hash: zod
+        .string()
+        .regex(notebooksWidgetToolCallBodyBuildHashRegExp)
+        .describe('SHA-256 of the exact verified widget build requesting the tool call.'),
+    tool_name: zod
+        .string()
+        .regex(notebooksWidgetToolCallBodyToolNameRegExp)
+        .describe('Exact PostHog MCP tool name to call.'),
+    arguments: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('JSON object passed to the PostHog MCP tool.'),
 })

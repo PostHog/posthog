@@ -8171,6 +8171,36 @@
         },
         "feature_flag": "revamped-py-notebooks"
     },
+    "notebooks-widget-generate": {
+        "description": "Generate or improve an interactive Widget node already present in a markdown notebook. Choose the exact immutable grants in permissions: notebook_data defaults true; hogql_queries and tool_calls default false. Keep the Widget tag in sync: notebook_data=false uses noDataFrames, hogql_queries=true uses allowSQL, and tool_calls=true uses allowTools. A unique generation_id makes retries idempotent. Generation is asynchronous; poll notebooks-widget-status until it is ready or failed.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Generate notebook widget",
+        "title": "Generate notebook widget",
+        "required_scopes": ["notebook:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "notebook-generated-widgets"
+    },
+    "notebooks-widget-status": {
+        "description": "Poll generation and build status for a Widget node. Returns the immutable version's dataframe, HogQL, and tool grants alongside its security review and artifact state.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook widget generation status",
+        "title": "Get notebook widget generation status",
+        "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "notebook-generated-widgets"
+    },
     "opt-outs-add": {
         "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
         "category": "Messaging",

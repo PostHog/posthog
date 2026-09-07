@@ -49,13 +49,13 @@ const AddCellInputSchema = z
             .regex(COMPONENT_TAG_REGEX)
             .optional()
             .describe(
-                `Component cells: the notebook component to insert. Object widgets with named views: ${getNotebookWidgetTagNames().join(', ')}. Other components include Query (product analytics charts and event tables via its query prop), Image, Embed, Latex, Person, Recording, and RecordingPlaylist. Executable cells are not allowed here — use cell_type sql/python.`
+                `Component cells: the notebook component to insert. Object widgets with named views: ${getNotebookWidgetTagNames().join(', ')}. Other components include Query (product analytics charts and event tables via its query prop), Widget (AI-generated interactive content), Image, Embed, Latex, Person, Recording, and RecordingPlaylist. Executable cells are not allowed here — use cell_type sql/python.`
             ),
         props: z
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
+                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Widget, provide prompt and optional capability flags: noDataFrames disables notebook dataframes, allowSQL enables arbitrary HogQL, and allowTools enables PostHog tool calls. Pass matching permissions when calling notebooks-widget-generate. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here - use cell_type sql, which charts its result too.'
             ),
         dataframe_name: z
             .string()

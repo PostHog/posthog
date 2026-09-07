@@ -724,6 +724,15 @@ export const GenerationOperationEnumApi = {
     Improve: 'improve',
 } as const
 
+export interface WidgetPermissionsApi {
+    /** Whether the widget can read this notebook's dataframes. */
+    notebook_data?: boolean
+    /** Whether the widget can run arbitrary HogQL queries. */
+    hogql_queries?: boolean
+    /** Whether the widget can call PostHog MCP tools. */
+    tool_calls?: boolean
+}
+
 export interface WidgetGenerateRequestApi {
     /**
      * Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.
@@ -747,6 +756,8 @@ export interface WidgetGenerateRequestApi {
     generation_operation?: GenerationOperationEnumApi
     /** Current widget version the improvement is based on. Required for improve operations. */
     expected_current_version_id?: string
+    /** Capabilities granted to the generated widget version. New widgets default to notebook data only; later generations inherit the current version when omitted. */
+    permissions?: WidgetPermissionsApi
 }
 
 /**
@@ -947,6 +958,8 @@ export interface WidgetStatusApi {
      * @nullable
      */
     build_hash: string | null
+    /** Capabilities granted to the selected immutable version. Omitted only by older servers. */
+    permissions?: WidgetPermissionsApi
 }
 
 export interface WidgetRevertRequestApi {
@@ -959,6 +972,33 @@ export interface WidgetRevertRequestApi {
 export interface WidgetSourceApi {
     /** Read-only source code for the current widget version. */
     source: string
+}
+
+/**
+ * JSON object passed to the PostHog MCP tool.
+ */
+export type WidgetToolCallRequestApiArguments = { [key: string]: unknown }
+
+export interface WidgetToolCallRequestApi {
+    /** Immutable widget version requesting the tool call. */
+    version_id: string
+    /**
+     * SHA-256 of the exact verified widget build requesting the tool call.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    build_hash: string
+    /**
+     * Exact PostHog MCP tool name to call.
+     * @pattern ^[a-z0-9][a-z0-9-]{0,127}$
+     */
+    tool_name: string
+    /** JSON object passed to the PostHog MCP tool. */
+    arguments?: WidgetToolCallRequestApiArguments
+}
+
+export interface WidgetToolCallResponseApi {
+    /** Text result returned by the PostHog MCP tool. */
+    content: string
 }
 
 /**
@@ -1049,6 +1089,8 @@ export interface WidgetVersionApi {
      * @nullable
      */
     build_hash: string | null
+    /** Capabilities granted to this immutable version. Omitted only by older servers. */
+    permissions?: WidgetPermissionsApi
 }
 
 export interface WidgetVersionPageApi {
