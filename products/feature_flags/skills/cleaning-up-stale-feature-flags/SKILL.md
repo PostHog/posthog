@@ -77,6 +77,9 @@ Call `posthog:feature-flag-get-all` with `active: "STALE"`.
 PostHog runs the staleness detection server-side using the criteria above.
 The response is one page of at most 100 flags, and `count` carries the full stale total.
 Raise `offset` and call again until you have read `count` flags, or the audit you report is silently truncated.
+One shape is missing from that list: a flag with no release conditions that was never called.
+The server filter matches an empty `filters` only as null or `{}`, not as the `{"groups": []}` default.
+When the user names such a flag, look it up by key rather than reporting it as not stale.
 
 For each candidate, gather context before recommending action:
 
