@@ -106,6 +106,7 @@ McpScopePreset = Literal[
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "pulse_analysis",
     "signals_research",
     "signals_implementation",
 ]
@@ -157,6 +158,7 @@ SCOUT_REPORT_SCOPES: list[str] = [
 ]
 
 LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
+PULSE_ANALYSIS_INTERNAL_SCOPE = "pulse_analysis_internal:read"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -296,6 +298,7 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "pulse_analysis",
     "signals_research",
     "signals_implementation",
 )
@@ -388,7 +391,9 @@ def resolve_scopes(
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     scratchpad = list(SCRATCHPAD_INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
-        if scopes == "full":
+        if scopes == "pulse_analysis":
+            resolved = [*MCP_READ_SCOPES, *internal, PULSE_ANALYSIS_INTERNAL_SCOPE]
+        elif scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
         elif scopes == "signals_implementation":
             # The self-driving implementation run: `full`, plus durable memory. It already

@@ -9,6 +9,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
+import { filterPulseAnalysisTools, isPulseAnalysisScopePosture } from '@/lib/pulse-tool-manifest'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -239,16 +240,23 @@ export class RequestStateResolver {
         }
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
-            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
-            () => context.stateManager.getUser()
+        const allTools = filterPulseAnalysisTools(
+            await filterStaffOnlyTools(
+                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                _apiKey ?? { scopes: [] },
+                () => context.stateManager.getUser()
+            ),
+            apiKeyScopes
         )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const scopeGatedTools = useSingleExec
+            ? filterPulseAnalysisTools(getScopeGatedTools(apiKeyScopes, filterOptions), apiKeyScopes)
+            : []
         // Only exec redirects a call to a gated tool; tools mode just omits it.
-        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
+        const flagGatedTools = useSingleExec
+            ? filterPulseAnalysisTools(getFlagGatedTools(filterOptions), apiKeyScopes)
+            : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
@@ -274,6 +282,7 @@ export class RequestStateResolver {
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
+                !isPulseAnalysisScopePosture(apiKeyScopes) &&
                 mergedFlags[MCP_GATEWAY_FLAG] === true &&
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,

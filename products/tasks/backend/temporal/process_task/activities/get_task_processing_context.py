@@ -1000,6 +1000,14 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
+def _resolve_staged_egress_domains(
+    *, network_egress: str | None, repository: str | None, inherited_domains: list[str] | None
+) -> list[str] | None:
+    if network_egress != "posthog_mcp_only":
+        return inherited_domains
+    return ["github.com"] if repository is not None else []
+
+
 def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
     """Loop runs opt into the CI/review-comment follow-up loop when the loop's
     snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
@@ -1202,6 +1210,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                     f"Resolved sandbox environment '{sandbox_environment.name}' with full network access",
                 )
 
+    staged_network_egress = staged_binding.network_egress if staged_binding is not None else None
+    posthog_mcp_only_egress = staged_network_egress == "posthog_mcp_only"
+    allowed_domains = _resolve_staged_egress_domains(
+        network_egress=staged_network_egress,
+        repository=staged_binding.repository if staged_binding is not None else None,
+        inherited_domains=allowed_domains,
+    )
+
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
     if state_custom_image_id:
@@ -1314,6 +1330,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    if posthog_mcp_only_egress:
+        use_modal_network_allowlist = True
     emit_agent_log(
         run_id,
         "debug",
@@ -1458,16 +1476,20 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
     )
-    sandbox_backend = _resolve_sandbox_backend(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-        task_runtime=task.runtime,
-        # Only a real user/environment image is a hogland incapability. The org default
-        # image (default_custom_image, applied when the user picked none) is not — hogland
-        # serves its golden equivalent — so it must not gate the run onto Modal.
-        has_user_custom_image=environment_custom_image_name is not None,
+    sandbox_backend = (
+        "modal"
+        if posthog_mcp_only_egress
+        else _resolve_sandbox_backend(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+            task_runtime=task.runtime,
+            # Only a real user/environment image is a hogland incapability. The org default
+            # image (default_custom_image, applied when the user picked none) is not — hogland
+            # serves its golden equivalent — so it must not gate the run onto Modal.
+            has_user_custom_image=environment_custom_image_name is not None,
+        )
     )
     if sandbox_backend == "hogland":
         # Hogland runs are plain golden-template runs, so the Modal VM-runtime,

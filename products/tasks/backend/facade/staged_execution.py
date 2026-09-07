@@ -7,6 +7,9 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+PULSE_ANALYSIS_DISABLED_TOOLS = ("Bash", "WebFetch", "WebSearch", "Write", "Edit")
+PULSE_ANALYSIS_NETWORK_EGRESS = "posthog_mcp_only"
+
 
 @frozen
 class StagedRepositoryBinding:
@@ -24,6 +27,7 @@ class StagedCapabilityManifest:
     phase: Literal["analysis", "execution"]
     mcp_scope_preset: str
     disabled_tools: tuple[str, ...]
+    network_egress: Literal["inherit", "posthog_mcp_only"] = "inherit"
 
 
 @frozen

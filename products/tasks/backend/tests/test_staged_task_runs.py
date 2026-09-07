@@ -19,7 +19,10 @@ from products.tasks.backend.facade.staged_execution import (
     cancel_staged_task,
     create_staged_task,
 )
+from products.tasks.backend.logic.services.staged_task_runs import get_staged_execution_binding
 from products.tasks.backend.models import Task, TaskRun, TaskStagedRun, TaskWorkflowDispatch
+
+PULSE_DISABLED_TOOLS = ("Bash", "WebFetch", "WebSearch", "Write", "Edit")
 
 
 class TestStagedTaskRuns(TestCase):
@@ -47,6 +50,20 @@ class TestStagedTaskRuns(TestCase):
             disabled_tools=("WebFetch",),
         )
 
+    def _pulse_analysis_manifest(
+        self,
+        *,
+        disabled_tools: tuple[str, ...] = PULSE_DISABLED_TOOLS,
+        network_egress: str = "posthog_mcp_only",
+    ) -> StagedCapabilityManifest:
+        return StagedCapabilityManifest(
+            version=1,
+            phase="analysis",
+            mcp_scope_preset="pulse_analysis",
+            disabled_tools=disabled_tools,
+            network_egress=network_egress,
+        )
+
     def _create_input(self, *, idempotency_key: str = "create-key") -> CreateStagedTaskInput:
         return CreateStagedTaskInput(
             team_id=self.team.id,
@@ -70,6 +87,57 @@ class TestStagedTaskRuns(TestCase):
         assert Task.objects.filter(team=self.team).count() == 1
         assert TaskRun.objects.filter(team=self.team).count() == 1
         assert TaskStagedRun.objects.for_team(self.team.id).filter(caller_id=self.caller_id).count() == 1
+
+    def test_existing_staged_manifest_defaults_to_inherited_egress(self) -> None:
+        created = create_staged_task(self._create_input())
+        staged_run = TaskStagedRun.objects.for_team(self.team.id).get(id=created.staged_run_id)
+        staged_run.analysis_manifest.pop("network_egress", None)
+        staged_run.save(update_fields=["analysis_manifest", "updated_at"])
+
+        binding = get_staged_execution_binding(str(created.analysis_run_id))
+
+        assert binding is not None
+        assert binding.network_egress == "inherit"
+
+    @pytest.mark.parametrize(
+        "disabled_tools,network_egress",
+        [
+            (("Bash", "WebFetch", "WebSearch", "Write"), "posthog_mcp_only"),
+            (PULSE_DISABLED_TOOLS, "inherit"),
+        ],
+    )
+    def test_pulse_analysis_rejects_a_manifest_outside_its_fixed_boundary(
+        self, disabled_tools: tuple[str, ...], network_egress: str
+    ) -> None:
+        input = self._create_input(idempotency_key=f"pulse-{network_egress}-{len(disabled_tools)}")
+        input = CreateStagedTaskInput(
+            **{
+                **input.__dict__,
+                "analysis_manifest": self._pulse_analysis_manifest(
+                    disabled_tools=disabled_tools,
+                    network_egress=network_egress,
+                ),
+            }
+        )
+
+        with pytest.raises(ValueError, match="Pulse"):
+            create_staged_task(input)
+
+    def test_pulse_analysis_persists_its_fixed_network_and_native_tool_policy(self) -> None:
+        input = self._create_input(idempotency_key="pulse-policy")
+        input = CreateStagedTaskInput(
+            **{
+                **input.__dict__,
+                "analysis_manifest": self._pulse_analysis_manifest(),
+            }
+        )
+
+        created = create_staged_task(input)
+        binding = get_staged_execution_binding(str(created.analysis_run_id))
+
+        assert binding is not None
+        assert binding.network_egress == "posthog_mcp_only"
+        assert binding.disabled_tools == PULSE_DISABLED_TOOLS
 
     def test_advance_rejects_a_staged_run_outside_the_callers_team(self) -> None:
         """Break caught: a caller can create an execution run for another team's staged task."""

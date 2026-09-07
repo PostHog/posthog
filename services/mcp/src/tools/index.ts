@@ -1,4 +1,5 @@
 import { hasScopes } from '@/lib/api'
+import { filterPulseAnalysisTools } from '@/lib/pulse-tool-manifest'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // AI observability
@@ -197,5 +198,8 @@ export const getToolsFromContext = async (
 
     const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
 
-    return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
+    return filterPulseAnalysisTools(
+        await filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser()),
+        scopes
+    )
 }

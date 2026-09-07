@@ -18,6 +18,8 @@ from posthog.models.user import User
 from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes
 
 from products.tasks.backend.facade.staged_execution import (
+    PULSE_ANALYSIS_DISABLED_TOOLS,
+    PULSE_ANALYSIS_NETWORK_EGRESS,
     AdvancedStagedTask,
     AdvanceStagedTaskInput,
     CreatedStagedTask,
@@ -43,6 +45,7 @@ class StagedExecutionBinding:
     github_installation_id: str | None
     mcp_scope_preset: str
     disabled_tools: tuple[str, ...]
+    network_egress: str
     phase: str
 
 
@@ -62,6 +65,7 @@ def get_staged_execution_binding(run_id: str) -> StagedExecutionBinding | None:
         _invalid_binding("Staged task actor no longer has team access")
     is_execution = str(staged_run.execution_run_id) == run_id
     manifest = staged_run.execution_manifest if is_execution else staged_run.analysis_manifest
+    network_egress = manifest.get("network_egress", "inherit")
     if (
         staged_run.cancelled_at is not None
         or staged_run.capabilities_revoked_at is not None
@@ -71,6 +75,7 @@ def get_staged_execution_binding(run_id: str) -> StagedExecutionBinding | None:
         or not isinstance(manifest.get("mcp_scope_preset"), str)
         or not isinstance(manifest.get("disabled_tools"), list)
         or not all(isinstance(tool, str) for tool in manifest["disabled_tools"])
+        or network_egress not in ("inherit", "posthog_mcp_only")
     ):
         _invalid_binding("Staged task execution binding is invalid")
     return StagedExecutionBinding(
@@ -80,6 +85,7 @@ def get_staged_execution_binding(run_id: str) -> StagedExecutionBinding | None:
         github_installation_id=staged_run.github_installation_id,
         mcp_scope_preset=manifest["mcp_scope_preset"],
         disabled_tools=tuple(manifest["disabled_tools"]),
+        network_egress=network_egress,
         phase=manifest["phase"],
     )
 
@@ -94,16 +100,25 @@ def _manifest_payload(manifest: StagedCapabilityManifest) -> dict[str, object]:
         "phase": manifest.phase,
         "mcp_scope_preset": manifest.mcp_scope_preset,
         "disabled_tools": list(manifest.disabled_tools),
+        "network_egress": manifest.network_egress,
     }
 
 
 def _validate_manifest(manifest: StagedCapabilityManifest, *, expected_phase: str) -> None:
     if manifest.version != _MANIFEST_VERSION or manifest.phase != expected_phase:
         raise ValueError(f"Expected a version {_MANIFEST_VERSION} {expected_phase} manifest")
-    if manifest.mcp_scope_preset not in get_args(McpScopePreset) or len(manifest.disabled_tools) != len(
-        set(manifest.disabled_tools)
+    if (
+        manifest.mcp_scope_preset not in get_args(McpScopePreset)
+        or manifest.network_egress not in ("inherit", "posthog_mcp_only")
+        or len(manifest.disabled_tools) != len(set(manifest.disabled_tools))
     ):
         raise ValueError("Staged capability manifest is invalid")
+    if manifest.mcp_scope_preset == "pulse_analysis" and (
+        expected_phase != "analysis"
+        or manifest.network_egress != PULSE_ANALYSIS_NETWORK_EGRESS
+        or manifest.disabled_tools != PULSE_ANALYSIS_DISABLED_TOOLS
+    ):
+        raise ValueError("Pulse analysis manifest has fixed capabilities")
 
 
 def _validate_idempotency_key(key: str) -> None:

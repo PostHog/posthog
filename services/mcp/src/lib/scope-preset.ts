@@ -34,6 +34,7 @@ const INTERNAL_WRITE_SCOPE_OBJECTS = new Set([
     'internal_run',
     'loop_context_internal',
     'mcp_builtin_agent',
+    'pulse_analysis_internal',
     'signal_scout_internal',
     'signal_scout_report',
     'signal_scratchpad_internal',
