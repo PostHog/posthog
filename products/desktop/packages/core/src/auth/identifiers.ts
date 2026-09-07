@@ -13,13 +13,13 @@ import type {
 export interface AuthSessionRecord {
   refreshTokenEncrypted: string;
   cloudRegion: CloudRegion;
-  deploymentTarget: DeploymentTarget;
+  deploymentTarget?: DeploymentTarget;
   /**
    * Deployment identity recorded at sign-in for a preview session; null for
    * ordinary regions. A changed value means the stored credentials belong to
    * a different deployment and must be discarded, not refreshed.
    */
-  deploymentId: string | null;
+  deploymentId?: string | null;
   selectedProjectId: number | null;
   scopeVersion: number;
 }

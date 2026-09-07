@@ -68,6 +68,33 @@ describe("runMigrations", () => {
     expect(ledgerMax(sqlite)).not.toBeNull();
   });
 
+  it.each(["us", "eu", "dev", "dev-cloud"])(
+    "preserves an existing %s session when adding deployment identity",
+    (region) => {
+      runMigrations(sqlite, MIGRATIONS_FOLDER);
+      const latest = ledgerMax(sqlite);
+      sqlite
+        .prepare("DELETE FROM __drizzle_migrations WHERE created_at = ?")
+        .run(latest);
+      sqlite.exec(
+        "ALTER TABLE auth_sessions DROP COLUMN deployment_target; ALTER TABLE auth_sessions DROP COLUMN deployment_id;",
+      );
+      sqlite
+        .prepare(
+          "INSERT INTO auth_sessions (id, refresh_token_encrypted, cloud_region, scope_version, created_at, updated_at) VALUES (1, 'fake-token', ?, 1, '2026-01-01', '2026-01-01')",
+        )
+        .run(region);
+      runMigrations(sqlite, MIGRATIONS_FOLDER);
+      expect(
+        sqlite
+          .prepare(
+            "SELECT deployment_target, deployment_id FROM auth_sessions WHERE id = 1",
+          )
+          .get(),
+      ).toEqual({ deployment_target: region, deployment_id: null });
+    },
+  );
+
   it("is a no-op when run twice", () => {
     runMigrations(sqlite, MIGRATIONS_FOLDER);
     const afterFirst = ledgerMax(sqlite);

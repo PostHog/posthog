@@ -24,9 +24,6 @@ const previewManifest = parseDesktopPreviewManifest({
   commitSha: "1111111111111111111111111111111111111111",
   backendOrigin: "https://preview.example.com",
   oauthClientId: "example-public-client-id-1234",
-  gateway: { kind: "unavailable", reason: "Gateway has not been configured" },
-  featureFlags: {},
-  capabilities: [],
 });
 
 describe("getCloudUrlFromRegion", () => {

@@ -3,7 +3,6 @@ import {
   assertNoPreviewConfig,
   DesktopPreviewConfigError,
   desktopPreviewIdentity,
-  PREVIEW_DEPLOYMENT_METADATA_PATH,
   parseDesktopPreviewManifest,
   previewDeploymentMetadataSchema,
 } from "./desktop-preview";
@@ -17,9 +16,6 @@ const validManifest = {
   commitSha: "1111111111111111111111111111111111111111",
   backendOrigin: "https://preview.example.com",
   oauthClientId: "example-public-client-id-1234",
-  gateway: { kind: "unavailable", reason: "Gateway has not been configured" },
-  featureFlags: {},
-  capabilities: [],
 };
 
 describe("parseDesktopPreviewManifest", () => {
@@ -112,36 +108,6 @@ describe("parseDesktopPreviewManifest", () => {
       }),
     ).toThrow(DesktopPreviewConfigError);
   });
-
-  it("rejects unknown feature-flag values", () => {
-    expect(() =>
-      parseDesktopPreviewManifest({
-        ...validManifest,
-        featureFlags: { "some-flag": "true" },
-      }),
-    ).toThrow(DesktopPreviewConfigError);
-  });
-
-  it("rejects a non-HTTPS gateway base URL", () => {
-    expect(() =>
-      parseDesktopPreviewManifest({
-        ...validManifest,
-        gateway: { kind: "ai-gateway", baseUrl: "http://gateway.example.com" },
-      }),
-    ).toThrow(DesktopPreviewConfigError);
-  });
-
-  it("rejects a gateway base URL with credentials", () => {
-    expect(() =>
-      parseDesktopPreviewManifest({
-        ...validManifest,
-        gateway: {
-          kind: "ai-gateway",
-          baseUrl: "https://key@gateway.example.com",
-        },
-      }),
-    ).toThrow(DesktopPreviewConfigError);
-  });
 });
 
 describe("desktopPreviewIdentity", () => {
@@ -208,13 +174,5 @@ describe("previewDeploymentMetadataSchema", () => {
       extra: true,
     });
     expect(parsed.success).toBe(false);
-  });
-});
-
-describe("PREVIEW_DEPLOYMENT_METADATA_PATH", () => {
-  it("points at the preview static asset route", () => {
-    expect(PREVIEW_DEPLOYMENT_METADATA_PATH).toBe(
-      "/static/desktop-preview/deployment.json",
-    );
   });
 });

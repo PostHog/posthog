@@ -34,14 +34,6 @@ on:
                 description: PR number for preview naming and reporting.
                 type: string
                 default: ''
-            caller_run_id:
-                description: >
-                    Run id of the CALLING workflow run (the run that produced the
-                    manifest artifact). download-artifact resolves artifacts
-                    across runs by id; inside a reusable workflow the called
-                    run has its own id, so the caller must pass its own.
-                type: string
-                default: ''
             source_sha:
                 description: >
                     Exact commit SHA to build from. Defaults to the calling
@@ -64,6 +56,9 @@ env:
     # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
+    POSTHOG_DESKTOP_BUILD_KIND: ${{ inputs.build_kind }}
+    POSTHOG_DESKTOP_PREVIEW_PR: ${{ inputs.pr_number }}
+    POSTHOG_DESKTOP_PREVIEW_SHA: ${{ inputs.source_sha }}
 
 jobs:
     build-macos:
@@ -85,8 +80,8 @@ jobs:
             NODE_ENV: production
             npm_config_arch: ${{ matrix.arch }}
             npm_config_platform: darwin
-            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind == 'preview' && '' || secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind == 'preview' && '' || secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_KEY || '' }}
+            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_HOST || '' }}
             # No sourcemap secrets: without them the posthog vite plugin skips
             # release creation and sourcemap upload, keeping test builds
             # hermetic instead of calling the prod API and flaking on it.
@@ -118,11 +113,6 @@ jobs:
               with:
                   name: ${{ inputs.desktop_preview_manifest_artifact }}
                   path: ${{ runner.temp }}/desktop-preview
-                  # The manifest is produced by the CALLING run (the hogbox
-                  # preview deploy job); this workflow's own run id is a
-                  # different run that has no artifacts yet.
-                  run-id: ${{ inputs.caller_run_id }}
-                  github-token: ${{ github.token }}
 
             - name: Stage preview config
               if: inputs.build_kind == 'preview'
@@ -254,7 +244,6 @@ jobs:
                     fi
                     echo "OK: $bin"
                   done
-              env:
                   BUILD_KIND: ${{ inputs.build_kind }}
                   PREVIEW_PRODUCT_NAME: ${{ inputs.build_kind == 'preview' && format('PostHog Preview PR {0}', inputs.pr_number) || '' }}
 
@@ -269,14 +258,17 @@ jobs:
               env:
                   CI: true
                   E2E_APP_ARCH: ${{ matrix.arch }}
+                  E2E_APP_NAME: ${{ inputs.build_kind == 'preview' && format('PostHog Preview PR {0}', inputs.pr_number) || 'PostHog' }}
+                  E2E_APP_EXECUTABLE: ${{ inputs.build_kind == 'preview' && format('PostHog-Preview-PR-{0}', inputs.pr_number) || 'PostHog' }}
               run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts tests/e2e/tests/smoke.spec.ts
 
             - name: Upload Playwright report
               if: failure()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-              name: build-installers-playwright-macos-${{ matrix.arch }}
-              path: products/desktop/apps/code/playwright-report/
-              retention-days: 7
+              with:
+                  name: build-installers-playwright-macos-${{ matrix.arch }}
+                  path: products/desktop/apps/code/playwright-report/
+                  retention-days: 7
 
             - name: Upload artifacts
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -304,8 +296,8 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind == 'preview' && '' || secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind == 'preview' && '' || secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_KEY || '' }}
+            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_HOST || '' }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -321,8 +313,6 @@ jobs:
               with:
                   name: ${{ inputs.desktop_preview_manifest_artifact }}
                   path: ${{ runner.temp }}/desktop-preview
-                  run-id: ${{ inputs.caller_run_id }}
-                  github-token: ${{ github.token }}
 
             - name: Stage preview config
               if: inputs.build_kind == 'preview'
@@ -429,8 +419,8 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind == 'preview' && '' || secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind == 'preview' && '' || secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_KEY || '' }}
+            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_HOST || '' }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -446,8 +436,6 @@ jobs:
               with:
                   name: ${{ inputs.desktop_preview_manifest_artifact }}
                   path: ${{ runner.temp }}/desktop-preview
-                  run-id: ${{ inputs.caller_run_id }}
-                  github-token: ${{ github.token }}
 
             - name: Stage preview config
               if: inputs.build_kind == 'preview'

@@ -2,17 +2,40 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.access import DesktopAccessReason, DesktopAccessResolutionError, get_desktop_access_decision
 from products.tasks.backend.logic.services.code_usage_gate import code_access_required_response
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState, StartupProgramLabel
+
+
+class TestDesktopPreviewAccess(SimpleTestCase):
+    @parameterized.expand([(None, True), ("LOCAL", True), ("US", False), ("EU", False), ("DEV", False)])
+    def test_preview_access_is_limited_to_local_deployments(self, deployment: str | None, allowed: bool) -> None:
+        user = User(email="desktop-tester@example.com", distinct_id="desktop-preview-test")
+        with (
+            override_settings(DEBUG=False, DESKTOP_PREVIEW=True, CLOUD_DEPLOYMENT=deployment),
+            patch("products.tasks.backend.access.get_feature_flag_or_none", return_value=None) as feature_flag,
+        ):
+            if allowed:
+                self.assertTrue(get_desktop_access_decision(user, Organization()).allowed)
+                feature_flag.assert_not_called()
+            else:
+                with self.assertRaises(DesktopAccessResolutionError):
+                    get_desktop_access_decision(user, Organization())
+                feature_flag.assert_called_once()
+
+    @override_settings(DEBUG=False, DESKTOP_PREVIEW=True, CLOUD_DEPLOYMENT=None)
+    def test_preview_still_requires_an_authenticated_identity(self) -> None:
+        user = User(email="desktop-tester@example.com", distinct_id="")
+        with self.assertRaises(DesktopAccessResolutionError):
+            get_desktop_access_decision(user, Organization())
 
 
 class TestDesktopAccessPolicy(APIBaseTest):

@@ -38,12 +38,14 @@ jobs:
             github.event_name == 'workflow_dispatch' ||
             (
               github.event.pull_request.head.repo.full_name == github.repository &&
+              !contains(github.event.pull_request.labels.*.name, 'desktop-preview') &&
               (
                 (github.event.action == 'labeled' && github.event.label.name == 'desktop-build-installer') ||
                 (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'desktop-build-installer'))
               )
             )
         uses: ./.github/workflows/desktop-build-installers.yml
+        secrets: inherit
         with:
             build_kind: test
         permissions:

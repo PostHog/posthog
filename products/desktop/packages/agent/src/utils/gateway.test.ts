@@ -168,6 +168,12 @@ describe("getLlmGatewayUrl", () => {
     expect(getLlmGatewayUrl(posthogHost)).toBe(expected);
   });
 
+  it("refuses to send credentials from an unknown backend to a production gateway", () => {
+    expect(() => getLlmGatewayUrl("https://preview.example.com")).toThrow(
+      "Agent model calls are unavailable",
+    );
+  });
+
   it("uses the PostHog AI product route when requested", () => {
     expect(getLlmGatewayUrl("http://localhost:8000", "posthog_ai")).toBe(
       "http://localhost:3308/posthog_ai",

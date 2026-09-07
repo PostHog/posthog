@@ -118,8 +118,6 @@ export {
   type PreviewDeploymentMetadata,
   parseDesktopPreviewManifest,
   previewDeploymentMetadataSchema,
-  resolveDeploymentOAuthClientId,
-  resolveDeploymentUrl,
 } from "./desktop-preview";
 export {
   DISMISSAL_REASON_OPTIONS,

@@ -156,3 +156,26 @@ describe("registerAppImageSchemes", () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 });
+
+it("registers preview AppImages without overwriting the production desktop entry", async () => {
+  process.env.APPIMAGE = "/home/test/preview.AppImage";
+  const identity = {
+    userDataDirName: "posthog-code-preview-pr-123",
+    productName: "PostHog Preview PR 123",
+  };
+  await registerAppImageSchemes(["posthog-code-preview-pr-123"], identity);
+  expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
+    expect.stringContaining("/posthog-code-preview-pr-123.desktop"),
+    expect.stringContaining("Name=PostHog Preview PR 123"),
+    "utf8",
+  );
+  expect(execFileMock).toHaveBeenCalledWith(
+    "xdg-mime",
+    [
+      "default",
+      "posthog-code-preview-pr-123.desktop",
+      "x-scheme-handler/posthog-code-preview-pr-123",
+    ],
+    expect.any(Function),
+  );
+});

@@ -32,20 +32,26 @@ export function buildAppImageDesktopEntry(options: {
   appImagePath: string;
   schemes: string[];
   iconPath?: string;
+  productName?: string;
 }): string {
-  const { appImagePath, schemes, iconPath } = options;
+  const {
+    appImagePath,
+    schemes,
+    iconPath,
+    productName = PRODUCT_NAME,
+  } = options;
   const mimeTypes = schemes
     .map((scheme) => `x-scheme-handler/${scheme}`)
     .join(";");
   const lines = [
     "[Desktop Entry]",
     "Type=Application",
-    `Name=${PRODUCT_NAME}`,
+    `Name=${productName}`,
     `Exec="${appImagePath}" %U`,
     `Icon=${iconPath ?? DESKTOP_FILE_BASENAME}`,
     "Categories=Development;",
     "Terminal=false",
-    `StartupWMClass=${PRODUCT_NAME}`,
+    `StartupWMClass=${productName}`,
     "NoDisplay=true",
     `MimeType=${mimeTypes};`,
     "",
@@ -74,16 +80,16 @@ function runXdg(command: string, args: string[]): Promise<void> {
  * entry can reference it after the AppImage's /tmp mount goes away. Returns the
  * stable absolute path, or undefined if no icon could be staged.
  */
-function stageAppImageIcon(): string | undefined {
+function stageAppImageIcon(basename: string): string | undefined {
   const appDir = process.env.APPDIR;
   if (!appDir) return undefined;
 
   const candidates = [
-    path.join(appDir, `${DESKTOP_FILE_BASENAME}.png`),
+    path.join(appDir, `${basename}.png`),
     path.join(
       appDir,
       "usr/share/icons/hicolor/512x512/apps",
-      `${DESKTOP_FILE_BASENAME}.png`,
+      `${basename}.png`,
     ),
     path.join(appDir, ".DirIcon"),
   ];
@@ -93,7 +99,7 @@ function stageAppImageIcon(): string | undefined {
   try {
     const iconDir = path.join(os.homedir(), ".local/share/icons");
     mkdirSync(iconDir, { recursive: true });
-    const destination = path.join(iconDir, `${DESKTOP_FILE_BASENAME}.png`);
+    const destination = path.join(iconDir, `${basename}.png`);
     copyFileSync(source, destination);
     return destination;
   } catch (error) {
@@ -116,6 +122,10 @@ function stageAppImageIcon(): string | undefined {
  */
 export async function registerAppImageSchemes(
   schemes: string[],
+  identity = {
+    userDataDirName: DESKTOP_FILE_BASENAME,
+    productName: PRODUCT_NAME,
+  },
 ): Promise<void> {
   const appImagePath = process.env.APPIMAGE;
   if (!appImagePath) {
@@ -125,15 +135,20 @@ export async function registerAppImageSchemes(
   const applicationsDir = path.join(os.homedir(), ".local/share/applications");
   const desktopFilePath = path.join(
     applicationsDir,
-    `${DESKTOP_FILE_BASENAME}.desktop`,
+    `${identity.userDataDirName}.desktop`,
   );
 
   try {
     mkdirSync(applicationsDir, { recursive: true });
-    const iconPath = stageAppImageIcon();
+    const iconPath = stageAppImageIcon(identity.userDataDirName);
     writeFileSync(
       desktopFilePath,
-      buildAppImageDesktopEntry({ appImagePath, schemes, iconPath }),
+      buildAppImageDesktopEntry({
+        appImagePath,
+        schemes,
+        iconPath,
+        productName: identity.productName,
+      }),
       "utf8",
     );
     log.info("Wrote AppImage desktop entry", {
@@ -153,7 +168,7 @@ export async function registerAppImageSchemes(
   for (const scheme of schemes) {
     await runXdg("xdg-mime", [
       "default",
-      `${DESKTOP_FILE_BASENAME}.desktop`,
+      `${identity.userDataDirName}.desktop`,
       `x-scheme-handler/${scheme}`,
     ]);
   }

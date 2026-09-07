@@ -96,7 +96,20 @@ export default defineConfig(({ mode }) => {
   if (isDev || mode === "test") {
     assertOrdinaryBuild(preview);
   }
+  if (preview) {
+    env.VITE_POSTHOG_API_KEY = "";
+    env.VITE_POSTHOG_API_HOST = "";
+    env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE = "";
+  }
   const previewDefine = {
+    ...(preview
+      ? {
+          "import.meta.env.VITE_POSTHOG_API_KEY": JSON.stringify(""),
+          "import.meta.env.VITE_POSTHOG_API_HOST": JSON.stringify(""),
+          "import.meta.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE":
+            JSON.stringify(""),
+        }
+      : {}),
     __DESKTOP_PREVIEW_MANIFEST__: JSON.stringify(
       preview ? preview.manifest : null,
     ),

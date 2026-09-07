@@ -1,142 +1,54 @@
-// Run with: node --test .github/scripts/desktop/desktop-preview-decision.test.js
-//
-// Table-driven coverage of the label semantics in section 12 of the desktop
-// preview plan. Every row is a workflow-visible outcome; the workflow's decide
-// job is a thin adapter over this module.
-
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { decidePreview } = require('./desktop-preview-decision')
 
-const { decideDesktopPreview, DESKTOP_LABEL, HOGBOX_LABEL, NO_PREVIEW_LABEL } =
-    require('./desktop-preview-decision')
-
-const REPO = 'PostHog/posthog'
-const PR = (overrides = {}) => ({
-    number: 123,
-    draft: true,
-    user: { login: 'a-person', type: 'User' },
-    head: { repo: { full_name: REPO } },
-    ...overrides,
-})
-
-const base = (overrides = {}) => ({
-    event: 'pull_request',
-    action: 'synchronize',
-    pr: PR(),
-    repository: REPO,
-    labels: [],
-    ...overrides,
-})
-
-test('adding desktop-preview to an eligible open PR provisions desktop + backend', () => {
-    const out = decideDesktopPreview(
-        base({ action: 'labeled', label: DESKTOP_LABEL, labels: [DESKTOP_LABEL] }),
-    )
-    assert.equal(out.action, 'build')
-    assert.equal(out.desktop, true)
-    assert.equal(out.backend, true)
-})
-
-test('a draft PR with the label gets the same opt-in as a ready PR', () => {
-    const out = decideDesktopPreview(
-        base({ action: 'labeled', label: DESKTOP_LABEL, labels: [DESKTOP_LABEL], pr: PR({ draft: true }) }),
-    )
-    assert.equal(out.action, 'build')
-})
-
-test('a push to a labeled PR reconciles the latest SHA', () => {
-    const out = decideDesktopPreview(
-        base({ action: 'synchronize', labels: [DESKTOP_LABEL] }),
-    )
-    assert.equal(out.action, 'build')
-})
-
-test('an unrelated label change does no expensive work', () => {
-    const out = decideDesktopPreview(
-        base({ action: 'labeled', label: 'team/desktop', labels: [DESKTOP_LABEL] }),
-    )
-    assert.equal(out.action, 'none')
-})
-
-test('no-preview suppresses the desktop preview while present', () => {
-    const out = decideDesktopPreview(
-        base({ labels: [DESKTOP_LABEL, NO_PREVIEW_LABEL] }),
-    )
-    assert.equal(out.action, 'none')
-    assert.match(out.reason, /suppress/)
-})
-
-test('removing no-preview resumes reconciliation', () => {
-    const out = decideDesktopPreview(
-        base({
-            action: 'unlabeled',
-            label: NO_PREVIEW_LABEL,
-            labels: [DESKTOP_LABEL],
-        }),
-    )
-    assert.equal(out.action, 'build')
-})
-
-test('removing desktop-preview retires desktop artifacts but keeps a hogbox backend', () => {
-    const out = decideDesktopPreview(
-        base({
-            action: 'unlabeled',
-            label: DESKTOP_LABEL,
-            labels: [HOGBOX_LABEL],
-        }),
-    )
-    assert.equal(out.action, 'teardown')
-    assert.equal(out.desktop, false)
-    assert.equal(out.backend, true)
-})
-
-test('removing desktop-preview with no other demand retires the backend too', () => {
-    const out = decideDesktopPreview(
-        base({ action: 'unlabeled', label: DESKTOP_LABEL, labels: [] }),
-    )
-    assert.equal(out.action, 'teardown')
-    assert.equal(out.backend, false)
-})
-
-test('both installer labels produce one coordinated decision, not two', () => {
-    // desktop-build-installer stays on the ordinary workflow; only the
-    // desktop-preview label reaches this module. With both present the
-    // decision is identical to desktop-preview alone.
-    const out = decideDesktopPreview(
-        base({ labels: [DESKTOP_LABEL, 'desktop-build-installer'] }),
-    )
-    assert.equal(out.action, 'build')
-    assert.equal(out.desktop, true)
-})
-
-test('a fork PR never gets provisioning or signing', () => {
-    const out = decideDesktopPreview(
-        base({
-            labels: [DESKTOP_LABEL],
-            pr: PR({ head: { repo: { full_name: 'someone-else/fork' } } }),
-        }),
-    )
-    assert.equal(out.action, 'none')
-})
-
-test('a bot-authored PR never gets provisioning', () => {
-    const out = decideDesktopPreview(
-        base({
-            labels: [DESKTOP_LABEL],
-            pr: PR({ user: { login: 'dependabot[bot]', type: 'Bot' } }),
-        }),
-    )
-    assert.equal(out.action, 'none')
-})
-
-test('workflow_dispatch reconciles current intent', () => {
-    const out = decideDesktopPreview(base({ event: 'workflow_dispatch', labels: [DESKTOP_LABEL] }))
-    assert.equal(out.action, 'build')
-})
-
-test('an ordinary PR with no desktop label does nothing here', () => {
-    const out = decideDesktopPreview(base({ labels: [HOGBOX_LABEL] }))
-    assert.equal(out.action, 'none')
-    assert.equal(out.desktop, false)
-    assert.equal(out.backend, true)
+const skip = { build: false, desktop: false, teardown: false, retireDesktop: false }
+const build = { ...skip, build: true }
+const desktop = { ...build, desktop: true }
+const teardown = { ...skip, teardown: true }
+const cases = [
+    ['ordinary PR', {}, skip],
+    ['desktop-only draft push', { labels: ['desktop-preview'] }, desktop],
+    ['desktop label added', { action: 'labeled', label: 'desktop-preview', labels: ['desktop-preview'] }, desktop],
+    ['hogbox opt-in', { labels: ['hogbox-preview'] }, build],
+    ['frontend auto-preview', { autoPreviewEligible: true }, build],
+    ['both preview labels', { labels: ['desktop-preview', 'hogbox-preview'] }, desktop],
+    ['both installer labels', { labels: ['desktop-preview', 'desktop-build-installer'] }, desktop],
+    ['unrelated label added', { action: 'labeled', label: 'bug', labels: ['desktop-preview', 'bug'] }, skip],
+    ['unrelated label removed', { action: 'unlabeled', label: 'bug', labels: ['desktop-preview'] }, skip],
+    ['no-preview suppresses pushes', { labels: ['desktop-preview', 'no-preview'] }, skip],
+    ['no-preview suppresses dispatch', { event: 'workflow_dispatch', labels: ['desktop-preview', 'no-preview'] }, skip],
+    ['no-preview added', { action: 'labeled', label: 'no-preview', labels: ['desktop-preview', 'no-preview'] }, { ...teardown, retireDesktop: true }],
+    ['no-preview removed', { action: 'unlabeled', label: 'no-preview', labels: ['desktop-preview'] }, desktop],
+    ['desktop removed, no demand', { action: 'unlabeled', label: 'desktop-preview' }, { ...teardown, retireDesktop: true }],
+    ['desktop removed, hogbox retained', { action: 'unlabeled', label: 'desktop-preview', labels: ['hogbox-preview'] }, { ...skip, retireDesktop: true }],
+    ['desktop removed, auto-preview retained', { action: 'unlabeled', label: 'desktop-preview', autoPreviewEligible: true }, { ...skip, retireDesktop: true }],
+    ['hogbox removed, desktop retained', { action: 'unlabeled', label: 'hogbox-preview', labels: ['desktop-preview'] }, skip],
+    ['hogbox removed, no demand', { action: 'unlabeled', label: 'hogbox-preview' }, teardown],
+    ['hogbox removed, auto-preview retained', { action: 'unlabeled', label: 'hogbox-preview', autoPreviewEligible: true }, skip],
+    ['ready labeled draft', { action: 'ready_for_review', labels: ['desktop-preview'] }, skip],
+    ['dispatch ordinary build', { event: 'workflow_dispatch' }, build],
+    ['dispatch desktop build', { event: 'workflow_dispatch', labels: ['desktop-preview'] }, desktop],
+]
+for (const [name, input, expected] of cases) {
+    test(name, () => assert.deepEqual(decidePreview({
+        event: 'pull_request', action: 'synchronize', labels: [], repository: 'PostHog/posthog',
+        pr: { draft: true, state: 'open', head: { repo: { full_name: 'PostHog/posthog' } }, user: { login: 'tester', type: 'User' } },
+        ...input,
+    }), expected))
+}
+for (const event of ['pull_request', 'workflow_dispatch']) {
+    test(`${event} refuses forks and closed PRs`, () => {
+        for (const pr of [
+            { head: { repo: { full_name: 'someone/fork' } }, state: 'open' },
+            { head: { repo: { full_name: 'PostHog/posthog' } }, state: 'closed' },
+        ]) {
+            assert.deepEqual(decidePreview({ event, pr, repository: 'PostHog/posthog', labels: ['desktop-preview'] }), skip)
+        }
+    })
+}
+test('bot previews require explicit dispatch', () => {
+    const input = { pr: { head: { repo: { full_name: 'PostHog/posthog' } }, user: { type: 'Bot' } }, repository: 'PostHog/posthog', labels: ['desktop-preview'] }
+    assert.deepEqual(decidePreview({ ...input, event: 'pull_request' }), skip)
+    assert.deepEqual(decidePreview({ ...input, event: 'workflow_dispatch' }), desktop)
 })

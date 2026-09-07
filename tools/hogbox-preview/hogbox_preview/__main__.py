@@ -268,6 +268,8 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="path to a gzipped tar of the prebuilt frontend/dist to serve (built on the CI runner)",
     )
+    sf.add_argument("--profile", choices=["desktop"], default=None)
+    sf.add_argument("--commit-sha", default=None)
     sf.set_defaults(func=cmd_swap_frontend)
 
     cr = sub.add_parser("create", help="provision the box only")

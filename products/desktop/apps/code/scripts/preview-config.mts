@@ -30,6 +30,15 @@ export interface PreviewBuildConfig {
 
 export function loadPreviewBuildConfig(): PreviewBuildConfig | null {
   const path = process.env.POSTHOG_DESKTOP_PREVIEW_CONFIG;
+  const kind = process.env.POSTHOG_DESKTOP_BUILD_KIND ?? "test";
+  if (
+    !["test", "preview"].includes(kind) ||
+    (kind === "preview") !== Boolean(path)
+  ) {
+    throw new Error(
+      "Preview builds require both POSTHOG_DESKTOP_BUILD_KIND=preview and a preview manifest.",
+    );
+  }
   if (!path) {
     return null;
   }
@@ -42,6 +51,15 @@ export function loadPreviewBuildConfig(): PreviewBuildConfig | null {
     );
   }
   const manifest = parseDesktopPreviewManifest(raw);
+  if (
+    manifest.repository !== "PostHog/posthog" ||
+    manifest.prNumber !== Number(process.env.POSTHOG_DESKTOP_PREVIEW_PR) ||
+    manifest.commitSha !== process.env.POSTHOG_DESKTOP_PREVIEW_SHA
+  ) {
+    throw new Error(
+      "Preview manifest does not match the requested repository, PR, and commit.",
+    );
+  }
   return { manifest, identity: desktopPreviewIdentity(manifest) };
 }
 

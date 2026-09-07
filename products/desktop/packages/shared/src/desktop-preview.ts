@@ -18,24 +18,24 @@ export const DESKTOP_PREVIEW_SCHEMA_VERSION = 1;
 
 const httpsOrigin = z
   .string()
-  .trim()
-  .min(1)
+  .url()
   .refine((value) => {
+    let url: URL;
     try {
-      const url = new URL(value);
-      return url.protocol === "https:";
+      url = new URL(value);
     } catch {
       return false;
     }
-  }, "backendOrigin must be an HTTPS URL")
-  .refine((value) => {
-    const url = new URL(value);
-    return !url.username && !url.password;
-  }, "backendOrigin must not carry credentials")
-  .refine((value) => {
-    const url = new URL(value);
-    return url.pathname === "/" && !url.search && !url.hash;
-  }, "backendOrigin must be a bare origin with no path, query, or fragment");
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash
+    );
+  }, "backendOrigin must be a credential-free HTTPS origin")
+  .transform((value) => new URL(value).origin);
 
 const commitSha = z
   .string()
@@ -47,24 +47,6 @@ const prNumber = z
   .positive()
   .max(2_147_483_647, "prNumber must be a GitHub PR number");
 
-const gatewaySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("unavailable"), reason: z.string().min(1) }),
-  z.object({
-    kind: z.literal("ai-gateway"),
-    /** Slugless base URL; the client derives API paths from it. */
-    baseUrl: z
-      .string()
-      .trim()
-      .url()
-      .refine((value) => {
-        const url = new URL(value);
-        return url.protocol === "https:" && !url.username && !url.password;
-      }, "gateway baseUrl must be a credential-free HTTPS URL"),
-  }),
-]);
-
-export type DesktopPreviewGateway = z.infer<typeof gatewaySchema>;
-
 export const desktopPreviewManifestSchema = z
   .object({
     schemaVersion: z.literal(DESKTOP_PREVIEW_SCHEMA_VERSION),
@@ -74,9 +56,6 @@ export const desktopPreviewManifestSchema = z
     commitSha,
     backendOrigin: httpsOrigin,
     oauthClientId: z.string().trim().min(16).max(2048),
-    gateway: gatewaySchema,
-    featureFlags: z.record(z.string().min(1), z.boolean()),
-    capabilities: z.array(z.string().min(1)),
   })
   .strict();
 
@@ -154,35 +133,6 @@ export function desktopPreviewDeploymentId(
   manifest: DesktopPreviewManifest,
 ): string {
   return `${manifest.backendOrigin}|${manifest.oauthClientId}`;
-}
-
-/**
- * Ordinary-region compatibility guard for pure helpers that accept an optional
- * preview manifest: when `preview` is supplied the deployment target resolves
- * from it, and when it is absent the caller must be an ordinary build. Use
- * `resolveDeploymentUrl`/`resolveDeploymentOAuthClientId` rather than reading
- * region maps directly in preview-capable code.
- */
-export function resolveDeploymentUrl(
-  region: string,
-  ordinaryUrl: (region: string) => string,
-  preview: DesktopPreviewManifest | null,
-): string {
-  if (preview) {
-    return preview.backendOrigin;
-  }
-  return ordinaryUrl(region);
-}
-
-export function resolveDeploymentOAuthClientId(
-  region: string,
-  ordinaryClientId: (region: string) => string,
-  preview: DesktopPreviewManifest | null,
-): string {
-  if (preview) {
-    return preview.oauthClientId;
-  }
-  return ordinaryClientId(region);
 }
 
 /**

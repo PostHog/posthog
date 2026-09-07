@@ -57,7 +57,7 @@ def get_desktop_access_decision(user: User, organization: "Organization") -> Des
     if not user or not user.is_authenticated or not user.distinct_id:
         raise DesktopAccessResolutionError("Authentication is required to evaluate Desktop access")
 
-    if settings.DEBUG:
+    if settings.DEBUG or (settings.DESKTOP_PREVIEW and settings.CLOUD_DEPLOYMENT in (None, "", "LOCAL")):
         observe_desktop_access_decision(outcome="override")
         return DesktopAccessDecision.ALLOWED
 

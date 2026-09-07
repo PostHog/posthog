@@ -59,7 +59,7 @@ export class DeepLinkService implements IDeepLinkRegistry {
     // a desktop entry pointing at the stable $APPIMAGE path and register it.
     // Best-effort: failures here must not block startup.
     if (isAppImage()) {
-      void registerAppImageSchemes(schemes);
+      void registerAppImageSchemes(schemes, getPreviewIdentity() ?? undefined);
     }
 
     this.protocolRegistered = true;

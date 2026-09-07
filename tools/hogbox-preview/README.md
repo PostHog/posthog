@@ -139,6 +139,8 @@ Access is **tailnet-only** (PostHog VPN) — internal reviewers, no public URL.
 `--profile desktop` (with `--commit-sha`, the resolved PR head SHA) turns a
 preview into one the PostHog Desktop preview installers can use:
 
+- Checks out the immutable `--commit-sha`, so a concurrent push cannot change
+  the backend revision while installers build.
 - Seeds a public OAuth application (the development "Array" client id) with the
   PR's `posthog-code-preview-pr-<n>://callback` redirect URI, a scope ceiling
   that covers the desktop client's explicit scope list, and two synthetic tester
@@ -152,6 +154,14 @@ preview into one the PostHog Desktop preview installers can use:
 - Prints a versioned single-line JSON result (`desktop_result=…`) alongside the
   `url=`/`box_id=`/`pen_id=` contract, so the desktop workflow never scrapes
   logs or comments.
+
+The desktop profile sets `DESKTOP_PREVIEW=1` on its web container. This flag
+allows authenticated synthetic testers through the desktop billing gate without
+cloud billing accounts. It defaults to false and has no effect when
+`CLOUD_DEPLOYMENT` names a hosted environment. `DEBUG` remains off.
+
+Deferred `swap-frontend` calls must also pass `--profile desktop --commit-sha
+<sha>` to preserve the metadata mount and the preview access setting.
 
 The desktop identity (`posthog-code-preview-pr-<n>`, app id, redirect URI) is
 derived from the PR number and must stay byte-compatible with

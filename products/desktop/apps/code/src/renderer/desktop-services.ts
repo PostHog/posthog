@@ -113,7 +113,6 @@ import {
 import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
 import { HEDGEHOG_MODE_HOST } from "@posthog/ui/shell/hedgehogModeHost";
 import { posthogFeatureFlags } from "@posthog/ui/shell/posthogAnalyticsImpl";
-import { bindPreviewFeatureFlags } from "@posthog/ui/shell/previewFeatureFlags";
 import type { ImperativeQueryClient } from "@posthog/ui/shell/queryClient";
 import { IMPERATIVE_QUERY_CLIENT } from "@posthog/ui/shell/queryClient";
 import {
@@ -441,16 +440,9 @@ container.bind<ISpeechNotifySettings>(SPEECH_NOTIFY_SETTINGS).toConstantValue({
   },
 });
 
-container.bind<FeatureFlags>(FEATURE_FLAGS).toConstantValue(
-  // A preview build layers the manifest's flag overrides over the analytics
-  // flags: they apply before first render and survive flag refreshes, and
-  // false overrides persist too. Ordinary builds bind the analytics flags
-  // unchanged.
-  bindPreviewFeatureFlags(
-    posthogFeatureFlags,
-    resolveRendererPreviewDeployment(),
-  ),
-);
+container
+  .bind<FeatureFlags>(FEATURE_FLAGS)
+  .toConstantValue(posthogFeatureFlags);
 
 container
   .bind<IAuthSideEffects>(AUTH_SIDE_EFFECTS)

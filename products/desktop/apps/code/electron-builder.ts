@@ -2,10 +2,7 @@ import { createRequire } from "node:module";
 import type { Configuration } from "electron-builder";
 import { asarUnpackGlobs, packagedFileGlobs } from "./runtime-dependencies";
 import beforePack from "./scripts/before-pack";
-import {
-  assertOrdinaryBuild,
-  loadPreviewBuildConfig,
-} from "./scripts/preview-config.mts";
+import { loadPreviewBuildConfig } from "./scripts/preview-config.mts";
 
 const require = createRequire(import.meta.url);
 
@@ -15,9 +12,6 @@ const skipNotarize =
 // Preview packaging: one identity per PR, no updater feed. An ordinary build
 // fails closed when preview configuration is present.
 const preview = loadPreviewBuildConfig();
-if (!preview) {
-  assertOrdinaryBuild(null);
-}
 
 const config: Configuration = {
   // Original release bundle id; changing it breaks existing installs' data dir and Keychain entries.

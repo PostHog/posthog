@@ -64,6 +64,8 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+import { checkPreviewRevision } from "./previewRevision";
+
 export type { AuthPreviewDeployment } from "./identifiers";
 
 interface InMemorySession {
@@ -174,6 +176,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       }
       return { preview: this.previewDeployment };
     }
+    if (this.previewDeployment) {
+      throw new DesktopPreviewConfigError(
+        "Preview builds can only sign in to their preview backend.",
+      );
+    }
     return target;
   }
 
@@ -189,8 +196,27 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     return getCloudUrlFromTarget(this.resolveTarget(target));
   }
 
+  private previewCheckedAt = 0;
+  private previewCheck: Promise<void> | null = null;
+
+  private async verifyPreview(): Promise<void> {
+    if (!this.previewDeployment || Date.now() - this.previewCheckedAt < 30_000)
+      return;
+    if (!this.previewCheck) {
+      this.previewCheck = checkPreviewRevision(this.previewDeployment)
+        .then(() => {
+          this.previewCheckedAt = Date.now();
+        })
+        .finally(() => {
+          this.previewCheck = null;
+        });
+    }
+    await this.previewCheck;
+  }
+
   async login(region: DeploymentTarget): Promise<AuthState> {
     const target = this.resolveTarget(region);
+    await this.verifyPreview();
     this.sessionGeneration += 1;
     const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
@@ -203,6 +229,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   async signup(region: DeploymentTarget): Promise<AuthState> {
     const target = this.resolveTarget(region);
+    await this.verifyPreview();
     this.sessionGeneration += 1;
     const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
@@ -214,10 +241,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     return this.getState();
   }
   async getValidAccessToken(): Promise<ValidAccessTokenOutput> {
+    await this.verifyPreview();
     const override = this.tokenOverride;
     if (override) {
       await this.initialize();
-      const target = this.session?.deploymentTarget ?? "us";
+      const target =
+        this.session?.deploymentTarget ??
+        (this.previewDeployment ? "preview" : "us");
       return {
         accessToken: override,
         apiHost: getCloudUrlFromTarget(this.resolveTarget(target)),
@@ -238,6 +268,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     expires: number;
     region: CloudRegion;
   } | null> {
+    if (this.previewDeployment) {
+      throw new DesktopPreviewConfigError(
+        "Agent model calls are unavailable in preview builds. Use a regular desktop build to run agents.",
+      );
+    }
     if (this.tokenOverride) return null;
     await this.initialize();
     const session = await this.ensureValidSession();
@@ -249,10 +284,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     };
   }
   async refreshAccessToken(): Promise<ValidAccessTokenOutput> {
+    await this.verifyPreview();
     const override = this.tokenOverride;
     if (override) {
       await this.initialize();
-      const target = this.session?.deploymentTarget ?? "us";
+      const target =
+        this.session?.deploymentTarget ??
+        (this.previewDeployment ? "preview" : "us");
       return {
         accessToken: override,
         apiHost: getCloudUrlFromTarget(this.resolveTarget(target)),
@@ -383,7 +421,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     await this.patchCurrentOrganization(orgId);
     const refreshedProjects = await this.fetchOrgProjects(
       session.accessToken,
-      session.cloudRegion,
+      session.deploymentTarget,
       orgId,
     );
     if (!refreshedProjects) {
@@ -543,18 +581,29 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     });
     return this.getState();
   }
-  private executeAuthenticatedFetch(
+  private async executeAuthenticatedFetch(
     fetchImpl: FetchLike,
     input: string | Request,
     init: RequestInit,
     accessToken: string,
   ): Promise<Response> {
+    if (
+      this.previewDeployment &&
+      new URL(typeof input === "string" ? input : input.url).origin !==
+        this.previewDeployment.backendOrigin
+    ) {
+      throw new DesktopPreviewConfigError(
+        "Preview credentials can only be sent to the preview backend.",
+      );
+    }
+    await this.verifyPreview();
     const headers = new Headers(init.headers);
     headers.set("authorization", `Bearer ${accessToken}`);
 
     return fetchImpl(input, {
       ...init,
       headers,
+      ...(this.previewDeployment ? { redirect: "error" as const } : {}),
       signal: init.signal ?? AbortSignal.timeout(AUTH_FETCH_TIMEOUT_MS),
     });
   }
@@ -571,7 +620,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       this.setAnonymousState({
         bootstrapComplete: true,
         cloudRegion: stored.cloudRegion,
-        deploymentTarget: stored.deploymentTarget,
+        deploymentTarget: stored.deploymentTarget ?? stored.cloudRegion,
         currentProjectId: stored.selectedProjectId,
         needsScopeReauth: true,
       });
@@ -783,6 +832,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       attempt < AuthService.REFRESH_MAX_ATTEMPTS;
       attempt++
     ) {
+      await this.verifyPreview();
       const result = await this.oauthFlow.refreshToken(
         input.refreshToken,
         this.resolveTarget(input.deploymentTarget),
@@ -1596,7 +1646,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     return {
       refreshToken,
       cloudRegion: stored.cloudRegion,
-      deploymentTarget: stored.deploymentTarget,
+      deploymentTarget: stored.deploymentTarget ?? stored.cloudRegion,
       selectedProjectId: stored.selectedProjectId,
     };
   }
@@ -1681,7 +1731,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         );
         ({ map, incomplete } = await this.buildScopedTeamProjectsMap(
           session.accessToken,
-          session.cloudRegion,
+          session.deploymentTarget,
           session.scopedTeamIds,
           knownOrgNames,
         ));
@@ -1689,7 +1739,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         const orgIds = Object.keys(session.orgProjectsMap);
         ({ map, incomplete } = await this.buildOrgProjectsMap(
           session.accessToken,
-          session.cloudRegion,
+          session.deploymentTarget,
           orgIds,
           session.orgProjectsMap,
         ));

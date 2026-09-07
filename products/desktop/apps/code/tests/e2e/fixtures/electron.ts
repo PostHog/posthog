@@ -11,13 +11,18 @@ import {
 function getAppPath(): string {
   const outDir = path.join(__dirname, "../../../out");
   const requestedArch = process.env.E2E_APP_ARCH;
+  const name = process.env.E2E_APP_NAME ?? "PostHog";
+  const executable = process.env.E2E_APP_EXECUTABLE ?? "PostHog";
 
   if (process.platform === "darwin") {
     const arm64Path = path.join(
       outDir,
-      "mac-arm64/PostHog.app/Contents/MacOS/PostHog",
+      `mac-arm64/${name}.app/Contents/MacOS/${executable}`,
     );
-    const x64Path = path.join(outDir, "mac/PostHog.app/Contents/MacOS/PostHog");
+    const x64Path = path.join(
+      outDir,
+      `mac/${name}.app/Contents/MacOS/${executable}`,
+    );
 
     if (requestedArch === "arm64") {
       if (existsSync(arm64Path)) return arm64Path;

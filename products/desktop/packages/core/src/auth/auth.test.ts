@@ -185,6 +185,16 @@ describe("AuthService", () => {
       "fetch",
       vi.fn(async (input: string | Request) => {
         const url = typeof input === "string" ? input : input.url;
+        if (url.endsWith("/static/desktop-preview/deployment.json")) {
+          return new Response(
+            JSON.stringify({
+              schemaVersion: 1,
+              prNumber: 123,
+              commitSha: "1".repeat(40),
+              deploymentGeneration: 1,
+            }),
+          );
+        }
 
         if (url.includes("/api/users/@me/")) {
           if (accountKey === null) {
@@ -2545,6 +2555,23 @@ describe("AuthService", () => {
     });
   });
 
+  it.each(["eu", "dev", "dev-cloud"] as const)(
+    "restores legacy %s sessions using their saved region",
+    async (region) => {
+      sessionPort.getCurrent = () => ({
+        refreshTokenEncrypted: "old-token",
+        cloudRegion: region,
+        selectedProjectId: null,
+        scopeVersion: OAUTH_SCOPE_VERSION,
+      });
+      oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+      stubAuthFetch();
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledWith("old-token", region);
+      expect(service.getState().deploymentTarget).toBe(region);
+    },
+  );
+
   describe("preview deployment", () => {
     const previewManifest = parseDesktopPreviewManifest({
       schemaVersion: 1,
@@ -2554,12 +2581,6 @@ describe("AuthService", () => {
       commitSha: "1111111111111111111111111111111111111111",
       backendOrigin: "https://preview.example.com",
       oauthClientId: "example-public-client-id-1234",
-      gateway: {
-        kind: "unavailable",
-        reason: "Gateway has not been configured",
-      },
-      featureFlags: {},
-      capabilities: [],
     });
 
     beforeEach(() => {
@@ -2602,6 +2623,67 @@ describe("AuthService", () => {
 
       expect(token.apiHost).toBe("https://preview.example.com");
       expect(token.apiHost).not.toContain("posthog.com");
+    });
+
+    it("blocks production sign-in and gateway credentials in preview builds", async () => {
+      service = createService(previewManifest);
+      await expect(service.login("us")).rejects.toThrow(
+        "Preview builds can only",
+      );
+      await expect(service.getOAuthCredentials()).rejects.toThrow(
+        "Agent model calls are unavailable",
+      );
+      expect(oauthFlow.startFlow).not.toHaveBeenCalled();
+    });
+
+    it("keeps organization switching on the preview and refuses foreign authenticated requests", async () => {
+      service = createService(previewManifest);
+      oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
+      stubAuthFetch({
+        orgs: {
+          "org-1": { name: "First", projects: [{ id: 42, name: "One" }] },
+          "org-2": { name: "Second", projects: [{ id: 43, name: "Two" }] },
+        },
+      });
+      await service.initialize();
+      await service.login("preview");
+      await service.switchOrg("org-1");
+      expect(service.getState().currentOrgId).toBe("org-1");
+      const calls = vi.mocked(fetch).mock.calls;
+      expect(
+        calls.every(([url]) =>
+          String(url).startsWith(previewManifest.backendOrigin),
+        ),
+      ).toBe(true);
+      const foreignFetch = vi.fn();
+      await expect(
+        service.authenticatedFetch(
+          foreignFetch,
+          "https://us.posthog.com/api/users/@me/",
+        ),
+      ).rejects.toThrow("Preview credentials can only");
+      expect(foreignFetch).not.toHaveBeenCalled();
+    });
+
+    it("checks the served revision before starting OAuth", async () => {
+      service = createService(previewManifest);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              schemaVersion: 1,
+              prNumber: 123,
+              commitSha: "2".repeat(40),
+              deploymentGeneration: 2,
+            }),
+          ),
+        ),
+      );
+      await expect(service.login("preview")).rejects.toThrow(
+        "Download the latest installer",
+      );
+      expect(oauthFlow.startFlow).not.toHaveBeenCalled();
     });
 
     it("records the deployment identity with the persisted session", async () => {

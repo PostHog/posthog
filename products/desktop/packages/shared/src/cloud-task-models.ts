@@ -122,7 +122,12 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
   } else if (url.hostname === "app.dev.posthog.dev") {
     gatewayBaseUrl = "https://gateway.dev.posthog.dev";
   } else {
-    const region = url.hostname.match(/^(us|eu)\.posthog\.com$/)?.[1] ?? "us";
+    const region = url.hostname.match(/^(us|eu)\.posthog\.com$/)?.[1];
+    if (!region) {
+      throw new Error(
+        "Agent model calls are unavailable for this backend. Use a regular desktop build to run agents.",
+      );
+    }
     gatewayBaseUrl = `https://gateway.${region}.posthog.com`;
   }
 
