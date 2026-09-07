@@ -1,6 +1,7 @@
-import type { AgentSession } from "@posthog/shared";
+import type { AcpMessage, AgentSession, StoredLogEntry } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
+import { convertStoredEntriesToEvents } from "./sessionEvents";
 import { deriveSessionViewState } from "./sessionViewState";
 
 function makeTask(runStatus: TaskRunStatus, runId = "run-1"): Task {
@@ -45,9 +46,24 @@ function makeSession(
   };
 }
 
+function storedRunEvents(
+  taskRunId: string,
+  events: AcpMessage[],
+): AcpMessage[] {
+  const entries: StoredLogEntry[] = events.map((event) => ({
+    type: "notification",
+    timestamp: new Date(event.ts).toISOString(),
+    notification: event.message,
+  }));
+  return convertStoredEntriesToEvents(entries, undefined, {
+    taskRunId,
+    startEntryIndex: 0,
+  });
+}
+
 describe("deriveSessionViewState", () => {
-  it("opens the live cloud chat as soon as the initial prompt is seeded", () => {
-    const session = makeSession("queued");
+  it("keeps the loading view through optimistic prompts and setup events", () => {
+    const session = makeSession("in_progress");
     session.optimisticItems = [
       {
         id: "initial-prompt",
@@ -57,9 +73,41 @@ describe("deriveSessionViewState", () => {
         pinToTop: true,
       },
     ];
+    session.events = storedRunEvents(session.taskRunId, [
+      {
+        type: "acp_message",
+        ts: 2,
+        message: {
+          jsonrpc: "2.0",
+          method: "_posthog/progress",
+          params: {},
+        },
+      },
+    ]);
 
     expect(
-      deriveSessionViewState(session, makeTask("queued"), null, true)
+      deriveSessionViewState(session, makeTask("in_progress"), null, true)
+        .isInitializing,
+    ).toBe(true);
+  });
+
+  it("opens the live cloud chat after the active run sends its prompt", () => {
+    const session = makeSession("in_progress");
+    session.events = storedRunEvents(session.taskRunId, [
+      {
+        type: "acp_message",
+        ts: 2,
+        message: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "session/prompt",
+          params: {},
+        },
+      },
+    ]);
+
+    expect(
+      deriveSessionViewState(session, makeTask("in_progress"), null, true)
         .isInitializing,
     ).toBe(false);
   });

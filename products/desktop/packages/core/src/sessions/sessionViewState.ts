@@ -5,6 +5,7 @@ import {
   type TaskRunStatus,
 } from "@posthog/shared/domain-types";
 import { resolveEffectiveCloudStatus } from "../task-detail/cloudRunState";
+import { hasSessionPromptEventForTaskRun } from "./sessionEvents";
 
 export interface SessionViewState {
   isCloud: boolean;
@@ -48,20 +49,20 @@ export function deriveSessionViewState(
   const isNewSessionWithInitialPrompt =
     !task.latest_run?.id && !!task.description;
   const isResumingExistingSession = !!task.latest_run?.id;
-  const hasOptimisticPrompt = session?.optimisticItems.some(
-    (item) => item.type === "user_message",
-  );
   const isHydratingEmptyTranscript =
     effectiveIsCloud &&
     events.length === 0 &&
     (session?.isHydratingTranscript ?? false);
+  const activeTaskRunId = task.latest_run?.id ?? session?.taskRunId;
+  const hasActiveCloudPrompt =
+    !!session &&
+    !!activeTaskRunId &&
+    session.taskRunId === activeTaskRunId &&
+    (session.agentIdleForRunId === activeTaskRunId ||
+      hasSessionPromptEventForTaskRun(events, activeTaskRunId));
   const isInitializing = effectiveIsCloud
     ? isHydratingEmptyTranscript ||
-      (!hasError &&
-        (!session ||
-          (events.length === 0 &&
-            !hasOptimisticPrompt &&
-            isCloudRunNotTerminal)))
+      (!hasError && isCloudRunNotTerminal && !hasActiveCloudPrompt)
     : !session ||
       (session.status === "connecting" && events.length === 0) ||
       (session.status === "connected" &&

@@ -34,7 +34,6 @@ function renderPending(
   props: {
     content?: string;
     attachments?: { id: string; label: string }[];
-    statusText?: string;
   } = {},
 ) {
   render(
@@ -42,7 +41,6 @@ function renderPending(
       <PendingChatView
         content={props.content ?? "Ship the login fix"}
         attachments={props.attachments}
-        statusText={props.statusText}
       />
     </Theme>,
   );
@@ -58,16 +56,10 @@ describe("PendingChatView", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the prompt as a chat message with the default status", () => {
+  it("renders the prompt with a loading state", () => {
     renderPending();
     expect(screen.getByText("Ship the login fix")).toBeInTheDocument();
-    expect(screen.getByText("Starting task...")).toBeInTheDocument();
-  });
-
-  it("shows the live run status in place of the default line", () => {
-    renderPending({ statusText: "Starting the sandbox…" });
-    expect(screen.getByText("Starting the sandbox…")).toBeInTheDocument();
-    expect(screen.queryByText("Starting task...")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading")).toBeInTheDocument();
   });
 
   it("renders file mentions as chips so the bubble matches the live transcript", () => {

@@ -2,7 +2,11 @@ import type {
   AvailableCommand,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import { extractAvailableCommandsFromEvents } from "@posthog/core/sessions/sessionEvents";
+import {
+  extractAvailableCommandsFromEvents,
+  hasSessionPromptEventForTaskRun,
+} from "@posthog/core/sessions/sessionEvents";
+import { isTerminalStatus } from "@posthog/shared/domain-types";
 import type { PermissionRequest } from "@posthog/ui/features/sessions/sessionLogTypes";
 import { shallow } from "zustand/shallow";
 import {
@@ -165,6 +169,21 @@ export const useSessionIsCloud = (taskId: string | undefined): boolean => {
 export const useTaskSessionStarting = (taskId: string | undefined): boolean => {
   return useSessionStore((s) => {
     if (!taskId) return false;
-    return s.startingTaskIds[taskId] === true;
+    const markedStarting = s.startingTaskIds[taskId] === true;
+    const taskRunId = s.taskIdIndex[taskId];
+    const session = taskRunId ? s.sessions[taskRunId] : undefined;
+    if (!session) return markedStarting;
+    if (
+      session.status === "error" ||
+      isTerminalStatus(session.cloudStatus) ||
+      session.agentIdleForRunId === session.taskRunId
+    ) {
+      return false;
+    }
+    return (
+      markedStarting ||
+      (session.isCloud === true &&
+        !hasSessionPromptEventForTaskRun(session.events, session.taskRunId))
+    );
   });
 };

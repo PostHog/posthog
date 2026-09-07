@@ -146,16 +146,13 @@ beforeEach(() => {
 });
 
 describe("ChannelItemRow", () => {
-  // The dot vocabulary in one table: what the row's leading mark says for each
-  // state a task can be in. Only the states a reader can act on get a voice —
-  // run mechanics (queued, failed) resolve to a dot that describes the work
-  // rather than the status: starting, live but stalled, or something to read.
+  // This table keeps task state labels consistent across all task rows.
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
     [
       "an agent session being created",
       { isAgentSessionStarting: true },
-      "Starting",
+      "Loading",
     ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
@@ -182,7 +179,7 @@ describe("ChannelItemRow", () => {
       // on its own, so the motion is honest.
       "a queued cloud run",
       { taskRunStatus: "queued" as const, workspaceMode: "cloud" as const },
-      "Starting",
+      "Loading",
     ],
     [
       // A background run's status is never advanced once it parks, so queued
@@ -211,12 +208,16 @@ describe("ChannelItemRow", () => {
         workspaceMode: "cloud" as const,
         prState: "open" as const,
       },
-      "Starting",
+      "Loading",
     ],
     [
       "a broken run with unseen output",
-      { taskRunStatus: "failed" as const, isUnread: true },
-      "Unread — something to read",
+      {
+        taskRunStatus: "failed" as const,
+        isAgentSessionStarting: true,
+        isUnread: true,
+      },
+      "Failed",
     ],
     ["a suspended task", { isSuspended: true }, "Suspended — parked"],
     [
