@@ -21817,6 +21817,11 @@ export namespace Schemas {
       /** The query results, for an executable metric. Null for a markdown metric. */
       results: unknown;
       /**
+         * Names of the result columns, in the order of the values in each positional result row. Null when the results are already labeled, or the query kind returns no column names.
+         * @nullable
+         */
+      columns: string[] | null;
+      /**
          * The compiled HogQL, when available.
          * @nullable
          */
@@ -49813,7 +49818,7 @@ export namespace Schemas {
       total_count: number;
       /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
       baseline_weeks: number;
-      /** Earliest bucket with data inside the fetched lookback. */
+      /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
       history_start: string;
       /**
          * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
