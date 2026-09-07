@@ -30,6 +30,13 @@ use crate::scheduler::{
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
+fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
+    messages
+        .iter()
+        .map(SerializedKafkaMessage::payload_bytes)
+        .sum()
+}
+
 /// One key's scheduling state.
 struct KeyState {
     /// Queued messages in arrival order. A failed run returns to the front.
@@ -40,6 +47,10 @@ struct KeyState {
     /// The key waits for the parked-retry deadline. A parked key is never
     /// outstanding: it parks only when nothing of its is in flight.
     parked: bool,
+    /// The queue's front messages were sent once and failed. Their next
+    /// dispatch is a [`SendKind::Resend`]; a key parked only as unroutable
+    /// has never been sent, so its retry stays a strictly checked first send.
+    replaying: bool,
 }
 
 impl KeyState {
@@ -48,6 +59,7 @@ impl KeyState {
             queue: VecDeque::new(),
             outstanding: false,
             parked: false,
+            replaying: false,
         }
     }
 }
@@ -59,9 +71,12 @@ pub struct KeyTable {
     /// Keys awaiting the parked-retry deadline, in park order, so retries
     /// preserve arrival fairness across keys.
     parked: Vec<String>,
-    /// Total queued messages across all keys, kept incrementally for the
-    /// gauges.
+    /// Total queued messages and payload bytes across all keys, kept
+    /// incrementally for the gauges. Bytes matter for visibility: every key
+    /// with an outstanding request buffers all later arrivals, and key
+    /// cardinality is customer-controlled.
     queued_messages: usize,
+    queued_bytes: usize,
     outstanding_keys: usize,
 }
 
@@ -76,6 +91,10 @@ impl KeyTable {
 
     pub fn queued_messages(&self) -> usize {
         self.queued_messages
+    }
+
+    pub fn queued_bytes(&self) -> usize {
+        self.queued_bytes
     }
 
     pub fn outstanding_keys(&self) -> usize {
@@ -97,6 +116,7 @@ impl KeyTable {
     /// Append messages to the key's queue, creating the key when new.
     fn enqueue_back(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
         self.queued_messages += messages.len();
+        self.queued_bytes += payload_bytes(&messages);
         self.keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new)
@@ -108,35 +128,44 @@ impl KeyTable {
     /// arrived while the run was in flight, so the replay keeps offset order.
     fn requeue_front(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
         self.queued_messages += messages.len();
+        self.queued_bytes += payload_bytes(&messages);
         let state = self
             .keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new);
+        state.replaying = true;
         for message in messages.into_iter().rev() {
             state.queue.push_front(message);
         }
     }
 
     /// Drain the key's queue into one run and mark the key outstanding.
-    /// Call only on a runnable or parked-and-retried key.
-    fn take_run(&mut self, key: &str) -> Vec<SerializedKafkaMessage> {
-        let state = self.keys.get_mut(key).expect("key exists when dispatched");
+    /// Returns None, with no state change, when there is nothing to dispatch.
+    fn take_run(&mut self, key: &str) -> Option<Vec<SerializedKafkaMessage>> {
+        let state = self.keys.get_mut(key)?;
         debug_assert!(!state.outstanding, "at most one request per key");
+        if state.outstanding || state.queue.is_empty() {
+            return None;
+        }
         let run: Vec<SerializedKafkaMessage> = state.queue.drain(..).collect();
-        self.queued_messages -= run.len();
         state.outstanding = true;
         state.parked = false;
+        state.replaying = false;
         self.outstanding_keys += 1;
-        run
+        // Saturate so an accounting bug publishes zero to the gauges instead
+        // of a wrapped huge value.
+        debug_assert!(self.queued_messages >= run.len());
+        self.queued_messages = self.queued_messages.saturating_sub(run.len());
+        self.queued_bytes = self.queued_bytes.saturating_sub(payload_bytes(&run));
+        Some(run)
     }
 
     /// Put the key on the parked list, to be retried at the parked-retry
-    /// deadline. A no-op when it is already parked.
+    /// deadline. A no-op when it is already parked or not tracked.
     fn park(&mut self, key: &str) {
-        let state = self
-            .keys
-            .entry(key.to_string())
-            .or_insert_with(KeyState::new);
+        let Some(state) = self.keys.get_mut(key) else {
+            return;
+        };
         if !state.parked {
             state.parked = true;
             self.parked.push(key.to_string());
@@ -161,6 +190,11 @@ impl KeyTable {
         self.keys.get(key).map_or(0, |state| state.queue.len())
     }
 
+    /// Whether the key's next dispatch replays messages from a failed send.
+    fn is_replaying(&self, key: &str) -> bool {
+        self.keys.get(key).is_some_and(|state| state.replaying)
+    }
+
     /// Clear the key's outstanding flag when its request settles. Returns
     /// false for a key this table is not tracking as outstanding — a stale
     /// settlement to ignore.
@@ -168,7 +202,7 @@ impl KeyTable {
         match self.keys.get_mut(key) {
             Some(state) if state.outstanding => {
                 state.outstanding = false;
-                self.outstanding_keys -= 1;
+                self.outstanding_keys = self.outstanding_keys.saturating_sub(1);
                 true
             }
             _ => false,
@@ -219,13 +253,18 @@ impl KeyTableScheduler {
         effects: &mut SchedulerEffects,
     ) {
         let Some(worker) = self.router.select(pool, working_load) else {
+            // Counted once, at the park: a repark and arrivals behind an
+            // already parked key do not re-count, so the counter tracks
+            // newly stranded messages. The queued gauges carry the backlog.
             counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
                 .increment(self.table.queued_len(key) as u64);
             self.table.park(key);
             effects.deferred.unroutable += 1;
             return;
         };
-        let messages = self.table.take_run(key);
+        let Some(messages) = self.table.take_run(key) else {
+            return;
+        };
         bump_load(working_load, &worker, messages.len());
         effects.dispatches.push(Dispatch {
             worker,
@@ -239,6 +278,7 @@ impl KeyTableScheduler {
         gauge!("ingestion_consumer_key_table_keys").set(self.table.key_count() as f64);
         gauge!("ingestion_consumer_key_table_queued_messages")
             .set(self.table.queued_messages() as f64);
+        gauge!("ingestion_consumer_key_table_queued_bytes").set(self.table.queued_bytes() as f64);
         gauge!("ingestion_consumer_key_table_outstanding_keys")
             .set(self.table.outstanding_keys() as f64);
         gauge!("ingestion_consumer_key_table_parked_keys").set(self.table.parked_keys() as f64);
@@ -261,12 +301,14 @@ impl Scheduler for KeyTableScheduler {
 
         let mut touched: Vec<String> = Vec::with_capacity(groups.len());
         for group in groups {
-            if !touched.contains(&group.routing_key) {
-                touched.push(group.routing_key.clone());
-            }
             self.table.enqueue_back(&group.routing_key, group.messages);
+            // The group queues behind an outstanding request or a parked
+            // backlog: the "why is this key not moving" signal.
+            if !self.table.is_runnable(&group.routing_key) {
+                effects.deferred.queued_behind_deferral += 1;
+            }
+            touched.push(group.routing_key);
         }
-        touched.retain(|key| self.table.is_runnable(key));
 
         // Bin-packing wants the biggest runs placed first so heavy hitters
         // drive the load distribution; P2C is per-run and order-independent.
@@ -276,9 +318,17 @@ impl Scheduler for KeyTableScheduler {
 
         // Fresh work routes within the aperture slice, like an unpinned key
         // in the pin-stash scheduler.
-        let candidates = snapshot.candidates.clone();
         for key in touched {
-            self.dispatch_or_park(&candidates, &mut load, &key, SendKind::Fresh, &mut effects);
+            if !self.table.is_runnable(&key) {
+                continue;
+            }
+            self.dispatch_or_park(
+                &snapshot.candidates,
+                &mut load,
+                &key,
+                SendKind::Fresh,
+                &mut effects,
+            );
         }
 
         self.record_gauges();
@@ -296,8 +346,9 @@ impl Scheduler for KeyTableScheduler {
         settlement: Settlement,
     ) -> SchedulerEffects {
         let mut effects = SchedulerEffects::default();
-        let mut load = working_load(snapshot);
-        let candidates = snapshot.candidates.clone();
+        // Built on the first dispatch: the evict path and the failed arm
+        // never read the load.
+        let mut load: Option<WorkerLoad> = None;
 
         match settlement.outcome {
             SettlementOutcome::Delivered => {
@@ -307,8 +358,8 @@ impl Scheduler for KeyTableScheduler {
                     }
                     if self.table.is_runnable(key) {
                         self.dispatch_or_park(
-                            &candidates,
-                            &mut load,
+                            &snapshot.candidates,
+                            load.get_or_insert_with(|| working_load(snapshot)),
                             key,
                             SendKind::Fresh,
                             &mut effects,
@@ -324,11 +375,17 @@ impl Scheduler for KeyTableScheduler {
                     self.table.requeue_front(&run.routing_key, run.messages);
                 }
                 for key in &settlement.routing_keys {
-                    self.table.settle_key(key);
+                    if !self.table.settle_key(key) {
+                        continue;
+                    }
                     // Failed work waits for the parked-retry deadline instead
                     // of retrying at once, so a failing worker pool gets a
                     // pause before the replay.
-                    self.table.park(key);
+                    if self.table.queued_len(key) > 0 {
+                        self.table.park(key);
+                    } else if self.table.evict_if_idle(key) {
+                        effects.evicted_keys.push(key.clone());
+                    }
                 }
             }
         }
@@ -361,14 +418,23 @@ impl Scheduler for KeyTableScheduler {
                 self.table.repark(key);
                 continue;
             };
-            let messages = self.table.take_run(&key);
+            // A key parked only as unroutable has never been sent: its retry
+            // is a first send, checked strictly by the order sentinel.
+            let kind = if self.table.is_replaying(&key) {
+                SendKind::Resend
+            } else {
+                SendKind::Fresh
+            };
+            let Some(messages) = self.table.take_run(&key) else {
+                continue;
+            };
             bump_load(&mut load, &worker, messages.len());
             counter!("ingestion_consumer_parked_retries_total").increment(1);
             effects.dispatches.push(Dispatch {
                 worker,
                 routing_key: key,
                 messages,
-                kind: SendKind::Resend,
+                kind,
             });
         }
 
@@ -492,7 +558,7 @@ mod tests {
     #[test]
     fn test_arrival_behind_an_outstanding_request_only_enqueues() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
 
         let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
 
@@ -500,7 +566,9 @@ mod tests {
             effects.dispatches.is_empty(),
             "at most one request per key may be in flight"
         );
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
         assert_eq!(sched.table().queued_messages(), 1);
+        assert_eq!(sched.table().queued_bytes(), "t:a".len());
         assert_eq!(sched.table().outstanding_keys(), 1);
     }
 
@@ -583,7 +651,7 @@ mod tests {
     #[test]
     fn test_arrival_behind_a_parked_key_waits_for_the_deadline() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
 
         // A worker is back, but the parked messages must go first, and only
         // the parked-retry deadline releases them.
@@ -599,8 +667,8 @@ mod tests {
     #[test]
     fn test_settlement_dispatches_the_next_queued_run() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
-        sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2, 3])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2, 3])]);
 
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
 
@@ -615,7 +683,7 @@ mod tests {
     #[test]
     fn test_settlement_with_an_empty_queue_evicts_the_key() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
 
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
 
@@ -628,8 +696,8 @@ mod tests {
     #[test]
     fn test_settlement_parks_the_next_run_when_no_worker_is_routable() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
-        sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
 
         // The pool emptied while the send was in flight (deploy overlap).
         let effects = sched.on_settled(&snapshot(&[], &[]), delivered(A, &["t:a"]));
@@ -656,9 +724,9 @@ mod tests {
     #[test]
     fn test_failed_settlement_requeues_at_the_front_and_parks() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[A, B], &[]), "b1", vec![run("t:a", &[1, 2])]);
+        let _ = sched.on_groups(&snapshot(&[A, B], &[]), "b1", vec![run("t:a", &[1, 2])]);
         // Newer messages arrive while the send is in flight.
-        sched.on_groups(&snapshot(&[A, B], &[]), "b2", vec![run("t:a", &[3])]);
+        let _ = sched.on_groups(&snapshot(&[A, B], &[]), "b2", vec![run("t:a", &[3])]);
 
         let effects = sched.on_settled(
             &snapshot(&[A, B], &[]),
@@ -684,8 +752,8 @@ mod tests {
     #[test]
     fn test_new_arrivals_queue_behind_a_failure_awaiting_retry() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
-        sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1])]));
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1])]));
 
         let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
 
@@ -693,8 +761,39 @@ mod tests {
             effects.dispatches.is_empty(),
             "must not overtake the failed run"
         );
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2]);
+    }
+
+    #[test]
+    fn test_failed_settlement_for_an_unknown_key_is_not_parked() {
+        let mut sched = scheduler();
+
+        // Hand-built: the failed() helper derives routing_keys from runs, so
+        // it cannot produce a key with no requeued messages.
+        let settlement = Settlement {
+            worker: wid(A),
+            message_count: 0,
+            routing_keys: vec!["t:ghost".to_string()],
+            from_flush: false,
+            outcome: SettlementOutcome::Failed {
+                batch_id: "b".to_string(),
+                runs: vec![],
+            },
+        };
+        let effects = sched.on_settled(&snapshot(&[A], &[]), settlement);
+
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().parked_keys(), 0);
+
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        assert!(
+            effects.dispatches.is_empty(),
+            "a stale key must not become a parked entry"
+        );
+        assert_eq!(sched.table().outstanding_keys(), 0);
     }
 
     // ---- on_deadline ----
@@ -702,7 +801,7 @@ mod tests {
     #[test]
     fn test_batch_deadline_is_a_noop_for_the_key_table() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
 
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Batch("b1"));
 
@@ -713,7 +812,7 @@ mod tests {
     #[test]
     fn test_parked_retry_dispatches_in_park_order_and_unparks() {
         let mut sched = scheduler();
-        sched.on_groups(
+        let _ = sched.on_groups(
             &snapshot(&[], &[]),
             "b1",
             vec![run("t:a", &[1]), run("t:b", &[1])],
@@ -725,6 +824,11 @@ mod tests {
         assert_eq!(effects.dispatches.len(), 2);
         assert_eq!(effects.dispatches[0].routing_key, "t:a");
         assert_eq!(effects.dispatches[1].routing_key, "t:b");
+        assert_eq!(
+            effects.dispatches[0].kind,
+            SendKind::Fresh,
+            "an unroutable park was never sent, so its retry is a first send"
+        );
         assert_eq!(sched.table().parked_keys(), 0);
         assert_eq!(sched.table().outstanding_keys(), 2);
     }
@@ -732,7 +836,7 @@ mod tests {
     #[test]
     fn test_parked_retry_keeps_keys_parked_when_no_worker_is_healthy() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
 
         let effects = sched.on_deadline(&snapshot(&[], &[]), Deadline::ParkedRetry);
 
@@ -749,7 +853,7 @@ mod tests {
     #[test]
     fn test_parked_retry_routes_over_the_whole_healthy_pool() {
         let mut sched = scheduler();
-        sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
 
         // The aperture slice is empty but a worker is healthy: the retry must
         // escape the slice, like a deferred flush.
@@ -794,6 +898,7 @@ mod tests {
         assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);
         assert_eq!(sched.table().key_count(), 0);
         assert_eq!(sched.table().queued_messages(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
         assert_eq!(sched.table().outstanding_keys(), 0);
         assert_eq!(sched.table().parked_keys(), 0);
     }
@@ -801,12 +906,12 @@ mod tests {
     #[test]
     fn test_keys_progress_independently() {
         let mut sched = scheduler();
-        sched.on_groups(
+        let _ = sched.on_groups(
             &snapshot(&[A, B], &[]),
             "b1",
             vec![run("t:a", &[1]), run("t:b", &[1])],
         );
-        sched.on_groups(
+        let _ = sched.on_groups(
             &snapshot(&[A, B], &[]),
             "b2",
             vec![run("t:a", &[2]), run("t:b", &[2])],
