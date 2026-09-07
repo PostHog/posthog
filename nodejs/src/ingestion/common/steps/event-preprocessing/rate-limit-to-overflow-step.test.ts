@@ -57,12 +57,12 @@ describe('createRateLimitToOverflowStep', () => {
 
         expect(service.handleEventBatch).toHaveBeenCalledWith([
             {
-                key: { token: 'token1', distinctId: 'user1' },
+                key: 'token1:user1',
                 headersPerEvent: [events[0].headers, events[1].headers],
                 firstTimestamp: baseTime.getTime(),
             },
             {
-                key: { token: 'token2', distinctId: 'user2' },
+                key: 'token2:user2',
                 headersPerEvent: [events[2].headers],
                 firstTimestamp: baseTime.getTime(),
             },
@@ -94,7 +94,7 @@ describe('createRateLimitToOverflowStep', () => {
         expect(results[2].type).toBe(PipelineResultType.REDIRECT)
     })
 
-    it('keeps colons in the distinct id when splitting the message key on the token prefix', async () => {
+    it('uses the message key verbatim, including colons in the distinct id', async () => {
         const service = createMockOverflowRedirectService(new Set(['token1:user:with:colons']))
         const step = createRateLimitToOverflowStep(true, service)
 
@@ -102,7 +102,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         expect(results[0].type).toBe(PipelineResultType.REDIRECT)
         const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][0]
-        expect(batches[0].key).toEqual({ token: 'token1', distinctId: 'user:with:colons' })
+        expect(batches[0].key).toBe('token1:user:with:colons')
     })
 
     it('aggregates cookieless events by client IP from the message key, not the hashed distinct_id', async () => {
@@ -123,7 +123,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][0]
         expect(batches).toHaveLength(2)
-        expect(batches[0].key).toEqual({ token: 'token1', distinctId: '1.2.3.4' })
+        expect(batches[0].key).toBe('token1:1.2.3.4')
         expect(batches[0].headersPerEvent).toHaveLength(2)
 
         expect(results[0].type).toBe(PipelineResultType.REDIRECT)
@@ -143,21 +143,6 @@ describe('createRateLimitToOverflowStep', () => {
 
         expect(results[0].type).toBe(PipelineResultType.OK)
         expect(service.handleEventBatch).not.toHaveBeenCalled()
-    })
-
-    it('uses the whole message key as the distinct id when it lacks the token prefix', async () => {
-        const service = createMockOverflowRedirectService()
-        const step = createRateLimitToOverflowStep(true, service)
-
-        const event: RateLimitToOverflowStepInput = {
-            message: { key: Buffer.from('bare-key') },
-            headers: createTestEventHeaders({ token: 'token1', distinct_id: 'user1', now: new Date() }),
-        }
-
-        await step([event])
-
-        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][0]
-        expect(batches[0].key).toEqual({ token: 'token1', distinctId: 'bare-key' })
     })
 
     it.each([

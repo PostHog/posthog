@@ -133,10 +133,16 @@ export async function redirectMessageToOutput<O extends string>(
     const step = stepName || 'unknown'
 
     try {
-        const headers = copyAndExtendHeaders(originalMessage, {
+        const extraHeaders: Record<string, string> = {
             'redirect-step': step,
             'redirect-timestamp': new Date().toISOString(),
-        })
+        }
+        // Dropping the key spreads the redirected stream across partitions, but the
+        // overflow lane still needs the original key to refresh its overflow flag.
+        if (!preserveKey && originalMessage.key) {
+            extraHeaders['redirect-original-key'] = originalMessage.key.toString()
+        }
+        const headers = copyAndExtendHeaders(originalMessage, extraHeaders)
 
         const key = preserveKey ? (originalMessage.key ?? null) : null
         const producePromise = outputs.produce(output, {

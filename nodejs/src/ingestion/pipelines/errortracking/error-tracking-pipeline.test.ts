@@ -143,7 +143,7 @@ describe('ErrorTrackingPipeline', () => {
             partition: 0,
             offset: 0,
             size: 0,
-            key: Buffer.from(distinctId),
+            key: Buffer.from(`${token}:${distinctId}`),
         } as Message
     }
 

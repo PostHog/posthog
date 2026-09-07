@@ -37,7 +37,7 @@ describe('createOverflowLaneTTLRefreshStep', () => {
         })
     })
 
-    it('refreshes the message key when present and falls back to headers when the redirect dropped it', async () => {
+    it('refreshes the message key, the redirect-original-key header, or the headers fallback', async () => {
         const service = createMockService()
         const step = createOverflowLaneTTLRefreshStep(service)
 
@@ -45,7 +45,17 @@ describe('createOverflowLaneTTLRefreshStep', () => {
         const events = [
             // Redirect with partition locality: the cookieless IP key survives.
             createMockEvent('token1', '$posthog_cookieless', { kafkaKey: 'token1:1.2.3.4', now: baseTime }),
-            // Redirect without locality nulls the key: fall back to token:headers.distinct_id.
+            // Redirect without locality nulls the key but stamps the original into a header.
+            {
+                message: { key: null },
+                headers: createTestEventHeaders({
+                    token: 'token1',
+                    distinct_id: '$posthog_cookieless',
+                    redirect_original_key: 'token1:5.6.7.8',
+                    now: baseTime,
+                }),
+            },
+            // Routed to overflow at capture (no redirect): fall back to token:headers.distinct_id.
             createMockEvent('token1', 'user1', { kafkaKey: null, now: baseTime }),
             createMockEvent('token1', 'user1', { kafkaKey: null, now: baseTime }), // Duplicate key
         ]
@@ -54,13 +64,18 @@ describe('createOverflowLaneTTLRefreshStep', () => {
 
         expect(service.handleEventBatch).toHaveBeenCalledWith([
             {
-                key: { token: 'token1', distinctId: '1.2.3.4' },
+                key: 'token1:1.2.3.4',
                 headersPerEvent: [events[0].headers],
                 firstTimestamp: baseTime.getTime(),
             },
             {
-                key: { token: 'token1', distinctId: 'user1' },
-                headersPerEvent: [events[1].headers, events[2].headers],
+                key: 'token1:5.6.7.8',
+                headersPerEvent: [events[1].headers],
+                firstTimestamp: baseTime.getTime(),
+            },
+            {
+                key: 'token1:user1',
+                headersPerEvent: [events[2].headers, events[3].headers],
                 firstTimestamp: baseTime.getTime(),
             },
         ])

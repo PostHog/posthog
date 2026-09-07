@@ -13,31 +13,14 @@ export interface RateLimitToOverflowStepInput {
     headers: EventHeaders
 }
 
-/**
- * Splits the Kafka message key into the (token, distinctId) shape the overflow
- * redirect service flags in Redis. Capture builds the key as `<token>:<suffix>`,
- * where the suffix is the distinct_id for regular events and the client IP for
- * cookieless events.
- */
-export function deriveOverflowKey(
-    message: Pick<Message, 'key'>,
-    headers: EventHeaders
-): { token: string; distinctId: string } | null {
+/** Returns the Kafka message key as a string, or null when the message has none. */
+export function messageKeyString(message: Pick<Message, 'key'>): string | null {
     const rawKey = message.key
     if (rawKey === null || rawKey === undefined) {
         return null
     }
     const kafkaKey = typeof rawKey === 'string' ? rawKey : rawKey.toString('utf8')
-    if (kafkaKey.length === 0) {
-        return null
-    }
-
-    const token = headers.token ?? ''
-    const prefix = `${token}:`
-    if (kafkaKey.startsWith(prefix)) {
-        return { token, distinctId: kafkaKey.slice(prefix.length) }
-    }
-    return { token, distinctId: kafkaKey }
+    return kafkaKey.length === 0 ? null : kafkaKey
 }
 
 /**
@@ -62,27 +45,21 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
         }
 
         const perInputKeys: (string | null)[] = []
-        const keyStats = new Map<
-            string,
-            { token: string; distinctId: string; headersPerEvent: EventHeaders[]; firstTimestamp: number }
-        >()
+        const keyStats = new Map<string, { headersPerEvent: EventHeaders[]; firstTimestamp: number }>()
 
         for (const input of inputs) {
-            const derived = deriveOverflowKey(input.message, input.headers)
-            if (!derived) {
-                perInputKeys.push(null)
+            const eventKey = messageKeyString(input.message)
+            perInputKeys.push(eventKey)
+            if (eventKey === null) {
                 continue
             }
-
-            const eventKey = `${derived.token}:${derived.distinctId}`
-            perInputKeys.push(eventKey)
 
             const timestamp = input.headers.now?.getTime() ?? Date.now()
             const existing = keyStats.get(eventKey)
             if (existing) {
                 existing.headersPerEvent.push(input.headers)
             } else {
-                keyStats.set(eventKey, { ...derived, headersPerEvent: [input.headers], firstTimestamp: timestamp })
+                keyStats.set(eventKey, { headersPerEvent: [input.headers], firstTimestamp: timestamp })
             }
         }
 
@@ -90,9 +67,9 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
             return inputs.map((input) => ok(input))
         }
 
-        const groups: OverflowEventGroup[] = Array.from(keyStats.values()).map(
-            ({ token, distinctId, headersPerEvent, firstTimestamp }) => ({
-                key: { token, distinctId },
+        const groups: OverflowEventGroup[] = Array.from(keyStats.entries()).map(
+            ([key, { headersPerEvent, firstTimestamp }]) => ({
+                key,
                 headersPerEvent,
                 firstTimestamp,
             })
