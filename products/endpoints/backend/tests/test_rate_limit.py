@@ -17,7 +17,9 @@ from products.endpoints.backend.presentation.throttles import (
     _is_materialized_endpoint_request,
 )
 from products.endpoints.backend.rate_limit import (
+    STALE_STATE_RECHECK_TTL,
     _check_and_cache_materialization_status,
+    check_materialized_request,
     clear_endpoint_materialization_cache,
     is_endpoint_materialization_ready,
     set_endpoint_materialization_ready,
@@ -452,5 +454,35 @@ class TestEndpointThrottles(APIBaseTest):
         view.kwargs = {"name": name}
 
         throttle.allow_request(request, view)
-
         self.assertEqual(throttle.scope, expected_scope)
+
+        # The first classification cached the version's snapshot; a repeat runs off the cache alone.
+        throttle = EndpointBurstThrottle()
+        with self.assertNumQueries(0):
+            throttle.allow_request(request, view)
+        self.assertEqual(throttle.scope, expected_scope)
+
+
+class TestMaterializationStateCacheTimeout(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    @parameterized.expand(
+        [
+            ("expires_with_the_freshness_window", timedelta(minutes=55), 300),
+            ("stale_snapshot_rechecks_soon", timedelta(hours=2), STALE_STATE_RECHECK_TTL),
+        ]
+    )
+    def test_cache_timeout_tracks_freshness(self, _name, materialized_age, expected_timeout):
+        _create_ready_materialized_endpoint(self.team, self.user, "timed_endpoint", timezone.now() - materialized_age)
+
+        with patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set:
+            check_materialized_request(self.team.id, "timed_endpoint", None, {})
+
+        timeout = cache_set.call_args.kwargs["timeout"]
+        self.assertAlmostEqual(timeout, expected_timeout, delta=5)

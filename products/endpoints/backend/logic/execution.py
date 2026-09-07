@@ -68,13 +68,10 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import (
-    is_materialization_fresh,
-    materialize_saved_query,
-    saved_query_materialized_at,
-)
+from products.data_modeling.backend.facade.api import materialize_saved_query, saved_query_materialized_at
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
+from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
@@ -310,39 +307,15 @@ def can_serve_from_materialized(
 ) -> bool:
     """Whether this run request can be served from the version's materialized table.
 
-    Reads materialization state from the DB — the authoritative source. The redis
-    "materialization ready" cache in rate_limit.py only classifies requests for
-    throttling and is intentionally not consulted here.
-
-    Returns False if:
-    - Not materialized
-    - Materialization incomplete/failed
-    - Materialized data is stale (older than the version's data freshness target)
-    - User overrides present (variables, query)
-    - 'direct' mode requested (explicitly bypass materialization)
+    Reads materialization state from the DB — the authoritative source. The throttle
+    caches the same snapshot in rate_limit.py; that cache is intentionally not consulted here.
     """
-    if not version.is_materialized or not version.saved_query:
+    if not version.is_materialized or not version.saved_query or not version.saved_query.table:
         return False
-
-    if not version.saved_query.table or materialized_at is None:
-        return False
-
-    # Check if materialized data is stale. Keyed on the version's freshness target, not
-    # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
-    if not is_materialization_fresh(materialized_at, version.data_freshness_seconds):
-        return False
-
-    # 'direct' mode explicitly bypasses materialization to run the original query
-    if data.refresh == EndpointRefreshMode.DIRECT:
-        return False
-
-    # Check if variables are valid for materialized execution
-    if data.variables:
-        strategy = strategy_for(endpoint, version, team)
-        if not strategy.can_serve_variables_from_materialized(set(data.variables.keys())):
-            return False
-
-    return True
+    state = serving_state_for_version(
+        version, strategy_for(endpoint, version, team), ready=True, materialized_at=materialized_at
+    )
+    return state.serves(data)
 
 
 class EndpointExecutionService(PydanticModelMixin):
