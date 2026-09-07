@@ -616,6 +616,31 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert f"/approvals/{artifact['change_request_id']}" in result
         assert not await FeatureFlag.objects.filter(team=self.team, key="gated-flag").aexists()
 
+    async def test_create_flag_blocked_by_another_pending_request_does_not_claim_approval(self):
+        # A gated create stores no resource id, so the gate's duplicate check matches the first
+        # flag's change request. Nothing is queued for the second flag, so the tool must not
+        # report it as pending against someone else's change request.
+        await self._create_enable_policy()
+
+        with patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True):
+            tool = self._create_tool()
+
+            _, first_artifact = await tool._arun_impl(
+                feature_flag=FeatureFlagCreationSchema(key="gated-one", name="Gated One", groups=[ALL_USERS_GROUP])
+            )
+            result, artifact = await tool._arun_impl(
+                feature_flag=FeatureFlagCreationSchema(key="gated-two", name="Gated Two", groups=[ALL_USERS_GROUP])
+            )
+
+        assert first_artifact["approval_pending"] is True
+        assert artifact.get("approval_pending") is None
+        assert artifact["error"] == "change_request_pending"
+        assert artifact["flag_key"] == "gated-two"
+        assert artifact["blocking_change_request_id"] == first_artifact["change_request_id"]
+        assert "was not created" in result
+        assert "needs approval" not in result
+        assert not await FeatureFlag.objects.filter(team=self.team, key="gated-two").aexists()
+
     @database_sync_to_async
     def _create_enable_policy(self) -> None:
         ApprovalPolicy.objects.create(

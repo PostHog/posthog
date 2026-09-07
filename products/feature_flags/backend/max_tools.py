@@ -322,8 +322,25 @@ class CreateFeatureFlagTool(MaxTool):
             )
 
         except ApprovalRequired as e:
-            # The gate created a change request, so the flag is pending approval, not failed.
             change_request_url = f"/project/{self._team.project_id}/approvals/{e.change_request.id}"
+            if e.error_code == "change_request_pending":
+                # The gate matched an existing change request instead of opening one, so nothing is
+                # queued for this flag. A gated create carries no resource id, so the match can
+                # belong to a different flag key.
+                return (
+                    f"Feature flag '{flag_schema.key}' was not created. Another feature flag approval "
+                    f"request is already waiting for a decision, and no request was opened for this flag. "
+                    f"Review it at {change_request_url}, then create this flag again once that request "
+                    f"is approved or rejected.",
+                    {
+                        "error": "change_request_pending",
+                        "flag_key": flag_schema.key,
+                        "blocking_change_request_id": str(e.change_request.id),
+                        "url": change_request_url,
+                    },
+                )
+
+            # The gate created a change request, so the flag is pending approval, not failed.
             return (
                 f"Feature flag '{flag_schema.key}' needs approval before it is created. "
                 f"{e.message} Track the change request at {change_request_url}",
