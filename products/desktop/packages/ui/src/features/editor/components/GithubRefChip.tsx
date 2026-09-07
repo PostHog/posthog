@@ -52,20 +52,27 @@ export const GithubRefChipLink = forwardRef<
         />
       }
       {...buttonProps}
+      // Inline flow rather than quill's flex, and text selection restored:
+      // Chromium copies a flex item's text on its own line and skips
+      // user-select:none, so a flex chip either vanishes from a copied
+      // sentence or breaks it across lines. The line height fills the 24px
+      // chip minus its borders, which keeps the label centered as flex did.
       className={cn(
-        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 max-w-full cursor-pointer! whitespace-nowrap pl-1.5 align-baseline no-underline",
+        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
         buttonProps.className,
       )}
     >
       <RefIcon
         size={12}
         weight="bold"
-        className={cn("shrink-0", toneClass)}
+        className={cn("mr-1 inline-block align-[-0.125em]", toneClass)}
         aria-label={iconLabel}
         aria-hidden={iconLabel ? undefined : true}
         role={iconLabel ? "img" : undefined}
       />
-      <span className={cn("min-w-0 max-w-64 truncate", toneClass)}>
+      <span
+        className={cn("inline-block max-w-64 truncate align-top", toneClass)}
+      >
         {children}
       </span>
     </Button>
