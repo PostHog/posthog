@@ -19,6 +19,7 @@ import { PropertyFilterType, PropertyOperator, type UserBasicType, type UserType
 
 import {
     accountRelationshipDefinitionsList,
+    accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
@@ -30,6 +31,7 @@ import type {
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
+    CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
@@ -40,7 +42,7 @@ import {
     relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
-import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsEvents } from './constants'
 
 const assignedToFilterOf = (query: AccountsTableQuery | null): number[] | undefined =>
@@ -52,6 +54,7 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountRelationshipDefinitionsList: jest.fn(),
     customPropertyDefinitionsList: jest.fn(),
+    accountsCustomPropertyValuesCreate: jest.fn(),
     accountsPartialUpdate: jest.fn(),
     accountsRelationshipsCreate: jest.fn(),
     accountsRelationshipsEndCreate: jest.fn(),
@@ -69,6 +72,9 @@ const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFuncti
     typeof accountsRelationshipsEndCreate
 >
 const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
+const mockCustomPropertyValuesCreate = accountsCustomPropertyValuesCreate as jest.MockedFunction<
+    typeof accountsCustomPropertyValuesCreate
+>
 const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 
 const CSM_DEFINITION_ID = '11111111-2222-3333-4444-555555555555'
@@ -121,6 +127,40 @@ const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
         ...overrides,
     }) as UserBasicType
 
+const createCustomPropertySource = (): CustomPropertySourceApi => ({
+    id: 'source-1',
+    definition: 'custom-property-1',
+    key_column: 'external_id',
+    consecutive_failures: 0,
+    last_synced_at: null,
+    last_sync_error: null,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    sync_frequency_interval_seconds: null,
+    next_sync_at: null,
+    latest_run: null,
+    external_data_source: null,
+    table_name: null,
+    saved_query_name: null,
+})
+
+const buildCustomPropertyDefinition = (
+    overrides: Partial<CustomPropertyDefinitionApi> = {}
+): CustomPropertyDefinitionApi => ({
+    id: 'custom-property-1',
+    name: 'Health score',
+    display_type: 'number',
+    is_canonical: false,
+    source: null,
+    references: [],
+    has_workflow_reference: false,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    ...overrides,
+})
+
 describe('accountsLogic', () => {
     let logic: ReturnType<typeof accountsLogic.build>
 
@@ -147,8 +187,13 @@ describe('accountsLogic', () => {
     it('starts with empty filters', () => {
         expect(logic.values.searchQuery).toBe('')
         expect(logic.values.tagsFilter).toEqual([])
-        expect(logic.values.allRolesUnassigned).toBe(false)
+        expect(logic.values.assignmentStatus).toBe('all')
         expect(logic.values.assignedToFilter).toEqual([])
+    })
+
+    it('defaults to showing all accounts, omitting the assignment filter', () => {
+        const filters = logic.values.accountsQuerySource?.filters ?? []
+        expect(filters.some((filter) => filter.kind === 'assigned' || filter.kind === 'unassigned')).toBe(false)
     })
 
     it('runs the list and overview through typed Postgres queries', () => {
@@ -316,9 +361,22 @@ describe('accountsLogic', () => {
         expect(logic.values.metricsQuery?.columns).toEqual([])
     })
 
-    it('setAllRolesUnassigned toggles the flag', () => {
-        logic.actions.setAllRolesUnassigned(true)
-        expect(logic.values.allRolesUnassigned).toBe(true)
+    it('setAssignmentStatus drives the canonical status and its query filter', () => {
+        logic.actions.setAssignmentStatus('unassigned')
+        expect(logic.values.assignmentStatus).toBe('unassigned')
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'unassigned' })
+
+        logic.actions.setAssignmentStatus('assigned')
+        expect(logic.values.assignmentStatus).toBe('assigned')
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'assigned' })
+
+        logic.actions.setAssignmentStatus('all')
+        expect(logic.values.assignmentStatus).toBe('all')
+        expect(
+            (logic.values.accountsQuerySource?.filters ?? []).some(
+                (filter) => filter.kind === 'assigned' || filter.kind === 'unassigned'
+            )
+        ).toBe(false)
     })
 
     describe('assignedTo filter and "my accounts" shortcut', () => {
@@ -369,21 +427,21 @@ describe('accountsLogic', () => {
             expect(logic.values.activeFilterCount).toBe(1)
         })
 
-        it('enabling it clears the unassigned flag', async () => {
-            logic.actions.setAllRolesUnassigned(true)
+        it('selecting users forces the assigned status', async () => {
+            logic.actions.setAssignmentStatus('unassigned')
             logic.actions.setAssignedToFilter([7])
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.assignedToFilter).toEqual([7])
-            expect(logic.values.allRolesUnassigned).toBe(false)
+            expect(logic.values.assignmentStatus).toBe('assigned')
         })
 
-        it('enabling the unassigned flag clears the assigned-to filter', async () => {
+        it('leaving the assigned status clears the assigned-to filter', async () => {
             logic.actions.setAssignedToFilter([7])
-            logic.actions.setAllRolesUnassigned(true)
+            logic.actions.setAssignmentStatus('unassigned')
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.allRolesUnassigned).toBe(true)
+            expect(logic.values.assignmentStatus).toBe('unassigned')
             expect(logic.values.assignedToFilter).toEqual([])
         })
 
@@ -391,7 +449,10 @@ describe('accountsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setAssignedToCurrentUser(true)
             }).toFinishAllListeners()
-            expect(router.values.hashParams.view).toEqual({ assignedTo: [CURRENT_USER_ID] })
+            expect(router.values.hashParams.view).toEqual({
+                assignmentStatus: 'assigned',
+                assignedTo: [CURRENT_USER_ID],
+            })
         })
 
         it('restores the assigned-to filter from the view hash, independent of the viewer', async () => {
@@ -592,10 +653,30 @@ describe('accountsLogic', () => {
             expect(router.values.hashParams.view).toEqual({
                 search: 'acme',
                 tags: ['enterprise'],
+                assignmentStatus: 'assigned',
                 assignedTo: [7],
                 sort: { column: 'name', direction: 'desc' },
                 tileFilter: TILE_FILTER,
             })
+        })
+
+        it('marks an explicit status in the hash while other filters are present', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTagsFilter(['enterprise'])
+                logic.actions.setAssignmentStatus('all')
+            }).toFinishAllListeners()
+
+            // A legacy hash with no status field restores as assigned-only, so a non-default
+            // hash must carry `all` explicitly rather than being mistaken for legacy.
+            expect(router.values.hashParams.view).toEqual({ tags: ['enterprise'], assignmentStatus: 'all' })
+        })
+
+        it('reads a legacy hash without a status field as assigned-only', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { tags: ['enterprise'] } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignmentStatus).toBe('assigned')
+            expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'assigned' })
         })
 
         it('keeps the hash empty for the default view', async () => {
@@ -703,6 +784,14 @@ describe('accountsLogic', () => {
             expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
         })
 
+        it('accepts the tasks tab from an account deep link', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'tasks'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe('tasks')
+        })
+
         it('falls back to the default tab for an unknown tab', async () => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'bogus'))
             await expectLogic(logic).toFinishAllListeners()
@@ -751,6 +840,88 @@ describe('accountsLogic', () => {
             router.actions.push(urls.customerAnalyticsAccounts())
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.accountIdFilter).toBeNull()
+        })
+    })
+
+    describe('updateAccountCustomProperty', () => {
+        it('writes the value and masks stale query data with the saved value', async () => {
+            const definition = buildCustomPropertyDefinition()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockCustomPropertyValuesCreate.mockResolvedValue({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(42)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: definition.id,
+                value: 42,
+            })
+            expect(
+                logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
+            ).toBeUndefined()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'number',
+                workflow_reference: false,
+            })
+        })
+
+        it.each([
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true })],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() })],
+        ])('does not write a %s property', async (_, definition) => {
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockCustomPropertyValuesCreate).not.toHaveBeenCalled()
+        })
+
+        it('writes a workflow-managed property', async () => {
+            const definition = buildCustomPropertyDefinition({ has_workflow_reference: true })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockCustomPropertyValuesCreate.mockResolvedValue({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: definition.id,
+                value: 42,
+            })
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'number',
+                workflow_reference: true,
+            })
+        })
+
+        it('reverts the optimistic override after a failed write', async () => {
+            const definition = buildCustomPropertyDefinition()
+            mockCustomPropertyValuesCreate.mockRejectedValueOnce(new Error('boom'))
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(
+                logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
+            ).toBeUndefined()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
         })
     })
 

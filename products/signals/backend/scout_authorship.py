@@ -22,6 +22,37 @@ def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
     return resolve_authoring_skill_names(team_id, [report_id]).get(report_id, "")
 
 
+def resolve_touching_scout_skills(team_id: int, report_id: str) -> list[str]:
+    """Every scout whose runs emitted or edited one report, emitting scouts first.
+
+    The single-owner resolution below prefers the author, but a report's stored reviewers follow
+    whichever scout last wrote them — possibly a later editor. Callers that exclude skill owners
+    from autostart identity, or that address each router of the report, need every touching skill,
+    so this returns their union. Deleted skills are kept: their owner rows and stored picks can
+    outlive the skill row, and over-exclusion is the safe direction for autostart. A caller that
+    writes to the skills filters them itself.
+
+    A caller that addresses each scout separately has to cap the list, so the order decides who is
+    dropped: the scouts that filed the report come first, and each group is sorted, so the same
+    report always resolves the same way.
+    """
+    # `for_team`, not an ambient-scope filter: the autostart caller runs in a Temporal activity,
+    # which sets no team scope, and the fail-closed manager raises there.
+    runs = SignalScoutRun.objects.for_team(team_id).filter(
+        Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
+    )
+    emitting: set[str] = set()
+    editing: set[str] = set()
+    for skill_name, emitted_ids in runs.values_list("skill_name", "emitted_report_ids"):
+        if not skill_name:
+            continue
+        if report_id in (emitted_ids or []):
+            emitting.add(skill_name)
+        else:
+            editing.add(skill_name)
+    return [*sorted(emitting), *sorted(editing - emitting)]
+
+
 def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[str, str]:
     """Map every report id to the scout that owns it, "" meaning the fleet.
 

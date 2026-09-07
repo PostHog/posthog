@@ -16,6 +16,8 @@ export interface BarHoverItem {
     series: ResolvedSeries
     bar: BarRect
     isTrackHighlight: boolean
+    /** Draw in the plain series color, to reveal a floored bar that is invisible at rest. */
+    isBarReveal?: boolean
 }
 
 export interface ResolvedBarHover {
@@ -98,6 +100,11 @@ export function resolveBarHoverItems(
                 !cursorBeyondTrackCeiling(s, bar, d3Scales, hoverPosition, isHorizontal)
             items.push({ series: s, bar, isTrackHighlight })
             composition += isTrackHighlight ? 't' : 'b'
+            // Reveal a floored bar that is invisible at rest; a no-op repaint for taller bars.
+            const extent = isHorizontal ? bar.width : bar.height
+            if (isTrackHighlight && d3Scales.minBarSize != null && extent <= d3Scales.minBarSize) {
+                items.push({ series: s, bar, isTrackHighlight: false, isBarReveal: true })
+            }
         }
     }
     if (items.length === 0) {

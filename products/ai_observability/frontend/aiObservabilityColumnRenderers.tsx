@@ -365,7 +365,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     )
 }
 
-const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
+export const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
     // Object format (TracesQuery results)
     if (record && typeof record === 'object' && !Array.isArray(record) && 'uuid' in record) {
         const uuid = record.uuid
@@ -373,10 +373,14 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
             return undefined
         }
         const props = 'properties' in record && typeof record.properties === 'object' ? record.properties : null
+        const traceId = (props as Record<string, unknown> | null)?.$ai_trace_id
+        const timestamp = 'timestamp' in record ? record.timestamp : undefined
         return {
             uuid,
             input: (props as Record<string, unknown> | null)?.$ai_input,
             output: (props as Record<string, unknown> | null)?.$ai_output_choices,
+            traceId: typeof traceId === 'string' ? traceId : undefined,
+            timestamp: typeof timestamp === 'string' ? timestamp : undefined,
         }
     }
 
@@ -386,16 +390,22 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
         const uuidIdx = select.findIndex((c) => c === 'uuid')
         const inputIdx = select.findIndex((c) => c === 'properties.$ai_input' || c === 'properties.$ai_input[-1]')
         const outputIdx = select.findIndex((c) => c === 'properties.$ai_output_choices')
+        const traceIdIdx = select.findIndex((c) => c === 'properties.$ai_trace_id')
+        const timestampIdx = select.findIndex((c) => c === 'timestamp')
 
         const uuid = record[uuidIdx]
         if (typeof uuid !== 'string') {
             return undefined
         }
 
+        const traceId = traceIdIdx >= 0 ? record[traceIdIdx] : undefined
+        const timestamp = timestampIdx >= 0 ? record[timestampIdx] : undefined
         return {
             uuid,
             input: inputIdx >= 0 ? record[inputIdx] : undefined,
             output: outputIdx >= 0 ? record[outputIdx] : undefined,
+            traceId: typeof traceId === 'string' ? traceId : undefined,
+            timestamp: typeof timestamp === 'string' ? timestamp : undefined,
         }
     }
 

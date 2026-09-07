@@ -14,8 +14,8 @@ import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/t
 import type { AttachedContextItem } from '../types/contextTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
-import { foregroundStreamLogic } from './foregroundStreamLogic'
 import {
     extractRunArtifacts,
     mapHttpStatusToStreamError,
@@ -933,6 +933,43 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('turn trace ids', () => {
+        const TRACE = '1d223305-d7ca-bfeb-3775-a4a15a6a31c6'
+
+        it('carries a replayed turn_complete traceId into the trailer and selector', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/user_message', { content: 'say baseline' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'baseline' } }),
+                notification('_posthog/turn_complete', { sessionId: 's1', stopReason: 'end_turn', traceId: TRACE }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            const trailers = computeTurnTrailers(logic.values.threadItems)
+            const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
+            expect(lastTurn?.traceId).toBe(TRACE)
+            expect(logic.values.latestTurnTraceId).toBe(TRACE)
+        })
+
+        it('keeps the last real turn id when a trailing traceless separator follows', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'q' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'a' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: TRACE }))
+                // Synthetic idle-resume/error separators carry no trace id and are not turns.
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            }).toFinishAllListeners()
+
+            expect(logic.values.latestTurnTraceId).toBe(TRACE)
+        })
+    })
+
     describe('_posthog/user_message rendering', () => {
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {
             const frames: StoredLogEntry[] = [
@@ -1624,14 +1661,66 @@ describe('runStreamLogic', () => {
             expect(logic.values.isThinking).toEqual(false)
         })
 
-        it('re-raises on a follow-up turn opened by a human message, with no new run_started', () => {
+        // A follow-up on the same run starts a new turn with no second run_started frame. It reaches
+        // the thread as this composer's optimistic echo, as a wire user turn in one of its two forms,
+        // or — for a follow-up sent from Slack, where the live stream carries no user turn at all —
+        // only as the agent's first output.
+        it.each([
+            ['this composer', (): void => logic.actions.pushHumanMessage('and the mobile funnel?')],
+            [
+                'a wire _posthog/user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/user_message', { content: 'and the mobile funnel?' })
+                    ),
+            ],
+            [
+                'a wire session/update user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'user_message', content: { text: 'and the mobile funnel?' } })
+                    ),
+            ],
+            [
+                'the agent producing output',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'agent_message_chunk',
+                            messageId: 'm2',
+                            content: { text: 'On' },
+                        })
+                    ),
+            ],
+        ])('re-raises on a follow-up turn opened by %s, with no new run_started', (_case, sendFollowUp) => {
             logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
             expect(logic.values.isThinking).toEqual(false)
 
-            // A follow-up on the same run starts a new turn — no second run_started frame arrives.
-            logic.actions.pushHumanMessage('and the mobile funnel?')
+            sendFollowUp()
             expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('re-raises for a queued follow-up whose user turn precedes the prior turn_complete', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            // A follow-up sent while the first turn is still running is persisted when it is received,
+            // so the replayed log carries it before that turn's completion.
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'and mobile?' }))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            expect(logic.values.isThinking).toEqual(false)
+
+            logic.actions.ingestAcpFrame(
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm2', content: { text: 'On' } })
+            )
+            expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('stays off after turn_complete on an update that does not mean the agent is generating', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+
+            logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+            expect(logic.values.isThinking).toEqual(false)
         })
 
         it('is on during the cold-boot queued window before the first run_started', async () => {
@@ -2360,6 +2449,36 @@ describe('runStreamLogic', () => {
             ])
         })
 
+        it('clears currentProgress when a step finishes so the milestone label never sticks as live status', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'in_progress',
+                        label: 'Starting agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toEqual('Starting agent')
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'completed',
+                        label: 'Started agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toBeNull()
+        })
+
         it('falls back to detail when label is absent', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -3071,18 +3190,17 @@ describe('runStreamLogic', () => {
     })
 
     describe('permission_request ingest', () => {
-        // A destructive exec (`insight-update`) so the default policy prompts (shows a card) rather
-        // than auto-approving — the lifecycle tests below all assume a card appears.
+        // An external MCP request prompts, so the lifecycle tests below can exercise the card.
         const permissionFrame: PermissionRequestFrame = {
             type: 'permission_request',
             requestId: 'req-1',
             toolCall: {
                 toolCallId: 't1',
-                serverName: 'posthog',
-                toolName: 'exec',
-                _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
-                rawInput: { command: 'call insight-update {"id":"abc"}' },
-                title: 'Update insight',
+                serverName: 'other',
+                toolName: 'write',
+                _meta: { claudeCode: { toolName: 'mcp__other__write' } },
+                rawInput: { value: 'new' },
+                title: 'Write data',
                 status: 'pending',
             },
             options: [
@@ -3096,12 +3214,12 @@ describe('runStreamLogic', () => {
             expect(record).not.toBeNull()
             expect(record?.requestId).toEqual('req-1')
             expect(record?.toolCallId).toEqual('t1')
-            expect(record?.toolName).toEqual('mcp__posthog__exec')
+            expect(record?.toolName).toEqual('mcp__other__write')
             expect(record?.options.map((o) => o.kind)).toEqual(['allow_once', 'reject'])
-            expect(record?.rawToolCall.rawServerName).toEqual('posthog')
-            expect(record?.rawToolCall.rawToolName).toEqual('exec')
-            expect(record?.rawToolCall.input).toEqual({ command: 'call insight-update {"id":"abc"}' })
-            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__posthog__exec' } })
+            expect(record?.rawToolCall.rawServerName).toEqual('other')
+            expect(record?.rawToolCall.rawToolName).toEqual('write')
+            expect(record?.rawToolCall.input).toEqual({ value: 'new' })
+            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__other__write' } })
         })
 
         it('returns null for a frame with no usable options', () => {
@@ -3165,7 +3283,7 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it('auto-approves a non-destructive PostHog exec without showing a card', async () => {
+        it('auto-approves a PostHog MCP operation without showing a card', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             // Resolving the proxy stream target mints a token before `openStream`, so the connection
@@ -3178,7 +3296,10 @@ describe('runStreamLogic', () => {
                 requestId: 'req-auto',
                 toolCall: {
                     ...permissionFrame.toolCall,
-                    rawInput: { command: 'call insight-create {"name":"x"}' },
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    rawInput: { command: 'call insight-update {"id":"abc"}' },
                 },
             })
 
@@ -3219,89 +3340,10 @@ describe('runStreamLogic', () => {
             })
         })
 
-        describe('foreground gate for persist tools', () => {
-            // `defaultPermissionDecision` alone auto-approves `dashboard-create` everywhere (it isn't
-            // destructive). The product requirement is that this run must still prompt when it's a
-            // foreground stream (rendered in a surface the user is watching). Proving this needs the
-            // call site (`routePermissionRequest` consulting `foregroundStreamKeys`), not just the
-            // pure `isPersistPromptTool` helper.
-            it('prompts for a persist tool when this run is a foreground stream', async () => {
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p1')
-                // A second surface watching a different run must not evict ours from the gate — the
-                // old single-slot model regressed exactly this (last write won, ours auto-approved).
-                foregroundStreamLogic.actions.setForegroundStream('other-stream', 'p2')
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-fg',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-fg')
-                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-            })
-
-            it('still auto-approves a persist tool when this run is not a foreground stream', async () => {
-                // No surface has registered this run; the auto-approve path yields one macrotask
-                // (the race re-check) before POSTing, so drain a timer tick too.
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-bg',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-                await new Promise((resolve) => setTimeout(resolve, 0))
-
-                expect(logic.values.pendingPermissionRequest).toBeNull()
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                    jsonrpc: '2.0',
-                    method: 'permission_response',
-                    params: { requestId: 'req-dashboard-bg', optionId: 'allow_once' },
-                })
-            })
-
-            it('prompts when the foreground registration lands just after the frame (mount race)', async () => {
-                // A live SSE frame can be processed before a mounting surface's registration effect
-                // flushes. After `emitMessage` the auto-approve listener is parked on its one-macrotask
-                // yield; registering now must flip the decision to the card instead of the POST.
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-race',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-race')
-                await new Promise((resolve) => setTimeout(resolve, 0))
-
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-race')
-                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-            })
-        })
-
         describe('full-auto mode', () => {
-            // A `bypassPermissions` run opted out of tool approvals: a destructive exec sub-tool (which
-            // otherwise always prompts) must auto-approve even on a foreground stream. The mode arrives
-            // only on the session/new meta, so this also guards that seed parsing.
-            it('auto-approves a destructive exec sub-tool once session/new seeds bypassPermissions', async () => {
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-full-auto')
+            // A `bypassPermissions` run opts out of tool approvals. The mode arrives only on the
+            // session/new meta, so this also guards that seed parsing.
+            it('auto-approves an external MCP tool once session/new seeds bypassPermissions', async () => {
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
                 const source = MockStream.latest()
@@ -3314,7 +3356,7 @@ describe('runStreamLogic', () => {
                     requestId: 'req-destructive-fa',
                     toolCall: {
                         ...permissionFrame.toolCall,
-                        rawInput: { command: 'call cdp-functions-partial-update {"id":"abc"}' },
+                        rawInput: { value: 'changed' },
                     },
                 })
                 await new Promise((resolve) => setTimeout(resolve, 0))
@@ -3325,6 +3367,32 @@ describe('runStreamLogic', () => {
                     method: 'permission_response',
                     params: { requestId: 'req-destructive-fa', optionId: 'allow_once' },
                 })
+            })
+
+            it('still surfaces a connected-project operation', async () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage(
+                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
+                )
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-connected-project',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        serverName: 'posthog',
+                        toolName: 'exec',
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                        rawInput: {
+                            command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
+                        },
+                    },
+                })
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-connected-project')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             })
 
             it('still surfaces a question in full-auto instead of picking an answer', async () => {
@@ -3364,6 +3432,9 @@ describe('runStreamLogic', () => {
                 requestId: 'req-fail',
                 toolCall: {
                     ...permissionFrame.toolCall,
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
                     rawInput: { command: 'call insight-create {"name":"x"}' },
                 },
             })

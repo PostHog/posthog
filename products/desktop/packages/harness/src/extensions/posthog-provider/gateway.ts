@@ -6,6 +6,7 @@ const GATEWAY_HOSTS: Record<CloudRegion, string> = {
   us: "https://gateway.us.posthog.com",
   eu: "https://gateway.eu.posthog.com",
   dev: "http://localhost:3308",
+  "dev-cloud": "https://gateway.dev.posthog.dev",
 };
 
 export function getGatewayBaseUrl(region: CloudRegion): string {
@@ -25,7 +26,12 @@ export function resolveExplicitRegion(
   explicit?: CloudRegion,
 ): CloudRegion | undefined {
   const candidate = explicit ?? process.env.POSTHOG_REGION;
-  if (candidate === "us" || candidate === "eu" || candidate === "dev") {
+  if (
+    candidate === "us" ||
+    candidate === "eu" ||
+    candidate === "dev" ||
+    candidate === "dev-cloud"
+  ) {
     return candidate;
   }
   return undefined;

@@ -15,7 +15,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
-from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.models import DataQualityCheck, DataQualitySuiteRun
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -39,6 +39,18 @@ class TestDataQualityRunAPI(APIBaseTest):
         return DataWarehouseSavedQuery.objects.create(
             team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
+
+    def _materialize(self, view: DataWarehouseSavedQuery) -> DataWarehouseTable:
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=view.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{view.folder_path}/{view.normalized_name}",
+        )
+        view.table = backing_table
+        view.is_materialized = True
+        view.save(update_fields=["table", "is_materialized"])
+        return backing_table
 
     def _check(self, view: DataWarehouseSavedQuery, **overrides) -> DataQualityCheck:
         return DataQualityCheck.objects.for_team(self.team.id).create(
@@ -171,13 +183,17 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
         assert self.client.get(self.url).status_code == status.HTTP_403_FORBIDDEN
 
-    def test_history_serves_the_sweeps_the_per_subject_surfaces_hide(self) -> None:
-        # The nested suite-run lists filter on subject_uuid, so a multi-subject sweep is only
-        # readable here.
+    @parameterized.expand([("unrestricted_member", False), ("restricted_member", True)])
+    def test_history_serves_the_sweeps_the_per_subject_surfaces_hide(self, _name: str, restricted: bool) -> None:
+        # The nested suite-run lists filter on subject_uuid, so a multi-subject sweep is only readable
+        # here. A sweep records no subject of its own, so the subject gate must skip it rather than
+        # read the empty column as a subject nobody may see.
         sweep = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
         scoped = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="materialization", subject_type=SubjectType.VIEW, subject_uuid=self.orders.id
         )
+        if restricted:
+            self._deny(self._make_view("secrets"))
 
         listed = self.client.get(self.url)
 
@@ -216,6 +232,30 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert [row["id"] for row in listed.json()["results"]] == []
         assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
 
+    def test_history_withholds_a_backing_table_reference_after_its_view_is_renamed(self) -> None:
+        backing_table = self._materialize(self.orders)
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite_run,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=self.customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM orders"},
+            referenced_subjects=[{"subject_type": str(SubjectType.TABLE), "subject_uuid": str(backing_table.id)}],
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+        )
+        self.orders.name = "orders_v2"
+        self.orders.save(update_fields=["name"])
+        self._deny(self.orders)
+
+        listed = self.client.get(self.url)
+
+        assert listed.json()["results"] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
     def test_history_withholds_a_suite_whose_subject_was_recreated_under_the_same_name(self) -> None:
         # Deleting "orders" frees its name, so a member can create their own and make the name resolve
         # for them again. Matched by name, the suite reporting on the run that read the original would
@@ -231,11 +271,25 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert [row["id"] for row in listed.json()["results"]] == []
         assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
 
+    def test_history_withholds_a_suite_whose_run_declared_a_recreated_denied_subject(self) -> None:
+        # A run's own subject was deleted and its name taken by a denied object. The suite reporting
+        # on it still carries counters over the original's rows, so the freed name being reused by
+        # something denied has to withhold it -- matched by the name the run stamped, not its id.
+        temp = self._make_view("temp_orders")
+        suite_run = self._sweep_covering(temp)
+        temp.delete()
+        self._deny(self._make_view("temp_orders"))
+
+        listed = self.client.get(self.url)
+
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
     def _suite_reading(self, read: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A suite whose one run sits on the allowed "customers" but read another subject."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=suite_run,
             subject_type=SubjectType.VIEW,
             subject_uuid=self.customers.id,
@@ -251,8 +305,8 @@ class TestDataQualityRunAPI(APIBaseTest):
     def _sweep_covering(self, view: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A multi-subject sweep whose counters include one check run against this view."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=suite_run,
             subject_type=SubjectType.VIEW,
             subject_uuid=view.id,
@@ -303,6 +357,24 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert listed.json()["results"] == []
         assert health.json() == []
 
+    def test_the_overview_fails_closed_when_a_relationship_target_was_deleted(self) -> None:
+        self._check(
+            self.customers,
+            check_type=CheckType.RELATIONSHIPS,
+            column_name="customer_id",
+            config={
+                "to_subject_type": SubjectType.VIEW,
+                "to_subject_uuid": str(self.orders.id),
+                "to_column": "id",
+            },
+        )
+        self.orders.delete()
+        self._deny(self._make_view("secrets"))
+
+        listed = self.client.get(self.checks_url)
+
+        assert listed.json()["results"] == []
+
     def test_the_overview_hides_a_check_whose_last_run_read_a_recreated_subject(self) -> None:
         # Deleting the denied "orders" empties the denial set and frees its name, so the config now
         # names something the member may read. The status beside it is still the verdict of a run
@@ -314,8 +386,8 @@ class TestDataQualityRunAPI(APIBaseTest):
             config={"query": "SELECT 1 FROM orders"},
             last_status=CheckRunStatus.FAILED,
         )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
             quality_check=reader,
             subject_type=SubjectType.VIEW,

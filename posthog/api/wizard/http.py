@@ -31,11 +31,13 @@ from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_limit_override,
     wizard_product_node,
 )
 from posthog.models import Team, User
@@ -78,8 +80,8 @@ WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/not_wizard_app/"
-    "scope_missing/team_ambiguous/team_missing/unauthorized/program_unknown/not_rolled_out/"
-    "mint_failed)",
+    "scope_missing/team_ambiguous/team_missing/unauthorized/blocked/program_unknown/"
+    "not_rolled_out/mint_failed)",
     labelnames=["outcome"],
 )
 
@@ -98,6 +100,21 @@ GEMINI_SUPPORTED_MODELS = {
 ALL_SUPPORTED_MODELS = OPENAI_SUPPORTED_MODELS | GEMINI_SUPPORTED_MODELS
 
 MODEL_SEED = 7678464
+
+
+def _organization_ids_for_query(team_ids: list[int]) -> list[str]:
+    """The organizations the request itself pins.
+
+    Deliberately not the user's current organization, which is writable through
+    `PATCH /api/users/@me/`: a ban keyed on it would let the banned account switch
+    itself out of the match.
+    """
+    if not team_ids:
+        return []
+    return [
+        str(organization_id)
+        for organization_id in Team.objects.filter(id__in=team_ids).values_list("organization_id", flat=True).distinct()
+    ]
 
 
 class SetupWizardSerializer(serializers.Serializer):
@@ -267,6 +284,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
             distinct_id = wizard_data.get("user_distinct_id")
             team_id = wizard_data.get("team_id")
+            blocklist_team_ids = [team_id] if team_id else []
+            blocklist_user = None
 
             trace_id = trace_id or hashlib.sha256(hash.encode()).hexdigest()
 
@@ -285,8 +304,28 @@ class SetupWizardViewSet(viewsets.ViewSet):
             distinct_id = user.distinct_id
             scoped_team_ids = authenticator.access_token.scoped_teams or []
             team_id = scoped_team_ids[0] if len(scoped_team_ids) == 1 else None
+            # Every scoped team, not the sole one `team_id` narrows to: a token
+            # spanning several still grants each, so a ban naming one must match.
+            blocklist_team_ids = list(scoped_team_ids)
 
             trace_id = request.headers.get("X-PostHog-Trace-Id") or hashlib.sha256(distinct_id.encode()).hexdigest()
+            blocklist_user = user
+
+        if blocklist_user is None:
+            # The hash path proves a distinct_id, not a user, and the ban list is
+            # written against addresses.
+            blocklist_user = User.objects.filter(distinct_id=distinct_id).first()
+        if wizard_identity_blocked(
+            distinct_id=str(distinct_id),
+            email=blocklist_user.email if blocklist_user else None,
+            user_uuid=str(blocklist_user.uuid) if blocklist_user else "",
+            organization_ids=_organization_ids_for_query(blocklist_team_ids),
+            team_ids=blocklist_team_ids,
+            surface="query",
+        ):
+            # No outcome label: query labels no other exit, and the blocklist
+            # counter already carries this surface with its own denominator.
+            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         posthog_client = posthoganalytics.default_client
 
@@ -473,6 +512,19 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.PermissionDenied("Access token is no longer authorized for this project.")
 
         distinct_id = str(user.distinct_id)
+        if wizard_identity_blocked(
+            distinct_id=distinct_id,
+            email=user.email,
+            user_uuid=str(user.uuid),
+            organization_ids=[str(team.organization_id)],
+            team_ids=[team.id],
+            surface="gateway_token",
+        ):
+            # 403 and not 404, ahead of the rollout gate: the CLI reads 404 as "stay
+            # on legacy", moving a banned run onto the looser surface.
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="blocked").inc()
+            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+
         if not posthoganalytics.feature_enabled(
             "wizard-gateway-v2",
             distinct_id,
@@ -491,15 +543,23 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # program keeps running on legacy instead of dying. It still cannot mint.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
             raise exceptions.NotFound("Unrecognized wizard program.")
+        override = wizard_limit_override(
+            distinct_id=distinct_id,
+            email=user.email,
+            organization_id=str(team.organization_id),
+            team_id=team.id,
+        )
         try:
-            reserved = reserve_wizard_mint(request, self)
+            reserved = reserve_wizard_mint(request, self, limit=override.mints_per_day)
         except exceptions.Throttled:
             # The reservation raises after check_throttles ran, so the throttled()
             # hook never sees it.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
             raise
         try:
-            minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
+            minted = mint_wizard_gateway_token(
+                obo=str(team.organization_id), user=distinct_id, product=product, cap_usd=override.cap_usd
+            )
         except WizardGatewayMintError as e:
             # An ambiguous failure keeps the slot rather than risk the ceiling.
             if not e.token_may_exist:
@@ -660,7 +720,22 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if project.id not in visible_project_ids:
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
-        self._reserve_cloud_run_attempt(cast(User, request.user).id)
+        user = cast(User, request.user)
+        # The sandbox this starts mints its own gateway token. Refused before the
+        # attempt is reserved, so a ban does not also cost a daily slot.
+        if wizard_identity_blocked(
+            distinct_id=str(user.distinct_id),
+            email=user.email,
+            user_uuid=str(user.uuid),
+            organization_ids=[str(project.organization_id)],
+            team_ids=[project.id],
+            surface="cloud_run",
+        ):
+            # No outcome label: `cloud_run` already counts every PermissionDenied as
+            # permission_denied.
+            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+
+        self._reserve_cloud_run_attempt(user.id)
 
         try:
             result = tasks_facade.create_wizard_cloud_run(

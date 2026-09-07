@@ -91,6 +91,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ReplayKiosk]: () => import('./session-recordings/kiosk/SessionRecordingsKiosk'),
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ResourceTransfer]: () => import('./resource-transfer/ResourceTransfer'),
+    [Scene.RealTimeUsage]: () => import('./real-time-usage/RealTimeUsage'),
     [Scene.DashboardTemplateCopy]: () => import('./dashboard/dashboards/templates/DashboardTemplateCopyScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
@@ -105,6 +106,8 @@ export const appScenes: Record<Scene | string, () => any> = {
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
+    [Scene.IdentityProviderConfig]: () =>
+        import('./settings/organization/IdentityProviderConfig/IdentityProviderConfigScene'),
     [Scene.Signup]: () => import('./authentication/signup/Signup'),
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
