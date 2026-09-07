@@ -177,7 +177,7 @@ describe("SessionService run-less local task recovery", () => {
 
     await service.connectToTask({ task, repoPath: "/repo" });
 
-    expect(store.setTaskStarting).toHaveBeenCalledWith(task.id);
+    expect(store.setTaskStarting).toHaveBeenCalledWith(task.id, undefined);
     expect(store.clearTaskStarting).not.toHaveBeenCalled();
 
     const connectToTask = vi
