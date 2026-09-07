@@ -109,6 +109,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
+    "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
@@ -337,6 +338,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
+    if name == "customertask":
+        return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
     if name in ("visionalertconfiguration", "visionalertevent"):

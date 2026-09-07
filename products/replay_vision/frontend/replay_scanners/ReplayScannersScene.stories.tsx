@@ -398,6 +398,58 @@ const observationsTrend = {
     ],
 }
 
+// Recordings for the on-demand picker, one per status the list can show: a session the scanner
+// already observed, one it has not reached, and two the eligibility gate refuses.
+const recording = (overrides: Record<string, any>): Record<string, any> => ({
+    distinct_id: 'user_8f3k2j',
+    viewed: false,
+    viewers: [],
+    recording_duration: 240,
+    active_seconds: 95,
+    inactive_seconds: 145,
+    start_time: '2026-05-11T09:00:00Z',
+    end_time: '2026-05-11T09:04:00Z',
+    click_count: 18,
+    keypress_count: 9,
+    mouse_activity_count: 64,
+    console_log_count: 0,
+    console_warn_count: 0,
+    console_error_count: 0,
+    start_url: 'https://app.example.com/checkout',
+    person: {
+        id: 1001,
+        name: 'alice@example.com',
+        distinct_ids: ['user_8f3k2j'],
+        properties: { email: 'alice@example.com' },
+        created_at: '2026-05-01T00:00:00Z',
+        uuid: '00000000-0000-0000-0000-0000000000f1',
+    },
+    snapshot_source: 'web',
+    ongoing: false,
+    ...overrides,
+})
+
+const onDemandRecordings = [
+    // Already observed: shares a session id with the succeeded observation above.
+    recording({ id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d07' }),
+    recording({ id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1e01' }),
+    // Over the active-time ceiling, so the scan-time gate would refuse it.
+    recording({
+        id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1e02',
+        recording_duration: 10_800,
+        active_seconds: 4_320,
+        inactive_seconds: 6_480,
+        end_time: '2026-05-11T12:00:00Z',
+    }),
+    recording({
+        id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1e03',
+        recording_duration: 9,
+        active_seconds: 6,
+        inactive_seconds: 3,
+        end_time: '2026-05-11T09:00:09Z',
+    }),
+]
+
 const paginated = (names: string[]): Record<string, any> => ({
     count: names.length,
     next: null,
@@ -440,6 +492,8 @@ const meta: Meta = {
                     evaluation_session_cap: 25,
                 },
                 '/api/projects/:team_id/vision/observations/:id/': observationDetail,
+                '/api/environments/:team_id/session_recordings/': { results: onDemandRecordings, has_next: false },
+                '/api/environments/:team_id/session_recordings/matching_events': { results: [] },
                 '/api/projects/:team_id/signals/scout/configs/': [],
                 '/api/projects/:team_id/signals/scout/runs/recent-per-scout/': [],
                 '/api/projects/:team_id/signals/scout/runs/findings/summary/': [],
