@@ -3070,19 +3070,26 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert data["insight"] is None
         assert data["dashboard"] is None
 
-    def test_create_and_read_mixed_contexts(self, mock_is_cloud, mock_flag, mock_sync):
+    @parameterized.expand([("project", False), ("legacy_environment", True)])
+    def test_create_and_read_mixed_contexts(self, mock_is_cloud, mock_flag, mock_sync, _name, through_environment):
         self._enable_ai()
         self._mock_temporal(mock_sync)
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth overview", created_by=self.user)
+        request_team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+            if through_environment
+            else self.team
+        )
+        route = "environments" if through_environment else "projects"
+        dashboard = Dashboard.objects.create(team=request_team, name="Growth overview", created_by=self.user)
         insight = Insight.objects.create(
-            team=self.team,
+            team=request_team,
             created_by=self.user,
             name="Weekly signups",
             short_id="signup12",
         )
 
         created = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
+            f"/api/{route}/{request_team.id}/subscriptions",
             self._make_ai_payload(contexts=[{"dashboard_id": dashboard.id}, {"insight_id": insight.id}]),
         )
 
@@ -3091,11 +3098,11 @@ class TestAISubscriptionAPI(APILicensedTest):
             {"dashboard_id": dashboard.id, "dashboard_name": "Growth overview"},
             {"insight_id": insight.id, "insight_short_id": "signup12", "insight_name": "Weekly signups"},
         ]
-        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+        retrieved = self.client.get(f"/api/{route}/{request_team.id}/subscriptions/{created.json()['id']}")
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
         assert retrieved.json()["contexts"] == created.json()["contexts"]
         assert set(
-            SubscriptionContext.objects.for_team(self.team.id)
+            SubscriptionContext.objects.for_team(request_team.id)
             .filter(subscription_id=created.json()["id"])
             .values_list("team_id", flat=True)
         ) == {self.team.id}

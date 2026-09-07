@@ -559,7 +559,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
         contexts: list[dict[str, str | int]] = []
         for context in cls._context_rows(obj):
-            if not context.has_live_target_for_team(obj.team_id):
+            if not context.has_live_target_for_team(context.team_id):
                 continue
 
             if context.dashboard_id is not None and context.dashboard is not None:
@@ -1076,7 +1076,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _replaceable_context_identifiers(cls, instance: Subscription) -> set[tuple[str, int]]:
         identifiers: set[tuple[str, int]] = set()
         for context in cls._context_rows(instance):
-            if not context.has_target_for_team(instance.team_id, include_deleted=True):
+            if not context.has_target_for_team(context.team_id, include_deleted=True):
                 continue
 
             if context.dashboard_id is not None:
@@ -1091,12 +1091,13 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _replace_contexts(instance: Subscription, contexts: list[dict[str, Insight | Dashboard]]) -> None:
-        scoped_contexts = SubscriptionContext.objects.for_team(instance.team_id)
+        context_team_id = instance.team.parent_team_id or instance.team_id
+        scoped_contexts = SubscriptionContext.objects.for_team(context_team_id, canonical=True)
         scoped_contexts.filter(subscription=instance).filter(
-            Q(dashboard__team_id=instance.team_id) | Q(insight__team_id=instance.team_id)
+            Q(dashboard__team_id=context_team_id) | Q(insight__team_id=context_team_id)
         ).delete()
         for context in contexts:
-            scoped_contexts.create(team_id=instance.team_id, subscription=instance, **context)
+            scoped_contexts.create(team_id=context_team_id, subscription=instance, **context)
         getattr(instance, "_prefetched_objects_cache", {}).pop("contexts", None)
 
     def _update_with_contexts(

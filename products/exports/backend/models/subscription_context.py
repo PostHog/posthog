@@ -45,10 +45,14 @@ class SubscriptionContext(TeamScopedRootMixin, UUIDModel):
 
     def clean(self) -> None:
         super().clean()
-        if self.subscription_id and self.subscription.team_id != self.team_id:
-            raise ValidationError("Subscription context must belong to the subscription team.")
+        context_team_id = self.team.parent_team_id or self.team_id
+        if self.subscription_id:
+            subscription_team = self.subscription.team
+            subscription_team_id = subscription_team.parent_team_id or subscription_team.id
+            if subscription_team_id != context_team_id:
+                raise ValidationError("Subscription context must belong to the subscription team.")
         target = self.dashboard if self.dashboard_id is not None else self.insight
-        if target is not None and target.team_id != self.team_id:
+        if target is not None and target.team_id != context_team_id:
             raise ValidationError("Subscription context target must belong to the context team.")
 
     def save(self, *args: Any, **kwargs: Any) -> None:
