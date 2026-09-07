@@ -216,6 +216,29 @@ export interface TaskRunSessionLogsResult {
   truncatedHeadCount: number;
 }
 
+interface RecordingExportRow {
+  id: number;
+  has_content?: boolean;
+  export_context?: {
+    start_offset_s?: number | null;
+    end_offset_s?: number | null;
+    timestamp?: number | null;
+    duration?: number | null;
+    speed?: number | null;
+  } | null;
+}
+
+/** A rendered mp4 of one window of a session recording. */
+export interface RecordingExport {
+  id: number;
+  /** Where the clip starts in the session, in seconds from the session start. */
+  startOffsetSeconds: number;
+  /** Where the clip ends in the session. Null when the render did not record it. */
+  endOffsetSeconds: number | null;
+  /** Playback speed the clip rendered at, so clip time maps back to session time. */
+  speed: number;
+}
+
 type SessionLogsPage =
   | { ok: true; entries: StoredLogEntry[]; headers: Headers }
   | { ok: false; status: number; statusText: string };
@@ -6694,11 +6717,48 @@ export class PostHogAPIClient {
     }
   }
 
-  /** Find an exported asset by session recording ID. */
-  async findExportBySessionRecordingId(
+  /**
+   * Read the clip window off an export row. A rendered recording covers one
+   * window of the session at one playback speed, so a caller needs both to map
+   * a moment in the session onto a time in the clip.
+   */
+  private parseRecordingExport(row: RecordingExportRow): RecordingExport {
+    const context = row.export_context ?? {};
+    const startOffsetSeconds = context.start_offset_s ?? context.timestamp ?? 0;
+    const endOffsetSeconds =
+      context.end_offset_s ??
+      (context.duration != null ? startOffsetSeconds + context.duration : null);
+    return {
+      id: row.id,
+      startOffsetSeconds,
+      endOffsetSeconds,
+      speed: context.speed && context.speed > 0 ? context.speed : 1,
+    };
+  }
+
+  /** Get one exported recording clip, with the window of the session it covers. */
+  async getRecordingExport(
+    projectId: number,
+    exportId: number,
+  ): Promise<RecordingExport | null> {
+    const urlPath = `/api/projects/${projectId}/exports/${exportId}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const row = (await response.json()) as RecordingExportRow;
+    if (row.has_content === false) return null;
+    return this.parseRecordingExport(row);
+  }
+
+  /** Find the rendered clip for a session recording, with the window it covers. */
+  async findRecordingExport(
     projectId: number,
     sessionRecordingId: string,
-  ): Promise<number | null> {
+  ): Promise<RecordingExport | null> {
     const urlPath = `/api/projects/${projectId}/exports/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     url.searchParams.set("session_recording_id", sessionRecordingId);
@@ -6710,10 +6770,10 @@ export class PostHogAPIClient {
     });
     if (!response.ok) return null;
     const data = (await response.json()) as {
-      results?: Array<{ id: number; has_content: boolean }>;
+      results?: RecordingExportRow[];
     };
     const match = data.results?.find((e) => e.has_content);
-    return match?.id ?? null;
+    return match ? this.parseRecordingExport(match) : null;
   }
 
   /** Get the presigned content URL for an exported asset (e.g. rasterized recording). */

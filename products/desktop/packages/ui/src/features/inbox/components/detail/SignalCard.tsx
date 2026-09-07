@@ -6,11 +6,14 @@ import {
   PlayIcon,
   TagIcon,
 } from "@phosphor-icons/react";
+import type { RecordingExport } from "@posthog/api-client/posthog-client";
 import {
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
@@ -26,7 +29,7 @@ import {
   sessionRecordingUrl,
 } from "@posthog/ui/utils/posthogLinks";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import {
   type SignalInteractionAction,
   SignalInteractionContext,
@@ -679,45 +682,72 @@ function SessionProblemSignalCard({
   );
 }
 
-function RecordingPlayerLink({ url, label }: { url: string; label: string }) {
-  return (
-    <div className="mt-1 flex justify-end">
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-1 text-[12px] text-gray-10 hover:text-gray-12"
-      >
-        {label}
-        <ArrowSquareOutIcon size={12} />
-      </a>
-    </div>
-  );
-}
-
-const RECORDING_ROW_CLASS =
-  "group mt-2 flex w-full items-center gap-3 rounded-(--radius-3) border border-(--gray-5) bg-(--gray-2) px-3 py-2.5 text-left no-underline transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)";
-
-function RecordingRowLabel({
-  title,
-  detail,
+/**
+ * A compact action on an evidence card: a glyph and a label in a pill, sized to
+ * sit beside the card's metadata. Every evidence type puts its affordance in
+ * this one shape, so a card gains an action without gaining a block.
+ */
+function EvidenceActionPill({
+  glyph,
+  label,
+  href,
+  onClick,
 }: {
-  title: string;
-  detail: string;
+  glyph: ReactNode;
+  label: string;
+  href?: string;
+  onClick?: () => void;
 }) {
-  return (
-    <span className="min-w-0 flex-1">
-      <span className="block font-medium text-[13px] text-gray-12">
-        {title}
+  const className =
+    "group inline-flex items-center gap-1.5 rounded-full border border-(--gray-5) bg-(--gray-2) py-1 pr-2.5 pl-1.5 font-medium text-[12px] text-gray-11 no-underline transition-colors hover:border-(--gray-7) hover:bg-(--gray-3) hover:text-gray-12";
+  const body = (
+    <>
+      <span className="flex size-4 items-center justify-center rounded-full bg-(--accent-9) text-white transition-transform duration-150 group-hover:scale-110">
+        {glyph}
       </span>
-      <span className="block truncate text-[12px] text-gray-10">{detail}</span>
-    </span>
+      {label}
+    </>
+  );
+
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={className}>
+        {body}
+      </a>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${className} cursor-pointer`}
+    >
+      {body}
+    </button>
   );
 }
 
 /**
- * The recording affordance on an evidence card: a row that opens the captured
- * clip in a modal player, seeked to the moment the finding describes. The clip
+ * Map a moment in the session onto a time in the clip. A render covers one
+ * window of the session at one speed, so the moment is only reachable when it
+ * falls inside that window.
+ */
+function clipTimeForMoment(
+  clip: RecordingExport,
+  sessionOffsetSeconds: number,
+  clipDuration: number,
+): number | null {
+  const clipTime =
+    (sessionOffsetSeconds - clip.startOffsetSeconds) / clip.speed;
+  if (!Number.isFinite(clipTime) || clipTime < 0 || clipTime > clipDuration) {
+    return null;
+  }
+  return clipTime;
+}
+
+/**
+ * The recording affordance on an evidence card: a pill that opens the rendered
+ * clip in a modal player, at the moment the finding describes. The clip
  * downloads only once that modal opens, so a report full of evidence costs one
  * cheap lookup per card rather than one mp4 per card.
  */
@@ -731,62 +761,68 @@ function SessionRecordingPreview({
   seekSeconds?: number | null;
 }) {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const hasFiredPlayRef = useRef(false);
   const interaction = useSignalInteraction();
   const [open, setOpen] = useState(false);
+  const [momentReachable, setMomentReachable] = useState(false);
 
-  const assetQuery = useAuthenticatedQuery<number | null>(
-    ["recording-export-asset", projectId, exportedAssetId, sessionId],
+  const exportQuery = useAuthenticatedQuery<RecordingExport | null>(
+    ["recording-export", projectId, exportedAssetId, sessionId],
     async (client) => {
       if (!projectId) return null;
-      if (exportedAssetId != null) return exportedAssetId;
-      return await client.findExportBySessionRecordingId(projectId, sessionId);
+      return exportedAssetId != null
+        ? await client.getRecordingExport(projectId, exportedAssetId)
+        : await client.findRecordingExport(projectId, sessionId);
     },
     { enabled: !!projectId, staleTime: Infinity },
   );
-  const assetId = assetQuery.data ?? null;
+  const clip = exportQuery.data ?? null;
 
   const clipQuery = useAuthenticatedQuery<string | null>(
-    ["recording-export-content", projectId, assetId],
+    ["recording-clip", projectId, clip?.id],
     async (client) => {
-      if (!projectId || assetId == null) return null;
-      return await client.getExportContentUrl(projectId, assetId);
+      if (!projectId || clip == null) return null;
+      return await client.getExportContentUrl(projectId, clip.id);
     },
-    { enabled: open && !!projectId && assetId != null, staleTime: Infinity },
+    { enabled: open && !!projectId && clip != null, staleTime: Infinity },
   );
 
   const playerUrl = sessionRecordingUrl(sessionId, {
     secondsOffsetFromStart: seekSeconds,
   });
-  const startLabel = seekSeconds != null ? colonOffset(seekSeconds) : null;
+  const momentLabel = seekSeconds != null ? colonOffset(seekSeconds) : null;
+  const pillLabel = momentLabel
+    ? `Watch at ${momentLabel}`
+    : "Watch the recording";
 
-  // No clip was exported for this session, so the web player is the only route
+  const seekToMoment = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || seekSeconds == null || clip == null) return;
+    const target = clipTimeForMoment(clip, seekSeconds, video.duration);
+    if (target != null) video.currentTime = target;
+  }, [clip, seekSeconds]);
+
+  const handleLoadedMetadata = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || seekSeconds == null || clip == null) return;
+    const target = clipTimeForMoment(clip, seekSeconds, video.duration);
+    setMomentReachable(target != null);
+    if (target != null) video.currentTime = target;
+  }, [clip, seekSeconds]);
+
+  // No clip was rendered for this session, so the web player is the only route
   // to the recording.
-  if (assetQuery.isError || (assetQuery.isFetched && assetId == null)) {
+  if (exportQuery.isError || (exportQuery.isFetched && clip == null)) {
     if (!playerUrl) return null;
     return (
-      <a
-        href={playerUrl}
-        target="_blank"
-        rel="noreferrer"
-        className={RECORDING_ROW_CLASS}
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--gray-4) text-gray-11 transition-colors group-hover:bg-(--gray-5)">
-          <PlayIcon size={15} weight="fill" className="translate-x-[1px]" />
-        </span>
-        <RecordingRowLabel
-          title="Watch the recording"
-          detail={
-            startLabel
-              ? `Opens in PostHog at ${startLabel}`
-              : "Opens in PostHog"
-          }
+      <div className="mt-2 flex">
+        <EvidenceActionPill
+          glyph={<ArrowSquareOutIcon size={9} weight="bold" />}
+          label={pillLabel}
+          href={playerUrl}
         />
-        <ArrowSquareOutIcon
-          size={13}
-          className="shrink-0 text-gray-9 transition-colors group-hover:text-gray-11"
-        />
-      </a>
+      </div>
     );
   }
 
@@ -795,36 +831,24 @@ function SessionRecordingPreview({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={`${RECORDING_ROW_CLASS} cursor-pointer`}
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--accent-9) text-white shadow-sm transition-transform duration-150 group-hover:scale-105">
-          <PlayIcon size={15} weight="fill" className="translate-x-[1px]" />
-        </span>
-        <RecordingRowLabel
-          title="Watch the recording"
-          detail={
-            startLabel
-              ? `Plays from ${startLabel}`
-              : "Plays the captured moment"
+      <div className="mt-2 flex">
+        <EvidenceActionPill
+          glyph={
+            <PlayIcon size={9} weight="fill" className="translate-x-[0.5px]" />
           }
+          label={pillLabel}
+          onClick={() => setOpen(true)}
         />
-        <CaretRightIcon
-          size={13}
-          className="shrink-0 text-gray-9 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-gray-11"
-        />
-      </button>
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="wide">
           <DialogHeader>
             <DialogTitle>Session recording</DialogTitle>
             <DialogDescription>
-              {startLabel
-                ? `The captured clip, from ${startLabel} in the session.`
-                : "The captured clip from this session."}
+              {momentLabel
+                ? `The rendered clip, at ${momentLabel} in the session.`
+                : "The rendered clip from this session."}
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -839,20 +863,14 @@ function SessionRecordingPreview({
                 </div>
               ) : (
                 <video
+                  ref={videoRef}
                   src={clipQuery.data ?? undefined}
                   controls
                   autoPlay
                   muted
                   playsInline
                   className="aspect-video w-full"
-                  onLoadedMetadata={(event) => {
-                    const video = event.currentTarget;
-                    // Exported clips sometimes already start at the moment, so
-                    // only seek when the clip actually runs past it.
-                    if (seekSeconds != null && video.duration > seekSeconds) {
-                      video.currentTime = seekSeconds;
-                    }
-                  }}
+                  onLoadedMetadata={handleLoadedMetadata}
                   onPlay={() => {
                     if (hasFiredPlayRef.current) return;
                     hasFiredPlayRef.current = true;
@@ -864,9 +882,26 @@ function SessionRecordingPreview({
               )}
             </div>
           </DialogBody>
-          {playerUrl && (
-            <RecordingPlayerLink url={playerUrl} label="Open in PostHog" />
-          )}
+          <DialogFooter className="sm:items-center sm:justify-between">
+            {momentLabel && momentReachable ? (
+              <Button variant="outline" size="sm" onClick={seekToMoment}>
+                Back to {momentLabel}
+              </Button>
+            ) : (
+              <span />
+            )}
+            {playerUrl && (
+              <a
+                href={playerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[12px] text-gray-10 no-underline hover:text-gray-12"
+              >
+                Open in PostHog
+                <ArrowSquareOutIcon size={12} />
+              </a>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
