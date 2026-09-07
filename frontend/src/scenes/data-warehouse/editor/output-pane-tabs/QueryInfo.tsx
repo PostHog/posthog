@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconTarget } from '@posthog/icons'
-import { LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -30,11 +30,19 @@ interface QueryInfoProps {
 }
 
 export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
-    const { editingView, upstream, upstreamViewMode } = useValues(sqlEditorLogic)
+    const {
+        editingView,
+        upstream: loadedUpstream,
+        upstreamLoading,
+        upstreamLoadFailed,
+        upstreamViewMode,
+    } = useValues(sqlEditorLogic)
     const targetView = view ?? editingView
     // Mounting it loads the lineage for the view being edited.
     useMountedLogic(infoTabLogic({ tabId, viewId: targetView?.id }))
-    const { saveAsView, setUpstreamViewMode, editView } = useActions(sqlEditorLogic)
+    const { saveAsView, setUpstreamViewMode, editView, loadUpstream } = useActions(sqlEditorLogic)
+    // The loaded lineage is shared across views, so only use it when it was loaded for this one.
+    const upstream = loadedUpstream && targetView && loadedUpstream.modelId === targetView.id ? loadedUpstream : null
     const { featureFlags } = useValues(featureFlagLogic)
 
     const currentNodeId = upstream?.nodes.find((n) => n.saved_query_id && n.saved_query_id === targetView?.id)?.id
@@ -99,6 +107,15 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                             Save and materialize
                         </LemonButton>
                     </div>
+                )}
+                {targetView && upstreamLoading && <Spinner />}
+                {targetView && upstreamLoadFailed && !upstreamLoading && (
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Retry', onClick: () => loadUpstream(targetView.id) }}
+                    >
+                        Couldn't load this view's lineage.
+                    </LemonBanner>
                 )}
                 {upstream && targetView && upstream.nodes.length > 0 && (
                     <>

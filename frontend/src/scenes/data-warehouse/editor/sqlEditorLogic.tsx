@@ -609,9 +609,11 @@ export interface sqlEditorLogicValues {
     suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
+        modelId: string
         edges: DataModelingEdge[]
         nodes: DataModelingNode[]
     } | null
+    upstreamLoadFailed: boolean
     upstreamLoading: boolean
     upstreamViewMode: 'graph' | 'table'
     viewLoading: boolean
@@ -1536,15 +1538,28 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     loaders(() => ({
         upstream: [
-            null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
+            null as { modelId: string; nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    const lineage = await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    return { modelId: payload.modelId, ...lineage }
                 },
             },
         ],
     })),
     reducers(({ props }) => ({
+        upstream: {
+            // The value is shared across views, so a new load must not leave the previous graph on screen.
+            loadUpstream: () => null,
+        },
+        upstreamLoadFailed: [
+            false,
+            {
+                loadUpstream: () => false,
+                loadUpstreamSuccess: () => false,
+                loadUpstreamFailure: () => true,
+            },
+        ],
         selectedQueryTablesAndColumns: [
             {} as Record<string, Record<string, boolean>>,
             {
