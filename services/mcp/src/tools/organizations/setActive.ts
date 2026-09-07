@@ -55,9 +55,21 @@ async function reconcileActiveProjectForOrg(context: Context, orgId: string): Pr
         const selected = stillInOrg ?? projectsResult.data[0]!
         const selectedIdStr = selected.id.toString()
         await context.cache.set('projectId', selectedIdStr)
-        await context.cache.set(`cachedProject:${selectedIdStr}` as const, selected)
-        await context.cache.set(`cachedProjectFetchedAt:${selectedIdStr}` as const, Date.now())
-        return selected
+
+        // The org projects list is served by a basic serializer, so its rows are missing
+        // detail-only fields that the active environment prompt reads, such as
+        // `person_on_events_querying_enabled`. Cache the detail response instead, and when it
+        // cannot be fetched keep the list row unstamped so the next read refetches rather than
+        // trusting a partial project for the whole cache TTL.
+        const detailResult = await context.api.projects().get({ projectId: selectedIdStr })
+        const project = detailResult.success ? detailResult.data : selected
+        await context.cache.set(`cachedProject:${selectedIdStr}` as const, project)
+        if (detailResult.success) {
+            await context.cache.set(`cachedProjectFetchedAt:${selectedIdStr}` as const, Date.now())
+        } else {
+            await context.cache.delete(`cachedProjectFetchedAt:${selectedIdStr}` as const)
+        }
+        return project
     }
 
     // The org has no accessible projects, so clear the stale pointer rather than leave a

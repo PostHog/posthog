@@ -7,7 +7,8 @@ import switchOrganizationTool from '@/tools/organizations/setActive'
 import switchProjectTool from '@/tools/projects/setActive'
 import type { CachedOrg, CachedProject, Context, State } from '@/tools/types'
 
-type FakeProject = Pick<CachedProject, 'id' | 'organization' | 'name'>
+type FakeProject = Pick<CachedProject, 'id' | 'organization' | 'name'> &
+    Partial<Pick<CachedProject, 'person_on_events_querying_enabled'>>
 type FakeOrg = Pick<CachedOrg, 'id' | 'name'>
 
 interface FakeWorld {
@@ -218,6 +219,32 @@ describe('switch active environment', () => {
             // A failed list is not an empty org, so the selected project survives it.
             expect(await context.cache.get('projectId')).toBe('10')
             expect(result.content[0]!.text).not.toContain('A Project')
+        })
+
+        it('reports the repointed project person-properties mode from its detail response', async () => {
+            const { context } = await makeContext({
+                orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
+                // The org projects list is served by a basic serializer, so its rows carry no
+                // `person_on_events_querying_enabled`; only the project detail response does.
+                orgProjects: { 'org-b': [{ id: 20, organization: 'org-b', name: 'B Project' }] },
+                projects: {
+                    '20': {
+                        id: 20,
+                        organization: 'org-b',
+                        name: 'B Project',
+                        person_on_events_querying_enabled: true,
+                    },
+                },
+            })
+            await context.cache.set('projectId', '10')
+            await context.cache.set(
+                'cachedProject:10' as const,
+                { id: 10, organization: 'org-a', name: 'A Project' } as CachedProject
+            )
+
+            const result = await tool.handler(context, { orgId: 'org-b' })
+
+            expect(result.content[0]!.text).toContain('Person-on-events mode is enabled')
         })
 
         it('clears the stale project when the org has no accessible projects', async () => {
