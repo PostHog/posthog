@@ -21,6 +21,7 @@ import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
+import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
 const SUBTITLE_TONE_CLASS = {
     danger: 'text-danger',
@@ -65,6 +66,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                         <span className="min-w-0 truncate text-sm font-semibold leading-snug">
                             {prettifyScoutSkillName(config.skill_name)}
                         </span>
+                        <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
                         {config.auto_pause_exempt && group === 'watching' && (
                             <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
                                 <LemonTag size="small">Quiet by design</LemonTag>

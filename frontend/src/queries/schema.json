@@ -27410,7 +27410,10 @@
                 "Strato",
                 "Medusa",
                 "Membrain",
-                "RecallAI"
+                "RecallAI",
+                "Tenjin",
+                "Folk",
+                "Cybersource"
             ],
             "type": "string"
         },
@@ -40252,11 +40255,15 @@
                 "pipeline_transformations",
                 "platform_and_support",
                 "posthog_ai_onboarding",
+                "posthog_desktop",
+                "posthog_github",
+                "posthog_slack",
                 "product_analytics",
                 "product_tours",
                 "pulse",
                 "revenue_analytics",
                 "review_hog",
+                "self_driving",
                 "session_replay",
                 "replay_vision",
                 "site_apps",

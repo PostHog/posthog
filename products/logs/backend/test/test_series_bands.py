@@ -40,11 +40,24 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def test_observed_line_and_band_from_prior_weeks(self):
-        service = "svc-banded"
+    @parameterized.expand(
+        [
+            # (name, interval_minutes, window_days, banded_upper, quiet_upper)
+            # Hourly: floor of 2 per hour lifts the upper edge; 15 minutes gets a quarter of it.
+            # The finer grain charts 5 days, because 7 days of 15 minute buckets is over the cap.
+            ("hourly", 60, 7, 57.0, 2.0),
+            ("quarter_hour", 15, 5, 55.5, 0.5),
+        ]
+    )
+    def test_observed_line_and_band_from_prior_weeks(
+        self, _name: str, interval_minutes: int, window_days: int, banded_upper: float, quiet_upper: float
+    ):
+        service = f"svc-banded-{interval_minutes}"
+        window_start = WINDOW_END - dt.timedelta(days=window_days)
+        step = dt.timedelta(minutes=interval_minutes)
         rows = [
             # Anchors the series' lifetime at the full 5-week baseline.
-            (self.team.pk, BASELINE_START, service, "ns", "prod", "error", 1),
+            (self.team.pk, window_start - dt.timedelta(weeks=5), service, "ns", "prod", "error", 1),
         ]
         for week, value in enumerate([10, 20, 30, 40, 50], start=1):
             rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "error", value))
@@ -58,10 +71,13 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         rows.append((self.team.pk + 1, SLOT, service, "ns", "prod", "error", 999))
         self._insert(rows)
 
-        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+        result = run_series_bands(
+            self.team, service, window_start=window_start, window_end=WINDOW_END, interval_minutes=interval_minutes
+        )
 
-        assert result.window_start == WINDOW_START
+        assert result.window_start == window_start
         assert result.window_end == WINDOW_END
+        assert result.interval_minutes == interval_minutes
         assert not result.series_truncated
         assert len(result.series) == 1
         series = result.series[0]
@@ -69,20 +85,21 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert series.baseline_weeks == 5
         assert series.band_ready_at is None
         assert series.total_count == 25
-        assert len(series.buckets) == 7 * 24
+        bucket_count = window_days * 24 * 60 // interval_minutes
+        assert [bucket.time for bucket in series.buckets] == [window_start + i * step for i in range(bucket_count)]
 
         by_time = {bucket.time: bucket for bucket in series.buckets}
         # Band folds the five weekly samples 10..50 into a 10% widened envelope,
-        # then lifts the upper edge by the 2-per-hour floor.
+        # then lifts the upper edge by the per-hour floor scaled to the grain.
         banded = by_time[SLOT]
         assert banded.observed == 25
         assert banded.lower == pytest.approx(9.0)
-        assert banded.upper == pytest.approx(57.0)
+        assert banded.upper == pytest.approx(banded_upper)
 
-        quiet = by_time[SLOT + dt.timedelta(hours=1)]
+        quiet = by_time[SLOT + step]
         assert quiet.observed == 0
         assert quiet.lower == 0
-        assert quiet.upper == 2.0
+        assert quiet.upper == quiet_upper
 
     def test_learning_series_carries_no_band(self):
         service = "svc-learning"
@@ -164,8 +181,8 @@ NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
 
 
 class TestResolveWindow(SimpleTestCase):
-    def _resolve(self, date_from: str | None, date_to: str | None) -> SeriesBandsWindow:
-        return resolve_window(date_from, date_to, now=NOW_FIXED)
+    def _resolve(self, date_from: str | None, date_to: str | None, interval_minutes: int = 60) -> SeriesBandsWindow:
+        return resolve_window(date_from, date_to, interval_minutes=interval_minutes, now=NOW_FIXED)
 
     def test_exactly_seven_days_is_accepted(self):
         assert self._resolve("2026-06-08T00:00:00Z", "2026-06-15T00:00:00Z") == SeriesBandsWindow(
@@ -177,6 +194,13 @@ class TestResolveWindow(SimpleTestCase):
         # Both bounds floor into the same hourly bucket, so the window holds no bucket at all.
         with pytest.raises(SeriesBandsWindowInvalid, match="empty"):
             self._resolve("2026-06-17T15:05:00Z", "2026-06-17T15:20:00Z")
+
+    def test_snaps_to_the_requested_grain(self):
+        # The same bounds that collapse at the hourly grain hold three 5-minute buckets.
+        assert self._resolve("2026-06-17T15:05:00Z", "2026-06-17T15:20:00Z", interval_minutes=5) == SeriesBandsWindow(
+            start=dt.datetime(2026, 6, 17, 15, 5, tzinfo=UTC),
+            end=dt.datetime(2026, 6, 17, 15, 20, tzinfo=UTC),
+        )
 
     def test_thirty_days_back_is_accepted(self):
         assert self._resolve("-30d", "-24d").start == (NOW_FIXED - dt.timedelta(days=30)).replace(minute=0)
@@ -197,11 +221,14 @@ class TestResolveWindow(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("inverted", "2026-06-10T00:00:00Z", "2026-06-09T00:00:00Z"),
-            ("too_long", "-14d", None),
-            ("start_beyond_retention", "-40d", "-34d"),
+            ("inverted", "2026-06-10T00:00:00Z", "2026-06-09T00:00:00Z", 60, "after"),
+            ("too_long", "-14d", None, 60, "at most 7 days"),
+            ("start_beyond_retention", "-40d", "-34d", 60, "at most 35 days ago"),
+            ("over_bucket_cap", "-7d", None, 5, "2016 buckets at the 5 minute grain, over the cap of 500"),
         ]
     )
-    def test_rejects_invalid_windows(self, _name: str, date_from: str, date_to: str | None) -> None:
-        with pytest.raises(SeriesBandsWindowInvalid):
-            self._resolve(date_from, date_to)
+    def test_rejects_invalid_windows(
+        self, _name: str, date_from: str, date_to: str | None, interval_minutes: int, message: str
+    ) -> None:
+        with pytest.raises(SeriesBandsWindowInvalid, match=message):
+            self._resolve(date_from, date_to, interval_minutes=interval_minutes)

@@ -5,6 +5,7 @@ Three assets on the same daily partition as the dataset dag, each writing under 
     inbox_ranking_training_examples/v1/dt=D/   scoring-moment examples over the trailing snapshots
     inbox_ranking_models/v1/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
     inbox_ranking_models/v1/champion.json      pointer to the model version the scoring sweep loads
+    inbox_ranking_unseen_scores/v1/dt=D/       the day's models on reports no example covers
 
 Partition dt=D trains on the report-state/labels snapshots dt=D-lookback..D (issue 13's
 scoring-moment join, `training/examples.py`), grades each head on the last `holdout_days` of
@@ -16,6 +17,13 @@ that prefix in full (stale head files are removed), and `champion.json` carries 
 was promoted from so a loader can tell a re-run apart from the version it pinned. The champion is
 graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-only fit), so the
 promotion rule compares both models on one set of reports.
+
+Two further assets grade the day's models on data no example covers. `inbox_ranking_unseen_scores`
+samples reports absent from the dt=D examples and scores them; `inbox_ranking_unseen_graded` reads
+each head's scores from `D - horizon_days` and grades them against the dt=D labels. The holdout AUC
+grades the recipe, because the shipped booster is refit on train plus holdout; the unseen AUC
+grades the model on reports it never saw, and the two are comparable because both apply the same
+`Head` cohort, label and horizon.
 """
 
 import json
@@ -55,7 +63,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
     build_examples,
     point_in_time_mask,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_NAME
+from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_HORIZON, HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
 from products.signals.dags.inbox_ranking.training.telemetry import (
     HeadExampleCounts,
@@ -63,10 +71,31 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     capture_training_events,
     examples_events,
     promotion_event,
+    unseen_head_graded_events,
+    unseen_report_graded_events,
+    unseen_score_events,
 )
 from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, booster_holdout_auc, train_head
+from products.signals.dags.inbox_ranking.training.unseen import (
+    CANDIDATE_ROLE,
+    CHAMPION_ROLE,
+    HeadGrade,
+    UnseenModel,
+    graded_rows,
+    head_grades,
+    missing_label_columns,
+    model_mismatch,
+    readable_head_files,
+    report_grade_rows,
+    sample_unseen,
+    score_event_rows,
+    score_sample,
+    scores_table,
+    unseen_pool,
+)
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
+UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
 MODELS_TABLE = "inbox_ranking_models"
 CHAMPION_FILE = "champion.json"
 METADATA_FILE = "metadata.json"
@@ -427,9 +456,177 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
     )
 
 
+# dt=D grades the scores written on D - horizon_days, so the mapping reaches back as far as the
+# longest head horizon. Partitions before the scores asset existed have no upstream to map to.
+_HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
+    start_offset=-max(HEADS_BY_HORIZON),
+    end_offset=0,
+    allow_nonexistent_upstream_partitions=True,
+)
+
+
+def load_unseen_models(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
+) -> list[UnseenModel]:
+    """The models worth an unseen read on dt=D: the day's candidate, plus the champion when the
+    pointer names a different version. A model whose feature contract has moved on is logged and
+    left out rather than failing the asset, because its boosters cannot take the current matrix."""
+    candidate = _read_json_if_exists(client, bucket, model_object_key(prefix, partition_key, METADATA_FILE))
+    champion = _read_json_if_exists(client, bucket, champion_object_key(prefix))
+    records = [(CANDIDATE_ROLE, candidate)]
+    if champion is not None and champion.get("model_version") != (candidate or {}).get("model_version"):
+        records.append((CHAMPION_ROLE, champion))
+
+    models: list[UnseenModel] = []
+    for role, metadata in records:
+        if metadata is None:
+            context.log.warning(f"no {role} metadata to score the unseen sample with")
+            continue
+        mismatch = model_mismatch(metadata)
+        if mismatch is not None:
+            context.log.warning(f"{role} {metadata.get('model_version')} not scored: {mismatch}")
+            continue
+        boosters = {}
+        for head_name, filename in readable_head_files(metadata).items():
+            body = _read_bytes_if_exists(client, bucket, model_object_key(prefix, metadata["model_version"], filename))
+            if body is not None:
+                boosters[head_name] = body
+        if not boosters:
+            context.log.warning(f"{role} {metadata['model_version']} has no readable head to score")
+            continue
+        models.append(
+            UnseenModel(
+                model_version=metadata["model_version"],
+                model_role=role,
+                feature_schema_version=metadata["feature_schema_version"],
+                boosters=boosters,
+            )
+        )
+    return models
+
+
+@dagster.asset(
+    name=UNSEEN_SCORES_TABLE,
+    deps=["inbox_ranking_model_champion", STATE_TABLE, LABELS_TABLE],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+    day = datetime.date.fromisoformat(partition_key)
+
+    snapshot = load_snapshots(client, bucket, prefix, [day], required=day)[day]
+    examples = read_parquet(client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key))
+    pool = unseen_pool(snapshot.state, day, examples.column("report_id").to_pylist())
+    sample = sample_unseen(pool, partition_key)
+    models = load_unseen_models(context, client, bucket, prefix, partition_key)
+    scores = score_sample(sample, snapshot.labels, models, snapshot_date=day)
+    if scores.empty:
+        context.log.warning(f"nothing scored for dt={partition_key}: {len(pool)} unseen reports, {len(models)} models")
+
+    key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
+    write_parquet(client, bucket, key, scores_table(scores), snapshot_date=partition_key)
+    context.add_output_metadata(
+        {
+            "unseen_pool": dagster.MetadataValue.int(len(pool)),
+            "sample_size": dagster.MetadataValue.int(len(sample)),
+            "models_scored": dagster.MetadataValue.int(len(models)),
+            **{f"{model.model_role}_heads_scored": dagster.MetadataValue.int(len(model.boosters)) for model in models},
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        unseen_score_events(
+            run_id=context.run.run_id, rows=score_event_rows(scores, sample, unseen_pool_size=len(pool))
+        ),
+    )
+
+
+@dagster.asset(
+    name="inbox_ranking_unseen_graded",
+    deps=[
+        dagster.AssetDep(UNSEEN_SCORES_TABLE, partition_mapping=_HORIZON_MAPPING),
+        LABELS_TABLE,
+    ],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+    day = datetime.date.fromisoformat(partition_key)
+
+    labels = load_snapshots(client, bucket, prefix, [day], required=day)[day].labels
+    grades: list[HeadGrade] = []
+    skipped: dict[str, str] = {}
+    report_rows: list[dict[str, object]] = []
+    # Walk the horizons, not the heads: heads that share a horizon read the same scores object.
+    for horizon_days, heads in HEADS_BY_HORIZON.items():
+        scoring_partition = (day - datetime.timedelta(days=horizon_days)).isoformat()
+        table = read_parquet_if_exists(
+            client, bucket, partition_object_key(prefix, UNSEEN_SCORES_TABLE, scoring_partition)
+        )
+        if table is None:
+            skipped.update({head.name: f"no unseen scores for dt={scoring_partition}" for head in heads})
+            continue
+        scores = table.to_pandas()
+        graded_by_head: dict[str, pd.DataFrame] = {}
+        for head in heads:
+            missing = missing_label_columns(labels, head)
+            if missing:
+                skipped[head.name] = f"dt={partition_key} labels lack {', '.join(missing)}"
+                continue
+            head_scores = scores[scores["head"] == head.name]
+            if head_scores.empty:
+                skipped[head.name] = f"dt={scoring_partition} scored no {head.name} row"
+                continue
+            graded = graded_rows(head_scores, labels, head)
+            graded_by_head[head.name] = graded
+            grades.extend(head_grades(graded, head, scoring_partition=scoring_partition))
+        report_rows.extend(
+            report_grade_rows(graded_by_head, horizon_days=horizon_days, scoring_partition=scoring_partition)
+        )
+
+    for grade in grades:
+        context.log.info(f"unseen grade: {grade.as_dict()}")
+    for head_name, reason in skipped.items():
+        context.log.info(f"{head_name}: not graded, {reason}")
+
+    context.add_output_metadata(
+        {
+            **{
+                f"{grade.head}_{grade.model_role}_{name}": dagster.MetadataValue.float(value)
+                for grade in grades
+                for name, value in grade.metrics().items()
+                if value is not None
+            },
+            "skipped_heads": dagster.MetadataValue.json(skipped),
+        }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            *unseen_head_graded_events(run_id=context.run.run_id, grades=grades),
+            *unseen_report_graded_events(run_id=context.run.run_id, rows=report_rows),
+        ],
+    )
+
+
 inbox_ranking_training_job = dagster.define_asset_job(
     name="inbox_ranking_training_job",
-    selection=[EXAMPLES_TABLE, "inbox_ranking_model_candidate", "inbox_ranking_model_champion"],
+    selection=[
+        EXAMPLES_TABLE,
+        "inbox_ranking_model_candidate",
+        "inbox_ranking_model_champion",
+        UNSEEN_SCORES_TABLE,
+        "inbox_ranking_unseen_graded",
+    ],
     partitions_def=partition_def,
     tags={
         **owner_tags,
