@@ -1,14 +1,17 @@
+import io
 import random
 import string
 
 import pytest
 from unittest.mock import MagicMock
 
+from google.api_core.exceptions import BadRequest
 from google.cloud import bigquery
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     BigQueryField,
+    BigQueryIncompatibleSchemaError,
     BigQueryTable,
     BigQueryType,
     GoogleCloudServiceAccountIntegration,
@@ -179,3 +182,95 @@ async def test_from_service_account_integration(
     results = list(client.sync_client.query("SELECT 1").result())
 
     assert results[0].values()[0] == 1
+
+
+def _mock_bigquery_client() -> MagicMock:
+    mock_sync_client = MagicMock()
+    mock_sync_client.project = "test-project"
+    return mock_sync_client
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("file_format", ["Parquet", "JSONLines"])
+@pytest.mark.parametrize(
+    "fields,expected_schema_field_types",
+    [
+        (
+            (
+                BigQueryField("event", BigQueryType("STRING", False), True),
+                BigQueryField("properties", BigQueryType("STRING", False), True),
+            ),
+            ["STRING", "STRING"],
+        ),
+        (
+            (
+                BigQueryField("event", BigQueryType("STRING", False), True),
+                BigQueryField("properties", BigQueryType("JSON", False), True),
+            ),
+            None,
+        ),
+    ],
+    ids=["without_json_column", "with_json_column"],
+)
+async def test_load_file_does_not_declare_json_columns(file_format, fields, expected_schema_field_types):
+    mock_sync_client = _mock_bigquery_client()
+    client = BigQueryClient(mock_sync_client)
+    table = BigQueryTable("test_table", fields, parents=("test-project", "test_dataset"))
+
+    await client.load_file(io.BytesIO(b""), format=file_format, table=table)
+
+    job_config = mock_sync_client.load_table_from_file.call_args.kwargs["job_config"]
+
+    if expected_schema_field_types is None:
+        assert job_config.schema is None
+    else:
+        assert [field.field_type for field in job_config.schema] == expected_schema_field_types
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "err_msg,expected_in_message",
+    [
+        ("400 Required field event cannot be null", "'event'"),
+        ("400 Unsupported field type: JSON", "JSON"),
+        (
+            "400 Provided Schema does not match Table test-project:test_dataset.test_table."
+            " Field properties has changed type from STRING to JSON",
+            "'properties'",
+        ),
+        ("400 Invalid field name: no such field: new_column", "'new_column'"),
+        (
+            "400 Error while reading data: Could not parse 'not-a-number' for field distinct_id",
+            "'distinct_id'",
+        ),
+        ("400 Provided Schema does not match Table test-project:test_dataset.test_table", "schema"),
+    ],
+    ids=["required", "json_type", "changed_type", "unknown_column", "unparseable_value", "generic"],
+)
+async def test_load_file_explains_schema_mismatch(err_msg, expected_in_message):
+    mock_sync_client = _mock_bigquery_client()
+    mock_sync_client.load_table_from_file.side_effect = BadRequest(err_msg)
+    client = BigQueryClient(mock_sync_client)
+    table = BigQueryTable(
+        "test_table",
+        (BigQueryField("event", BigQueryType("STRING", False), True),),
+        parents=("test-project", "test_dataset"),
+    )
+
+    with pytest.raises(BigQueryIncompatibleSchemaError, match=expected_in_message):
+        await client.load_file(io.BytesIO(b""), format="JSONLines", table=table)
+
+
+@pytest.mark.asyncio
+async def test_load_file_reraises_unrelated_bad_request():
+    mock_sync_client = _mock_bigquery_client()
+    mock_sync_client.load_table_from_file.side_effect = BadRequest("400 Cannot start a job in this location")
+    client = BigQueryClient(mock_sync_client)
+    table = BigQueryTable(
+        "test_table",
+        (BigQueryField("event", BigQueryType("STRING", False), True),),
+        parents=("test-project", "test_dataset"),
+    )
+
+    with pytest.raises(BadRequest):
+        await client.load_file(io.BytesIO(b""), format="JSONLines", table=table)
