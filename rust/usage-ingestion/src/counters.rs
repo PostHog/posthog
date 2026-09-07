@@ -21,14 +21,22 @@ const DEFAULT_FLUSH_CONCURRENCY: usize = 16;
 const DEFAULT_MAX_SERIES_PER_BUCKET: usize = 16;
 const MAX_PAST_TIMESTAMP: ChronoDuration = ChronoDuration::days(7);
 const MAX_FUTURE_TIMESTAMP: ChronoDuration = ChronoDuration::hours(24);
-const INCREMENT_COUNTER: &str = r#"
-local exists = redis.call('HEXISTS', KEYS[1], ARGV[1])
-if exists == 0 and redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[4]) then
-    return 0
+/// One call per scope, over that scope's whole drain. Lua runs atomically on its own, so this
+/// needs no transaction, and ElastiCache Serverless refuses EVAL inside one.
+/// ARGV is the series cap, then a quad per entry: key index, field, delta, TTL.
+const INCREMENT_COUNTERS: &str = r#"
+local cap = tonumber(ARGV[1])
+local accepted = 0
+for index = 2, #ARGV, 4 do
+    local key = KEYS[tonumber(ARGV[index])]
+    local field = ARGV[index + 1]
+    if redis.call('HEXISTS', key, field) == 1 or redis.call('HLEN', key) < cap then
+        redis.call('HINCRBY', key, field, ARGV[index + 2])
+        redis.call('EXPIRE', key, ARGV[index + 3], 'NX')
+        accepted = accepted + 1
+    end
 end
-redis.call('HINCRBY', KEYS[1], ARGV[1], ARGV[2])
-redis.call('EXPIRE', KEYS[1], ARGV[3], 'NX')
-return 1
+return accepted
 "#;
 
 #[derive(Clone, Copy, Debug)]
@@ -233,7 +241,7 @@ pub trait CounterStore: Send + Sync {
     async fn flush_scope(&self, counters: ScopeCounters) -> Result<ScopeFlush, redis::RedisError>;
 }
 
-/// Cluster-aware store. Each scope is one transaction, and every key in it has the same hash tag.
+/// Cluster-aware store. Each scope is one script call, and every key in it has the same hash tag.
 pub struct RedisCounterStore {
     connections: Vec<AsyncMutex<ClusterConnection>>,
     max_series_per_bucket: usize,
@@ -263,23 +271,36 @@ impl RedisCounterStore {
 impl CounterStore for RedisCounterStore {
     async fn flush_scope(&self, counters: ScopeCounters) -> Result<ScopeFlush, redis::RedisError> {
         let entry_count = counters.entries.len();
-        let mut pipeline = redis::pipe();
-        pipeline.atomic();
+        // A script with no keys is refused, and an empty scope has nothing to write anyway.
+        if entry_count == 0 {
+            return Ok(ScopeFlush::default());
+        }
+        let mut keys: Vec<String> = Vec::new();
+        let mut entries = Vec::with_capacity(entry_count);
         for (entry, quantity) in counters.entries {
             let key = counter_key(&counters.scope, entry.bucket);
-            pipeline
-                .cmd("EVAL")
-                .arg(INCREMENT_COUNTER)
-                .arg(1)
-                .arg(&key)
-                .arg(&entry.field)
-                .arg(quantity)
-                .arg(entry.bucket.ttl_seconds())
-                .arg(self.max_series_per_bucket);
+            // Lua counts from one, so a key's index is its position after the push.
+            let index = keys.iter().position(|held| *held == key).map_or_else(
+                || {
+                    keys.push(key);
+                    keys.len()
+                },
+                |index| index + 1,
+            );
+            entries.push((index, entry.field, quantity, entry.bucket.ttl_seconds()));
+        }
+
+        let mut command = redis::cmd("EVAL");
+        command.arg(INCREMENT_COUNTERS).arg(keys.len());
+        for key in &keys {
+            command.arg(key);
+        }
+        command.arg(self.max_series_per_bucket);
+        for (index, field, quantity, ttl_seconds) in &entries {
+            command.arg(index).arg(field).arg(quantity).arg(ttl_seconds);
         }
         let mut connection = self.connection(&counters.scope).lock().await;
-        let accepted = pipeline.query_async::<Vec<i64>>(&mut *connection).await?;
-        let accepted = accepted.into_iter().filter(|result| *result == 1).count();
+        let accepted = command.query_async::<usize>(&mut *connection).await?;
         Ok(ScopeFlush {
             commands: accepted * 2,
             capped: entry_count - accepted,

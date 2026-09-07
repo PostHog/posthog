@@ -7,7 +7,8 @@ use chrono::Utc;
 use redis::cluster::ClusterClient;
 use redis::AsyncCommands;
 use usage_ingestion::counters::{
-    counter_key, flush, Bucket, CounterAccumulator, CounterScope, CounterStore, RedisCounterStore,
+    counter_key, flush, Bucket, CounterAccumulator, CounterConfig, CounterScope, CounterStore,
+    RedisCounterStore,
 };
 use uuid::Uuid;
 
@@ -16,6 +17,126 @@ const SCOPES: i64 = 1_024;
 fn redis_url() -> String {
     std::env::var("USAGE_INGESTION_REDIS_URL")
         .unwrap_or_else(|_| "redis://127.0.0.1:6390".to_string())
+}
+
+async fn store_with(config: CounterConfig) -> Arc<dyn CounterStore> {
+    Arc::new(
+        RedisCounterStore::connect(&redis_url(), config)
+            .await
+            .expect("failed to connect to Valkey Cluster"),
+    )
+}
+
+/// How many times the node ran one command. `INFO commandstats` reports
+/// `cmdstat_eval:calls=12,usec=...`, and an unused command has no line at all.
+async fn command_calls(command: &str) -> u64 {
+    let client = redis::Client::open(redis_url()).expect("invalid Valkey URL");
+    let mut connection = client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("failed to connect to the Valkey node");
+    let stats: String = redis::cmd("INFO")
+        .arg("commandstats")
+        .query_async(&mut connection)
+        .await
+        .expect("the node did not report its command stats");
+    let prefix = format!("cmdstat_{command}:calls=");
+    stats
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix))
+        .map_or(0, |calls| {
+            calls
+                .split(',')
+                .next()
+                .and_then(|calls| calls.parse().ok())
+                .expect("the node reported an unreadable call count")
+        })
+}
+
+/// ElastiCache Serverless refuses EVAL inside MULTI, and a local Valkey accepts it, so the only
+/// signal a local cluster gives is which commands the flush sent.
+#[tokio::test]
+#[ignore = "requires the cluster-enabled Valkey from docker-compose.dev.yml"]
+async fn a_flush_opens_no_transaction() {
+    let accumulator = CounterAccumulator::default();
+    accumulator
+        .add(
+            2_000_000 + (Uuid::new_v4().as_u128() % 1_000_000) as i64,
+            Uuid::new_v4(),
+            "transaction_free_flush",
+            "event",
+            1,
+            Utc::now(),
+        )
+        .expect("test record should enter the counter accumulator");
+    let transactions = command_calls("multi").await;
+    let scripts = command_calls("eval").await;
+
+    let outcome = flush(
+        store_with(CounterConfig::default()).await,
+        accumulator.drain(),
+    )
+    .await;
+
+    assert_eq!(outcome.dropped, 0);
+    assert!(
+        command_calls("eval").await > scripts,
+        "the flush ran no script"
+    );
+    assert_eq!(
+        command_calls("multi").await,
+        transactions,
+        "the flush opened a transaction, which ElastiCache Serverless refuses around EVAL"
+    );
+}
+
+/// The cap a second pod hits: its accumulator is empty, so only the script sees the series an
+/// earlier flush already wrote.
+#[tokio::test]
+#[ignore = "requires the cluster-enabled Valkey from docker-compose.dev.yml"]
+async fn the_series_cap_holds_against_series_valkey_already_holds() {
+    let config = CounterConfig {
+        max_series_per_bucket: 2,
+        ..CounterConfig::default()
+    };
+    let timestamp = Utc::now();
+    let organization_id = Uuid::new_v4();
+    let team_id = 3_000_000 + (Uuid::new_v4().as_u128() % 1_000_000) as i64;
+    let store = store_with(config).await;
+    let filled = CounterAccumulator::new(config.max_series_per_bucket);
+    for series in ["first", "second"] {
+        filled
+            .add(team_id, organization_id, series, "event", 1, timestamp)
+            .expect("test record should enter the counter accumulator");
+    }
+    let outcome = flush(Arc::clone(&store), filled.drain()).await;
+    assert_eq!(outcome.capped, 0);
+
+    // A fresh accumulator, the way a pod that just started sees the same scope.
+    let overflowing = CounterAccumulator::new(config.max_series_per_bucket);
+    overflowing
+        .add(team_id, organization_id, "third", "event", 1, timestamp)
+        .expect("test record should enter the counter accumulator");
+    let outcome = flush(Arc::clone(&store), overflowing.drain()).await;
+
+    // The team scope and the organization scope each refuse it in both buckets.
+    assert_eq!(outcome.capped, 4);
+    assert_eq!(outcome.commands, 0);
+    assert_eq!(outcome.dropped, 0);
+    let client = ClusterClient::new([redis_url()]).expect("invalid Valkey Cluster URL");
+    let mut connection = client
+        .get_async_connection()
+        .await
+        .expect("failed to connect to Valkey Cluster");
+    let hour_key = counter_key(
+        &CounterScope::Team(team_id),
+        Bucket::Hour(timestamp.timestamp().div_euclid(3600)),
+    );
+    let series: usize = connection
+        .hlen(&hour_key)
+        .await
+        .expect("the hourly counter was not written");
+    assert_eq!(series, config.max_series_per_bucket);
 }
 
 #[tokio::test]
