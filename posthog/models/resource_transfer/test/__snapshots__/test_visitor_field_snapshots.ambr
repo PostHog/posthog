@@ -115,6 +115,7 @@
     'refresh_attempt',
     'refreshing',
     'short_id',
+    'subscriptions_dashboard_export',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Survey
@@ -159,6 +160,8 @@
     'is_static',
     'kind',
     'last_calculation_duration_ms',
+    'last_import_total_count',
+    'last_import_unmatched_count',
     'name',
     'query',
   ])
@@ -168,6 +171,7 @@
     'breakdown_colors',
     'created_at',
     'creation_mode',
+    'customization',
     'deleted',
     'deprecated_tags',
     'deprecated_tags_v2',
@@ -417,7 +421,6 @@
   list([
     'created_by',
     'last_modified_by',
-    'subscriptions_dashboard_export',
     'team',
   ])
 # ---
@@ -932,6 +935,7 @@
     'short_id',
     'show_legend',
     'subscription_set',
+    'subscriptions_dashboard_export',
     'surveys_linked_insight',
     'tagged_items',
     'team_id',

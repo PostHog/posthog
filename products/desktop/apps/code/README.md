@@ -41,6 +41,7 @@ pnpm run check:write       # Linting & typecheck
 - `⌘R` - Refresh task list
 - `⌘⇧[/]` - Switch between tabs
 - `⌘W` - Close current tab
+- `⌘⌥P` / `Ctrl+Alt+P` - Open Quick ask
 
 ### Screen recording permission in development
 
@@ -83,7 +84,7 @@ pnpm make
 Output will be in:
 
 - `out/mac-arm64/PostHog.app` - Packaged app
-- `out/PostHog-Code-*.dmg` - macOS installer
+- `out/PostHog-Desktop-*.dmg` - macOS installer
 - `out/make/zip/` - ZIP archives
 
 **Note:** Native modules for the DMG maker are automatically compiled via the `prePackage` hook. If you need to manually rebuild them, run:
@@ -99,7 +100,7 @@ PostHog auto-updates on macOS and Windows. Current builds use `electron-updater`
 There are three ways a release can fire:
 
 1. **Scheduled (default)** — automatic at 17:00 and 01:00 UTC.
-2. **Hotfix** — add the `create desktop release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
+2. **Hotfix** — add the `desktop-release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
 3. **Manual** — run `Tag PostHog Release` via `workflow_dispatch` from the Actions tab.
 
 Local prep (only needed for one-off manual builds):
@@ -122,13 +123,13 @@ export APPLE_TEAM_ID="TEAMID"
 
 For CI releases, configure matching GitHub Actions secrets:
 
-- `APPLE_CODESIGN_IDENTITY`
 - `APPLE_ID`
 - `APPLE_APP_SPECIFIC_PASSWORD`
 - `APPLE_TEAM_ID`
 - `APPLE_CODESIGN_CERT_BASE64` – Base64-encoded `.p12` export of the Developer ID Application certificate (include the private key)
 - `APPLE_CODESIGN_CERT_PASSWORD` – Password used when exporting the `.p12`
-- `APPLE_CODESIGN_KEYCHAIN_PASSWORD` – Password for the temporary keychain the workflow creates on the runner
+
+CI derives the signing identity from the certificate, so it needs no `APPLE_CODESIGN_IDENTITY` secret. Set that variable only for local signing.
 
 The `Publish Release` workflow imports the certificate into a temporary keychain, signs each artifact with hardened runtime enabled (using Electron's default entitlements), and notarizes it before upload whenever these secrets are available.
 
@@ -215,7 +216,7 @@ PostHog automatically sets environment variables in all workspace terminals and 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `POSTHOG_CODE_WORKSPACE_NAME` | Worktree name, or folder name in root mode | `my-feature-branch` |
-| `POSTHOG_CODE_WORKSPACE_PATH` | Absolute path to the workspace | `/Users/dev/.posthog-code/worktrees/repo/my-feature` |
+| `POSTHOG_CODE_WORKSPACE_PATH` | Absolute path to the workspace | `/Users/dev/.posthog-desktop/worktrees/repo/my-feature` |
 | `POSTHOG_CODE_ROOT_PATH` | Absolute path to the repository root | `/Users/dev/repos/my-project` |
 | `POSTHOG_CODE_DEFAULT_BRANCH` | Default branch detected from git | `main` |
 | `POSTHOG_CODE_WORKSPACE_BRANCH` | Initial branch when workspace was created | `posthog/my-feature` |

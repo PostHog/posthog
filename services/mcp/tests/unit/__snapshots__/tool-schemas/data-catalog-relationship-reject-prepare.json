@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this relationship proposal.",
+            "type": "string"
+        },
+        "rejection_reason": {
+            "description": "Why the proposal is rejected. Persisted so it is never re-proposed.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -87,6 +87,12 @@ class WebflowSource(
             # the site has unpublished changes. Both are deterministic state/config issues
             # that retrying can't resolve, so stop retrying and tell the user how to fix it.
             "409 Client Error: Conflict": "Webflow returned a 409 Conflict. For the Products and Orders tables this means the connected site does not have ecommerce enabled — enable ecommerce in Webflow or remove those tables from the sync. For other resources it can mean the site has unpublished changes; publish your Webflow site, then try again.",
+            # Webflow returns 406 deterministically for a given site/token — every retry of the
+            # same request fails identically, so it's a site-side rejection retrying can't fix
+            # rather than a transient content-negotiation blip. Webflow doesn't document the
+            # exact cause; it's commonly reported when the connected site's plan doesn't include
+            # CMS API access. Match the stable status text, not the URL.
+            "406 Client Error": "Webflow rejected this request with a 406 Not Acceptable error. This usually means the connected site isn't eligible for the requested resource — for example, CMS collections require a Webflow site plan with CMS access. Check your Webflow site's plan and settings, then try again.",
             # A CMS collection discovered when the table was set up can later be deleted or have its
             # slug renamed in Webflow, so at sync time the slug no longer resolves to a collection.
             # That's a deterministic upstream state change retrying can't fix. Match the stable

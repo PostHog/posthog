@@ -29,6 +29,8 @@ export interface LemonCheckboxProps {
     'data-attr'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
+    /** Removes input semantics when an ancestor owns the interaction. */
+    decorative?: boolean
 }
 
 export interface BoxCSSProperties extends React.CSSProperties {
@@ -59,6 +61,7 @@ export function LemonCheckbox({
     size,
     'data-attr': dataAttr,
     stopPropagation,
+    decorative,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
     disabled = disabled || !!disabledReason
@@ -119,6 +122,8 @@ export function LemonCheckbox({
                     }}
                     id={id}
                     disabled={disabled}
+                    tabIndex={decorative ? -1 : undefined}
+                    aria-hidden={decorative || undefined}
                 />
                 <label
                     htmlFor={id}

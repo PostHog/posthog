@@ -1,26 +1,17 @@
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Button, Input, Spinner, Text } from "@posthog/quill";
+import { Button, Spinner, Text } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
+import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
+import type { PlacementActions } from "./placementActions";
 
 // Poll cadence for the fill task's run status while a tile is generating —
 // matches the canvas generation poll elsewhere.
 const FILL_TASK_POLL_MS = 5_000;
-
-export interface PlacementTileActions {
-  /** Dispatch an agent task to fill this placement with the given ask. */
-  describe: (placement: GridPlacement, prompt: string) => Promise<void>;
-  /** Put a stalled placement back to pending so it can be re-described. */
-  reset: (placement: GridPlacement) => void;
-  /** Remove this placement from the layout. */
-  remove: (placement: GridPlacement) => void;
-  /** Open this placement's task conversation in the canvas's side panel. */
-  discuss: (placement: GridPlacement) => void;
-}
 
 /**
  * One placement on the grid, rendered by lifecycle status: a live widget, a
@@ -38,7 +29,7 @@ export function GridPlacementTile({
   /** A layout write is in flight; the tile's edit buttons stay disabled until
    * it lands, so a second click can't fire a patch against the same head. */
   patching: boolean;
-  actions: PlacementTileActions;
+  actions: PlacementActions;
 }) {
   if (placement.status === "live" && placement.component) {
     return <ComponentFrame placement={placement} />;
@@ -58,7 +49,6 @@ export function GridPlacementTile({
       placement={placement}
       failed={placement.status === "failed"}
       interactive={interactive}
-      patching={patching}
       actions={actions}
     />
   );
@@ -73,7 +63,7 @@ function GeneratingTile({
   placement: GridPlacement;
   interactive: boolean;
   patching: boolean;
-  actions: PlacementTileActions;
+  actions: PlacementActions;
 }) {
   const taskId = placement.generationTaskId ?? null;
   const { data: task } = useQuery({
@@ -145,16 +135,6 @@ function GeneratingTile({
               Review request
             </Button>
           ) : null}
-          {interactive ? (
-            <Button
-              variant="default"
-              size="sm"
-              disabled={patching}
-              onClick={() => actions.remove(placement)}
-            >
-              Remove
-            </Button>
-          ) : null}
         </div>
       </div>
     );
@@ -166,19 +146,7 @@ function GeneratingTile({
       <Text size="sm" className="line-clamp-2">
         {placement.prompt ?? "Building this widget…"}
       </Text>
-      <div className="flex items-center gap-1">
-        {viewTask}
-        {interactive ? (
-          <Button
-            variant="default"
-            size="sm"
-            disabled={patching}
-            onClick={() => actions.remove(placement)}
-          >
-            Remove
-          </Button>
-        ) : null}
-      </div>
+      {viewTask}
     </div>
   );
 }
@@ -187,16 +155,13 @@ function DescribeTile({
   placement,
   failed,
   interactive,
-  patching,
   actions,
 }: {
   placement: GridPlacement;
   failed: boolean;
   interactive: boolean;
-  patching: boolean;
-  actions: PlacementTileActions;
+  actions: PlacementActions;
 }) {
-  const [prompt, setPrompt] = useState(placement.prompt ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!interactive) {
@@ -208,51 +173,39 @@ function DescribeTile({
       </div>
     );
   }
-  const submit = async () => {
-    if (!prompt.trim() || isSubmitting) return;
+  const submit = async (text: string) => {
+    const instruction = text.trim();
+    if (!instruction || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await actions.describe(placement, prompt.trim());
+      await actions.describe(placement, instruction);
     } finally {
       setIsSubmitting(false);
     }
   };
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
+    <div className="flex h-full w-full flex-col justify-center gap-2 p-3">
       {failed ? (
         <Text size="sm">This widget failed to build. Describe it again:</Text>
       ) : null}
-      <form
-        className="flex w-full items-center gap-1"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <Input
-          autoFocus
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="What should go here?"
-          disabled={isSubmitting}
-        />
-        <Button
-          type="submit"
-          size="sm"
-          loading={isSubmitting}
-          disabled={!prompt.trim() || isSubmitting}
-        >
-          {failed ? "Retry" : "Create"}
-        </Button>
-      </form>
-      <Button
-        variant="default"
-        size="sm"
-        disabled={patching}
-        onClick={() => actions.remove(placement)}
-      >
-        Remove
-      </Button>
+      {/* The task composer's editor, as the freeform canvas uses it: markdown
+          as you type, shift+enter for a new line, @ for files and / for
+          skills. Its own toolbar stays hidden; card actions live in the shared
+          overflow menu above this tile. */}
+      <PromptInput
+        sessionId={`grid-placement-${placement.id}`}
+        placeholder="What should go here?"
+        // A failed fill keeps what was asked for, so the retry starts from it
+        // unless a draft is already waiting in the box.
+        initialContent={placement.prompt ?? undefined}
+        autoFocus
+        disabled={isSubmitting}
+        isLoading={isSubmitting}
+        enableCommands
+        enableBashMode={false}
+        hideDefaultToolbar
+        onSubmit={(text) => void submit(text)}
+      />
     </div>
   );
 }

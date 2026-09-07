@@ -1,0 +1,116 @@
+{
+    "MA1": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 29,
+        "source": "verified-same-claim:LA4"
+    },
+    "MA2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified (high)"
+    },
+    "MA3": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 35,
+        "source": "cluster 3/3"
+    },
+    "MA4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    },
+    "MA5": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "verified-same-claim:KA4"
+    },
+    "MA6": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "MA7": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "MA8": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "MA9": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified-same-claim:LA15"
+    },
+    "MA10": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:LA19"
+    },
+    "MA11": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "verified-same-claim:KA4"
+    },
+    "MA12": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 39,
+        "source": "verified-same-claim:KA5"
+    },
+    "MA13": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 29,
+        "source": "verified-same-claim:LA4"
+    },
+    "MA14": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    },
+    "MA15": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KB4"
+    },
+    "MA16": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 1,
+        "source": "verified-same-claim:W11"
+    },
+    "MA17": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-same-claim:LA23"
+    },
+    "MA18": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "cluster 0/6"
+    },
+    "MA19": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 21,
+        "source": "cluster 2/2 (KA11 same claim)"
+    }
+}

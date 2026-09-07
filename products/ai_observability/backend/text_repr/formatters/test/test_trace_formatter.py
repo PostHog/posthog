@@ -38,6 +38,13 @@ class TestFormatHelpers:
         assert _format_cost(1.23456) == "$1.2346"
         assert _format_cost(0) == "$0.0000"
 
+    def test_coerces_string_valued_metrics(self):
+        """A string latency or cost must not raise `Unknown format code 'f'`."""
+        assert _format_latency("1.5") == "1.50s"
+        assert _format_cost("0.02") == "$0.0200"
+        # Non-numeric strings fall back to the raw value rather than crashing.
+        assert _format_latency("n/a") == "n/a"
+
 
 class TestGetEventSummary:
     """Test event summary generation for tree display."""
@@ -122,8 +129,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Factual accuracy" in summary
-        assert "PASS" in summary
+        assert "Factual accuracy (true)" in summary
 
     def test_evaluation_summary_fail(self):
         event = {
@@ -134,8 +140,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Relevance" in summary
-        assert "FAIL" in summary
+        assert "Relevance (false)" in summary
 
     def test_evaluation_summary_na(self):
         event = {
@@ -167,9 +172,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Length check" in summary
-        assert "hog" in summary
-        assert "PASS" in summary
+        assert "Length check (hog, true)" in summary
 
     def test_evaluation_summary_includes_llm_judge_runtime(self):
         event = {
@@ -181,9 +184,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Factual accuracy" in summary
-        assert "llm_judge" in summary
-        assert "FAIL" in summary
+        assert "Factual accuracy (llm_judge, false)" in summary
 
     def test_unknown_event_type(self):
         """Should return event type for unknown events."""

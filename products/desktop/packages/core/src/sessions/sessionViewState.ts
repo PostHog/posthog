@@ -29,22 +29,17 @@ export function deriveSessionViewState(
   workspace: Workspace | null,
   isCloud: boolean,
 ): SessionViewState {
+  // The live session knows it is cloud before the workspace query or `latest_run`
+  // metadata lands, so trust either source.
   const effectiveIsCloud = isCloud || session?.isCloud === true;
   const cloudStatus = resolveEffectiveCloudStatus(task, session);
   const isCloudRunTerminal = effectiveIsCloud && isTerminalStatus(cloudStatus);
   const isCloudRunNotTerminal = effectiveIsCloud && !isCloudRunTerminal;
 
   const hasError = session?.status === "error" && !session?.idleKilled;
-  const handoffInProgress = session?.handoffInProgress ?? false;
-
-  let isRunning = false;
-  if (!handoffInProgress) {
-    if (effectiveIsCloud) {
-      isRunning = !hasError;
-    } else {
-      isRunning = session?.status === "connected";
-    }
-  }
+  const isRunning = effectiveIsCloud
+    ? !hasError
+    : session?.status === "connected";
 
   const events = session?.events ?? [];
   const isPromptPending = session?.isPromptPending ?? false;
@@ -53,6 +48,9 @@ export function deriveSessionViewState(
   const isNewSessionWithInitialPrompt =
     !task.latest_run?.id && !!task.description;
   const isResumingExistingSession = !!task.latest_run?.id;
+  const hasOptimisticPrompt = session?.optimisticItems.some(
+    (item) => item.type === "user_message",
+  );
   const isHydratingEmptyTranscript =
     effectiveIsCloud &&
     events.length === 0 &&
@@ -60,7 +58,10 @@ export function deriveSessionViewState(
   const isInitializing = effectiveIsCloud
     ? isHydratingEmptyTranscript ||
       (!hasError &&
-        (!session || (events.length === 0 && isCloudRunNotTerminal)))
+        (!session ||
+          (events.length === 0 &&
+            !hasOptimisticPrompt &&
+            isCloudRunNotTerminal)))
     : !session ||
       (session.status === "connecting" && events.length === 0) ||
       (session.status === "connected" &&

@@ -4,6 +4,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionTypeAndValue, getRuntimeFromLib } from 'lib/components/Errors/utils'
+import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
 import { TZLabel } from 'lib/components/TZLabel'
 import {
     Button,
@@ -137,7 +138,9 @@ function EventRow({
                     className={cn(
                         'absolute inset-y-0 left-0 w-1',
                         selected
-                            ? getRowTimelineIndicatorColor(record.uuid, firstEventUuid, lastEventUuid)
+                            ? EVENT_MARKER_COLOR_CLASS_NAMES[
+                                  getEventMarkerColor(record.uuid, firstEventUuid, lastEventUuid)
+                              ]
                             : 'bg-transparent'
                     )}
                 />
@@ -196,16 +199,18 @@ function EventMetadata({ record }: { record: ErrorEventType }): JSX.Element {
     )
 }
 
-function getRowTimelineIndicatorColor(
+const EVENT_MARKER_COLOR_CLASS_NAMES: Record<TimelineMarkerColor, string> = {
+    blue: 'bg-brand-blue',
+    yellow: 'bg-brand-yellow',
+    red: 'bg-brand-red',
+}
+
+export function getEventMarkerColor(
     eventUuid: string,
     firstEventUuid: string | undefined,
     lastEventUuid: string | undefined
-): string {
-    return eventUuid === firstEventUuid
-        ? 'bg-brand-blue'
-        : eventUuid === lastEventUuid
-          ? 'bg-brand-red'
-          : 'bg-brand-yellow'
+): TimelineMarkerColor {
+    return eventUuid === firstEventUuid ? 'blue' : eventUuid === lastEventUuid ? 'red' : 'yellow'
 }
 
 export function EventsTableLoading(): JSX.Element {

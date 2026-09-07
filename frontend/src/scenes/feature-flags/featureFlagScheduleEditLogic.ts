@@ -2,6 +2,7 @@ import { CronExpressionParser } from 'cron-parser'
 import { MakeLogicType, actions, connect, key, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -9,18 +10,7 @@ import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType }
 
 import type { TeamPublicType, TeamType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import {
-    describeCron,
-    featureFlagLogic,
-    scheduleDateFromStoredISO,
-    scheduleDateToProjectTzISO,
-} from './featureFlagLogic'
-
-// Used from reducers, which don't receive `values` — we still need a synchronous read at
-// action-dispatch time. Selectors and listeners use the reactive `projectTimezone` selector instead.
-function projectTimezoneImperative(): string {
-    return teamLogic.findMounted()?.values.currentTeam?.timezone || 'UTC'
-}
+import { featureFlagLogic, scheduleDateFromStoredISO, scheduleDateToProjectTzISO } from './featureFlagLogic'
 
 export interface FeatureFlagScheduleEditLogicProps {
     id: number | 'new' | 'link'
@@ -53,6 +43,7 @@ export interface featureFlagScheduleEditLogicActions {
     }
     openEdit: (schedule: ScheduledChangeType) => {
         schedule: ScheduledChangeType
+        timezone: string
     }
     saveEdit: () => {
         value: true
@@ -133,8 +124,11 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
     })),
-    actions({
-        openEdit: (schedule: ScheduledChangeType) => ({ schedule }),
+    actions(({ values }) => ({
+        // The reducers below convert the stored dates into the project timezone, but a reducer may
+        // not read the store while Redux is dispatching. Resolve the timezone into the payload here,
+        // which runs before the dispatch starts.
+        openEdit: (schedule: ScheduledChangeType) => ({ schedule, timezone: values.projectTimezone }),
         closeEdit: true,
         setEditScheduledAt: (date: Dayjs | null) => ({ date }),
         setEditCronExpression: (cron: string | null) => ({ cron }),
@@ -146,7 +140,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         saveEdit: true,
         saveEditSuccess: true,
         saveEditFailure: true,
-    }),
+    })),
     reducers({
         editingSchedule: [
             null as ScheduledChangeType | null,
@@ -159,10 +153,8 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editScheduledAt: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule }) =>
-                    schedule.scheduled_at
-                        ? scheduleDateFromStoredISO(schedule.scheduled_at, projectTimezoneImperative())
-                        : null,
+                openEdit: (_, { schedule, timezone }) =>
+                    schedule.scheduled_at ? scheduleDateFromStoredISO(schedule.scheduled_at, timezone) : null,
                 setEditScheduledAt: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -186,10 +178,8 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editEndDate: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule }) =>
-                    schedule.end_date
-                        ? scheduleDateFromStoredISO(schedule.end_date, projectTimezoneImperative())
-                        : null,
+                openEdit: (_, { schedule, timezone }) =>
+                    schedule.end_date ? scheduleDateFromStoredISO(schedule.end_date, timezone) : null,
                 setEditEndDate: (_, { date }) => date,
                 closeEdit: () => null,
             },

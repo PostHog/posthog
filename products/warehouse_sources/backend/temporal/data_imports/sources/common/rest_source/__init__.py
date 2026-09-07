@@ -4,7 +4,13 @@ import graphlib  # type: ignore[import,unused-ignore]
 from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
 
+import structlog
 from dateutil import parser
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FanoutParentSource,
+    log_fanout_parent_rows_consumed,
+)
 
 from .config_setup import (
     Incremental,
@@ -22,6 +28,8 @@ from .resource import Resource
 from .rest_client import DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_BACKOFF_MAX_SECONDS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
+
+logger = structlog.get_logger(__name__)
 
 
 def convert_types(
@@ -139,6 +147,7 @@ def _make_paginate_dependent_resource(
     data_selector_required: bool = False,
     data_selector_empty_ok: bool = False,
     on_parent_error: Optional[Callable[[str, Exception], None]] = None,
+    parent_source: FanoutParentSource = "api",
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -150,10 +159,12 @@ def _make_paginate_dependent_resource(
     ``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}``.
     """
     # Closure state persists across parent-page invocations within a single run.
+    parent_rows_consumed = 0
     seed: dict[str, Any] = dict(initial_state) if initial_state else {}
     completed: set[str] = set(seed.get("completed") or [])
     current_path: Optional[str] = seed.get("current")
     current_child_state: Optional[dict[str, Any]] = seed.get("child_state")
+    resumed = bool(completed or current_path)
 
     def checkpoint(current: Optional[str], child_state: Optional[dict[str, Any]]) -> None:
         # resume_hook is non-None here (only called from the resumable path).
@@ -169,8 +180,10 @@ def _make_paginate_dependent_resource(
         hooks: Optional[dict[str, Any]],
         columns_config: Optional[Any] = None,
     ) -> Iterator[list[Any]]:
-        nonlocal current_path, current_child_state
+        nonlocal current_path, current_child_state, parent_rows_consumed
         effective_columns_config = columns_config if columns_config is not None else default_columns_config
+
+        page_rows = 0
 
         if incremental_object:
             params = _set_incremental_params(
@@ -186,6 +199,9 @@ def _make_paginate_dependent_resource(
 
             if resume_hook is not None and formatted_path in completed:
                 continue
+
+            page_rows += 1
+            parent_rows_consumed += 1
 
             # Resume this parent's child cursor only if it's the one we were mid-way through.
             child_initial = (
@@ -236,6 +252,17 @@ def _make_paginate_dependent_resource(
                 current_path = None
                 current_child_state = None
                 checkpoint(None, None)
+
+        # Counted after the page so parents a resume skips don't inflate it. A running total,
+        # since there's no end-of-parent signal: the last line of a run carries the fan-out's
+        # size, for either parent kind, which the API path never surfaced anywhere.
+        log_fanout_parent_rows_consumed(
+            logger,
+            parent_source=parent_source,
+            rows_total=parent_rows_consumed,
+            resumed=resumed,
+            page_rows=page_rows,
+        )
 
     return paginate_dependent_resource
 
@@ -298,6 +325,7 @@ def create_resources(
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
+            capture=client_config.get("capture", True),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"), resource_name=resource_name)
@@ -402,7 +430,13 @@ def create_resources(
             )
 
         else:
-            predecessor = resources[resolved_params[0].resolve_config["resource"]]
+            parent_name = resolved_params[0].resolve_config["resource"]
+            predecessor = resources[parent_name]
+
+            # Set by `build_dependent_resource` only once the warehouse table resolves, so an
+            # unresolvable table leaves this "api" and the telemetry names the parent the run
+            # actually read.
+            parent_source: FanoutParentSource = endpoint_resource_map[parent_name].get("parent_source") or "api"
 
             base_params = exclude_keys(request_params, {rp.param_name for rp in resolved_params})
 
@@ -420,6 +454,7 @@ def create_resources(
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
                 on_parent_error=on_parent_error,
+                parent_source=parent_source,
             )
 
             resources[resource_name] = Resource(

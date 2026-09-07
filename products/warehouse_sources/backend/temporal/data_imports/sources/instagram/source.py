@@ -59,8 +59,8 @@ class InstagramSource(ResumableSource[InstagramSourceConfig, InstagramResumeConf
     api_docs_url = "https://developers.facebook.com/docs/instagram-platform"
     # Meta pins the Graph API by URL path segment and keeps each version alive for
     # roughly two years, so the pin is a real choice rather than a constant.
-    supported_versions = ("v22.0", "v23.0")
-    default_version = "v23.0"
+    supported_versions = ("v22.0", "v23.0", "v26.0")
+    default_version = "v26.0"
 
     lists_tables_without_credentials = True
 

@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import IntegrityError, transaction
 from django.db.models import F
 
@@ -5,10 +7,12 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.models import Team, User
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillVote
 from ..models.skills import LLMSkill
 from .skill_serializers import validate_allowed_tool, validate_skill_file_path, validate_skill_name_value
 from .skill_services import MAX_SKILL_FILE_BYTES, create_skill
+from .skill_template_services import parse_template_variables, render_template_skill
 
 # Namespaces where PostHog auto-registers and runs a skill under privileged scopes on an enrolled
 # team: Signals scouts on the scout coordinator, ReviewHog's review skills on a team's first PR
@@ -36,8 +40,8 @@ class CommunitySkillNotFoundError(Exception):
 
 class CommunitySkillInvalidPayloadError(Exception):
     """The synced catalog entry can't be safely copied into a team — a traversal/reserved file path,
-    oversized file content, a whitespace-bearing tool name, an empty body, or a reserved privileged
-    namespace. Surfaced as a 400 rather than persisting a malformed team skill."""
+    oversized content, a whitespace-bearing tool name, an empty body, or a reserved privileged namespace.
+    Surfaced as a 400 rather than persisting a malformed team skill."""
 
     def __init__(self, detail: str) -> None:
         self.detail = detail
@@ -82,12 +86,17 @@ def install_community_skill(
     user: User,
     slug: str,
     new_name: str | None = None,
+    variables: dict[str, str] | None = None,
 ) -> LLMSkill:
     """Copy a community skill into a team as a regular LLMSkill and bump its install counter.
 
+    When the community skill is a template (its metadata declares `variables`), the user-supplied
+    `variables` are bound into the body and bundled files before the LLMSkill is created.
+
     Raises CommunitySkillNotFoundError if the slug is unknown, LLMSkillDuplicateNameConflictError
-    if the target name already exists in the team, and CommunitySkillInvalidPayloadError if the
-    catalog entry can't be safely installed.
+    if the target name already exists in the team, CommunitySkillInvalidPayloadError if the catalog
+    entry can't be safely installed, and MissingTemplateVariableError /
+    UnknownTemplatePlaceholderError on template render failures.
     """
     community_skill = get_community_skill_by_slug(slug)
     if community_skill is None:
@@ -125,24 +134,48 @@ def install_community_skill(
         # fail export validation, so reject it here rather than persisting an un-exportable skill.
         if not (locked.description or "").strip():
             raise CommunitySkillInvalidPayloadError("This community skill has no description and can't be installed.")
+        if len(locked.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise CommunitySkillInvalidPayloadError(
+                f"This community skill has a description longer than {SPEC_DESCRIPTION_MAX_LENGTH} characters. "
+                "Ask its publisher to shorten it before installing."
+            )
         files = _validate_installable_files(locked)
+        body = locked.body
+
+        # Stamp provenance so an installed skill can be traced back to its community source, but
+        # first drop any internal ReviewHog ownership keys the catalog entry might carry.
+        metadata: dict[str, Any] = {
+            **{k: v for k, v in (locked.metadata or {}).items() if k not in _INTERNAL_METADATA_KEYS},
+            "community_skill_slug": locked.slug,
+            "community_skill_id": str(locked.id),
+        }
+
+        template_variables = parse_template_variables(locked.metadata)
+        if template_variables:
+            rendered = render_template_skill(
+                variables=template_variables,
+                body=locked.body,
+                files=files,
+                supplied=variables,
+            )
+            body = rendered.body
+            files = rendered.files
+            # The instantiated skill is a concrete skill, not a template — drop the variable schema and
+            # record what it was rendered from so a re-render stays deterministic.
+            metadata.pop("variables", None)
+            metadata["instantiated_from"] = f"{locked.slug}@{locked.source_sha}"
+            metadata["variable_bindings"] = rendered.bindings
 
         installed = create_skill(
             team,
             user=user,
             name=target_name,
             description=locked.description,
-            body=locked.body,
+            body=body,
             license=locked.license,
             compatibility=locked.compatibility,
             allowed_tools=locked.allowed_tools,
-            # Stamp provenance so an installed skill can be traced back to its community source, but
-            # first drop any internal ReviewHog ownership keys the catalog entry might carry.
-            metadata={
-                **{k: v for k, v in (locked.metadata or {}).items() if k not in _INTERNAL_METADATA_KEYS},
-                "community_skill_slug": locked.slug,
-                "community_skill_id": str(locked.id),
-            },
+            metadata=metadata,
             files=files or None,
         )
 

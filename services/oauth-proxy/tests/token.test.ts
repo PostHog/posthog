@@ -342,57 +342,131 @@ describe('handleToken', () => {
         expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'us', { expirationTtl: 3600 })
     })
 
-    it('returns error when mapping exists but both regions reject the refresh_token', async () => {
-        const clientHash = await hashKey('proxy_client_bad')
-        mockKVGet(mockKV, (key: string, type?: unknown) => {
-            if (key === `region:${clientHash}`) {
+    it.each([
+        {
+            scenario: 'both regions reject the grant',
+            usStatus: 400,
+            usBody: JSON.stringify({ error: 'invalid_grant', error_description: 'US rejected' }),
+            euStatus: 400,
+            euBody: JSON.stringify({ error: 'invalid_grant', error_description: 'EU rejected' }),
+            expectedStatus: 400,
+            expectedBody: JSON.stringify({ error: 'invalid_grant', error_description: 'US rejected' }),
+        },
+        {
+            scenario: 'US is unhealthy and EU returns a client error',
+            usStatus: 502,
+            usBody: 'bad gateway',
+            euStatus: 400,
+            euBody: JSON.stringify({ error: 'invalid_grant', error_description: 'EU rejected' }),
+            expectedStatus: 400,
+            expectedBody: JSON.stringify({ error: 'invalid_grant', error_description: 'EU rejected' }),
+        },
+    ])(
+        'forwards the regional response on the mapping path when $scenario',
+        async ({ usStatus, usBody, euStatus, euBody, expectedStatus, expectedBody }) => {
+            const clientHash = await hashKey('proxy_client_bad')
+            mockKVGet(mockKV, (key: string, type?: unknown) => {
+                if (key === `region:${clientHash}`) {
+                    return Promise.resolve(null)
+                }
+                if (key === 'client:proxy_client_bad' && type === 'json') {
+                    return Promise.resolve({
+                        us_client_id: 'proxy_client_bad',
+                        eu_client_id: 'eu_real_id',
+                        created_at: Date.now(),
+                    })
+                }
                 return Promise.resolve(null)
-            }
-            if (key === 'client:proxy_client_bad' && type === 'json') {
-                return Promise.resolve({
-                    us_client_id: 'proxy_client_bad',
-                    eu_client_id: 'eu_real_id',
-                    created_at: Date.now(),
-                })
-            }
-            return Promise.resolve(null)
-        })
+            })
 
-        vi.stubGlobal(
-            'fetch',
-            vi
-                .fn()
-                .mockResolvedValueOnce(
-                    new Response(JSON.stringify({ error: 'invalid_grant' }), {
-                        status: 400,
-                        headers: { 'Content-Type': 'application/json' },
-                    })
-                )
-                .mockResolvedValueOnce(
-                    new Response(JSON.stringify({ error: 'invalid_grant' }), {
-                        status: 400,
-                        headers: { 'Content-Type': 'application/json' },
-                    })
-                )
-        )
+            vi.stubGlobal(
+                'fetch',
+                vi
+                    .fn()
+                    .mockResolvedValueOnce(new Response(usBody, { status: usStatus }))
+                    .mockResolvedValueOnce(new Response(euBody, { status: euStatus }))
+            )
 
-        const request = new Request('https://oauth.posthog.com/oauth/token/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'grant_type=refresh_token&refresh_token=rt_expired&client_id=proxy_client_bad',
-        })
+            const request = new Request('https://oauth.posthog.com/oauth/token/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'grant_type=refresh_token&refresh_token=rt_expired&client_id=proxy_client_bad',
+            })
 
-        const response = await handleToken(request, mockKV)
-        const data = (await response.json()) as Record<string, unknown>
+            const response = await handleToken(request, mockKV)
 
-        expect(response.status).toBe(400)
-        expect(data.error).toBe('invalid_request')
-        expect(data.error_description).toBe('Unable to determine region')
-        // Tried both regions
-        expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
-        // Did not re-store region
-        expect(vi.mocked(mockKV.put)).not.toHaveBeenCalled()
-    })
+            expect(response.status).toBe(expectedStatus)
+            expect(await response.text()).toBe(expectedBody)
+            // Tried both regions
+            expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+            // Did not re-store region
+            expect(vi.mocked(mockKV.put)).not.toHaveBeenCalled()
+        }
+    )
+
+    it.each([
+        {
+            scenario: 'both regions reject the grant',
+            usStatus: 400,
+            usBody: JSON.stringify({ error: 'invalid_grant', error_description: 'Token is expired' }),
+            euStatus: 400,
+            euBody: JSON.stringify({ error: 'invalid_grant', error_description: 'Token is expired' }),
+            expectedStatus: 400,
+            expectedBody: JSON.stringify({ error: 'invalid_grant', error_description: 'Token is expired' }),
+        },
+        {
+            scenario: 'US is unhealthy and EU returns a client error',
+            usStatus: 502,
+            usBody: 'bad gateway',
+            euStatus: 400,
+            euBody: JSON.stringify({ error: 'invalid_grant' }),
+            expectedStatus: 400,
+            expectedBody: JSON.stringify({ error: 'invalid_grant' }),
+        },
+        {
+            scenario: 'both regions are unhealthy',
+            usStatus: 500,
+            usBody: 'upstream failure',
+            euStatus: 503,
+            euBody: 'service unavailable',
+            expectedStatus: 500,
+            expectedBody: 'upstream failure',
+        },
+        {
+            scenario: 'US answers below 400 and EU returns a client error',
+            usStatus: 302,
+            usBody: '',
+            euStatus: 400,
+            euBody: JSON.stringify({ error: 'invalid_grant' }),
+            expectedStatus: 400,
+            expectedBody: JSON.stringify({ error: 'invalid_grant' }),
+        },
+    ])(
+        'forwards the regional response when $scenario',
+        async ({ usStatus, usBody, euStatus, euBody, expectedStatus, expectedBody }) => {
+            mockKVGetValue(mockKV, null)
+
+            vi.stubGlobal(
+                'fetch',
+                vi
+                    .fn()
+                    .mockResolvedValueOnce(new Response(usBody, { status: usStatus }))
+                    .mockResolvedValueOnce(new Response(euBody, { status: euStatus }))
+            )
+
+            const request = new Request('https://oauth.posthog.com/oauth/token/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'grant_type=refresh_token&refresh_token=rt_dead&client_id=unknown_client',
+            })
+
+            const response = await handleToken(request, mockKV)
+
+            expect(response.status).toBe(expectedStatus)
+            expect(await response.text()).toBe(expectedBody)
+            expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+        }
+    )
 
     it('does not use client mapping for authorization_code even when mapping exists', async () => {
         const clientHash = await hashKey('proxy_client_authcode')

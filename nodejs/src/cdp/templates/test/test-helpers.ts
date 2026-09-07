@@ -7,6 +7,8 @@ import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { defaultConfig } from '~/common/config/config'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
@@ -205,7 +207,6 @@ export class TemplateTester {
                 sesEndpoint: config.SES_ENDPOINT,
                 sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: false,
             },
             undefined as any,
             undefined as any,
@@ -226,9 +227,15 @@ export class TemplateTester {
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: config.SITE_URL,
+                internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
             },
             {
                 teamManager: this.mockTeamManager as any,
+                // Disabled on purpose: template tests pin Hog response handling, and
+                // invokeFetchResponse simulates any transport's response push. The scoped-JWT
+                // transport itself is covered in hog-executor.service.test.ts.
+                conversationsTicketsJwt: new ScopedServiceJwt(PosthogJwtAudience.CONVERSATIONS_TICKETS, ''),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS, ''),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
@@ -274,7 +281,8 @@ export class TemplateTester {
 
     async invoke(
         _inputs: Record<string, any>,
-        _globals?: DeepPartialHogFunctionInvocationGlobals
+        _globals?: DeepPartialHogFunctionInvocationGlobals,
+        _options?: { hogFlow?: { id: string }; actionId?: string }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (this.template.mapping_templates) {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
@@ -301,6 +309,14 @@ export class TemplateTester {
 
         const globalsWithInputs = await this.hogExecutor.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
+        // Workflow-only async functions read the flow id and step id off the invocation the way
+        // HogFlowFunctionsService sets them; there is no flow in this harness, so inject them.
+        if (_options?.hogFlow) {
+            ;(invocation as { hogFlow?: { id: string } }).hogFlow = _options.hogFlow
+        }
+        if (_options?.actionId) {
+            invocation.state.actionId = _options.actionId
+        }
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 

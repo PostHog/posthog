@@ -1,0 +1,31 @@
+---
+title: MCP missing capability reports
+sidebar: Docs
+showTitle: true
+---
+
+Missing capability reports show what agents tried to do when your MCP server did not expose a suitable tool.
+Each report keeps the agent's own description, the MCP client, the person, and the time it was filed.
+
+## Enable reports
+
+From your MCP server's project root, run the MCP analytics Wizard command shown on the **Missing capabilities** tab.
+The setup agent enables missing capability reporting for you.
+
+To configure it manually, set `reportMissing: true` when you initialize the PostHog MCP SDK.
+This adds a virtual `get_more_tools` tool that agents can call when the available tools cannot complete a task.
+The agent's description is captured as a `$mcp_missing_capability` event.
+
+Enabling the setting does not create reports by itself.
+A report appears only after an agent calls `get_more_tools`.
+
+## Review reports
+
+Open **MCP analytics** and select **Missing capabilities**.
+Reports appear newest first, with the agent's request, client, person, and timestamp.
+
+Use the date range to focus on a period, or search the request text for a capability or workflow.
+Use the results to decide which tools, actions, or parameters would remove the most important gaps in your server.
+
+Reports can omit the client name when the SDK cannot identify it.
+Those rows appear as **Unknown client** instead of being grouped with a known client.

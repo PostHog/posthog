@@ -26,8 +26,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.facade.api import delete_node_from_dag
-from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import delete_node_from_dag, materialize_saved_query
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
@@ -112,7 +111,7 @@ class EndpointCrudService:
                     current_version=1,
                     derived_from_insight=data.derived_from_insight,
                 )
-                EndpointVersion.objects.create(
+                version = EndpointVersion.objects.create(
                     endpoint=endpoint,
                     team=self.team,
                     version=1,
@@ -127,6 +126,13 @@ class EndpointCrudService:
                     created_by=self.user,
                     columns=columns,
                 )
+                if data.is_materialized is True:
+                    self.materialization.enable_materialization(
+                        endpoint,
+                        version,
+                        version.data_freshness_seconds,
+                        bucket_overrides=data.bucket_overrides,
+                    )
 
             apply_tags(endpoint, data.tags)
 
@@ -151,7 +157,7 @@ class EndpointCrudService:
 
             return endpoint
 
-        except ValidationError:
+        except (APIException, ValidationError):
             raise
         except Exception as e:
             capture_exception(
@@ -387,7 +393,7 @@ class EndpointCrudService:
                 # enable only triggers an immediate Temporal run when it creates the schedule;
                 # changed bucketing on an existing materialization needs an explicit refresh.
                 try:
-                    trigger_saved_query_schedule(target_version.saved_query)
+                    materialize_saved_query(target_version.saved_query)
                 except Exception:
                     logger.warning(
                         "failed_to_trigger_materialization_refresh",

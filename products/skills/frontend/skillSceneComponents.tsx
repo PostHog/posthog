@@ -12,6 +12,7 @@ import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { isSkill, llmSkillLogic } from './llmSkillLogic'
+import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 
 export { LLMSkillsScene } from './LLMSkillsScene'
 export { LLMSkillScene } from './LLMSkillScene'
@@ -24,6 +25,85 @@ export function openArchiveSkillDialog(onConfirm: () => void): void {
         description: 'All versions of this skill will be archived. This action cannot be undone.',
         primaryButton: { children: 'Archive', status: 'danger', onClick: onConfirm },
         secondaryButton: { children: 'Cancel' },
+    })
+}
+
+/** Collect the new name, then hand it to `onRename`. */
+export function openRenameSkillDialog(skillName: string, onRename: (newName: string) => void): void {
+    LemonDialog.openForm({
+        title: 'Rename skill',
+        description:
+            "Agents call the skill by its name, and the name is also its URL and its folder in the zip export. Renaming keeps the skill's version history and owners.",
+        initialValues: { newName: skillName },
+        content: (
+            <LemonField name="newName" label="New skill name">
+                <LemonInput
+                    data-attr="llma-skill-rename-name"
+                    placeholder="my-skill-name"
+                    maxLength={SKILL_NAME_MAX_LENGTH}
+                    autoFocus
+                />
+            </LemonField>
+        ),
+        errors: {
+            newName: (name: string) => validateSkillName(name),
+        },
+        onSubmit: ({ newName }) => onRename(newName),
+    })
+}
+
+interface PublishToCommunityOptions {
+    display_name?: string
+    tags?: string[]
+    author_handle?: string
+}
+
+/** Collect the publish fields, then hand them to `onPublish`. Shared so the list view and the
+ * single-skill view open the identical dialog. */
+export function openPublishToCommunityDialog({
+    skillName,
+    githubLogin,
+    onPublish,
+}: {
+    skillName: string
+    githubLogin: string | null
+    onPublish: (skillName: string, options: PublishToCommunityOptions) => void
+}): void {
+    LemonDialog.openForm({
+        title: 'Publish to community',
+        description:
+            "Publishing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
+        initialValues: {
+            display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            tags: '',
+            // Prefill with the user's resolved GitHub handle when we have one; the field stays
+            // editable so users without a linked GitHub identity can still type one (free-text fallback).
+            author_handle: githubLogin ?? '',
+        },
+        content: (
+            <div className="flex flex-col gap-2">
+                <LemonField name="display_name" label="Display name">
+                    <LemonInput data-attr="llma-publish-display-name" autoFocus />
+                </LemonField>
+                <LemonField name="tags" label="Tags (comma-separated)">
+                    <LemonInput data-attr="llma-publish-tags" placeholder="web-analytics, triage" />
+                </LemonField>
+                <LemonField name="author_handle" label="Your GitHub handle (optional)">
+                    <LemonInput data-attr="llma-publish-author-handle" placeholder="octocat" />
+                </LemonField>
+            </div>
+        ),
+        onSubmit: ({ display_name, tags, author_handle }) =>
+            onPublish(skillName, {
+                display_name: display_name?.trim() || undefined,
+                tags: tags
+                    ? tags
+                          .split(',')
+                          .map((t: string) => t.trim())
+                          .filter(Boolean)
+                    : undefined,
+                author_handle: author_handle?.trim() || undefined,
+            }),
     })
 }
 

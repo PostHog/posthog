@@ -26,6 +26,10 @@ exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1
         data-tile-id="1"
       />
     </div>
+    <div
+      class="absolute inset-0 pointer-events-none"
+      style="z-index: 6;"
+    />
   </div>
 </div>
 `;

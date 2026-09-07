@@ -115,6 +115,7 @@ export function NotebookComponentShell({
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
+    const ToolbarComponent = definition?.ToolbarComponent
     // Read-only canvases (e.g. customer profiles) keep the filters toggle: it's the only way to
     // configure nodes there, matching the legacy notebook's canvas behavior.
     const isViewModeCanvas = mode === 'view' && !!allowViewModeFilters
@@ -439,6 +440,13 @@ export function NotebookComponentShell({
                             ) : null}
                         </div>
                     ) : null}
+                    {ToolbarComponent ? (
+                        <div className="MarkdownNotebook__component-toolbar-controls">
+                            <NotebookComponentToolbarErrorBoundary node={node}>
+                                <ToolbarComponent node={node} notebookMode={mode} updateProps={updateProps} />
+                            </NotebookComponentToolbarErrorBoundary>
+                        </div>
+                    ) : null}
                 </div>
                 {mode === 'edit' ? (
                     isTitleEditable && isEditingTitle ? (
@@ -582,6 +590,31 @@ export function NotebookComponentShell({
 
 function isTitleInputTarget(target: EventTarget | null): boolean {
     return target instanceof HTMLElement && !!target.closest('.MarkdownNotebook__component-toolbar-title--input')
+}
+
+function NotebookComponentToolbarErrorBoundary({
+    children,
+    node,
+}: {
+    children: ReactNode
+    node: NotebookComponentBlockNode
+}): JSX.Element {
+    return (
+        <PostHogErrorBoundary
+            key={`${node.id}-toolbar`}
+            additionalProperties={{
+                feature: 'markdown_notebook_component',
+                markdown_notebook_node_id: node.id,
+                markdown_notebook_tag_name: node.tagName,
+                markdown_notebook_panel: 'toolbar',
+            }}
+            // A crashed control drops out of the toolbar instead of reporting there: an error block
+            // in the top row would push the title and the block's actions off it.
+            fallback={() => <></>}
+        >
+            {children}
+        </PostHogErrorBoundary>
+    )
 }
 
 export function NotebookComponentPanelErrorBoundary({

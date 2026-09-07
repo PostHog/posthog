@@ -75,18 +75,24 @@ class TestWelcomeEndpoint(APIBaseTest):
     def test_team_members_respect_member_list_visibility(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         project_mate = User.objects.create_and_join(self.organization, "mate@example.com", None, "Mate")
         User.objects.create_and_join(self.organization, "hidden@example.com", None, "Hidden")
         # Private project: default "none" with explicit grants for the requester and one project mate
-        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
         for membership in (
             self.organization_membership,
             project_mate.organization_memberships.get(organization=self.organization),
         ):
             AccessControl.objects.create(
-                team=self.team, resource="project", organization_member=membership, access_level="member"
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="member",
             )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -133,6 +139,47 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["recent_activity"]), 1)
         self.assertEqual(data["recent_activity"][0]["entity_name"], "My insight")
+
+    def test_recent_activity_insight_url_uses_short_id(self):
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="Insight",
+            activity="created",
+            item_id="1001",
+            detail={"name": "My insight", "short_id": "AaVQ8Ijw"},
+            user=self.user,
+            is_system=False,
+            was_impersonated=False,
+        )
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="Insight",
+            activity="created",
+            item_id="123",
+            detail={"name": "Legacy insight"},
+            user=self.user,
+            is_system=False,
+            was_impersonated=False,
+        )
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="Dashboard",
+            activity="created",
+            item_id="42",
+            detail={"name": "My dashboard"},
+            user=self.user,
+            is_system=False,
+            was_impersonated=False,
+        )
+        response = self.client.get("/api/organizations/@current/welcome/current/")
+        data = response.json()
+        urls_by_name = {item["entity_name"]: item["entity_url"] for item in data["recent_activity"]}
+        self.assertEqual(urls_by_name["My insight"], f"/project/{self.team.id}/insights/AaVQ8Ijw")
+        self.assertIsNone(urls_by_name["Legacy insight"])
+        self.assertEqual(urls_by_name["My dashboard"], f"/project/{self.team.id}/dashboard/42")
 
     def test_recent_activity_truncates_long_entity_names(self):
         ActivityLog.objects.create(

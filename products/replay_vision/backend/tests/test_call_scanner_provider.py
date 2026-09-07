@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from google.genai.errors import APIError
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
+    _run_mission,
     _run_mission_attempts,
     _run_pass,
     _run_steps,
@@ -77,6 +79,51 @@ async def _run(client: _FakeClient, steps: list[MissionStep], dispatch: Any = la
         metric_labels=_LABELS,
         trace_id="trace-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_scanner_generations_include_team_attribution() -> None:
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    snapshot = MagicMock()
+    snapshot.scanner_type.value = "monitor"
+    snapshot.model = "gemini-3-flash-preview"
+    snapshot.provider = "gemini"
+
+    with (
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.genai.AsyncClient"
+        ) as client_cls,
+        patch("products.replay_vision.backend.temporal.activities.call_scanner_provider.GoogleGenAIClient"),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._maybe_create_video_cache",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission_attempts",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.build_events_index",
+            return_value={},
+        ),
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+        )
+
+    assert client_cls.call_args.kwargs["posthog_properties"] == {
+        "ai_product": "replay_vision",
+        "feature": "scanner",
+        "scanner_type": "monitor",
+        "team_id": 42,
+    }
 
 
 @pytest.mark.asyncio
@@ -197,24 +244,24 @@ async def test_non_required_step_failure_is_skipped_not_raised() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_non_required_step_is_rolled_back_so_the_next_step_stays_clean() -> None:
-    # facets (non-required) fails both attempts; signals must still run against a clean convo, with the failed
-    # facets exchange rolled back rather than left as two consecutive user turns.
+    # extras (non-required) fails both attempts; signals must still run against a clean convo, with the failed
+    # extras exchange rolled back rather than left as two consecutive user turns.
     steps = [
         MissionStep(name="summary", instruction="sum", response_model=_Core),
-        MissionStep(name="facets", instruction="fac", response_model=_Side, required=False),
+        MissionStep(name="extras", instruction="fac", response_model=_Side, required=False),
         MissionStep(name="signals", instruction="sig", response_model=_Side, required=False),
     ]
     client = _FakeClient(
         [
             _Resp(text='{"verdict":"yes"}'),  # summary ok
             _Resp(text="bad"),
-            _Resp(text="still bad"),  # facets exhausts both attempts
+            _Resp(text="still bad"),  # extras exhausts both attempts
             _Resp(text='{"note":"ok"}'),  # signals ok
         ]
     )
     out = await _run(client, steps)
-    assert "summary" in out and "signals" in out and "facets" not in out
-    # signals sees [video, preamble, summary instr, summary answer, signals instr] = 5; the failed facets turn rolled back.
+    assert "summary" in out and "signals" in out and "extras" not in out
+    # signals sees [video, preamble, summary instr, summary answer, signals instr] = 5; the failed extras turn rolled back.
     assert len(client.models.calls[-1]["contents"]) == 5
 
 

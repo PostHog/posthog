@@ -2,6 +2,8 @@ import fs from 'fs'
 import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
+import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 import {
     type BuiltModelRow,
@@ -9,17 +11,24 @@ import {
     DISCOUNT_SUMMARY_ENV,
     type DiscountReportEntry,
     type EndpointCandidate,
+    FLAT_FEE_FIELDS,
+    MODEL_NAMESPACE_VENDORS,
+    OPTIONAL_PRICING_FIELDS,
+    type RouteRate,
     type RunTotals,
     UNCHECKED_WARN_FRACTION,
     accumulateModelRow,
-    buildDefaultCost,
     buildModelCost,
     buildModelRow,
+    buildServedCost,
     collectModelRows,
     confirmDiscountAgainstSiblings,
     fetchOpenRouterCosts,
     finalizeTotals,
     foldModelIntoTotals,
+    hasNoRefuter,
+    isFirstPartyRoute,
+    isVendorPromotion,
     parseDiscountRate,
     readEndpointsFromOpenRouter,
     renderDiscountReport,
@@ -37,10 +46,14 @@ const cost = (promptPrice: string, discount = 0, completion = promptPrice): Retu
     return built
 }
 
-const candidate = (key: string, promptPrice: string, discount: number): EndpointCandidate => ({
+const candidate = (key: string, promptPrice: string, discount: number, vendorPromotion = false): EndpointCandidate => ({
     key,
     cost: cost(promptPrice, discount)!,
     discount,
+    vendorPromotion,
+    unrefutable: false,
+    servedPrompt: undefined,
+    listPrompt: undefined,
 })
 
 /** An endpoints-payload entry shaped the way OpenRouter serves it. */
@@ -134,15 +147,167 @@ describe('withoutDiscount()', () => {
     })
 })
 
-describe('buildDefaultCost()', () => {
+describe('isFirstPartyRoute()', () => {
+    it.each<{ description: string; model: string; key: string; expected: boolean }>([
+        { description: 'the vendor route itself', model: 'openai/gpt-5.6-luna', key: 'openai', expected: true },
+        { description: 'a vendor service tier', model: 'openai/gpt-5.6-luna', key: 'openai-flex', expected: true },
+        {
+            description: "the vendor's other hosting arm",
+            model: 'google/gemini-3.7-flash',
+            key: 'google-vertex-global',
+            expected: true,
+        },
+        {
+            description: 'a batch variant of the model',
+            model: 'google/x:batch',
+            key: 'google-ai-studio',
+            expected: true,
+        },
+        { description: 'a vendor aliased to another name', model: 'qwen/qwen-plus', key: 'alibaba', expected: true },
+        { description: 'a hyphenated vendor alias', model: 'x-ai/grok-5', key: 'xai-priority', expected: true },
+        { description: 'a reseller', model: 'google/gemini-3.7-flash', key: 'novita-fp8', expected: false },
+        { description: 'the vendor of a different model', model: 'qwen/qwen-plus', key: 'qwen', expected: false },
+        { description: 'a reseller sharing the vendor prefix', model: 'openai/o5', key: 'openaint', expected: false },
+        { description: 'an id with no namespace', model: 'gpt-5.6-luna', key: 'openai', expected: false },
+        // Without the separator guard the whole id is read as its own vendor, and
+        // this is the shape where that returns true instead of false.
+        { description: 'a slug-only id that looks like a vendor', model: 'openai-x', key: 'openai', expected: false },
+    ])('$description', ({ model, key, expected }) => {
+        expect(isFirstPartyRoute(model, key)).toBe(expected)
+    })
+
+    it('holds the alias table already normalized on both sides', () => {
+        // Neither side is normalized on lookup, so an entry that is not already
+        // in key form never matches and reverts that vendor to de-discounting.
+        for (const [namespace, vendor] of Object.entries(MODEL_NAMESPACE_VENDORS)) {
+            expect(normalizeProviderKey(namespace)).toBe(namespace)
+            expect(normalizeProviderKey(vendor)).toBe(vendor)
+        }
+    })
+
+    it('maps every alias onto a vendor that hosts most of its own namespace', () => {
+        // Binds the table to the price book rather than to itself. Mere presence
+        // is too weak: resellers appear on other vendors' namespaces too, and
+        // `qwen: 'together'` would pass that. A vendor hosts the bulk of its own
+        // models (80-100% live) where a reseller reaches a third at most.
+        const book: Array<{ model: string; cost: Record<string, unknown> }> = parseJSON(
+            fs.readFileSync(path.join(__dirname, '../providers/llm-costs.json'), 'utf8')
+        )
+
+        let checked = 0
+        for (const [namespace, vendor] of Object.entries(MODEL_NAMESPACE_VENDORS)) {
+            const models = book.filter((row) => row.model.startsWith(`${namespace}/`))
+            // A namespace the catalogue drops makes its entry inert, not wrong.
+            if (models.length === 0) {
+                continue
+            }
+            const hosted = models.filter((row) =>
+                Object.keys(row.cost).some((key) => key === vendor || key.startsWith(`${vendor}-`))
+            )
+            expect(hosted.length / models.length).toBeGreaterThan(0.5)
+            checked += 1
+        }
+        expect(checked).toBeGreaterThan(0)
+    })
+})
+
+describe('isVendorPromotion()', () => {
+    // Prices default well clear of any list price a case builds, so a case only
+    // exercises the price refutation when it sets them.
+    const route = (discount: number, firstParty: boolean, servedPrompt = 7e-7): RouteRate => ({
+        discount,
+        firstParty,
+        servedPrompt,
+        listPrompt: discount === 0 ? servedPrompt : parseFloat((servedPrompt / (1 - discount)).toPrecision(10)),
+    })
+
+    it.each<{ description: string; subject: RouteRate; routes: RouteRate[]; expected: boolean }>([
+        {
+            description: 'holds when only the vendor runs the rate',
+            subject: route(0.5, true),
+            routes: [route(0.5, true), route(0, false)],
+            expected: true,
+        },
+        {
+            description: 'fails when an unrelated host runs the same rate',
+            subject: route(0.5, true),
+            routes: [route(0.5, true), route(0.5, false)],
+            expected: false,
+        },
+        {
+            description: 'ignores an unrelated host on a different rate',
+            subject: route(0.5, true),
+            routes: [route(0.5, true), route(0.2, false)],
+            expected: true,
+        },
+        {
+            // 4e-8 / 0.2 is 2.0000000000000004e-7 in float, so this matches only
+            // because both sides round first. Pins that rounding.
+            description: 'refutes on a price whose division is inexact',
+            subject: route(0.8, true, 4e-8),
+            routes: [route(0.8, true, 4e-8), route(0, false, 2e-7)],
+            expected: false,
+        },
+        {
+            // A negative rate is a markup: the served price sits above list, and
+            // dividing it out is what recovers list.
+            description: 'never holds for a markup',
+            subject: route(-0.2, true),
+            routes: [route(-0.2, true)],
+            expected: false,
+        },
+        {
+            description: 'fails when de-discounting lands on an undiscounted price',
+            // minimax-m2 live: the vendor's 0.15 divides out to exactly what two
+            // undiscounted hosts charge, so the rate is a markdown off a real list.
+            subject: route(0.15, true, 2.55e-7),
+            routes: [route(0.15, true, 2.55e-7), route(0, false, 3e-7)],
+            expected: false,
+        },
+        {
+            description: 'ignores an undiscounted host at a different price',
+            subject: route(0.15, true, 2.55e-7),
+            routes: [route(0.15, true, 2.55e-7), route(0, false, 9e-7)],
+            expected: true,
+        },
+        {
+            description: 'never holds for a reseller route',
+            subject: route(0.5, false),
+            routes: [route(0.5, false)],
+            expected: false,
+        },
+        {
+            // Sole route on purpose: a second route would refute this on its own.
+            description: 'never holds without a rate',
+            subject: route(0, true),
+            routes: [route(0, true)],
+            expected: false,
+        },
+    ])('$description', ({ subject, routes, expected }) => {
+        expect(isVendorPromotion(subject, routes)).toBe(expected)
+    })
+
+    it('holds on a vendor-only model, where nothing can refute it', () => {
+        // gemini-3.7-flash is this shape: every route is Google's, so both
+        // refutations scan an empty set. `hasNoRefuter` marks it in the report.
+        const routes = [route(0.5, true), route(0.5, true, 3.5e-7)]
+        expect(isVendorPromotion(routes[0], routes)).toBe(true)
+        expect(hasNoRefuter(routes)).toBe(true)
+        // An undiscounted route could refute on price even when it is the vendor's own.
+        expect(hasNoRefuter([route(0.5, true), route(0, true)])).toBe(false)
+        expect(hasNoRefuter([route(0.5, true), route(0.5, false)])).toBe(false)
+    })
+})
+
+describe('buildServedCost()', () => {
     it('keeps the served price when the list payload carries a rate', () => {
-        expect(buildDefaultCost({ prompt: '0.0000005', completion: '0.000003', discount: 0.5 })!.prompt_token).toBe(
+        expect(buildServedCost({ prompt: '0.0000005', completion: '0.000003', discount: 0.5 })!.prompt_token).toBe(
             0.0000005
         )
     })
 
     it('behaves like the plain builder when there is no rate', () => {
-        expect(buildDefaultCost({ prompt: '0.000001', completion: '0.000006' })).toEqual({
+        expect(buildServedCost({ prompt: '0.000001', completion: '0.000006' })).toEqual({
             prompt_token: 0.000001,
             completion_token: 0.000006,
         })
@@ -176,14 +341,15 @@ describe('buildModelCost() discount handling', () => {
         })
     })
 
-    it('applies the rate uniformly to every field, flat fees included', () => {
-        // web_search is a per-call fee and is discounted at the same ratio.
+    it('de-discounts the per-token rates but carries flat fees across untouched', () => {
+        // A promotional route serves web_search at the same price as its undiscounted sibling.
         expect(
             buildModelCost({
                 prompt: '0.0000005',
                 completion: '0.000003',
                 input_cache_read: '0.00000005',
-                web_search: '0.005',
+                web_search: '0.01',
+                request: '0.004',
                 discount: 0.5,
             })
         ).toEqual({
@@ -191,7 +357,14 @@ describe('buildModelCost() discount handling', () => {
             completion_token: 0.000006,
             cache_read_token: 0.0000001,
             web_search: 0.01,
+            request: 0.004,
         })
+    })
+
+    it.each([-0.25, 0, 0.1, 0.41, 0.5, 0.9])('leaves a flat fee alone at a rate of %d', (discount) => {
+        expect(buildModelCost({ prompt: '0.000001', completion: '0.000006', web_search: '0.01', discount })).toEqual(
+            expect.objectContaining({ web_search: 0.01 })
+        )
     })
 
     it('does not adjust prices when the rate is out of range', () => {
@@ -207,6 +380,69 @@ describe('buildModelCost() discount handling', () => {
             prompt_token: 0.000002,
             completion_token: 0.000012,
         })
+    })
+})
+
+describe('FLAT_FEE_FIELDS is bound to the field list it filters', () => {
+    // Neither direction is a type error: a member outside the loop is dead, and a
+    // loop field outside the set is silently de-discounted.
+    const targetFields = OPTIONAL_PRICING_FIELDS.map(([targetField]) => targetField)
+
+    it.each([...FLAT_FEE_FIELDS])('%s is a field the loop actually reads', (field) => {
+        expect(targetFields).toContain(field)
+    })
+
+    it('reads the OpenRouter field names this list claims to read', () => {
+        // Spelled out rather than derived: every other assertion feeds the source name
+        // back into its own fixture, so only a literal catches a typo or a dropped pair.
+        expect(OPTIONAL_PRICING_FIELDS).toEqual([
+            ['cache_read_token', 'input_cache_read'],
+            ['cache_write_token', 'input_cache_write'],
+            ['request', 'request'],
+            ['web_search', 'web_search'],
+            ['image', 'image'],
+            ['image_output', 'image_output'],
+            ['audio', 'audio'],
+            ['audio_output', 'audio_output'],
+            ['input_audio_cache', 'input_audio_cache'],
+            ['internal_reasoning', 'internal_reasoning'],
+        ])
+    })
+
+    // Partial, so the absent-policy guard below is type-honest. A stray key
+    // outside `keyof ModelCost` fails to compile; one inside it but outside the
+    // loop fails the keys-equality test.
+    const policy: Partial<Record<keyof ModelCost, 'flat' | 'de-discounted'>> = {
+        cache_read_token: 'de-discounted',
+        cache_write_token: 'de-discounted',
+        request: 'flat',
+        web_search: 'flat',
+        image: 'de-discounted',
+        image_output: 'de-discounted',
+        audio: 'de-discounted',
+        audio_output: 'de-discounted',
+        input_audio_cache: 'de-discounted',
+        internal_reasoning: 'de-discounted',
+    }
+
+    it('declares a policy for every field the loop reads, and no others', () => {
+        expect(Object.keys(policy).sort()).toEqual([...targetFields].sort())
+    })
+
+    it.each(OPTIONAL_PRICING_FIELDS)('%s is priced as its declared policy says', (targetField, sourceField) => {
+        const expected = policy[targetField]
+        // A loop field with no policy here fails rather than silently inheriting the de-discount.
+        expect(expected).toBeTruthy()
+
+        const built = buildModelCost({
+            prompt: '0.000001',
+            completion: '0.000001',
+            [sourceField]: '0.01',
+            discount: 0.5,
+        })
+
+        expect(built?.[targetField]).toBe(expected === 'flat' ? 0.01 : 0.02)
+        expect(FLAT_FEE_FIELDS.has(targetField)).toBe(expected === 'flat')
     })
 })
 
@@ -252,13 +488,13 @@ describe('buildModelRow()', () => {
         expect(Object.keys(built!.cost)).toStrictEqual(['default'])
     })
 
-    it('stores each endpoint at its de-discounted list price', () => {
+    it('stores each reseller endpoint at its de-discounted list price', () => {
         const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [
-            endpoint('openai', '0.0000005', 0.5),
+            endpoint('novita-fp8', '0.0000005', 0.5),
             endpoint('azure', '0.000001'),
         ])
         expect(built!.checked).toBe(true)
-        expect(built!.cost.openai.prompt_token).toBe(0.000001)
+        expect(built!.cost['novita-fp8'].prompt_token).toBe(0.000001)
         expect(built!.cost.azure.prompt_token).toBe(0.000001)
     })
 
@@ -272,12 +508,22 @@ describe('buildModelRow()', () => {
 
     it('reports the discounted endpoints and the confirmation verdict', () => {
         const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [
-            endpoint('openai', '0.0000005', 0.5),
+            endpoint('novita-fp8', '0.0000005', 0.5),
             endpoint('azure', '0.000001'),
         ])
         expect(built!.discount).toEqual({
             model: 'openai/gpt-5.6-luna',
-            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' as const }],
+            endpoints: [
+                {
+                    key: 'novita-fp8',
+                    discount: 0.5,
+                    confirmation: 'confirmed' as const,
+                    vendorPromotion: false,
+                    unrefutable: false,
+                    servedPrompt: 5e-7,
+                    listPrompt: 0.000001,
+                },
+            ],
         })
     })
 
@@ -295,9 +541,64 @@ describe('buildModelRow()', () => {
     })
 
     it('reports not-checkable when no undiscounted sibling exists', () => {
-        // Every Qwen model: Alibaba is the only route, so nothing corroborates it.
-        const built = buildModelRow('qwen/qwen-plus', listPricing, [endpoint('alibaba-fp8', '0.000000169', 0.35)])
+        // Reseller tag on purpose: a vendor route would keep its promotion instead.
+        const built = buildModelRow('qwen/qwen-plus', listPricing, [endpoint('novita-fp8', '0.000000169', 0.35)])
         expect(built!.discount?.endpoints[0].confirmation).toBe('not-checkable')
+    })
+
+    it('leaves a vendor-run promotion at the price the vendor serves', () => {
+        const built = buildModelRow('google/gemini-3.7-flash', listPricing, [
+            endpoint('google-ai-studio', '0.0000005', 0.5),
+            endpoint('google-vertex-global', '0.0000005', 0.5),
+        ])
+        expect(built!.cost['google-ai-studio'].prompt_token).toBe(0.0000005)
+        expect(built!.cost['google-vertex-global'].prompt_token).toBe(0.0000005)
+        expect(built!.discount?.endpoints.map((e) => [e.key, e.confirmation])).toEqual([
+            ['google-ai-studio', 'not-applicable'],
+            ['google-vertex-global', 'not-applicable'],
+        ])
+    })
+
+    it('de-discounts a vendor route when unrelated hosts run the same rate', () => {
+        // One rate across unrelated hosts is OpenRouter promoting the model, so
+        // the vendor's route goes to list with the rest.
+        const built = buildModelRow('z-ai/glm-5.3-flash', listPricing, [
+            endpoint('z-ai-fp8', '0.000000075', 0.5),
+            endpoint('novita-fp8', '0.000000075', 0.5),
+            endpoint('deepinfra-fp8', '0.000000075', 0.5),
+            endpoint('together', '0.00000015'),
+        ])
+        expect(built!.cost['z-ai-fp8'].prompt_token).toBe(1.5e-7)
+        expect(built!.cost['novita-fp8'].prompt_token).toBe(1.5e-7)
+        expect(built!.discount?.endpoints[0].confirmation).toBe('confirmed')
+    })
+
+    it('de-discounts a vendor route whose recovered price an undiscounted host charges', () => {
+        // minimax-m2 live: 0.15 off 2.55e-7 recovers 3e-7, which two undiscounted
+        // hosts charge outright, so the rate is a markdown and not MiniMax's promo.
+        const built = buildModelRow('minimax/minimax-m2', listPricing, [
+            endpoint('minimax-fp8', '0.000000255', 0.15),
+            endpoint('novita-fp8', '0.0000003'),
+        ])
+        expect(built!.cost['minimax-fp8'].prompt_token).toBe(3e-7)
+        expect(built!.discount?.endpoints[0].confirmation).toBe('confirmed')
+    })
+
+    it('marks a vendor-only model as having nothing that could refute it', () => {
+        const built = buildModelRow('google/gemini-3.7-flash', listPricing, [
+            endpoint('google-ai-studio', '0.0000005', 0.5),
+        ])
+        expect(built!.cost['google-ai-studio'].prompt_token).toBe(0.0000005)
+        expect(built!.discount?.endpoints[0].unrefutable).toBe(true)
+    })
+
+    it('keeps a vendor promotion when a reseller runs a different rate', () => {
+        const built = buildModelRow('openai/gpt-5.6-luna', listPricing, [
+            endpoint('openai', '0.0000005', 0.5),
+            endpoint('novita-fp8', '0.0000008', 0.2),
+        ])
+        expect(built!.cost.openai.prompt_token).toBe(0.0000005)
+        expect(built!.cost['novita-fp8'].prompt_token).toBe(0.000001)
     })
 
     it('warns once, naming the model, on an out-of-range rate', () => {
@@ -346,6 +647,15 @@ describe('confirmDiscountAgainstSiblings()', () => {
         expect(confirmDiscountAgainstSiblings(openai, [openai, candidate('azure', '0.000001', 0)])).toBe('confirmed')
     })
 
+    it('has nothing to corroborate for a route that kept its promotion', () => {
+        // The matching sibling stays: without the guard it reads as corroborating
+        // a division that never ran.
+        const openai = candidate('openai', '0.0000005', 0.5, true)
+        expect(confirmDiscountAgainstSiblings(openai, [openai, candidate('azure', '0.000001', 0)])).toBe(
+            'not-applicable'
+        )
+    })
+
     it('reports unconfirmed when the recovered price matches no sibling', () => {
         const openai = candidate('openai', '0.0000005', 0.5)
         expect(confirmDiscountAgainstSiblings(openai, [openai, candidate('azure', '0.000009', 0)])).toBe('unconfirmed')
@@ -365,11 +675,19 @@ describe('confirmDiscountAgainstSiblings()', () => {
             key: 'openai',
             cost: buildModelCost({ prompt: '0.0000005', completion: '0.000009', discount: 0.5 })!,
             discount: 0.5,
+            vendorPromotion: false,
+            unrefutable: false,
+            servedPrompt: undefined,
+            listPrompt: undefined,
         }
         const sibling: EndpointCandidate = {
             key: 'azure',
             cost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
             discount: 0,
+            vendorPromotion: false,
+            unrefutable: false,
+            servedPrompt: undefined,
+            listPrompt: undefined,
         }
         expect(confirmDiscountAgainstSiblings(discounted, [discounted, sibling])).toBe('confirmed')
     })
@@ -412,12 +730,41 @@ describe('sanitizeReportCell()', () => {
 describe('renderDiscountReport()', () => {
     const entry = (over: Partial<DiscountReportEntry> = {}): DiscountReportEntry => ({
         model: 'openai/gpt-5.6-luna',
-        endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' as const }],
+        endpoints: [
+            {
+                key: 'openai',
+                discount: 0.5,
+                confirmation: 'confirmed' as const,
+                vendorPromotion: false,
+                unrefutable: false,
+                servedPrompt: undefined,
+                listPrompt: undefined,
+            },
+        ],
         ...over,
     })
 
     it('says so plainly when nothing is discounted', () => {
         expect(renderDiscountReport([])).toContain('No discounted endpoints found')
+    })
+
+    it('says that per-call fees are not de-discounted', () => {
+        const report = renderDiscountReport([entry()])
+        expect(report).toContain(
+            'Per-call fees (`request`, `web_search`) carry across untouched: promotional routes in\n' +
+                'the feed serve `web_search` at the same fee as their undiscounted siblings,\n' +
+                'and every other per-call fee follows the same policy.'
+        )
+    })
+
+    it('derives the flat-fee list from FLAT_FEE_FIELDS', () => {
+        // The literal pin above catches a retyped sentence; this binds it to the set.
+        expect(renderDiscountReport([entry()])).toContain(
+            `Per-call fees (${[...FLAT_FEE_FIELDS]
+                .sort()
+                .map((field) => `\`${field}\``)
+                .join(', ')}) carry across untouched`
+        )
     })
 
     it('names each discounted model, endpoint and rate', () => {
@@ -433,13 +780,39 @@ describe('renderDiscountReport()', () => {
             entry(),
             entry({
                 model: 'aaa/unconfirmed',
-                endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'unconfirmed' as const }],
+                endpoints: [
+                    {
+                        key: 'openai',
+                        discount: 0.5,
+                        confirmation: 'unconfirmed' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                ],
             }),
             entry({
                 model: 'qwen/qwen-plus',
                 endpoints: [
-                    { key: 'alibaba-fp8', discount: 0.35, confirmation: 'not-checkable' as const },
-                    { key: 'streamlake', discount: 0.4, confirmation: 'not-checkable' as const },
+                    {
+                        key: 'alibaba-fp8',
+                        discount: 0.35,
+                        confirmation: 'not-checkable' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                    {
+                        key: 'streamlake',
+                        discount: 0.4,
+                        confirmation: 'not-checkable' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
                 ],
             }),
         ])
@@ -448,9 +821,81 @@ describe('renderDiscountReport()', () => {
         expect(report).toContain('1/2 checkable')
     })
 
+    it('attributes a kept promotion to the vendor, not to OpenRouter', () => {
+        // Without the vendorPromotion filters the headline claims 3 endpoints on
+        // 2 models and the ratio reads 1/2, crediting routes nothing corroborated.
+        const report = renderDiscountReport([
+            entry(),
+            entry({
+                model: 'google/gemini-3.7-flash',
+                endpoints: [
+                    {
+                        key: 'google-ai-studio',
+                        discount: 0.5,
+                        confirmation: 'not-applicable' as const,
+                        vendorPromotion: true,
+                        unrefutable: true,
+                        servedPrompt: 7.5e-7,
+                        listPrompt: 1.5e-6,
+                    },
+                    {
+                        key: 'google-vertex-global',
+                        discount: 0.5,
+                        confirmation: 'not-applicable' as const,
+                        vendorPromotion: true,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                ],
+            }),
+        ])
+        expect(report).toContain('**1 endpoint(s)**')
+        expect(report).toContain('**1 model(s)**')
+        expect(report).toContain('1/1 checkable')
+        expect(report).toContain('**2 endpoint(s)**')
+        expect(report).toContain('**1** of those had no route that could have refuted')
+        expect(report).toContain('| `google-ai-studio` | 50% | served (unrefuted) | $0.75 vs $1.5 | not-applicable |')
+        expect(report).toContain('| `google-vertex-global` | 50% | served |  | not-applicable |')
+    })
+
+    it('reads what was stored off the flag, not off the verdict', () => {
+        // The two agree in production. Held apart here so a regression back to
+        // deriving `Stored` from the enum cannot pass.
+        const report = renderDiscountReport([
+            entry({
+                endpoints: [
+                    {
+                        key: 'openai',
+                        discount: 0.5,
+                        confirmation: 'not-applicable' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                ],
+            }),
+        ])
+        expect(report).toContain('| 50% | list |')
+        expect(report).toContain('**1 endpoint(s)**')
+    })
+
     it('puts the confirmation verdict on the row it belongs to', () => {
         const report = renderDiscountReport([
-            entry({ endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'unconfirmed' as const }] }),
+            entry({
+                endpoints: [
+                    {
+                        key: 'openai',
+                        discount: 0.5,
+                        confirmation: 'unconfirmed' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                ],
+            }),
         ])
         expect(report).toContain('| unconfirmed |')
     })
@@ -459,8 +904,24 @@ describe('renderDiscountReport()', () => {
         const report = renderDiscountReport([
             entry({
                 endpoints: [
-                    { key: 'openai', discount: 0.5, confirmation: 'confirmed' as const },
-                    { key: 'openai-flex', discount: 0.5, confirmation: 'confirmed' as const },
+                    {
+                        key: 'openai',
+                        discount: 0.5,
+                        confirmation: 'confirmed' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                    {
+                        key: 'openai-flex',
+                        discount: 0.5,
+                        confirmation: 'confirmed' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
                 ],
             }),
         ])
@@ -488,6 +949,10 @@ describe('renderDiscountReport()', () => {
                     key: `k${e}`,
                     discount: 0.5,
                     confirmation: 'confirmed' as const,
+                    vendorPromotion: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
                 })),
             })
         )
@@ -526,7 +991,17 @@ describe('renderDiscountReport()', () => {
         // Sanitized separately from the model id, so it needs its own input.
         const report = renderDiscountReport([
             entry({
-                endpoints: [{ key: 'a|b\n| pwned | 9 | 9 |', discount: 0.5, confirmation: 'confirmed' as const }],
+                endpoints: [
+                    {
+                        key: 'a|b\n| pwned | 9 | 9 |',
+                        discount: 0.5,
+                        confirmation: 'confirmed' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                ],
             }),
         ])
         expect(report).not.toContain('pwned | 9 | 9 |')
@@ -555,7 +1030,17 @@ describe('accumulateModelRow()', () => {
     it('collects a discount entry when the row reports one', () => {
         const discount = {
             model: 'm',
-            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' as const }],
+            endpoints: [
+                {
+                    key: 'openai',
+                    discount: 0.5,
+                    confirmation: 'confirmed' as const,
+                    vendorPromotion: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
+                },
+            ],
         }
         expect(accumulateModelRow(built({ discount }), 'm', totals()).discounts).toStrictEqual([discount])
     })
@@ -578,7 +1063,17 @@ describe('accumulateModelRow()', () => {
         const base = totals()
         const discount: DiscountReportEntry = {
             model: 'a',
-            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' }],
+            endpoints: [
+                {
+                    key: 'openai',
+                    discount: 0.5,
+                    confirmation: 'confirmed',
+                    vendorPromotion: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
+                },
+            ],
         }
         accumulateModelRow(built({ checked: false, discount }), 'a', base)
         expect(base.models).toHaveLength(0)
@@ -886,7 +1381,17 @@ describe('writeOutputs()', () => {
         const writes = captureWrites()
         const promo: DiscountReportEntry = {
             model: 'openai/gpt-5.6-luna',
-            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' }],
+            endpoints: [
+                {
+                    key: 'openai',
+                    discount: 0.5,
+                    confirmation: 'confirmed',
+                    vendorPromotion: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
+                },
+            ],
         }
 
         writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [promo], 0)

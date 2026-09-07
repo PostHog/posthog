@@ -1,9 +1,11 @@
 import type { AgentSession, WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
+  getCanvasCellId,
   getTerminalCellCwd,
   getTerminalCellId,
   isBrainrotCell,
+  isCanvasCell,
   isTerminalCell,
 } from "./grid";
 import { type CellStatus, deriveStatus, getRepoName } from "./status";
@@ -16,6 +18,8 @@ export interface CommandCenterCellData {
   status: CellStatus;
   repoName: string | null;
   workspaceMode: WorkspaceMode | null;
+  // Canvas: an embedded PostHog canvas rather than a task.
+  canvasId: string | null;
   // Brainrot: a looping video slot rather than a task.
   isBrainrot: boolean;
   // Standalone terminal slot, independent of any agent run.
@@ -36,6 +40,7 @@ const EMPTY_CELL_DATA = {
   status: "idle" as const,
   repoName: null,
   workspaceMode: null,
+  canvasId: null,
   isBrainrot: false,
   terminalId: null,
   terminalCwd: null,
@@ -49,6 +54,14 @@ export function buildCommandCenterCells(
   return storeCells.map((cellValue, cellIndex) => {
     if (isBrainrotCell(cellValue)) {
       return { ...EMPTY_CELL_DATA, cellIndex, isBrainrot: true };
+    }
+
+    if (isCanvasCell(cellValue)) {
+      return {
+        ...EMPTY_CELL_DATA,
+        cellIndex,
+        canvasId: getCanvasCellId(cellValue),
+      };
     }
 
     if (isTerminalCell(cellValue)) {

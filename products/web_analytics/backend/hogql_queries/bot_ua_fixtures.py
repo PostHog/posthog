@@ -145,6 +145,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "meta-webindexer/1.1 (facebook)",
         "Mozilla/5.0 (compatible; archive.org_bot Zeno/warc; +http://archive.org/details/archive.org_bot)",
         "jobcrawler/0.1",
+        "Mozilla/5.0 (compatible; url-crawler/1.0)",
         "FlamingoBot (hackernews.pink)",
         "heritrix/3.14.2 (+image-meta.com)",
         "crawlcrawl-actors/1.0",
@@ -229,6 +230,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "AffsignalCrawler/1.0",
         "RankyDockyBot/1.0",
         "pricingbrief-bot/0.1",
+        "Mozilla/5.0 (compatible; SolvedEarthPriceBot/2.0; +https://solved.earth)",
         "SiteavailObservatory/1.0",
         "appzbot/1.0",
         "Optimize Pilot Research Bot/1.0",
@@ -376,6 +378,17 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Puppeteer",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Playwright",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Selenium",
+        "Mozilla/5.0 (X11; Linux x86_64; rv:59.0) Gecko/20100101 Firefox/59.0 SlimerJS/1.1.0",
+        "Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/538.1 (KHTML, like Gecko) wkhtmltopdf Safari/538.1",
+        # Impossible browser states — one UA per rule.
+        # EdgeHTML version alongside Chromium 100+ (Chrome 42-64 was the only real pairing).
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edge/12.246",
+        # Truncated WebKit token (real Chromium always ends Safari/537.36).
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3",
+        # Trailing whitespace no browser emits.
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ",
+        # Bare Mozilla token, no platform or engine.
+        "Mozilla/5.0",
     ],
     "regular_browser": [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -384,6 +397,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        # Modern Chromium Edge sends "Edg/", not "Edge/", so the Spoofed Edge UA rule must skip it.
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        # Genuine legacy EdgeHTML (Edge 18) shipped with Chrome 64, a pairing the rule must allow.
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/18.17763",
     ],
 }
 

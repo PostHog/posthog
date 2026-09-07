@@ -3,6 +3,21 @@ import { pathToFileURL } from 'node:url'
 
 import { gh, postSection, resolvePrContext } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
+function formatTarget(target) {
+    const escapedTarget = target.replace(
+        /[&<>"']/g,
+        (character) =>
+            ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;',
+            })[character]
+    )
+    return `<code>${escapedTarget}</code>`
+}
+
 export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
     if (
         isUniversal ||
@@ -10,24 +25,22 @@ export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
         !impactedTargets.every((target) => typeof target === 'string')
     ) {
         return {
-            status: 'fail',
+            status: 'alert',
             summary: 'universal lane',
-            body: 'This PR is assigned to the universal lane. Trunk will merge it on its own.',
+            body: 'This PR is assigned to the universal lane. It cannot merge in parallel with other PRs, so it can take longer to merge. Ask dev-ex if you think this is wrong.',
         }
     }
 
-    if (impactedTargets.some((target) => target.startsWith('py:'))) {
-        return {
-            status: 'warn',
-            summary: 'runs backend Python tests',
-            body: 'This PR is assigned to a lane that runs backend Python tests.',
-        }
-    }
+    const runsBackendPythonTests = impactedTargets.some((target) => target.startsWith('py:'))
+    const laneName = runsBackendPythonTests ? 'backend Python lane' : 'non-backend lane'
+    // A single target names the exact lane; more than one collapses to the
+    // shared family name rather than listing them all.
+    const summary = impactedTargets.length === 1 ? `${laneName} (${formatTarget(impactedTargets[0])})` : laneName
 
     return {
-        status: 'ok',
-        summary: 'does not run backend Python tests',
-        body: 'This PR is assigned to a lane that does not run backend Python tests.',
+        status: runsBackendPythonTests ? 'warn' : 'ok',
+        summary,
+        body: `This PR is assigned to the ${summary}. It ${runsBackendPythonTests ? 'runs' : 'does not run'} backend Python tests and may merge in parallel with PRs in other lanes.`,
     }
 }
 

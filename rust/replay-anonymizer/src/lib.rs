@@ -48,9 +48,12 @@ pub mod event;
 pub mod images;
 #[doc(hidden)]
 pub mod json;
+mod json_ld;
 #[doc(hidden)]
 pub mod scan;
 pub mod snapshot;
+#[doc(hidden)]
+pub mod srcset;
 #[doc(hidden)]
 pub mod text;
 pub mod timings;

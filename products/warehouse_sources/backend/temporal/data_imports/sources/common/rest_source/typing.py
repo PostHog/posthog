@@ -7,6 +7,8 @@ from requests import Session
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import FanoutParentSource
+
 from .auth import (
     APIKeyAuth,
     AuthConfigBase,
@@ -224,6 +226,12 @@ class ClientConfig(TypedDict, total=False):
     # source pointed at a customer-controlled host that stalls holds an import worker forever.
     # A single float applies to both connect and read; a tuple sets them separately.
     request_timeout: Optional[float | tuple[float, float]]
+    # When False, this client's default tracked session is built with HTTP sample capture
+    # disabled — for endpoints whose bodies carry sensitive PII the name-based sample scrubbers
+    # aren't guaranteed to catch (e.g. student/HR records). Requests are still metered and
+    # logged. Left unset, capture follows the operator-configured sample rules as normal. No
+    # effect when a pre-built `session` is supplied instead.
+    capture: bool
 
 
 class IncrementalArgs(TypedDict, total=False):
@@ -342,6 +350,10 @@ class EndpointResourceBase(ResourceBase, total=False):
     # ``endpoint`` is kept only for dependency-graph bookkeeping. Used to drive a fan-out
     # child from an already-synced warehouse parent table.
     data_iterator: Optional[Callable[[], Iterator[list[dict[str, Any]]]]]
+    # Which source served this resource's rows, for fan-out telemetry. Set by
+    # ``build_dependent_resource`` only after the warehouse table resolves, so it names the parent
+    # the run actually read rather than the one its config asked for.
+    parent_source: Optional[FanoutParentSource]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

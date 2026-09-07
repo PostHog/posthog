@@ -4,15 +4,16 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+import { selectExistingFeatureFlagModalLogic } from 'products/experiments/frontend/modals/SelectExistingFeatureFlagModal/selectExistingFeatureFlagModalLogic'
+
 import type {
     ExperimentExposureCriteria,
     ExperimentMetric,
     ExperimentMetricUnion,
 } from '../../../queries/schema/schema-general'
 import type { FeatureFlagFilters, MultivariateFlagVariant } from '../../../types'
-import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
-import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import { getExperimentVariants, getFlagVariants } from '../utils'
@@ -478,13 +479,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         afterMount: () => {
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
-            // Re-validate the feature flag key if one is already set.
-            // variantsPanelLogic unmounts when leaving the form, so validation
-            // state is lost and needs to be re-checked on remount.
-            const key = values.experiment?.feature_flag_key
-            if (key) {
-                actions.validateFeatureFlagKey(key)
-            }
         },
     })),
 ])

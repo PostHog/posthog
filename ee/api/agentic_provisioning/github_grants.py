@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from django.core.cache import cache
@@ -60,8 +60,8 @@ class GitHubGrant:
     gh_id: int
     gh_login: str
     email: str | None
-    access_token: str
-    refresh_token: str | None
+    access_token: str = field(repr=False)
+    refresh_token: str | None = field(repr=False)
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
     created_at: str

@@ -155,6 +155,65 @@ class TestExtractMessageText:
                 "duplicated\ndifferent",
             ),
             (
+                # Human messages carry a rich_text mirror of `text` whose flattening drops
+                # mentions and emoji — a near-duplicate that must not reach the agent prompt.
+                "rich_text_mirror_of_text_is_skipped",
+                {
+                    "text": "never seen it work anywhere :joy: cc <@UCLEO>",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {"type": "text", "text": "never seen it work anywhere "},
+                                        {"type": "emoji", "name": "joy"},
+                                        {"type": "text", "text": " cc "},
+                                        {"type": "user", "user_id": "UCLEO"},
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "never seen it work anywhere :joy: cc <@UCLEO>",
+            ),
+            (
+                "rich_text_still_flattened_when_text_empty",
+                {
+                    "text": "",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "bot content only in blocks"}],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "bot content only in blocks",
+            ),
+            (
+                "non_rich_text_blocks_kept_alongside_text",
+                {
+                    "text": "🔴 Alert firing",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {"type": "rich_text_section", "elements": [{"type": "text", "text": "🔴 Alert firing"}]}
+                            ],
+                        },
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "value 42 exceeded threshold 10"}},
+                    ],
+                },
+                "🔴 Alert firing\nvalue 42 exceeded threshold 10",
+            ),
+            (
                 "no_content_returns_empty",
                 {"text": "", "blocks": [], "attachments": []},
                 "",
@@ -543,3 +602,31 @@ class TestCollectThreadMessages:
 
         with pytest.raises(SlackApiError):
             collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
+
+
+class TestCollectThreadMessagesUntilTs:
+    """A fork reads the thread as it stood when the reader forked it. Without the clip
+    it would answer using messages posted after they stopped looking."""
+
+    def _collect(self, until_ts=None):
+        slack = MagicMock()
+        slack.client.conversations_replies.return_value = {
+            "messages": [
+                {"ts": "1.000", "user": "U1", "text": "first"},
+                {"ts": "2.000", "user": "U1", "text": "forked here"},
+                {"ts": "3.000", "user": "U1", "text": "said afterwards"},
+            ]
+        }
+        integration = MagicMock()
+        with patch(
+            "products.slack_app.backend.services.slack_messages.get_slack_user_info",
+            return_value={"user": {"profile": {"display_name": "mira"}}},
+        ):
+            return collect_thread_messages(slack, integration, "C1", "1.000", None, until_ts=until_ts)
+
+    def test_the_clip_is_inclusive_of_the_forked_message(self):
+        assert [m["text"] for m in self._collect(until_ts="2.000")] == ["first", "forked here"]
+
+    def test_no_bound_reads_the_whole_thread(self):
+        # The mention path passes none — it answers the thread as it stands.
+        assert [m["text"] for m in self._collect()] == ["first", "forked here", "said afterwards"]

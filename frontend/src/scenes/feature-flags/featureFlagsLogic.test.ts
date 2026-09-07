@@ -285,6 +285,56 @@ describe('the feature flags logic', () => {
         })
     })
 
+    it('redirects a disabled usage deep link to overview after flags load', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('redirects from usage when the rollout flag is disabled', async () => {
+        router.actions.push(urls.featureFlags())
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], {})
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('stays on usage when the rollout flag is enabled', async () => {
+        const flags = {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        }
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+        expect(router.values.searchParams['tab']).toEqual('usage')
+    })
+
+    it('does not rewrite another scene URL when the rollout flag is disabled', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+        router.actions.push('/project/997/experiments/1')
+
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        expect(router.values.location.pathname).toEqual('/project/997/experiments/1')
+    })
+
     describe('activity deep-link', () => {
         it('preserves the activity deep-link param when staying on the history tab', async () => {
             router.actions.push(urls.featureFlags(), { tab: 'history', activity: 'some-uuid' })
@@ -431,16 +481,11 @@ describe('updateFeatureFlagArchived', () => {
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
     })
 
-    // The list arm of the disable-and-archive experiment: the row toggle has to reach
-    // updateFeatureFlagArchived with the list's own via, not the archive dialog's.
-    it('archives via the disable confirmation when the test variant picks it', async () => {
+    // The list arm of the disable-and-archive dialog: picking "Disable and archive" from the row
+    // toggle has to reach updateFeatureFlagArchived with the list's own via, not the archive dialog's.
+    it('archives via the disable confirmation when disable and archive is picked', async () => {
         const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
         jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
-        const flagsLogic = enabledFeaturesLogic()
-        flagsLogic.mount()
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
-            [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
-        })
 
         logic.actions.toggleFeatureFlagActive(1, false)
         expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')

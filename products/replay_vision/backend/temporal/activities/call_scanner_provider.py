@@ -3,7 +3,7 @@
 Each scan is a shared preamble plus the scanner's ordered `mission_steps` (one structured turn each). The video
 is cached once so the steps don't re-process it; the model pulls analytics events on demand via `get_events_around`.
 Each step validates its own output and re-prompts once on failure; required steps abort the scan, best-effort steps
-(facets, signals) just contribute nothing.
+(signals) just contribute nothing.
 """
 
 import re
@@ -366,6 +366,7 @@ async def _run_mission(
             "ai_product": "replay_vision",
             "feature": "scanner",
             "scanner_type": snapshot.scanner_type.value,
+            "team_id": team_id,
         },
     )
     cache_client = GoogleGenAIClient(api_key=api_key)

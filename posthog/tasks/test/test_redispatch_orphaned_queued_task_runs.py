@@ -79,6 +79,25 @@ class TestRedispatchOrphanedQueuedTaskRuns(TestCase):
 
         mock_redispatch.assert_called_once_with(cloud_run.id)
 
+    def test_covered_runs_do_not_crowd_orphans_out_of_the_batch(self) -> None:
+        TaskWorkflowDispatch = apps.get_model("tasks", "TaskWorkflowDispatch")
+        covered = self._queued_run(datetime.timedelta(days=1))
+        orphan = self._queued_run(datetime.timedelta(minutes=10))
+        TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=covered,
+            workflow_id=f"task-{covered.id}",
+            dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+            status=TaskWorkflowDispatch.Status.PENDING,
+        )
+
+        with patch(
+            "products.tasks.backend.facade.api.redispatch_task_run", return_value="recovered"
+        ) as mock_redispatch:
+            redispatch_orphaned_queued_task_runs()
+
+        mock_redispatch.assert_called_once_with(orphan.id)
+
     def test_one_failure_does_not_block_the_sweep(self) -> None:
         self._queued_run(datetime.timedelta(minutes=10))
         self._queued_run(datetime.timedelta(minutes=11))

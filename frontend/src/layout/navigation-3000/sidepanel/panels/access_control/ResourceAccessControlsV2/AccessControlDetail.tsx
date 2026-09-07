@@ -230,8 +230,9 @@ function ProjectAccessSection({
                 levels={availableProjectLevels}
                 onChange={onChange}
                 disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
-                // Plain "No override": project access is object-resolved at runtime (an explicit role rule
-                // can undercut the default), so annotating what applies without a rule can be wrong here.
+                inherited={inheritedFor(entry.project, 'this project')}
+                // Falls back to a plain "No override" for a subject with nothing above them, which
+                // is the project's own default rather than a member or a role
                 allowNoOverride
             />
         </div>
@@ -304,7 +305,7 @@ function ToolsSection({
     entry: AccessControlSettingsEntry
     subjectNoun: string
 }): JSX.Element {
-    const { availableResourceLevels, defaults, canEdit, showAllTools, toolsCollapse } = useValues(
+    const { availableResourceLevels, canEdit, showAllTools, toolsCollapse } = useValues(
         accessControlsLogic({ projectId })
     )
     const { updateResourceAccessControls, setShowAllTools } = useActions(accessControlsLogic({ projectId }))
@@ -375,11 +376,7 @@ function ToolsSection({
                                         minimumLevel={res?.minimum}
                                         onChange={(level) => onResourceChange(resource.key, level)}
                                         disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
-                                        inherited={inheritedFor(
-                                            res,
-                                            defaults?.resource_access_levels[resource.key]?.system_default_access_level,
-                                            resource.label.toLowerCase()
-                                        )}
+                                        inherited={inheritedFor(res, resource.label.toLowerCase())}
                                     />
                                 </div>
                             )

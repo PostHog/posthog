@@ -149,6 +149,7 @@ export function ConversationView({
     lastTurnInfo,
     isCompacting,
     isClearing,
+    isBackgroundTurnActive,
     completedToolCallCount,
     lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
@@ -497,6 +498,7 @@ export function ConversationView({
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
         isClearing={isClearing}
+        isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
         lastActivityAt={lastActivityAt}
       />

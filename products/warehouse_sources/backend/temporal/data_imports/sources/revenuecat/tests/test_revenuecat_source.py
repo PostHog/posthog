@@ -4,14 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    ExternalWebhookInfo,
-    WebhookCreationResult,
-    WebhookDeletionResult,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.revenuecat import (
     RevenueCatSourceConfig,
@@ -34,38 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
 
 def _config(api_key: str = "sk_test", project_id: str = "proj_test") -> RevenueCatSourceConfig:
     return RevenueCatSourceConfig(secret_api_key=api_key, project_id=project_id)
-
-
-class TestRevenueCatSourceConfigFields:
-    def test_get_source_config_exposes_required_secret_api_key_and_project_id(self):
-        source = RevenueCatSource()
-        cfg = source.get_source_config
-
-        names = {f.name for f in cfg.fields}
-        assert names == {"secret_api_key", "project_id"}
-
-        api_key_field = next(f for f in cfg.fields if f.name == "secret_api_key")
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        project_field = next(f for f in cfg.fields if f.name == "project_id")
-        assert isinstance(project_field, SourceFieldInputConfig)
-        assert project_field.required is True
-        assert project_field.secret is False
-
-    def test_get_source_config_declares_authorization_header_as_webhook_field(self):
-        source = RevenueCatSource()
-        cfg = source.get_source_config
-
-        assert cfg.webhookFields is not None
-        webhook_field_names = {f.name for f in cfg.webhookFields}
-        assert "authorization_header" in webhook_field_names
-
-        auth_field = next(f for f in cfg.webhookFields if f.name == "authorization_header")
-        assert isinstance(auth_field, SourceFieldInputConfig)
-        assert auth_field.required is True
-        assert auth_field.secret is True
 
 
 class TestRevenueCatSourceWebhookResourceMap:
@@ -183,20 +145,6 @@ class TestRevenueCatSourceWebhookInputsUpdated:
         assert error == "boom"
 
 
-class TestRevenueCatSourceDeleteWebhook:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.delete_webhook"
-    )
-    def test_delegates_to_api_client(self, mock_delete):
-        mock_delete.return_value = WebhookDeletionResult(success=True)
-        source = RevenueCatSource()
-
-        result = source.delete_webhook(_config("k", "p"), "https://example.com/h", team_id=1)
-
-        assert result.success is True
-        mock_delete.assert_called_once_with("k", "p", "https://example.com/h")
-
-
 class TestRevenueCatSourceSyncWebhookEvents:
     """RevenueCat has no provider-side event subscription to reconcile — it inherits the
     `WebhookSource` defaults, which are a no-op."""
@@ -212,36 +160,6 @@ class TestRevenueCatSourceSyncWebhookEvents:
         )
         assert result.success is True
         assert result.error is None
-
-
-class TestRevenueCatSourceExternalWebhookInfo:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.get_external_webhook_info"
-    )
-    def test_delegates_to_api_client(self, mock_info):
-        mock_info.return_value = ExternalWebhookInfo(exists=True, status="enabled")
-        source = RevenueCatSource()
-
-        info = source.get_external_webhook_info(_config("k", "p"), "https://example.com/h", team_id=1)
-
-        assert info is not None
-        assert info.exists is True
-        mock_info.assert_called_once_with("k", "p", "https://example.com/h")
-
-
-class TestRevenueCatSourceValidateCredentials:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.validate_credentials"
-    )
-    def test_delegates_to_api_client(self, mock_validate):
-        mock_validate.return_value = (True, None)
-        source = RevenueCatSource()
-
-        success, error = source.validate_credentials(_config("k", "p"), team_id=1)
-
-        assert success is True
-        assert error is None
-        mock_validate.assert_called_once_with("k", "p")
 
 
 class TestRevenueCatSourcePipelineDispatch:

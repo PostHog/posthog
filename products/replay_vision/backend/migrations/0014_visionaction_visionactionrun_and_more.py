@@ -7,8 +7,6 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
-import products.replay_vision.backend.models.vision_action
-
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -73,7 +71,7 @@ class Migration(migrations.Migration):
                 (
                     "selection",
                     models.JSONField(
-                        default=products.replay_vision.backend.models.vision_action.default_selection,
+                        default=dict,
                         help_text="Observation filter applied at synthesis time (scanner_ids, verdict, tags, scores, status, window_days).",
                     ),
                 ),

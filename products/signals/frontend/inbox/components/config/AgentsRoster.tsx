@@ -13,6 +13,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -23,7 +24,7 @@ import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
-import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
+import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -94,8 +95,11 @@ interface AgentSourceState {
     entities: RosterEntity[]
     /** The entity list is still loading, so the count would read as a wrong zero. */
     entitiesLoading: boolean
-    /** The source's `SignalSourceConfig` row, for sources that persist one. Steering writes to it. */
-    sourceConfig: SignalSourceConfig | null
+    /**
+     * The source's `SignalSourceConfig` rows, for sources that persist them. Guidance writes to all
+     * of them, so a source with a row per signal type is steered from its one card.
+     */
+    steeringConfigs: SignalSourceConfig[]
 }
 
 function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element | null {
@@ -107,6 +111,7 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element |
     return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
 }
 
+/** The legacy roster's per-row health dot; the redesign relies on the tag alone. */
 function StatusDot({
     status,
     tool,
@@ -333,7 +338,7 @@ function Expansion({
             {onSteer && (
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-secondary">
-                        {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
+                        {state.steeringConfigs.some(sourceSteeringIsSet)
                             ? 'Guidance is set for this source.'
                             : 'Tell the agent what matters and what to skip.'}
                     </span>
@@ -344,9 +349,7 @@ function Expansion({
                         onClick={onSteer}
                         data-attr="signal-source-steering-open"
                     >
-                        {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
-                            ? 'Edit guidance'
-                            : 'Add guidance'}
+                        {state.steeringConfigs.some(sourceSteeringIsSet) ? 'Edit guidance' : 'Add guidance'}
                     </LemonButton>
                 </div>
             )}
@@ -454,6 +457,7 @@ const AgentRow = memo(function AgentRow({
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
     const toolOff = tool?.enabled === false
@@ -473,7 +477,7 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
-                <StatusDot status={status} tool={tool} toolOff={toolOff} />
+                {!redesign && <StatusDot status={status} tool={tool} toolOff={toolOff} />}
                 <AgentIcon source={agent} />
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-2">
@@ -558,7 +562,30 @@ const AgentRow = memo(function AgentRow({
     )
 })
 
+/**
+ * Heading for one group of sources. Under the redesign it is set in the same type as the row titles
+ * so it reads as a section of the Settings card; the legacy rail keeps a muted eyebrow over a
+ * bordered list.
+ */
+function AgentRosterGroupHeader({ group, redesign }: { group: AgentRosterGroup; redesign: boolean }): JSX.Element {
+    if (!redesign) {
+        return <span className="text-xs font-medium text-muted">{group.label}</span>
+    }
+    return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
+}
+
+function agentGroupClassName(redesign: boolean): string {
+    return redesign ? 'flex flex-col gap-2 pt-2' : 'flex flex-col gap-1'
+}
+
+function agentListClassName(redesign: boolean): string {
+    return redesign
+        ? '-mx-2 divide-y divide-primary'
+        : 'divide-y divide-primary overflow-hidden rounded border border-primary'
+}
+
 export function AgentsRoster(): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const {
         conversationsConfig,
         evalReportsConfig,
@@ -571,6 +598,7 @@ export function AgentsRoster(): JSX.Element {
         ciSignalsConfig,
         ciSignalsConfigLoading,
         ciSignalsIsFullyEnabled,
+        errorTrackingConfigs,
         errorTrackingTypeStates,
         visionScanners,
         visionScannersLoading,
@@ -603,7 +631,7 @@ export function AgentsRoster(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
-    const [steeringTarget, setSteeringTarget] = useState<{ config: SignalSourceConfig; label: string } | null>(null)
+    const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -633,7 +661,7 @@ export function AgentsRoster(): JSX.Element {
             const base = {
                 entities: [] as RosterEntity[],
                 entitiesLoading: false,
-                sourceConfig: null as SignalSourceConfig | null,
+                steeringConfigs: [] as SignalSourceConfig[],
             }
             const dwState = (config: SignalSourceConfig | null, loading: boolean): AgentSourceState => ({
                 ...base,
@@ -642,7 +670,7 @@ export function AgentsRoster(): JSX.Element {
                 // No config row yet → the source has never been connected; surface a Connect button.
                 requiresSetup: config === null,
                 syncStatus: config?.status,
-                sourceConfig: config,
+                steeringConfigs: config ? [config] : [],
             })
             switch (source) {
                 case 'error_tracking':
@@ -655,6 +683,7 @@ export function AgentsRoster(): JSX.Element {
                         requiresSetup: false,
                         syncStatus: null,
                         entities: errorTrackingEntities,
+                        steeringConfigs: errorTrackingConfigs,
                     }
                 case 'conversations':
                     return {
@@ -663,7 +692,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isConversationsToggling,
                         requiresSetup: false,
                         syncStatus: conversationsConfig?.status,
-                        sourceConfig: conversationsConfig,
+                        steeringConfigs: conversationsConfig ? [conversationsConfig] : [],
                     }
                 case 'replay_vision':
                     return {
@@ -698,6 +727,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isHealthChecksToggling,
                         requiresSetup: false,
                         syncStatus: healthChecksConfig?.status,
+                        steeringConfigs: healthChecksConfig ? [healthChecksConfig] : [],
                     }
                 case 'github':
                     return dwState(githubIssuesConfig, isGithubIssuesToggling)
@@ -720,6 +750,7 @@ export function AgentsRoster(): JSX.Element {
         },
         [
             errorTrackingEntities,
+            errorTrackingConfigs,
             errorTrackingTypeStates,
             isErrorTrackingToggling,
             conversationsConfig,
@@ -806,31 +837,36 @@ export function AgentsRoster(): JSX.Element {
         ...group,
         agents: group.agents.filter((agent) => !agent.flag || featureFlags[agent.flag]),
     }))
+
     const allAgents = visibleGroups.flatMap((group) => group.agents)
     const armedCount = allAgents.filter((agent) => stateFor(agent.source).armed).length
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted">
-                <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />
-                <span>
-                    {armedCount} of {allAgents.length} sources on
-                </span>
-            </div>
+            {!redesign && (
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                    <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />
+                    <span>
+                        {armedCount} of {allAgents.length} sources on
+                    </span>
+                </div>
+            )}
 
             {visibleGroups.map((group) => (
-                <div key={group.label} className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-muted">{group.label}</span>
-                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary">
+                <div key={group.label} className={agentGroupClassName(redesign)}>
+                    <AgentRosterGroupHeader group={group} redesign={redesign} />
+                    <div className={agentListClassName(redesign)}>
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
                             // Steering needs a persisted row to write to, so optimistic `new_`
                             // placeholder rows wait until the reload lands. Disabled sources keep
                             // the control: enabling starts a sync immediately, so rules must be
                             // settable before the first sync runs.
-                            const steeringConfig =
-                                agent.steerable && state.sourceConfig && !state.sourceConfig.id.startsWith('new_')
-                                    ? state.sourceConfig
+                            const steeringConfigs =
+                                agent.steerable &&
+                                state.steeringConfigs.length > 0 &&
+                                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
+                                    ? state.steeringConfigs
                                     : null
                             return (
                                 <AgentRow
@@ -850,8 +886,8 @@ export function AgentsRoster(): JSX.Element {
                                     onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
                                     onConfigureFilters={undefined}
                                     onSteer={
-                                        steeringConfig
-                                            ? () => setSteeringTarget({ config: steeringConfig, label: agent.label })
+                                        steeringConfigs
+                                            ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
                                             : undefined
                                     }
                                     onRetryData={loadToolDataEvents}
@@ -865,8 +901,8 @@ export function AgentsRoster(): JSX.Element {
             {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
             {steeringTarget && (
                 <SourceSteeringModal
-                    key={steeringTarget.config.id}
-                    sourceConfig={steeringTarget.config}
+                    key={steeringTarget.configs.map((config) => config.id).join(',')}
+                    sourceConfigs={steeringTarget.configs}
                     sourceLabel={steeringTarget.label}
                     onClose={() => setSteeringTarget(null)}
                 />
@@ -890,13 +926,14 @@ function AgentRowSkeleton(): JSX.Element {
 }
 
 export function AgentsRosterSkeleton(): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     return (
         <div className="flex flex-col gap-3">
             <LemonSkeleton className="h-3 w-48" />
             {AGENT_ROSTER_GROUPS.map((group) => (
-                <div key={group.label} className="flex flex-col gap-1">
-                    <LemonSkeleton className="h-3 w-24" />
-                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary">
+                <div key={group.label} className={agentGroupClassName(redesign)}>
+                    <AgentRosterGroupHeader group={group} redesign={redesign} />
+                    <div className={agentListClassName(redesign)}>
                         {group.agents.map((agent) => (
                             <AgentRowSkeleton key={agent.source} />
                         ))}

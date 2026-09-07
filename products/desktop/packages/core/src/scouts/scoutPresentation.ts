@@ -29,7 +29,7 @@ export function getScoutOrigin(
  * says nothing at all about a scout that is still running but already flagged
  * for auto-pause.
  */
-export type ScoutLifecycle =
+type ScoutLifecycle =
   | "active"
   /** Still running, but the system has flagged it. See `willPause`. */
   | "warned"
@@ -77,27 +77,27 @@ function warnedCopy(
       return {
         label: "Pausing soon",
         explanation:
-          "Its findings have been going unacted on, so the inactivity sweep will pause this scout soon. Act on a finding, or exempt it from inactivity pauses, to keep it running.",
+          "Nobody acted on its signals, so PostHog pauses this agent soon. Act on a signal, or exempt it from inactivity pauses, to keep it running.",
         willPause: true,
       };
     case "no_output":
       return {
         label: "Quiet",
         explanation:
-          "This scout has surfaced nothing lately, so the inactivity sweep flagged it for a look. Staying quiet on its own never pauses a scout, so nothing happens unless someone acts.",
+          "This agent has sent nothing lately, so PostHog flagged it for a look. Staying quiet never pauses an agent on its own.",
         willPause: false,
       };
     case "repeated_failures":
       return {
         label: "Pausing soon",
-        explanation: `PostHog will pause this scout soon because ${failureCountClause(failureCount)}. Fix the skill to keep it running.`,
+        explanation: `PostHog pauses this agent soon because ${failureCountClause(failureCount)}. Fix the skill to keep it running.`,
         willPause: true,
       };
     default:
       return {
         label: "Pausing soon",
         explanation:
-          "PostHog is about to pause this scout. Exempt it from inactivity pauses to keep it running.",
+          "PostHog is about to pause this agent. Exempt it from inactivity pauses to keep it running.",
         willPause: true,
       };
   }
@@ -109,15 +109,15 @@ function systemPausedExplanation(
 ): string {
   switch (reason) {
     case "ignored":
-      return "PostHog paused this scout because its findings were going unacted on. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
+      return "PostHog paused this agent because nobody acted on its signals. Switch it back on to resume. It can pause again if nobody acts on its signals. Enable Never pause for inactivity to prevent inactivity pauses.";
     case "no_output":
-      return "PostHog paused this scout because it stopped emitting findings. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
+      return "PostHog paused this agent because it stopped sending signals. Switch it back on to resume.";
     case "repeated_failures":
       // The breaker keeps a half-open probe on this reason, so this one recovers
       // without anyone touching it. Say so, or the badge reads as terminal.
-      return `PostHog paused this scout because ${failureCountClause(failureCount)}. It retries about once a day and resumes on its own once a run succeeds. Fix the skill, or switch it back on to retry right away.`;
+      return `PostHog paused this agent because ${failureCountClause(failureCount)}. It retries about once a day and resumes when a run succeeds. Fix the skill, or switch it back on to retry now.`;
     default:
-      return "PostHog paused this scout. Switch it back on to resume.";
+      return "PostHog paused this agent. Switch it back on to resume.";
   }
 }
 
@@ -174,6 +174,108 @@ export function deriveScoutLifecycle(config: ScoutConfig): ScoutLifecycleState {
     isWarned: false,
     willPause: false,
   };
+}
+
+export interface ScoutHealthNotice {
+  text: string;
+  tone: "warning" | "destructive";
+  /** The one config change that clears the notice, when there is one. */
+  action: "resume" | "keep_running" | null;
+  /** Where to look for the cause. */
+  link: "output" | "activity" | null;
+}
+
+/**
+ * The banner on the agent page. Shorter than `explanation` because the
+ * buttons beside it carry the instruction. Null when the agent is healthy.
+ */
+export function scoutHealthNotice(
+  config: ScoutConfig,
+): ScoutHealthNotice | null {
+  const lifecycle = deriveScoutLifecycle(config);
+  const failures = failureCountClause(lifecycle.consecutiveFailureCount);
+  if (lifecycle.isSystemPaused) {
+    switch (lifecycle.reason) {
+      case "ignored":
+        return {
+          text: "PostHog paused this agent because nobody acted on its signals. Resume starts a new grace period. Enable Never pause for inactivity to prevent another inactivity pause.",
+          tone: "destructive",
+          action: "resume",
+          link: "output",
+        };
+      case "no_output":
+        return {
+          text: "PostHog paused this agent because it stopped sending signals.",
+          tone: "destructive",
+          action: "resume",
+          link: "activity",
+        };
+      case "repeated_failures":
+        return {
+          text: `PostHog paused this agent because ${failures}. It retries about once a day.`,
+          tone: "destructive",
+          action: "resume",
+          link: "activity",
+        };
+      default:
+        return {
+          text: "PostHog paused this agent.",
+          tone: "destructive",
+          action: "resume",
+          link: null,
+        };
+    }
+  }
+  if (!lifecycle.isWarned) return null;
+  const canExempt = lifecycle.autoPauseExempt === false;
+  switch (lifecycle.reason) {
+    case "ignored":
+      return {
+        text: "Nobody acted on its signals. PostHog pauses this agent soon.",
+        tone: "warning",
+        action: canExempt ? "keep_running" : null,
+        link: "output",
+      };
+    case "no_output":
+      return {
+        text: "This agent has sent nothing lately. Staying quiet never pauses an agent on its own.",
+        tone: "warning",
+        action: canExempt ? "keep_running" : null,
+        link: "activity",
+      };
+    case "repeated_failures":
+      return {
+        text: `${failures.charAt(0).toUpperCase()}${failures.slice(1)}. PostHog pauses this agent soon.`,
+        tone: "warning",
+        action: null,
+        link: "activity",
+      };
+    default:
+      return {
+        text: "PostHog pauses this agent soon.",
+        tone: "warning",
+        action: canExempt ? "keep_running" : null,
+        link: null,
+      };
+  }
+}
+
+const SUMMARY_MAX_CHARS = 140;
+
+/**
+ * One line for the agent header. Descriptions are skill prose written for a
+ * model, so take the first sentence and cut it at a word when it still runs long.
+ */
+export function scoutSummarySentence(
+  description: string | undefined,
+): string | null {
+  const text = description?.trim().replace(/\s+/g, " ");
+  if (!text) return null;
+  const sentenceEnd = text.search(/[.!?](\s|$)/);
+  const sentence = sentenceEnd === -1 ? text : text.slice(0, sentenceEnd + 1);
+  if (sentence.length <= SUMMARY_MAX_CHARS) return sentence;
+  const cut = sentence.slice(0, SUMMARY_MAX_CHARS);
+  return `${cut.slice(0, cut.lastIndexOf(" "))}…`;
 }
 
 /** "signals-scout-error-tracking" → "Error tracking" */
@@ -384,10 +486,35 @@ export type ScoutRunOutcome =
   | "queued"
   | "unknown";
 
+export function scoutRunOutputCount(run: ScoutRun): number {
+  return (run.emitted_count ?? 0) + scoutRunReports(run).length;
+}
+
+export function scoutRunReports(
+  run: ScoutRun,
+): { id: string; action: "created" | "updated" }[] {
+  const created = new Set(run.emitted_report_ids ?? []);
+  const updated = new Set(run.edited_report_ids ?? []);
+  return [
+    ...[...created].map((id) => ({ id, action: "created" as const })),
+    ...[...updated]
+      .filter((id) => !created.has(id))
+      .map((id) => ({ id, action: "updated" as const })),
+  ];
+}
+
+export function hasPendingScoutRun(rollup: ScoutRollup | undefined): boolean {
+  return (
+    rollup?.runs.some((run) =>
+      ["running", "queued"].includes(normalizeRunStatus(run.status)),
+    ) ?? false
+  );
+}
+
 export function deriveRunOutcome(run: ScoutRun, now: Date): ScoutRunOutcome {
   const status = normalizeRunStatus(run.status);
   if (status === "completed") {
-    return (run.emitted_count ?? 0) > 0 ? "emitted" : "quiet";
+    return scoutRunOutputCount(run) > 0 ? "emitted" : "quiet";
   }
   if (status === "failed") {
     return deriveRunFailureKind(run, now) === "timed_out"
@@ -402,11 +529,11 @@ export function deriveRunOutcome(run: ScoutRun, now: Date): ScoutRunOutcome {
 export function scoutRunOutcomeLabel(run: ScoutRun, now: Date): string {
   switch (deriveRunOutcome(run, now)) {
     case "emitted": {
-      const count = run.emitted_count ?? 0;
-      return `${count} signal${count === 1 ? "" : "s"} emitted`;
+      const count = scoutRunOutputCount(run);
+      return `${count} output${count === 1 ? "" : "s"}`;
     }
     case "quiet":
-      return "0 signals emitted";
+      return "no output";
     case "error":
       return "failed";
     case "timed_out":
@@ -414,7 +541,7 @@ export function scoutRunOutcomeLabel(run: ScoutRun, now: Date): string {
     case "running":
       return "running now";
     case "stuck":
-      return "running past the deadline – may be stuck";
+      return "running past the deadline, may be stuck";
     case "queued":
       return "queued";
     case "unknown":
@@ -433,9 +560,9 @@ export function runMatchesFilter(
     case "all":
       return true;
     case "emitted":
-      return (run.emitted_count ?? 0) > 0;
+      return scoutRunOutputCount(run) > 0;
     case "quiet":
-      return status === "completed" && (run.emitted_count ?? 0) === 0;
+      return status === "completed" && scoutRunOutputCount(run) === 0;
     case "failed":
       return status === "failed";
   }
@@ -484,7 +611,7 @@ export function computeScoutRollups(
     const status = normalizeRunStatus(run.status);
     if (status === "completed") rollup.completedCount += 1;
     if (status === "failed") rollup.failedCount += 1;
-    rollup.emittedCount += run.emitted_count ?? 0;
+    rollup.emittedCount += scoutRunOutputCount(run);
     rollup.runs.push(run);
     const startedAt = run.started_at ? new Date(run.started_at).getTime() : 0;
     const latestStartedAt = rollup.latestRun?.started_at
@@ -525,6 +652,7 @@ export interface FleetSummary {
 export function computeFleetSummary(
   configs: ScoutConfig[],
   rollups: Map<string, ScoutRollup>,
+  now: Date = new Date(),
 ): FleetSummary {
   let runningCount = 0;
   let emittedCount = 0;
@@ -533,13 +661,17 @@ export function computeFleetSummary(
   let runCount = 0;
   let emittedRunCount = 0;
   for (const rollup of rollups.values()) {
-    if (rollup.runningRun) runningCount += 1;
+    if (
+      rollup.runningRun &&
+      deriveRunOutcome(rollup.runningRun, now) === "running"
+    )
+      runningCount += 1;
     emittedCount += rollup.emittedCount;
     completedCount += rollup.completedCount;
     failedCount += rollup.failedCount;
     runCount += rollup.runCount;
     for (const run of rollup.runs) {
-      if ((run.emitted_count ?? 0) > 0) emittedRunCount += 1;
+      if (scoutRunOutputCount(run) > 0) emittedRunCount += 1;
     }
   }
   const lifecycles = configs.map(deriveScoutLifecycle);
@@ -559,7 +691,7 @@ export function computeFleetSummary(
   };
 }
 
-export interface RunIntervalOption {
+interface RunIntervalOption {
   minutes: number;
   label: string;
 }
@@ -584,6 +716,247 @@ export function formatRunInterval(minutes: number): string {
   return `Every ${minutes} minutes`;
 }
 
+export const SCOUT_DAILY_AT_SCHEDULE_MODE = "daily_at";
+export const SCOUT_WEEKLY_ON_SCHEDULE_MODE = "weekly_on";
+export const SCOUT_CUSTOM_CRON_SCHEDULE_MODE = "custom_cron";
+export const DEFAULT_SCOUT_DAILY_TIME = "09:00";
+export const DEFAULT_SCOUT_WEEKLY_DAY = "1";
+
+/** Cron day-of-week numbers, offered from Monday so the working week reads first. */
+export const SCOUT_WEEKDAY_OPTIONS: { value: string; label: string }[] = [
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" },
+  { value: "0", label: "Sunday" },
+];
+
+interface ScoutScheduleFields {
+  run_interval_minutes: number;
+  run_cron_schedule?: string | null;
+}
+
+/**
+ * "30 9 * * *" → "09:30" when the cron is a plain daily time (the shape the settings form
+ * writes). Anything richer returns null and is edited as raw cron instead.
+ */
+export function dailyCronToTime(
+  cron: string | null | undefined,
+): string | null {
+  const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/);
+  if (!match) return null;
+  return `${match[2].padStart(2, "0")}:${match[1].padStart(2, "0")}`;
+}
+
+/** "09:30" → "30 9 * * *" — the inverse of `dailyCronToTime`. */
+export function timeToDailyCron(time: string): string {
+  const [hours, minutes] = time.split(":");
+  return `${Number(minutes)} ${Number(hours)} * * *`;
+}
+
+/**
+ * "30 9 * * 4" → `{ day: "4", time: "09:30" }` when the cron is a plain weekly slot. Cron takes
+ * both 0 and 7 for Sunday; the dropdown offers 0, so 7 maps onto it.
+ */
+export function weeklyCronToDayTime(
+  cron: string | null | undefined,
+): { day: string; time: string } | null {
+  const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-7])$/);
+  if (!match) return null;
+  return {
+    day: match[3] === "7" ? "0" : match[3],
+    time: `${match[2].padStart(2, "0")}:${match[1].padStart(2, "0")}`,
+  };
+}
+
+/** `("4", "09:30")` → "30 9 * * 4" — the inverse of `weeklyCronToDayTime`. */
+export function dayTimeToWeeklyCron(day: string, time: string): string {
+  const [hours, minutes] = time.split(":");
+  return `${Number(minutes)} ${Number(hours)} * * ${day}`;
+}
+
+export function getScoutScheduleMode(config: ScoutScheduleFields): string {
+  if (!config.run_cron_schedule) return String(config.run_interval_minutes);
+  if (dailyCronToTime(config.run_cron_schedule))
+    return SCOUT_DAILY_AT_SCHEDULE_MODE;
+  if (weeklyCronToDayTime(config.run_cron_schedule))
+    return SCOUT_WEEKLY_ON_SCHEDULE_MODE;
+  return SCOUT_CUSTOM_CRON_SCHEDULE_MODE;
+}
+
+export function getScoutScheduleOptions(
+  config: ScoutScheduleFields,
+): { value: string; label: string }[] {
+  const options = RUN_INTERVAL_OPTIONS.map((option) => ({
+    value: String(option.minutes),
+    label: option.label,
+  }));
+  if (
+    !RUN_INTERVAL_OPTIONS.some(
+      (option) => option.minutes === config.run_interval_minutes,
+    )
+  ) {
+    options.push({
+      value: String(config.run_interval_minutes),
+      label: formatRunInterval(config.run_interval_minutes),
+    });
+  }
+  options.push({
+    value: SCOUT_DAILY_AT_SCHEDULE_MODE,
+    label: "Daily at a set time",
+  });
+  options.push({
+    value: SCOUT_WEEKLY_ON_SCHEDULE_MODE,
+    label: "Weekly on a set day",
+  });
+  options.push({
+    value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
+    label: "Custom cron",
+  });
+  return options;
+}
+
+/** Longest cron expression the config API stores. */
+export const SCOUT_CRON_MAX_LENGTH = 100;
+
+/** Shortest gap the scheduler allows between two runs, the same floor as `run_interval_minutes`. */
+const SCOUT_CRON_MIN_GAP_MINUTES = 30;
+
+const CRON_MONTH_NAMES = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+];
+const CRON_DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+type CronFieldParse =
+  | { kind: "values"; values: number[] }
+  | { kind: "unmodeled" }
+  | { kind: "invalid" };
+
+function cronFieldNumber(
+  token: string,
+  offset: number,
+  names: string[] | undefined,
+): number | null {
+  const named = names?.indexOf(token.toLowerCase());
+  if (named !== undefined && named >= 0) return named + offset;
+  return /^\d{1,2}$/.test(token) ? Number(token) : null;
+}
+
+/**
+ * The values a single cron field matches. `unmodeled` covers the syntax this check does not
+ * model (`L`, `R`, `#`, `?`): the backend decides those, because a client that guessed would
+ * refuse an expression the scheduler accepts. Everything else croniter refuses, so a typo is
+ * answered here instead of on the next save.
+ */
+function parseCronField(
+  field: string,
+  min: number,
+  max: number,
+  names?: string[],
+): CronFieldParse {
+  if (/[#?]/.test(field)) return { kind: "unmodeled" };
+  if (!field || /[^0-9a-zA-Z*/,-]/.test(field)) return { kind: "invalid" };
+  const values = new Set<number>();
+  for (const part of field.split(",")) {
+    const [spec, stepToken, ...extra] = part.split("/");
+    if (extra.length > 0 || spec === undefined) return { kind: "invalid" };
+    const step = stepToken === undefined ? 1 : Number(stepToken);
+    if (!Number.isInteger(step) || step < 1) return { kind: "invalid" };
+    let from = min;
+    let to = max;
+    if (spec !== "*") {
+      // croniter's own markers: "L" is the last day of the month, "R" a random slot in the field.
+      // Neither is a calendar this check models, and it refuses every other letter form anyway.
+      if (/^[lr]$/i.test(spec)) return { kind: "unmodeled" };
+      const bounds = spec.split("-");
+      if (bounds.length > 2) return { kind: "invalid" };
+      const parsed = bounds.map((token) =>
+        cronFieldNumber(token, min === 0 ? 0 : 1, names),
+      );
+      if (parsed.some((value) => value === null || value < min || value > max))
+        return { kind: "invalid" };
+      from = parsed[0] as number;
+      // "5/10" is an open-ended step from 5, while a bare "5" is that one value.
+      to =
+        bounds.length === 2
+          ? (parsed[1] as number)
+          : stepToken === undefined
+            ? from
+            : max;
+      // A wrapping range like "22-2" is an extension some parsers take and others reject.
+      if (to < from) return { kind: "unmodeled" };
+    }
+    for (let value = from; value <= to; value += step) values.add(value);
+  }
+  return { kind: "values", values: [...values].sort((a, b) => a - b) };
+}
+
+/**
+ * Why `expression` is not an acceptable scout cron schedule, or null when it is. Mirrors the four
+ * rules the config API applies (`cron_schedule_error`) so the picker rejects a typo before the
+ * PATCH. Expressions using syntax this check does not model pass and are left to the backend.
+ */
+export function scoutCronScheduleError(expression: string): string | null {
+  const expr = expression.trim();
+  if (expr.length > SCOUT_CRON_MAX_LENGTH)
+    return `Cron expressions must be ${SCOUT_CRON_MAX_LENGTH} characters or fewer.`;
+  const fields = expr.split(/\s+/);
+  const invalidShape = "Enter a five-field cron expression, like 0 9 * * 1-5.";
+  if (fields.length !== 5) return invalidShape;
+  const minutes = parseCronField(fields[0], 0, 59);
+  const hours = parseCronField(fields[1], 0, 23);
+  const daysOfMonth = parseCronField(fields[2], 1, 31);
+  const months = parseCronField(fields[3], 1, 12, CRON_MONTH_NAMES);
+  const daysOfWeek = parseCronField(fields[4], 0, 7, CRON_DAY_NAMES);
+  if (
+    [minutes, hours, daysOfMonth, months, daysOfWeek].some(
+      (field) => field.kind === "invalid",
+    )
+  )
+    return invalidShape;
+  // A day-of-month no month in the set reaches kills the schedule, whatever the weekday field
+  // says: croniter refuses "0 0 31 2 MON" the same as "0 0 31 2 *".
+  if (
+    fields[2] !== "*" &&
+    daysOfMonth.kind === "values" &&
+    months.kind === "values"
+  ) {
+    const occurs = months.values.some((month) =>
+      daysOfMonth.values.some((day) => day <= DAYS_IN_MONTH[month - 1]),
+    );
+    if (!occurs)
+      return "This schedule never matches a real date. Check the day and month.";
+  }
+  if (minutes.kind === "values" && hours.kind === "values") {
+    const slots = hours.values.flatMap((hour) =>
+      minutes.values.map((minute) => hour * 60 + minute),
+    );
+    const gaps = slots.slice(1).map((slot, index) => slot - slots[index]);
+    // A schedule that runs every day also runs across midnight, so the last slot of one day and
+    // the first of the next are one more gap. A day-restricted schedule can skip days, so how far
+    // its wrap reaches is left to the backend.
+    if (fields[2] === "*" && fields[4] === "*")
+      gaps.push(slots[0] + 1440 - slots[slots.length - 1]);
+    if (gaps.some((gap) => gap < SCOUT_CRON_MIN_GAP_MINUTES))
+      return `Runs must be at least ${SCOUT_CRON_MIN_GAP_MINUTES} minutes apart.`;
+  }
+  return null;
+}
+
 /** Short form for row badges: "hourly", "every 3h". */
 export function formatRunIntervalShort(minutes: number): string {
   if (minutes === 60) return "hourly";
@@ -591,6 +964,24 @@ export function formatRunIntervalShort(minutes: number): string {
   if (minutes % 1440 === 0) return `every ${minutes / 1440}d`;
   if (minutes % 60 === 0) return `every ${minutes / 60}h`;
   return `every ${minutes}m`;
+}
+
+/**
+ * Short schedule label for row badges: "daily at 09:00", "thursdays at 08:30", the raw expression
+ * for a cron the presets cannot name, and the rolling cadence when the scout runs on one.
+ */
+export function formatScoutScheduleShort(config: ScoutScheduleFields): string {
+  const dailyTime = dailyCronToTime(config.run_cron_schedule);
+  if (dailyTime) return `daily at ${dailyTime}`;
+  const weekly = weeklyCronToDayTime(config.run_cron_schedule);
+  if (weekly) {
+    const day = SCOUT_WEEKDAY_OPTIONS.find(
+      (option) => option.value === weekly.day,
+    );
+    if (day) return `${day.label.toLowerCase()}s at ${weekly.time}`;
+  }
+  if (config.run_cron_schedule) return config.run_cron_schedule;
+  return formatRunIntervalShort(config.run_interval_minutes);
 }
 
 /**
@@ -613,4 +1004,157 @@ export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
       return a.name.localeCompare(b.name);
     })
     .map((entry) => entry.config);
+}
+
+// Cron times need the project timezone, which this response does not include.
+export function nextRunAt(
+  config: ScoutConfig,
+  now: Date = new Date(),
+): Date | null {
+  if (!config.enabled || config.run_cron_schedule) return null;
+  if (!config.last_run_at) return now;
+  const last = new Date(config.last_run_at).getTime();
+  if (Number.isNaN(last)) return null;
+  return new Date(last + config.run_interval_minutes * 60 * 1000);
+}
+
+export function medianRunDurationSeconds(
+  runs: ScoutRun[],
+  now: Date,
+): number | null {
+  const durations = runs
+    .filter((run) => normalizeRunStatus(run.status) === "completed")
+    .map((run) => runDurationSeconds(run, now))
+    .filter((seconds): seconds is number => seconds !== null)
+    .sort((a, b) => a - b);
+  if (durations.length === 0) return null;
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2 === 0
+    ? (durations[middle - 1] + durations[middle]) / 2
+    : durations[middle];
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** "3 runs · all finished · no signals · about 3m each" for the activity tab. */
+export function summarizeRunWindow(
+  rollup: ScoutRollup | undefined,
+  now: Date,
+): string | null {
+  if (!rollup || rollup.runCount === 0) return null;
+  const parts = [plural(rollup.runCount, "run")];
+  const finished = rollup.completedCount + rollup.failedCount;
+  if (rollup.failedCount > 0) parts.push(`${rollup.failedCount} failed`);
+  else if (finished === rollup.runCount) parts.push("all finished");
+  const runningCount = rollup.runs.filter(
+    (run) => deriveRunOutcome(run, now) === "running",
+  ).length;
+  if (runningCount > 0) parts.push(`${runningCount} running now`);
+  parts.push(
+    rollup.emittedCount > 0
+      ? plural(rollup.emittedCount, "output")
+      : "no output",
+  );
+  const median = formatRunDuration(medianRunDurationSeconds(rollup.runs, now));
+  if (median) parts.push(`about ${median} each`);
+  return parts.join(" · ");
+}
+
+export type ScoutAttentionKind = "auto_paused" | "pausing_soon" | "failing";
+
+export interface ScoutAttention {
+  kind: ScoutAttentionKind;
+  config: ScoutConfig;
+  detail: string;
+}
+
+function attentionReason(
+  reason: ScoutPauseReason | null,
+  failureCount: number,
+): string {
+  switch (reason) {
+    case "ignored":
+      return "Nobody acted on its signals.";
+    case "no_output":
+      return "It stopped sending signals.";
+    case "repeated_failures":
+      return `${failureCount > 1 ? `${failureCount} runs` : "Its runs"} in a row failed.`;
+    default:
+      return "PostHog flagged it.";
+  }
+}
+
+/** Runs failed back to back before the row reads as failing. */
+const FAILING_STREAK = 2;
+
+/**
+ * The scouts a person should look at before anything else: the ones the
+ * system stopped, is about to stop, or that keep failing. Ordered by urgency.
+ */
+export function listScoutsNeedingAttention(
+  configs: ScoutConfig[],
+  rollups: Map<string, ScoutRollup>,
+  now: Date,
+): ScoutAttention[] {
+  const out: ScoutAttention[] = [];
+  for (const config of configs) {
+    const lifecycle = deriveScoutLifecycle(config);
+    if (lifecycle.isSystemPaused) {
+      out.push({
+        kind: "auto_paused",
+        config,
+        detail: attentionReason(
+          lifecycle.reason,
+          lifecycle.consecutiveFailureCount,
+        ),
+      });
+      continue;
+    }
+    if (lifecycle.willPause) {
+      out.push({
+        kind: "pausing_soon",
+        config,
+        detail: `${attentionReason(lifecycle.reason, lifecycle.consecutiveFailureCount)} PostHog pauses it soon.`,
+      });
+      continue;
+    }
+    const streak = config.consecutive_failure_count ?? 0;
+    const latestRun = rollups.get(config.skill_name)?.latestRun ?? null;
+    const latestFailed =
+      latestRun !== null && normalizeRunStatus(latestRun.status) === "failed";
+    if (
+      config.enabled &&
+      (!latestRun || latestFailed) &&
+      streak >= FAILING_STREAK
+    ) {
+      const kind = latestRun ? deriveRunFailureKind(latestRun, now) : null;
+      out.push({
+        kind: "failing",
+        config,
+        detail: `${streak} runs in a row ${kind === "timed_out" ? "timed out" : "failed"}. PostHog pauses it after a few more.`,
+      });
+    }
+  }
+  const order: Record<ScoutAttentionKind, number> = {
+    auto_paused: 0,
+    failing: 1,
+    pausing_soon: 2,
+  };
+  return out.sort((a, b) => order[a.kind] - order[b.kind]);
+}
+
+/** "in 4h", "in 12m", "due now"; null when there is no next run. */
+export function formatNextRun(next: Date | null, now: Date): string | null {
+  if (!next) return null;
+  const minutes = Math.round((next.getTime() - now.getTime()) / 60000);
+  if (minutes <= 0) return "due now";
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest > 0 ? `in ${hours}h ${rest}m` : `in ${hours}h`;
+  }
+  return `in ${Math.round(hours / 24)}d`;
 }

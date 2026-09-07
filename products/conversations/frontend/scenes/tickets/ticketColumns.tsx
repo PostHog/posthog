@@ -11,7 +11,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AssigneeDisplay, AssigneeResolver } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
-import { SlaDisplay } from '../../components/SlaDisplay'
+import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
 import {
     type Ticket,
@@ -245,6 +245,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                     channel={ticket.channel_source}
                     detail={ticket.channel_detail}
                     to={getChannelThreadUrl(ticket)}
+                    emailTo={ticket.email_to}
                 />
             ),
         },

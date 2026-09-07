@@ -1,10 +1,15 @@
 import pytest
 
+from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from products.batch_exports.backend.tests.api.operations import create_batch_export
+from posthog.models.integration import Integration
+
+from products.batch_exports.backend.api.batch_export import INVALID_HOST_MESSAGE
+from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
+from products.batch_exports.backend.tests.api.operations import create_batch_export, get_batch_export_ok
 
 pytestmark = [
     pytest.mark.django_db,
@@ -120,15 +125,13 @@ pytestmark = [
     ],
 )
 def test_create_redshift_batch_export_validates_copy_inputs(
-    client: HttpClient, mode, copy_inputs, expected_status, temporal, organization, team, user
+    client: HttpClient, mode, copy_inputs, expected_status, temporal, organization, team, user, aws_redshift_integration
 ):
     """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
 
     destination_data = {
         "type": "Redshift",
         "config": {
-            "user": "user",
-            "password": "my-password",
             "database": "my-db",
             "host": "localhost",
             "schema": "public",
@@ -136,6 +139,7 @@ def test_create_redshift_batch_export_validates_copy_inputs(
             "mode": mode,
             "copy_inputs": copy_inputs,
         },
+        "integration": aws_redshift_integration.pk,
     }
 
     batch_export_data = {
@@ -156,3 +160,265 @@ def test_create_redshift_batch_export_validates_copy_inputs(
 
     if expected_status == status.HTTP_400_BAD_REQUEST:
         assert "Missing required" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("authorization", [["arn:aws:iam::123456789012:role/my-role"], True, 1.5])
+def test_create_redshift_batch_export_rejects_invalid_authorization_type(
+    client: HttpClient, authorization, temporal, organization, team, user, aws_redshift_integration
+):
+    """Test 'authorization' values that are neither credentials, a role, nor an id are a 400.
+
+    These used to pass validation and crash with a TypeError when the export synced.
+    """
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "database": "my-db",
+            "host": "localhost",
+            "mode": "COPY",
+            "copy_inputs": {
+                "s3_bucket": "my-production-s3-bucket",
+                "region_name": "us-east-1",
+                "s3_key_prefix": "posthog-events/",
+                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "authorization": authorization,
+            },
+        },
+        "integration": aws_redshift_integration.pk,
+    }
+
+    batch_export_data = {
+        "name": "my-production-redshift-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "Authorization for 'COPY'" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "192.168.1.1",
+        "127.0.0.1",
+        "[::1]",
+        "10.0.0.1",
+        "169.254.0.0",
+        "localhost",
+        "postgres://alice:hunter2@db.example.com/app",
+    ],
+)
+def test_create_redshift_batch_export_fails_with_invalid_host(
+    client: HttpClient, temporal, organization, team, user, host, aws_redshift_integration
+):
+    """Test creating a BatchExport with a Redshift destination rejects an internal host.
+
+    Postgres host validation is covered separately in test_create_postgres.py, where the host
+    comes from the linked Integration rather than from inline config.
+    """
+
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "database": "my-db",
+            "host": host,
+            "schema": "public",
+            "table_name": "my_events",
+        },
+        "integration": aws_redshift_integration.pk,
+    }
+
+    batch_export_data = {
+        "name": "my-production-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == INVALID_HOST_MESSAGE
+    assert host not in response.content.decode()
+    assert "hunter2" not in response.content.decode()
+
+
+def test_create_redshift_batch_export_with_aws_integration(
+    client: HttpClient, temporal, organization, team, user, aws_redshift_integration
+):
+    batch_export_data = {
+        "name": "my-integration-backed-redshift-destination",
+        "interval": "hour",
+        "destination": {
+            "type": "Redshift",
+            # No user/password inline: credentials come from the integration. Only the
+            # cluster endpoint stays in the config.
+            "config": {"database": "my-db", "host": "8.8.8.8"},
+            "integration": aws_redshift_integration.pk,
+        },
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+def test_create_redshift_batch_export_with_plain_integration(client: HttpClient, temporal, organization, team, user):
+    integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_REDSHIFT,
+        integration_id="prod-redshift-plain",
+        config={"host": "8.8.8.8", "port": 5439, "user": "posthog", "ssl_mode": "require"},
+        sensitive_config={"password": "very-secret"},
+        created_by=user,
+    )
+
+    batch_export_data = {
+        "name": "my-integration-backed-redshift-destination",
+        "interval": "hour",
+        "destination": {
+            "type": "Redshift",
+            # Plain Redshift integrations store the host themselves, so none is needed here.
+            "config": {"database": "my-db"},
+            "integration": integration.pk,
+        },
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+@pytest.mark.parametrize(
+    "failure,expected_error",
+    [
+        ("wrong_kind", "not a Redshift integration"),
+        ("aws_integration_without_host", "host"),
+        ("no_integration", "Integration is required for Redshift batch exports"),
+    ],
+)
+def test_create_redshift_batch_export_validates_integration(
+    client: HttpClient,
+    failure,
+    expected_error,
+    temporal,
+    organization,
+    team,
+    user,
+    aws_s3_integration,
+    aws_redshift_integration,
+):
+    config: dict = {"database": "my-db"}
+    integration_pk = None
+
+    if failure == "wrong_kind":
+        integration_pk = aws_s3_integration.pk
+    elif failure == "aws_integration_without_host":
+        integration_pk = aws_redshift_integration.pk
+
+    destination_data: dict = {"type": "Redshift", "config": config}
+    if integration_pk is not None:
+        destination_data["integration"] = integration_pk
+
+    batch_export_data = {
+        "name": "my-integration-backed-redshift-destination",
+        "interval": "hour",
+        "destination": destination_data,
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert expected_error in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "copy_credential_source",
+    ["own_integration", "other_team_integration", "wrong_kind_integration", "nonexistent_integration"],
+)
+def test_create_redshift_batch_export_validates_copy_integration_ids(
+    client: HttpClient,
+    copy_credential_source,
+    temporal,
+    organization,
+    team,
+    user,
+    aws_s3_integration,
+    aws_redshift_integration,
+):
+    # These ids live inside `config` rather than the team-scoped `integration` field, so
+    # tenant scoping is enforced by validation: a foreign or wrong-kind id must 400, not 500.
+    expected_status: int
+    if copy_credential_source == "own_integration":
+        integration_id = aws_s3_integration.pk
+        expected_status = status.HTTP_201_CREATED
+    elif copy_credential_source == "other_team_integration":
+        other_organization = create_organization("Other Org")
+        other_team = create_team(other_organization)
+        other_user = create_user("other@user.com", "Other User", other_organization)
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind=Integration.IntegrationKind.AWS_S3,
+            integration_id="other-prod-aws",
+            config={"name": "other-prod-aws", "aws_account_id": "999999999999"},
+            sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+            created_by=other_user,
+        )
+        integration_id = other_integration.pk
+        expected_status = status.HTTP_400_BAD_REQUEST
+    elif copy_credential_source == "wrong_kind_integration":
+        integration_id = aws_redshift_integration.pk
+        expected_status = status.HTTP_400_BAD_REQUEST
+    else:
+        integration_id = 999999
+        expected_status = status.HTTP_400_BAD_REQUEST
+
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "database": "my-db",
+            "host": "localhost",
+            "mode": "COPY",
+            "copy_inputs": {
+                "s3_bucket": "my-production-s3-bucket",
+                "region_name": "us-east-1",
+                "s3_key_prefix": "posthog-events/",
+                "bucket_credentials": integration_id,
+                "authorization": integration_id,
+            },
+        },
+        "integration": aws_redshift_integration.pk,
+    }
+
+    batch_export_data = {
+        "name": "my-production-redshift-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == expected_status, response.json()
+
+    if expected_status == status.HTTP_400_BAD_REQUEST:
+        assert "does not reference an AWS S3 integration" in response.json()["detail"]
+    else:
+        # EncryptedJSONField stringifies the stored ids; responses must restore them to ints
+        # to honor the generated types.
+        batch_export = get_batch_export_ok(client, team.pk, response.json()["id"])
+        assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == integration_id
+        assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == integration_id

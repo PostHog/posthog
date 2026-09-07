@@ -5,7 +5,7 @@ import { AllowedProperties, TaxonomicFilterGroupType } from 'lib/components/Taxo
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorSemver } from 'lib/utils/operators'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { PropValue } from '~/models/propertyDefinitionsModel'
@@ -57,6 +57,8 @@ export type HogFlowFiltersProps = {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     propertyAllowList?: AllowedProperties
     propertyDefinitionsOverride?: PropertyDefinition[]
+    /** Extra options to offer in the taxonomic filter, for events whose properties aren't stored. */
+    taxonomicFilterOptionsFromProp?: Record<string, { name: string }[]>
     staticValueOptions?: (propertyKey: string) => PropValue[] | null
     inline?: boolean
     allowNew?: boolean
@@ -138,6 +140,7 @@ export function HogFlowPropertyFilters({
     taxonomicGroupTypes,
     propertyAllowList,
     propertyDefinitionsOverride,
+    taxonomicFilterOptionsFromProp: taxonomicFilterOptionsFromPropOverride,
     staticValueOptions,
     buttonCopy,
     inline,
@@ -156,6 +159,7 @@ export function HogFlowPropertyFilters({
         [TaxonomicFilterGroupType.WorkflowVariables]: (workflow?.variables ?? []).map((variable) => ({
             name: variable.key,
         })),
+        ...taxonomicFilterOptionsFromPropOverride,
     }
     const isDataWarehouse = !!dataWarehouseTableName
     return (

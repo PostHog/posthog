@@ -7,6 +7,7 @@ import {
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
+import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -39,6 +40,8 @@ export interface TurnContext {
   childItems: Map<string, ConversationItem[]>;
   turnCancelled: boolean;
   turnComplete: boolean;
+  /** From the prompt response; null when the agent reported no gateway trace. */
+  traceId?: string | null;
 }
 
 export type ConversationItem =
@@ -90,6 +93,8 @@ export interface BuildResult {
    *  silent: a turn can sit minutes inside one tool call or thinking block
    *  with nothing new to render, and a frozen status word reads as a hang. */
   lastActivityAt: number | null;
+  /** A background turn started without a prompt RPC and has not completed. */
+  isBackgroundTurnActive: boolean;
 }
 
 interface ProgressCardState {
@@ -130,6 +135,7 @@ export interface ItemBuilder {
    *  frozen and only re-derive the active turn. */
   currentTurnStartIndex: number;
   pendingPrompts: Map<number | string, TurnState>;
+  promptDeliveryIds: Set<string>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
@@ -151,9 +157,16 @@ export interface ItemBuilder {
   /** Timestamp (ms) of the newest event fed to this builder. See the field of
    *  the same name on `BuildResult`. */
   lastActivityAt: number | null;
+  isBackgroundTurnActive: boolean;
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
+  /** Plans recovered from `_posthog/permission_request` frames, keyed by
+   *  toolCallId. A sandbox agent that read the plan from a plan file sends the
+   *  ExitPlanMode tool_call plan-less — the plan travels only inside the
+   *  permission request — and the resolving tool_call_update replays the raw
+   *  plan-less input, so the plan is re-applied after every merge. */
+  recoveredPlans: Map<string, string>;
 }
 
 export function createItemBuilder(): ItemBuilder {
@@ -162,6 +175,7 @@ export function createItemBuilder(): ItemBuilder {
     currentTurn: null,
     currentTurnStartIndex: 0,
     pendingPrompts: new Map(),
+    promptDeliveryIds: new Set(),
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
@@ -169,7 +183,9 @@ export function createItemBuilder(): ItemBuilder {
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
     lastActivityAt: null,
+    isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
+    recoveredPlans: new Map(),
   };
 }
 
@@ -182,6 +198,36 @@ function noteActivity(b: ItemBuilder, ts: number) {
 }
 
 const TERMINAL_TOOL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+/** The plan markdown carried by an ExitPlanMode-shaped input, or undefined. */
+function recoveredPlanOf(rawInput: unknown): string | undefined {
+  const plan = (rawInput as { plan?: unknown } | null | undefined)?.plan;
+  return typeof plan === "string" && plan.trim() ? plan : undefined;
+}
+
+function toolCallCarriesPlan(toolCall: ToolCall): boolean {
+  if (recoveredPlanOf(toolCall.rawInput)) return true;
+  return (toolCall.content ?? []).some((item) => {
+    const record = item as {
+      content?: { type?: string; text?: string };
+    } | null;
+    return record?.content?.type === "text" && !!record.content.text?.trim();
+  });
+}
+
+/** Fold a recovered plan into `toolCallId`'s call unless it already carries
+ *  one (an inline plan always wins). Mutates the registered ToolCall, so an
+ *  already-pushed item reflects it. */
+function applyRecoveredPlan(b: ItemBuilder, toolCallId: string): void {
+  const plan = b.recoveredPlans.get(toolCallId);
+  if (!plan) return;
+  const toolCall = b.currentTurn?.toolCalls.get(toolCallId);
+  if (!toolCall || toolCallCarriesPlan(toolCall)) return;
+  toolCall.rawInput = {
+    ...(toolCall.rawInput as Record<string, unknown> | null | undefined),
+    plan,
+  };
+}
 
 function isTerminalToolStatus(status: string | null | undefined): boolean {
   return status != null && TERMINAL_TOOL_STATUSES.has(status);
@@ -295,6 +341,7 @@ export function buildConversationItems(
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
+    isBackgroundTurnActive: b.isBackgroundTurnActive,
   };
 }
 
@@ -317,7 +364,11 @@ export function processEvent(
   }
 
   if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
-    handlePromptRequest(b, msg, event.ts);
+    if (isSteerPromptParams(msg.params)) {
+      handleSteerPromptRequest(b, msg, event.ts);
+    } else {
+      handlePromptRequest(b, msg, event.ts);
+    }
     return;
   }
 
@@ -352,10 +403,11 @@ export function buildAgentConversationItems(
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
+    isBackgroundTurnActive: b.isBackgroundTurnActive,
   };
 }
 
-export function processAgentConversationEvent(
+function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
@@ -417,7 +469,10 @@ export function processAgentConversationEvent(
   }
 
   if (event.type === "progress") {
-    handleProgress(b, event, event.timestamp, false);
+    handleProgress(b, event, event.timestamp, {
+      waitForRunStarted: false,
+      appendOnSetupRestart: true,
+    });
     return;
   }
 
@@ -456,7 +511,7 @@ export function processAgentConversationEvent(
     return;
   }
 
-  if (b.currentTurn) {
+  if (event.type === "turn_completed" && b.currentTurn) {
     completePromptTurn(b, b.currentTurn, event.timestamp, {
       stopReason: event.stopReason,
     });
@@ -497,6 +552,29 @@ export function readLastTurnInfo(b: ItemBuilder): LastTurnInfo | null {
     : null;
 }
 
+function handleSteerPromptRequest(
+  b: ItemBuilder,
+  msg: { id: number | string; params?: unknown },
+  ts: number,
+) {
+  const userPrompt = extractUserPrompt(msg.params);
+
+  if (
+    userPrompt.content.trim().length === 0 &&
+    userPrompt.attachments.length === 0
+  ) {
+    return;
+  }
+
+  b.items.push({
+    type: "user_message",
+    id: `steer-${ts}-${msg.id}`,
+    content: userPrompt.content,
+    timestamp: ts,
+    attachments: userPrompt.attachments,
+  });
+}
+
 function handlePromptRequest(
   b: ItemBuilder,
   msg: { id: number | string; params?: unknown },
@@ -510,6 +588,13 @@ function handlePromptRequest(
 
   const userPrompt = extractUserPrompt(msg.params);
   const userContent = userPrompt.content;
+  const messageId = (msg.params as { _meta?: { messageId?: unknown } } | null)
+    ?._meta?.messageId;
+  const isRedelivery =
+    typeof messageId === "string" && b.promptDeliveryIds.has(messageId);
+  if (typeof messageId === "string") {
+    b.promptDeliveryIds.add(messageId);
+  }
 
   if (userContent.trim().length === 0 && userPrompt.attachments.length === 0) {
     return;
@@ -582,7 +667,7 @@ function handlePromptRequest(
       id: `${turnId}-skill-action`,
       buttonId: skillButtonId,
     });
-  } else {
+  } else if (!isRedelivery) {
     b.items.splice(insertIndex, 0, {
       type: "user_message",
       id: `${turnId}-user`,
@@ -602,11 +687,12 @@ function handlePromptResponse(
   if (!turn) return;
   const result = msg.result as {
     stopReason?: string;
-    _meta?: { interruptReason?: string };
+    _meta?: { interruptReason?: string; traceId?: string | null };
   };
   completePromptTurn(b, turn, ts, {
     stopReason: result?.stopReason,
     interruptReason: result?._meta?.interruptReason,
+    traceId: result?._meta?.traceId ?? null,
   });
 }
 
@@ -614,8 +700,15 @@ function completePromptTurn(
   b: ItemBuilder,
   turn: TurnState,
   ts: number,
-  result: { stopReason?: string; interruptReason?: string } = {},
+  result: {
+    stopReason?: string;
+    interruptReason?: string;
+    traceId?: string | null;
+  } = {},
 ) {
+  // The prompt response and `_posthog/turn_complete` race in cloud logs, so
+  // the trace id is taken from whichever carries it, even after completion.
+  if (result.traceId !== undefined) turn.context.traceId = result.traceId;
   if (turn.isComplete) return;
 
   turn.isComplete = true;
@@ -686,14 +779,46 @@ function handleNotification(
   // products are surfaced as a persistent, de-duplicated bar above the composer
   // (see accumulateSessionResources / SessionResourcesBar).
 
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST)) {
+    // Permission frames persist in the run log, so recovering the plan here
+    // also covers reloads and historical replays — unlike the pending
+    // permission in the session store, which is dropped once answered.
+    const toolCall = (
+      msg.params as
+        | { toolCall?: { toolCallId?: unknown; rawInput?: unknown } }
+        | undefined
+    )?.toolCall;
+    const plan = recoveredPlanOf(toolCall?.rawInput);
+    if (
+      typeof toolCall?.toolCallId === "string" &&
+      toolCall.toolCallId &&
+      plan
+    ) {
+      b.recoveredPlans.set(toolCall.toolCallId, plan);
+      applyRecoveredPlan(b, toolCall.toolCallId);
+    }
+    return;
+  }
+
+  if (
+    isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_STARTED)
+  ) {
+    b.isBackgroundTurnActive = true;
+    return;
+  }
+
   if (
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.TURN_COMPLETE) ||
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE)
   ) {
-    const params = msg.params as { stopReason?: string } | undefined;
+    b.isBackgroundTurnActive = false;
+    const params = msg.params as
+      | { stopReason?: string; traceId?: string | null }
+      | undefined;
     if (!b.currentTurn) return;
     completePromptTurn(b, b.currentTurn, ts, {
       stopReason: params?.stopReason,
+      traceId: params?.traceId,
     });
     return;
   }
@@ -702,7 +827,7 @@ function handleNotification(
     const params = msg.params as { level?: string; message?: string };
     if (!params?.message) return;
     const level = params.level ?? "info";
-    if (level === "debug" && !options?.showDebugLogs) return;
+    if (!options?.showDebugLogs) return;
     ensureImplicitTurn(b, ts);
     pushItem(b, {
       sessionUpdate: "console",
@@ -910,7 +1035,10 @@ function handleProgress(
   b: ItemBuilder,
   rawParams: unknown,
   ts: number,
-  waitForRunStarted = true,
+  options?: {
+    waitForRunStarted?: boolean;
+    appendOnSetupRestart?: boolean;
+  },
 ) {
   const params = rawParams as
     | {
@@ -924,6 +1052,18 @@ function handleProgress(
   if (!params?.step || !params.label || !params.group) return;
 
   const status = normalizeStepStatus(params.status);
+  const existingCard = b.progressCards.get(params.group);
+  const previousAgentStatus = existingCard?.steps.get("agent")?.status;
+  const startsNewSetup =
+    options?.appendOnSetupRestart === true &&
+    params.step === "sandbox" &&
+    status === "in_progress" &&
+    previousAgentStatus !== undefined &&
+    previousAgentStatus !== "in_progress";
+  if (startsNewSetup) {
+    b.progressCards.delete(params.group);
+  }
+
   const card = ensureProgressCardForGroup(b, params.group, ts);
   if (!card) return;
   if (card.itemIndex < b.lowestTouchedProgressIndex) {
@@ -935,7 +1075,7 @@ function handleProgress(
     label: params.label,
     detail: params.detail,
   });
-  syncProgressCard(card, b, waitForRunStarted);
+  syncProgressCard(card, b, options?.waitForRunStarted);
 }
 
 function normalizeStepStatus(raw: string | undefined): StepStatus {
@@ -1136,6 +1276,7 @@ function processSessionUpdate(
           pushItem(b, toolCall, ts);
         }
       }
+      applyRecoveredPlan(b, update.toolCallId);
       break;
     }
 
@@ -1150,6 +1291,7 @@ function processSessionUpdate(
         if (!wasTerminal && isTerminalToolStatus(existing.status)) {
           b.completedToolCallCount++;
         }
+        applyRecoveredPlan(b, update.toolCallId);
       }
       break;
     }

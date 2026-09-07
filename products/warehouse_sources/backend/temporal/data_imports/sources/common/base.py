@@ -97,6 +97,9 @@ SourceCredentialsValidationResult = tuple[bool, str | None]
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
 UNVERSIONED_API_VERSION = "v1"
 
+# Wall-clock bound on `probe_new_data` before the import falls back to the full sync.
+FAST_RETURN_PROBE_TIMEOUT = datetime.timedelta(minutes=2)
+
 
 def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
     """Case-insensitive match of `error_msg` against `get_non_retryable_errors`/`get_retryable_errors` patterns.
@@ -157,6 +160,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # Direct-only connectors opt out so API clients cannot create a source that is accepted by
+    # discovery but can never run a scheduled import.
+    supports_scheduled_sync: bool = True
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -174,6 +181,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Versions from `supported_versions` the vendor has deprecated. Drives the generic
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
+
+    # How far back a first sync reaches, for a source that bounds one. A source that sets this
+    # reads `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    # See `sources/common/history_window.py`.
+    history_lookback: datetime.timedelta | None = None
+
+    def history_lookback_for_schema(self, schema_name: str) -> datetime.timedelta | None:
+        """How far back a first sync of one schema reaches, or None for no bound.
+
+        Override when tables of one source need different bounds, for example a daily and an hourly
+        rollup of the same data, where the hourly table holds 24 rows for every daily row.
+        """
+        return self.history_lookback
 
     @property
     @abstractmethod
@@ -245,6 +265,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        """Curated descriptions adapted to one connected source's physical table names.
+
+        `get_canonical_descriptions` is keyed by source type, so a description that names a physical
+        table is written for a source connected without a table prefix, while `build_table_name`
+        prepends whatever prefix that source was given. Sources whose descriptions embed table names
+        override this to rebuild them for `table_prefix`; almost none do, so the default ignores it.
+        """
+
+        return self.get_canonical_descriptions()
 
     def get_schemas(
         self,
@@ -331,6 +362,21 @@ class _BaseSource(ABC, Generic[ConfigType]):
         ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
         return True, None
+
+    def probe_new_data(self, config: ConfigType, inputs: SourceInputs) -> bool | None:
+        """Whether the source has data past this schema's stored watermark.
+
+        `False` lets the run complete without extracting anything, so only return it when the
+        source is provably unchanged. `None` (the default) means "unknown" and runs the normal
+        sync, which is also the right answer for any error: never let a probe failure suppress
+        a sync. Callers guarantee the schema is incremental/append, past its initial sync, and
+        has no repair work pending.
+
+        The caller stops waiting after FAST_RETURN_PROBE_TIMEOUT but cannot interrupt this
+        method's thread, so implementations should bound their own remote call below that limit
+        (for example a server-side statement timeout) to avoid orphaned queries.
+        """
+        return None
 
     def get_endpoint_permissions(
         self, config: ConfigType, team_id: int, endpoints: list[str], api_version: str | None = None

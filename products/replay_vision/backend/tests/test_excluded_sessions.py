@@ -8,7 +8,11 @@ from posthog.schema import EventPropertyFilter, FilterLogicalOperator, PropertyO
 
 from products.replay_vision.backend.models.replay_scanner import SamplingMode
 from products.replay_vision.backend.queries.excluded_sessions import excluded_session_ids
-from products.replay_vision.backend.queries.scanner_candidate_query import CandidateSession, ScannerCandidateQuery
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    EXCLUDED_SESSIONS_QUERY_TYPE,
+    CandidateSession,
+    ScannerCandidateQuery,
+)
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _FROZEN_TIME = _NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -55,7 +59,10 @@ class TestExcludedSessions(ClickhouseTestMixin):
         _event(team, "elsewhere", _NOW - dt.timedelta(hours=2), **{"$host": "internal.example.com"})
 
         excluded = excluded_session_ids(
-            team=team, candidate_query=_query_for(team, _not_host()), candidates=_candidates("dirty", "clean")
+            query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
+            team=team,
+            candidate_query=_query_for(team, _not_host()),
+            candidates=_candidates("dirty", "clean"),
         )
 
         assert excluded == {"dirty"}
@@ -68,6 +75,7 @@ class TestExcludedSessions(ClickhouseTestMixin):
         _event(team, "old-dirty", lagged - dt.timedelta(hours=1), **{"$host": "internal.example.com"})
 
         excluded = excluded_session_ids(
+            query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
             team=team,
             candidate_query=_query_for(team, _not_host(), last_swept_at=lagged),
             candidates=_candidates("old-dirty"),
@@ -85,7 +93,10 @@ class TestExcludedSessions(ClickhouseTestMixin):
         _event(team, "web-session", _NOW - dt.timedelta(hours=2), **{"$lib": "web"})
 
         excluded = excluded_session_ids(
-            team=team, candidate_query=_query_for(team, query), candidates=_candidates("web-session")
+            query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
+            team=team,
+            candidate_query=_query_for(team, query),
+            candidates=_candidates("web-session"),
         )
 
         assert excluded == set()
@@ -96,7 +107,10 @@ class TestExcludedSessions(ClickhouseTestMixin):
         _event(team, "future", _NOW + dt.timedelta(hours=2), **{"$host": "internal.example.com"})
 
         assert excluded_session_ids(
-            team=team, candidate_query=_query_for(team, _not_host()), candidates=_candidates("future")
+            query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
+            team=team,
+            candidate_query=_query_for(team, _not_host()),
+            candidates=_candidates("future"),
         ) == {"future"}
 
     @pytest.mark.django_db
@@ -113,7 +127,10 @@ class TestExcludedSessions(ClickhouseTestMixin):
         _event(team, "clean", _NOW - dt.timedelta(hours=2), **{"$host": "app.example.com"})
 
         excluded = excluded_session_ids(
-            team=team, candidate_query=_query_for(team, query), candidates=_candidates("staging", "clean")
+            query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
+            team=team,
+            candidate_query=_query_for(team, query),
+            candidates=_candidates("staging", "clean"),
         )
 
         assert excluded == {"staging"}
@@ -143,4 +160,12 @@ class TestExcludedSessions(ClickhouseTestMixin):
     @pytest.mark.django_db
     def test_no_candidates_asks_nothing(self, team) -> None:
         # Where the saving comes from: most ticks have no candidates and must issue no query.
-        assert excluded_session_ids(team=team, candidate_query=_query_for(team, _not_host()), candidates=[]) == set()
+        assert (
+            excluded_session_ids(
+                query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
+                team=team,
+                candidate_query=_query_for(team, _not_host()),
+                candidates=[],
+            )
+            == set()
+        )

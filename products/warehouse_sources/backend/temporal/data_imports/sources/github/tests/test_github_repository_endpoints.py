@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -152,9 +152,49 @@ class TestListParams:
         )
 
         assert ("since" in params) is expects_since
+        if expects_since:
+            # The watermark, not the first-sync lookback floor, must bound a sync that has one.
+            assert params["since"] == github._format_incremental_value(_CUTOFF)
         assert params["sort"] == incremental_field.removesuffix("_at")
         assert params["direction"] == GITHUB_ENDPOINTS[endpoint].sort_mode
         assert "state" not in params
+
+    @parameterized.expand(
+        [
+            ("issue_comments",),
+            ("pull_request_comments",),
+        ]
+    )
+    def test_first_sync_since_floor(self, endpoint: str) -> None:
+        # Without the floor the bootstrap walks every comment ever written before webhook mode can
+        # activate, so dropping it turns connect-time into a full-history crawl on large repos.
+        lookback = GITHUB_ENDPOINTS[endpoint].initial_lookback_days
+        assert lookback
+
+        params = github._build_initial_params(
+            GITHUB_ENDPOINTS[endpoint],
+            endpoint,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            incremental_field="updated_at",
+        )
+
+        floor = datetime.fromisoformat(params["since"].replace("Z", "+00:00"))
+        expected = datetime.now(UTC) - timedelta(days=lookback)
+        assert abs((expected - floor).total_seconds()) < 60
+
+    def test_full_refresh_ignores_since_floor(self) -> None:
+        # An explicit full refresh must still pull the whole history; the floor only bounds the
+        # first incremental run.
+        params = github._build_initial_params(
+            GITHUB_ENDPOINTS["issue_comments"],
+            "issue_comments",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+
+        assert "since" not in params
 
     @parameterized.expand(
         [

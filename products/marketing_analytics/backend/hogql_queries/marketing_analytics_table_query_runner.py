@@ -14,15 +14,17 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from .constants import (
     BASE_COLUMN_MAPPING,
     CHANNEL_SESSIONS_CTE_NAME,
     DEFAULT_LIMIT,
     DRILL_DOWN_LEVEL_CONFIG,
+    MARKETING_SPILL_AFTER_BYTES,
     PAGINATION_EXTRA,
     SESSIONS_COLUMN_ALIAS,
     TOTAL_SESSIONS_FIELD,
@@ -88,6 +90,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             context=self._shared_hogql_context,
+            # These group by high-cardinality campaign dimensions, so let the GROUP BY spill
+            # to disk rather than hit the memory limit.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES),
         )
 
         results = response.results or []
