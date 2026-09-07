@@ -30,20 +30,33 @@ export function ScoutsRosterActions(): JSX.Element {
 }
 
 /**
- * Takes the "Suggest a scout" spot whenever the strip is off screen: it reopens a closed strip, and
- * on a project with no picks it starts a scan for some rather than opening a chat.
+ * Takes the "Suggest a scout" spot whenever the strip has no picks to show: it reopens a closed
+ * strip, and on a project with none it starts a scan rather than opening a chat. It stays put while
+ * that scan runs, because the empty-fleet state renders no strip whose skeletons could report it.
  */
 function ShowSuggestionsButton(): JSX.Element | null {
-    const { stripVisible } = useValues(scoutSuggestionsLogic)
+    const { suggestButtonVisible, hasPicks, isRefreshing, suggestionSetLoading, aiConsentDisabledReason } =
+        useValues(scoutSuggestionsLogic)
     const { askForSuggestions } = useActions(scoutSuggestionsLogic)
-    if (stripVisible) {
+    if (!suggestButtonVisible) {
         return null
     }
+    // Reopening a closed strip needs no scan, so the AI gate only applies when a press would pay
+    // for one. The refresh endpoint refuses without consent, and a refusal reads as a failure.
+    const busyReason = isRefreshing
+        ? 'Scanning the project…'
+        : suggestionSetLoading
+          ? 'Reading the suggestions…'
+          : hasPicks
+            ? null
+            : aiConsentDisabledReason
     return (
         <LemonButton
             type="secondary"
             size="small"
             icon={<IconSparkles />}
+            loading={!!busyReason}
+            disabledReason={busyReason ?? undefined}
             onClick={() => askForSuggestions()}
             data-attr="scout-suggestions-show"
         >

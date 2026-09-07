@@ -68,6 +68,7 @@ export interface scoutSuggestionsLogicValues {
     isRefreshing: boolean
     stripHidden: boolean
     stripVisible: boolean
+    suggestButtonVisible: boolean
     suggestionSet: ScoutSuggestionSetApi | null
     suggestionSetLoading: boolean
     suggestions: ScoutSuggestionItemApi[]
@@ -213,7 +214,13 @@ export interface scoutSuggestionsLogicMeta {
         batchAgeHours: (suggestionSet: ScoutSuggestionSetApi | null) => number | null
         suggestionsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         hasPicks: (suggestions: ScoutSuggestionItemApi[], suggestionsEnabled: boolean) => boolean
-        stripVisible: (hasPicks: boolean, stripHidden: boolean, isRefreshing: boolean) => boolean
+        stripVisible: (
+            hasPicks: boolean,
+            suggestionsEnabled: boolean,
+            stripHidden: boolean,
+            isRefreshing: boolean
+        ) => boolean
+        suggestButtonVisible: (hasPicks: boolean, suggestionsEnabled: boolean, stripHidden: boolean) => boolean
         collapsed: (collapsedOverride: boolean | null) => boolean
     }
 }
@@ -431,9 +438,17 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         // A running scan keeps the strip up with its skeletons, so the person who pressed for one
         // watches it arrive rather than looking at a roster that ignored the press.
         stripVisible: [
-            (s) => [s.hasPicks, s.stripHidden, s.isRefreshing],
-            (hasPicks: boolean, stripHidden: boolean, isRefreshing: boolean): boolean =>
-                !stripHidden && (hasPicks || isRefreshing),
+            (s) => [s.hasPicks, s.suggestionsEnabled, s.stripHidden, s.isRefreshing],
+            (hasPicks: boolean, suggestionsEnabled: boolean, stripHidden: boolean, isRefreshing: boolean): boolean =>
+                suggestionsEnabled && !stripHidden && (hasPicks || isRefreshing),
+        ],
+        // The header's own entry point, which stays put while a scan runs: the empty-fleet state
+        // renders no strip at all, so a button that hid itself on press would be the only feedback
+        // the person got, and it would be feedback that the press did nothing.
+        suggestButtonVisible: [
+            (s) => [s.hasPicks, s.suggestionsEnabled, s.stripHidden],
+            (hasPicks: boolean, suggestionsEnabled: boolean, stripHidden: boolean): boolean =>
+                suggestionsEnabled && (!hasPicks || stripHidden),
         ],
         collapsed: [
             (s) => [s.collapsedOverride],
@@ -563,6 +578,12 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         askForSuggestions: () => {
             actions.showStrip()
+            // A read that never landed is not an empty batch, and a scan is paid for and daily
+            // capped, so an unknown batch is re-read rather than scanned.
+            if (values.suggestionSet === null) {
+                actions.loadSuggestions()
+                return
+            }
             // With no picks on offer there is nothing to reopen, so the button pays for a scan.
             if (values.suggestions.length === 0) {
                 actions.requestRefresh()
@@ -632,9 +653,16 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 return
             }
             actions.refreshFinished()
-            // The strip closes on an empty batch, so a scan that found nothing would otherwise just
-            // take the skeletons away and leave the person guessing what the press did.
-            if (values.suggestions.length === 0) {
+            // The strip closes on an empty batch, so a scan that produced nothing would otherwise
+            // just take the skeletons away and leave the person guessing what the press did. The
+            // two outcomes are not the same: `failed` means the scan never finished, so it is
+            // worth another press, while `empty` means it ran and found nothing.
+            if (values.suggestions.length > 0) {
+                return
+            }
+            if (suggestionSet?.status === 'failed') {
+                lemonToast.error("That scan didn't finish. Try again in a moment.")
+            } else {
                 lemonToast.info('That scan found nothing new to suggest.')
             }
         },

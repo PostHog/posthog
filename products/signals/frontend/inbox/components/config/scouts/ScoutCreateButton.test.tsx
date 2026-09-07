@@ -129,6 +129,8 @@ describe('scout creation buttons', () => {
         const logic = scoutSuggestionsLogic()
         logic.mount()
         const { findByText } = render(<ScoutsRosterActions />)
+        // The button is busy until the batch is known, so a press before then costs no scan.
+        await waitFor(() => expect(logic.values.suggestionSet).not.toBeNull())
 
         fireEvent.click(await findByText('Suggest a scout'))
 

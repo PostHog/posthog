@@ -4,6 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+// Imported from the source module rather than the `@posthog/lemon-ui` barrel, so the spies below
+// replace the methods on the same `lemonToast` singleton the logic calls at runtime.
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -212,6 +215,41 @@ describe('scoutSuggestionsLogic', () => {
         // Either way the strip is back on screen: with the picks, or with the scan's skeletons.
         expect(logic.values.stripVisible).toBe(true)
         expect(mockRefresh).toHaveBeenCalledTimes(refreshCalls)
+    })
+
+    it('re-reads the batch instead of paying for a scan when the read never landed', async () => {
+        mockList.mockRejectedValue(new ApiError('nope', 500))
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.suggestionSet).toBeNull()
+
+        logic.actions.askForSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockRefresh).not.toHaveBeenCalled()
+        expect(mockList).toHaveBeenCalledTimes(2)
+    })
+
+    // The strip closes on an empty batch, so this toast is the whole report on the scan. A scan
+    // that never finished is worth another press; one that ran and found nothing is not.
+    it.each([
+        ['found nothing', { status: 'empty', generated_at: '2026-09-03T00:00:00Z' }, 'info'],
+        ['did not finish', { status: 'failed' }, 'error'],
+    ])('reports how a scan that left no picks ended: %s', async (_name, outcome, level) => {
+        const toast = jest.spyOn(lemonToast, level as 'info' | 'error').mockReturnValue('toast-1')
+        await mountWithBatch()
+
+        logic.actions.requestRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+        mockList.mockResolvedValue(suggestionSet({ ...(outcome as Partial<ScoutSuggestionSetApi>), items: [] }))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRefreshing).toBe(false)
+        expect(logic.values.stripVisible).toBe(false)
+        expect(toast).toHaveBeenCalledTimes(1)
+        toast.mockRestore()
     })
 
     it('keeps a stale batch visible, because its picks are still valid', async () => {
