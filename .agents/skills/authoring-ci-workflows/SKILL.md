@@ -153,6 +153,18 @@ Four rules for the gate body:
 `WF007` enforces 1, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
 
+### What GitHub does with each conclusion
+
+Rule 3 works because a `skipped` check run satisfies a required context, in the Trunk queue as well as on GitHub. `Build Docker image` rides on that: it concludes `skipped` on most PRs and they merge anyway.
+
+Three cases behave in ways the name does not suggest:
+
+- A required context that **no check run reports** stays pending and blocks. A trigger-level `paths:` filter that silences the whole workflow produces exactly this.
+- A **job-level** `continue-on-error: true` posts a `failure` check run even though dependents read `success` and the run goes green. Use step-level `continue-on-error` plus an explicit verdict step instead.
+- A **matrix that expands to zero cells** fails its dependents on GitHub Actions and posts no check run at all. Guard any `fromJSON` matrix with an `if:` that skips the job when the list is empty.
+
+Required contexts are pinned to one app: every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app, so a check run from any other app never satisfies one however exactly the name matches. [`/depot-ci`](../depot-ci/references/posthog-check-run-semantics.md) has the measurements, the rulesets query, and how Depot CI differs.
+
 ## Checkout / clone — sparse first, then shallow
 
 This repo is 45k tracked files and 4.6 GiB of packed objects, so **what you materialize costs more than how much history you fetch**.
@@ -286,7 +298,7 @@ The default is 6 hours — a hung job burns paid minutes silently.
 
 ## Caching
 
-Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, save gated to master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
+Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
@@ -348,16 +360,20 @@ Those suites skip `push` and take their master coverage — and their Trunk flak
 
 Crons are offset so the runs do not all fire at once, and the offsets live here rather than in the workflows:
 
-| Workflow          | Minute |
-| ----------------- | ------ |
-| `ci-frontend.yml` | 7      |
-| `ci-nodejs.yml`   | 13     |
-| `ci-backend.yml`  | 23     |
-| `ci-dagster.yml`  | 33     |
-| `ci-python.yml`   | 43     |
-| `ci-mcp.yml`      | 53     |
+| Workflow                            | Minute |
+| ----------------------------------- | ------ |
+| `ci-frontend.yml`                   | 7      |
+| `ci-nodejs.yml`                     | 13     |
+| `ci-backend.yml`                    | 23     |
+| `ci-dagster.yml`                    | 33     |
+| `ci-python.yml`                     | 43     |
+| `ci-mcp.yml`                        | 53     |
+| `ci-backend-update-test-timing.yml` | 17     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
+
+`ci-backend-update-test-timing.yml` sits in the table too.
+It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.

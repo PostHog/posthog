@@ -10,11 +10,19 @@ import {
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
-import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { BaseMathType, CompareLabelType, Entity, EntityFilter, FilterType, InsightType, TeamType } from '~/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -802,6 +810,80 @@ describe('compareTopLevelSections()', () => {
         }
 
         expect(compareInsightTopLevelSections(obj1, obj2)).toEqual([])
+    })
+
+    it('ignores query plumbing and empty sections on a wrapped insight query', () => {
+        const previous: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                version: 3,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+                trendsFilter: {},
+                tags: { productKey: 'product_analytics' },
+            },
+        }
+        const suggested: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageleave' }],
+            },
+        }
+
+        expect(compareInsightTopLevelSections(previous, suggested)).toEqual(['Series'])
+    })
+
+    it('reports a modifiers change when the current query overrides the team default', () => {
+        teamLogic.mount()
+
+        const previous: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+            },
+        }
+        const suggested: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            },
+        }
+
+        expect(compareInsightTopLevelSections(previous, suggested)).toEqual(['Query modifiers'])
+
+        teamLogic.unmount()
+    })
+
+    it('ignores modifiers that match the team default', () => {
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            id: 1,
+            modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+        } as unknown as TeamType)
+
+        const previous: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+            },
+        }
+        const suggested: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            },
+        }
+
+        expect(compareInsightTopLevelSections(previous, suggested)).toEqual([])
+
+        teamLogic.unmount()
     })
 
     it('handles null/undefined objects', () => {

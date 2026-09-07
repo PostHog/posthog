@@ -29356,6 +29356,7 @@ class LogsQuery(BaseModel):
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
+    sessionId: str | None = Field(default=None, description="Show logs for a given session ID")
     severityLevels: list[LogSeverityLevel]
     sparklineBreakdownBy: LogsSparklineBreakdownBy | None = Field(
         default=None,

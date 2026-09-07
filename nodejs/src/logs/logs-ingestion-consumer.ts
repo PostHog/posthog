@@ -4,6 +4,7 @@ import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
 
 import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling'
 import { recordPiiReplacements } from '~/common/metrics/otel-metrics'
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -12,6 +13,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -73,6 +75,12 @@ export interface LogsIngestionConsumerDeps {
      */
     outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
     usageBatch: UsageRecordBatch
+    /**
+     * Backoff for a `DependencyUnavailableError` from the team lookup or a Kafka produce. Defaults
+     * to the `retryOnDependencyUnavailableError` policy (5 tries, 1 s doubling to 16 s). Tests
+     * shorten it.
+     */
+    dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
@@ -877,12 +885,15 @@ export class LogsIngestionConsumer {
             { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
         >()
         const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
+        let quarantined = 0
         const results = await Promise.allSettled(
             messages.map((message) =>
                 limit(async () => {
                     try {
                         // Fetch team to get logs_settings
-                        const team = await this.deps.teamManager.getTeam(message.teamId)
+                        const team = await this.retryOnDependencyUnavailable(() =>
+                            this.deps.teamManager.getTeam(message.teamId)
+                        )
                         const logsSettings = team?.logs_settings || {}
 
                         // Extract settings with defaults
@@ -1010,42 +1021,63 @@ export class LogsIngestionConsumer {
                         this.queueBytesDroppedByRule(message.teamId, bytesDroppedByRuleId)
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
-                        await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
-                            {
-                                value: processedValue,
-                                key: null,
-                                headers: {
-                                    ...parseKafkaHeaders(message.message.headers),
-                                    token: message.token,
-                                    team_id: message.teamId.toString(),
-                                    'json-parse': jsonParse.toString(),
-                                    'retention-days': retentionDays.toString(),
-                                    ...(bytesUncompressedHeaderOverride !== undefined
-                                        ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
-                                        : {}),
-                                    ...(bytesCompressedHeaderOverride !== undefined
-                                        ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
-                                        : {}),
-                                    ...(recordCountHeaderOverride !== undefined
-                                        ? { record_count: recordCountHeaderOverride.toString() }
-                                        : {}),
+                        await this.retryOnDependencyUnavailable(() =>
+                            this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                                {
+                                    value: processedValue,
+                                    key: null,
+                                    headers: {
+                                        ...parseKafkaHeaders(message.message.headers),
+                                        token: message.token,
+                                        team_id: message.teamId.toString(),
+                                        'json-parse': jsonParse.toString(),
+                                        'retention-days': retentionDays.toString(),
+                                        ...(bytesUncompressedHeaderOverride !== undefined
+                                            ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
+                                            : {}),
+                                        ...(bytesCompressedHeaderOverride !== undefined
+                                            ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                            : {}),
+                                        ...(recordCountHeaderOverride !== undefined
+                                            ? { record_count: recordCountHeaderOverride.toString() }
+                                            : {}),
+                                    },
                                 },
-                            },
-                        ])
+                            ])
+                        )
                     } catch (error) {
+                        // A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped. The
+                        // message itself is fine and processes once the dependency is back, so
+                        // quarantining it would move good data into the DLQ. The retries above
+                        // already absorbed a blip; a longer outage leaves the message on the source
+                        // topic and fails the batch below instead.
+                        if (error instanceof DependencyUnavailableError) {
+                            throw error
+                        }
+                        // Quarantine succeeded: the DLQ copy is the record of this failure, so the
+                        // message resolves and the batch can commit past it. A failed DLQ write
+                        // rejects here instead, so the batch keeps the only copy on the source topic.
                         await this.produceToDlq(message, error)
-                        throw error
+                        quarantined += 1
                     }
                 })
             )
         )
 
-        const failures = results.filter((r) => r.status === 'rejected')
-        if (failures.length > 0) {
+        // Every rejection means this batch must not commit: a dependency outage, or a DLQ write
+        // that failed. `Promise.allSettled` swallows rejections, so rethrow before the tallies and
+        // usage metrics are emitted. The rejected background task stops the offset commit and the
+        // consumer replays the batch from the last good commit, which would count them twice.
+        const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        if (failures.length > 0 || quarantined > 0) {
             logger.error('Failed to process some log messages', {
+                quarantinedCount: quarantined,
                 failureCount: failures.length,
                 totalCount: messages.length,
             })
+        }
+        if (failures.length > 0) {
+            throw failures[0].reason
         }
 
         await this.emitMetricRuleTallies(metricTalliesByTeam)
@@ -1053,6 +1085,15 @@ export class LogsIngestionConsumer {
 
     private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
         await this.produceRawToDlq(message.message, error, { token: message.token, teamId: message.teamId })
+    }
+
+    /**
+     * Absorb a dependency blip in place. A batch that fails after some of its messages were
+     * produced is replayed in full, and the logs table has no dedupe, so every retry here is a
+     * duplicate avoided. Only an outage that outlasts the backoff reaches the caller.
+     */
+    private retryOnDependencyUnavailable<T>(fn: () => Promise<T>): Promise<T> {
+        return retryOnDependencyUnavailableError(fn, this.deps.dependencyRetry)
     }
 
     /**
@@ -1073,25 +1114,27 @@ export class LogsIngestionConsumer {
         recordLogMessageDlq(errorName, teamIdLabel)
 
         try {
-            await this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
-                {
-                    value: message.value,
-                    key: null,
-                    headers: {
-                        ...parseKafkaHeaders(message.headers),
-                        ...(context.token !== undefined ? { token: context.token } : {}),
-                        team_id: teamIdLabel,
-                        error_message: errorMessage,
-                        error_name: errorName,
-                        failed_at: new Date().toISOString(),
-                        // Where the message came from, so a quarantined record can be read back
-                        // from the source partition and replayed against the consumer.
-                        source_topic: message.topic,
-                        source_partition: message.partition.toString(),
-                        source_offset: message.offset.toString(),
+            await this.retryOnDependencyUnavailable(() =>
+                this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
+                    {
+                        value: message.value,
+                        key: null,
+                        headers: {
+                            ...parseKafkaHeaders(message.headers),
+                            ...(context.token !== undefined ? { token: context.token } : {}),
+                            team_id: teamIdLabel,
+                            error_message: errorMessage,
+                            error_name: errorName,
+                            failed_at: new Date().toISOString(),
+                            // Where the message came from, so a quarantined record can be read back
+                            // from the source partition and replayed against the consumer.
+                            source_topic: message.topic,
+                            source_partition: message.partition.toString(),
+                            source_offset: message.offset.toString(),
+                        },
                     },
-                },
-            ])
+                ])
+            )
         } catch (dlqError) {
             logger.error('Failed to produce message to DLQ', {
                 error: dlqError,

@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.18.1 — 2026-09-07
+
+### Patch changes
+
+- [fcbcec2ef4d](https://github.com/PostHog/posthog/commit/fcbcec2ef4d1123d985c66dffbc45933a6742558) Remove credentials from the git remote URL stored in release metadata. Rotate any token an earlier version stored. — Thanks @ablaszkiewicz!
+
 ## 0.18.0 — 2026-09-02
 
 ### Minor changes
