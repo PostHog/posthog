@@ -1976,6 +1976,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert mapping_schema["requires_field"] == "oauth"
         assert result["mappings"][0]["inputs"]["conversionActionId"]["value"] == "456"
 
+        # Changing the type of an input is how a caller unbinds it from the integration, so nothing
+        # is filled back in.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={
+                "mappings": [
+                    {
+                        "name": "Conversion",
+                        "inputs_schema": [
+                            {"key": "conversionActionId", "type": "string", "label": "Conversion action"}
+                        ],
+                        "inputs": {"conversionActionId": {"value": "456"}},
+                    }
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mapping_schema = response.json()["mappings"][0]["inputs_schema"][0]
+        assert not [key for key in integration_keys if key in mapping_schema]
+
     def test_create_from_template_keeps_mapping_integration_metadata_a_caller_leaves_out(self):
         HogFunctionTemplate.objects.create(
             template_id="template-ads",
