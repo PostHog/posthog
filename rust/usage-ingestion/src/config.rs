@@ -71,6 +71,46 @@ pub struct Config {
         default = "usage-ingestion"
     )]
     pub kafka_consumer_group: String,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_CLIENT_ID",
+        default = "usage-ingestion-consumer"
+    )]
+    pub kafka_consumer_client_id: String,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_TOPIC_METADATA_REFRESH_INTERVAL_MS",
+        default = "60000"
+    )]
+    pub kafka_consumer_topic_metadata_refresh_interval_ms: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_FETCH_MAX_BYTES",
+        default = "50242880"
+    )]
+    pub kafka_consumer_fetch_max_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES",
+        default = "50242880"
+    )]
+    pub kafka_consumer_max_partition_fetch_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_FETCH_WAIT_MAX_MS",
+        default = "10000"
+    )]
+    pub kafka_consumer_fetch_wait_max_ms: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_SEND_BUFFER_BYTES",
+        default = "0"
+    )]
+    pub kafka_consumer_socket_send_buffer_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_RECEIVE_BUFFER_BYTES",
+        default = "0"
+    )]
+    pub kafka_consumer_socket_receive_buffer_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_RETRY_BACKOFF_MAX_MS",
+        default = "60000"
+    )]
+    pub kafka_consumer_retry_backoff_max_ms: u32,
     /// Only "none", "gzip", "snappy" and "lz4" work. "zstd" needs an rdkafka feature the
     /// workspace does not enable, so librdkafka refuses it when it builds the producer.
     #[envconfig(from = "KAFKA_COMPRESSION_CODEC", default = "lz4")]
@@ -179,7 +219,25 @@ impl Config {
             .with_tls(self.kafka_input_tls.unwrap_or(self.kafka_tls))
             .with_offset_reset("earliest")
             .with_sticky_partition_assignment(None, false)
-            .set("client.id", "usage-ingestion-consumer")
+            .with_topic_metadata_refresh_interval_ms(
+                self.kafka_consumer_topic_metadata_refresh_interval_ms,
+            )
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .set("client.id", &self.kafka_consumer_client_id)
+            .set(
+                "socket.send.buffer.bytes",
+                &self.kafka_consumer_socket_send_buffer_bytes.to_string(),
+            )
+            .set(
+                "socket.receive.buffer.bytes",
+                &self.kafka_consumer_socket_receive_buffer_bytes.to_string(),
+            )
+            .set(
+                "retry.backoff.max.ms",
+                &self.kafka_consumer_retry_backoff_max_ms.to_string(),
+            )
             .build()
     }
 }
@@ -200,6 +258,14 @@ mod tests {
             kafka_input_tls: None,
             kafka_input_topic: "usage_ingestion".to_string(),
             kafka_consumer_group: "usage-ingestion".to_string(),
+            kafka_consumer_client_id: "usage-ingestion-consumer".to_string(),
+            kafka_consumer_topic_metadata_refresh_interval_ms: 60_000,
+            kafka_consumer_fetch_max_bytes: 50_242_880,
+            kafka_consumer_max_partition_fetch_bytes: 50_242_880,
+            kafka_consumer_fetch_wait_max_ms: 10_000,
+            kafka_consumer_socket_send_buffer_bytes: 0,
+            kafka_consumer_socket_receive_buffer_bytes: 0,
+            kafka_consumer_retry_backoff_max_ms: 60_000,
             kafka_compression_codec: "lz4".to_string(),
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
@@ -274,6 +340,17 @@ mod tests {
             kafka.get("partition.assignment.strategy"),
             Some("cooperative-sticky")
         );
+        assert_eq!(kafka.get("client.id"), Some("usage-ingestion-consumer"));
+        assert_eq!(
+            kafka.get("topic.metadata.refresh.interval.ms"),
+            Some("60000")
+        );
+        assert_eq!(kafka.get("fetch.max.bytes"), Some("50242880"));
+        assert_eq!(kafka.get("max.partition.fetch.bytes"), Some("50242880"));
+        assert_eq!(kafka.get("fetch.wait.max.ms"), Some("10000"));
+        assert_eq!(kafka.get("socket.send.buffer.bytes"), Some("0"));
+        assert_eq!(kafka.get("socket.receive.buffer.bytes"), Some("0"));
+        assert_eq!(kafka.get("retry.backoff.max.ms"), Some("60000"));
     }
 
     #[test]
