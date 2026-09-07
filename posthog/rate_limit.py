@@ -1017,6 +1017,19 @@ class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class PasswordResetIPThrottle(IPThrottle):
+    """
+    Rate limit password reset requests by IP.
+
+    The per-email throttle alone bounds nothing here, because a request for an address with no
+    account now sends mail too. One attacker can therefore mail many strangers by using a
+    different address on every request, and stay under the per-email limit every time.
+    """
+
+    scope = "password_reset_ip"
+    rate = "30/hour"
+
+
 class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
     scope = "code_based_verification"
     rate = "6/20minutes"

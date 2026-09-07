@@ -60,6 +60,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import PasswordResetIPThrottle
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -1563,6 +1564,13 @@ class TestPasswordResetAPI(APIBaseTest):
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="password reset requested",
+            properties={"outcome": "sent", "$process_person_profile": False},
+            groups=ANY,
+        )
+
         self.assertEqual(mail.outbox[0].subject, "Reset your PostHog password")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
@@ -1643,15 +1651,50 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("Google, GitHub", html_message)
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
-    def test_success_response_even_on_invalid_email(self):
+    @patch("posthoganalytics.capture")
+    def test_unknown_email_gets_no_account_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        # No emails should be sent
-        self.assertEqual(len(mail.outbox), 0)
+        # The address owner gets told there is no account, instead of a silent success screen
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["i_dont_exist@posthog.com"])
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.assertIn("No PostHog account uses this address", html_message)
+        self.assertIn("https://my.posthog.net/signup", html_message)  # a way forward
+        self.assertNotIn("https://my.posthog.net/reset/", html_message)  # no reset link
+
+        mock_capture.assert_any_call(
+            distinct_id="password_reset_request",
+            event="password reset requested",
+            properties={"outcome": "no_account", "$process_person_profile": False},
+            groups={"instance": ANY},
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_deactivated_account_gets_no_account_email(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        deactivated = User.objects.create_and_join(self.organization, "deactivated@posthog.com", None)
+        deactivated.is_active = False
+        deactivated.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": "deactivated@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertEqual(len(mail.outbox), 1)
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.assertNotIn("https://my.posthog.net/reset/", html_message)  # no reset link
+
+        mock_capture.assert_any_call(
+            distinct_id="password_reset_request",
+            event="password reset requested",
+            properties={"outcome": "inactive", "$process_person_profile": False},
+            groups={"instance": ANY},
+        )
 
     def test_cant_reset_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
@@ -1702,6 +1745,24 @@ class TestPasswordResetAPI(APIBaseTest):
                         {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
                         response.json().items(),
                     )
+
+    @patch.object(PasswordResetIPThrottle, "rate", "2/hour")
+    def test_is_also_rate_limited_by_ip(self):
+        # A request for an unknown address now sends mail, so an attacker who uses a new address
+        # every time never trips the per-email throttle. Only the per-IP cap stops that.
+        set_instance_setting("EMAIL_HOST", "localhost")
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            for email in ["one@posthog.com", "two@posthog.com"]:
+                self.assertEqual(
+                    self.client.post("/api/reset/", {"email": email}).status_code, status.HTTP_204_NO_CONTENT
+                )
+            response = self.client.post("/api/reset/", {"email": "three@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(len(mail.outbox), 2)
 
     # Token validation
 

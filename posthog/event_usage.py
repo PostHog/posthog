@@ -172,6 +172,21 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
+def report_user_password_reset_requested(outcome: str, user: Optional[User] = None) -> None:
+    """
+    Reports a password reset request and its outcome, so requests that send no
+    reset link (unknown email, deactivated account, SSO enforced) become measurable.
+    outcome is one of: "sent", "no_account", "inactive", "sso_enforced".
+    """
+    distinct_id = user.distinct_id if user and user.distinct_id else "password_reset_request"
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="password reset requested",
+        properties={"outcome": outcome, "$process_person_profile": False},
+        groups=groups(user.current_organization, user.current_team) if user else groups(),
+    )
+
+
 def report_team_member_invited(
     inviting_user: User,
     invite_id: str,
