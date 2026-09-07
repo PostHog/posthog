@@ -88,7 +88,7 @@ Not evaluable:
 - **INC-921**: the resurrected PR has 446 files / 70k additions. ReviewHog terminated the review as excessive before validation, so there are no validated findings, and the terminated report is not retrievable through the reviews API (404). No raw-coverage aside is possible.
 - **INC-284**: `posthog-js-lite` is archived and rejects all writes, so the PR could not be resurrected.
 
-`scores.csv` in this directory holds the same table in machine-readable form, with the ReviewHog report ids.
+`scores.csv` in this directory holds the same table in machine-readable form, with the ReviewHog report ids. [`demo_links.md`](./demo_links.md) links each incident to its fix PR and to the exact ReviewHog comment, with a short bug / fix / finding comparison per public-repo incident.
 
 ## What the hits and misses look like (public repos only)
 
