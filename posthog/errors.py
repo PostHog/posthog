@@ -94,15 +94,35 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 )
 
 
-def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
+DELIMITED_FILE_PARSE_FAILURE_MESSAGE = (
+    "A row in a file backing this table does not match the table's columns ({file_uri}). "
+    "This usually happens when the quoting in the file does not match the quote setting on the table, "
+    "because a value that contains the delimiter then splits into extra columns. "
+    "Change the quote setting on the table, or correct the row and upload the file again."
+)
+
+
+def _storage_file_uri(err: ServerException) -> str:
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
-    file_uri = match.group(1) if match else "unknown file"
+    return match.group(1) if match else "unknown file"
+
+
+def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
+    file_uri = _storage_file_uri(err)
     return CHQueryErrorS3FileChangedDuringRead(
         f"A file backing a data warehouse table changed while the query was reading it ({file_uri}). "
         "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
         "upload new files and delete old ones instead.",
         code=err.code,
         code_name="s3_file_changed_during_read",
+    )
+
+
+def _wrap_delimited_file_parse_error(err: ServerException) -> "CHQueryErrorDelimitedFileParseFailure":
+    return CHQueryErrorDelimitedFileParseFailure(
+        DELIMITED_FILE_PARSE_FAILURE_MESSAGE.format(file_uri=_storage_file_uri(err)),
+        code=err.code,
+        code_name="delimited_file_parse_failure",
     )
 
 
@@ -152,6 +172,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
+    elif name == "INCORRECT_DATA" and "Expected end of line" in err.message and "(in file/uri" in err.message:
+        # A delimited file behind a warehouse table has a row that splits into the wrong number of
+        # columns. The raw message dumps every column with its parsed text, so replace it.
+        return _wrap_delimited_file_parse_error(err)
     elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
         # A Parquet file with corrupted or oversized thrift metadata (e.g.
         # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
@@ -218,6 +242,12 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    if isinstance(e, CHQueryErrorDelimitedFileParseFailure):
+        # INCORRECT_DATA covers both a bad file behind a warehouse table and a genuine server fault,
+        # so the code alone cannot classify it. This wrapper only matches the file case, which is a
+        # user error and must stay out of error tracking.
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
@@ -260,6 +290,12 @@ class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
 
 
 class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorDelimitedFileParseFailure(ExposedCHQueryError):
+    """A delimited file backing a warehouse table has a row that does not match the table's columns."""
+
     pass
 
 
