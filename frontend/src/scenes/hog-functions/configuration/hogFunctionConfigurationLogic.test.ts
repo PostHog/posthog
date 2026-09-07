@@ -6,7 +6,13 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
-import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    FilterLogicalOperator,
+    HogFunctionTemplateType,
+    HogFunctionType,
+    PropertyFilterType,
+} from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
 
@@ -308,13 +314,39 @@ describe('hogFunctionConfigurationLogic', () => {
                         include_by_default: true,
                         filters: { actions: [{ id: '42', name: 'Purchased', type: 'actions' }] },
                     },
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
                 ],
             })
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
 
-            expect(JSON.stringify(logic.values.matchingFilters)).toContain('matchesAction(42)')
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: "event = '$pageview'" }],
+                            },
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: "event = 'signed up'" }],
+                            },
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'matchesAction(42)' }],
+                            },
+                        ],
+                    },
+                ],
+            })
             expect(logic.values.configuration.filters).toEqual(globalFilters)
         })
     })
