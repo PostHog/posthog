@@ -1147,4 +1147,9 @@ def compile_hog(
         raise
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
-        raise serializers.ValidationError({"hog": "Hog code has errors."})
+        # Keep the compiler's own message. Without it, every failure looks the same to the
+        # user and to the Max retry loop.
+        reason = str(e).strip()
+        if not reason:
+            raise serializers.ValidationError({"hog": "Hog code has errors."})
+        raise serializers.ValidationError({"hog": f"Hog code has errors: {reason[:500]}"})

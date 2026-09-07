@@ -1296,3 +1296,17 @@ class TestReservedFunctionsUsed(SimpleTestCase):
     )
     def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
         assert reserved_functions_used(hog) == expected
+
+
+class TestCompileHogErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("placeholder", "let x := f'{{\"a\": {event.b}}}'", "Placeholders are not allowed in this context"),
+            ("global_assignment", "event := 1", 'Variable "event" not declared in this scope'),
+            ("array_slice", "let x := content[1:2000]", "BytecodeCompiler has no method visit_array_slice"),
+        ]
+    )
+    def test_compile_hog_reports_the_compiler_reason(self, _name, hog_code, expected_fragment):
+        with self.assertRaises(ValidationError) as ctx:
+            compile_hog(hog_code, "destination")
+        assert expected_fragment in str(ctx.exception)
