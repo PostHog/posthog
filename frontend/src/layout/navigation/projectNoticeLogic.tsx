@@ -72,6 +72,9 @@ function ProvisionedProductStrip(): JSX.Element {
             {FLAGSHIP_PRODUCT_KEYS.map((productKey) => {
                 const { Hoggie } = getProductPushDisplay(productKey)
                 const meta = brandingForProduct(productKey)
+                if (!Hoggie) {
+                    return null
+                }
                 return (
                     <Link
                         key={productKey}
