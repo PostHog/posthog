@@ -1,9 +1,10 @@
 from django.db import models
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 
-class ReplayObservationView(UUIDModel):
+class ReplayObservationView(TeamScopedRootMixin, UUIDModel):
     """One user has opened this observation. Per user, like replay's `SessionRecordingViewed`."""
 
     observation = models.ForeignKey("replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="views")
