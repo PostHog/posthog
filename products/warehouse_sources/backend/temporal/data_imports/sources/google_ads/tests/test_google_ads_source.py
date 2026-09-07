@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     clean_customer_id,
+    format_customer_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
@@ -76,6 +77,19 @@ class TestCleanCustomerId:
     )
     def test_strips_to_bare_digits(self, raw, expected):
         assert clean_customer_id(raw) == expected
+
+
+class TestFormatCustomerId:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("1234567890", "123-456-7890"),
+            ("123-456-7890", "123-456-7890"),
+            ("123", "123"),
+        ],
+    )
+    def test_formats_bare_customer_id(self, raw, expected):
+        assert format_customer_id(raw) == expected
 
 
 class TestGoogleAdsValidateConfig:
