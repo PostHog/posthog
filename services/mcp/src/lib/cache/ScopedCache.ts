@@ -19,12 +19,8 @@ export abstract class ScopedCache<T extends Record<string, any>> {
         await Promise.all(promises)
     }
 
-    /**
-     * Write a value the caller can afford to lose. A transient cache outage then
-     * costs a refetch on the next request instead of failing this one. A write a
-     * person is told about must keep using `set` so the report stays true, as in
-     * `switch-project` reporting the new active project.
-     */
+    // Write a value the caller can afford to lose: a transient outage costs a refetch
+    // next request rather than failing it. A write a person is told about keeps `set`.
     async warm<K extends keyof T>(key: K, value: T[K]): Promise<void> {
         try {
             await this.set(key, value)

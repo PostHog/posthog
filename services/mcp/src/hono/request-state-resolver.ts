@@ -149,8 +149,7 @@ export class RequestStateResolver {
         const contextPromise = reqCtx.getContext()
         const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
 
-        // Pinned context is re-sent on every request, so this write is a warm: a cache
-        // blip here must not fail the handshake.
+        // Pinned context is re-sent on every request, so losing this write costs nothing.
         await reqCtx.tokenCache.warmMany({
             ...(organizationId ? { orgId: organizationId } : {}),
             ...(projectId ? { projectId } : {}),

@@ -80,8 +80,7 @@ describe('RedisCache', () => {
     })
 
     describe('a Redis reconnect window', () => {
-        // `enableOfflineQueue: false` makes every command reject the moment the socket
-        // is not writeable, which is what a deploy or failover looks like to a caller.
+        // What a deploy or failover looks like to a caller of the live client.
         const blip = new Error("Stream isn't writeable and enableOfflineQueue options is false")
 
         it('reads as a miss so the caller can fetch fresh data', async () => {

@@ -58,9 +58,7 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
             return result
         } catch (error) {
             redisOperationsTotal.inc({ operation: 'get', status: 'error' })
-            // A reconnect window rejects the command without telling us anything about
-            // the key, so read it as a miss. The caller then fetches fresh data instead
-            // of failing the request over a cache that is briefly unreachable.
+            // Nothing is known about the key, only about the transport, so read a miss.
             if (isTransientRedisError(error)) {
                 console.warn(`[RedisCache] read of ${scopedKey} degraded to a miss:`, error)
                 return undefined

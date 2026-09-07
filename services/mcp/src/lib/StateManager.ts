@@ -300,8 +300,7 @@ export class StateManager {
      * Stale-while-cached helper. Returns fresh cached data if available; otherwise
      * fetches, writes both the value and its timestamp, and returns the fresh value.
      * On fetcher failure, returns the last-known cached value (possibly `undefined`)
-     * and captures the exception. A cache read that fails reads as a miss, and a
-     * cache write that fails never discards the value already fetched.
+     * and captures the exception. A failed cache write never discards fetched data.
      */
     private async getOrFetchCached<D extends keyof State, F extends keyof State>(opts: {
         name: string

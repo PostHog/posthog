@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { mockSessionStore, mockTokenStore, mockTokenWriteError } = vi.hoisted(() => ({
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
-    // Set to make every token-cache write reject, standing in for a Redis reconnect.
     mockTokenWriteError: { current: undefined as Error | undefined },
 }))
 
@@ -30,8 +29,7 @@ vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
 }))
 
 vi.mock('@/hono/request-context', async () => {
-    // Extends the real cache base class so `warm`/`warmMany` keep their production
-    // behavior: the resolver relies on a warm write surviving a Redis blip.
+    // Extends the real base class so `warm`/`warmMany` keep their production behavior.
     const { ScopedCache } = await import('@/lib/cache/ScopedCache')
 
     class MockCache extends ScopedCache<Record<string, unknown>> {
@@ -125,8 +123,6 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it('resolves state while the token cache is in a Redis reconnect window', async () => {
-        // Pinned context is re-sent on every request, so a dropped warm write costs
-        // nothing. Failing here instead would fail the whole MCP request.
         mockTokenWriteError.current = new Error("Stream isn't writeable and enableOfflineQueue options is false")
 
         const result = await makeResolver().resolve(makeProps({ organizationId: 'org-1' }))

@@ -1,8 +1,5 @@
-// The MCP Redis client runs with `enableOfflineQueue: false`, so every command
-// issued during a reconnect window (deploy, failover, idle drop) rejects at once
-// instead of waiting for the socket. These are the rejections that carry no
-// information about the data — only about the transport — so a cache read can
-// treat them as a miss and a cache warm can drop the value.
+// `enableOfflineQueue: false` makes every command reject at once during a reconnect
+// window. These rejections describe the transport, not the data behind a key.
 const TRANSIENT_MESSAGE_FRAGMENTS = [
     "Stream isn't writeable",
     'Connection is closed',
