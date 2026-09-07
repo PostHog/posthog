@@ -13,7 +13,7 @@ from pydantic import (
 )
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -70,6 +70,7 @@ from products.alerts.backend.evaluation.validation import (
 )
 from products.alerts.backend.facade.api import (
     ForecastExecutionError,
+    ForecastSimulationCapacityExceeded,
     simulate_forecast_on_insight,
     validate_forecast_horizon,
 )
@@ -1562,6 +1563,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
+        except ForecastSimulationCapacityExceeded:
+            raise Throttled(detail="Too many forecasts are already running. Try again shortly.")
         except ForecastExecutionError:
             return Response(
                 {"detail": "Forecast simulation is temporarily unavailable. Try again."},

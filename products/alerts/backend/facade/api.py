@@ -35,6 +35,7 @@ from products.alerts.backend.destinations import (
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
+from products.alerts.backend.forecasting.capacity import ForecastSimulationCapacityExceeded, forecast_simulation_slot
 from products.alerts.backend.forecasting.engine import ForecastExecutionError, validate_forecast_horizon
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -63,14 +64,15 @@ def simulate_forecast_on_insight(
     # evaluation dispatch, which itself depends on the legacy alert task utilities.
     from products.alerts.backend.evaluation.forecast import simulate_forecast_on_insight as simulate  # noqa: PLC0415
 
-    return simulate(
-        insight,
-        team,
-        forecast_config,
-        series_index=series_index,
-        date_from=date_from,
-        user=user,
-    )
+    with forecast_simulation_slot(team_id=team.id):
+        return simulate(
+            insight,
+            team,
+            forecast_config,
+            series_index=series_index,
+            date_from=date_from,
+            user=user,
+        )
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -236,6 +238,7 @@ __all__ = [
     "AlertScheduleRestriction",
     "DestinationType",
     "ForecastExecutionError",
+    "ForecastSimulationCapacityExceeded",
     "SLACK_SNOOZE_MAX_DAYS",
     "SlackSnoozeOutcome",
     "build_alert_destination_config",

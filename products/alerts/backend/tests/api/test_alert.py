@@ -21,6 +21,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.facade.api import ForecastSimulationCapacityExceeded
 from products.alerts.backend.forecasting.engine import ForecastExecutionError
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -1903,6 +1904,23 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         data = response.json()
         assert data["detail"] == "Forecast simulation is temporarily unavailable. Try again."
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_capacity_error_returns_429(self, mock_simulate_forecast) -> None:
+        mock_simulate_forecast.side_effect = ForecastSimulationCapacityExceeded
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["detail"] == "Too many forecasts are already running. Try again shortly."
 
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_forecast_series_index_out_of_range_returns_400(self, mock_calculate) -> None:
