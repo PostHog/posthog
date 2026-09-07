@@ -13,6 +13,7 @@ import os
 import math
 import datetime as dt
 from collections.abc import Collection
+from dataclasses import replace
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -177,13 +178,13 @@ def fetch_series_slot_rows(
     # same fraction over the day after the slot leaves only slots that carry
     # traffic of their own.
     alive_day_slots = max(1, math.ceil(ALIVE_SLOT_FRACTION * SECONDS_PER_DAY / (interval_minutes * 60)))
-    # The series cap ranks over the whole 42d, not the display window: a series
-    # that went silent this week has zero window volume, and ranking on the
-    # window alone would drop exactly the series a silence should surface. The
-    # subquery fetches one series past the cap so the caller can tell a full
-    # response from a truncated one.
     series_filter: ast.Expr
     if series_keys is None:
+        # The series cap ranks over the whole 42d, not the display window: a series
+        # that went silent this week has zero window volume, and ranking on the
+        # window alone would drop exactly the series a silence should surface. The
+        # subquery fetches one series past the cap so the caller can tell a full
+        # response from a truncated one.
         series_filter = parse_select(
             """
             SELECT namespace, environment, severity_text
@@ -205,13 +206,7 @@ def fetch_series_slot_rows(
     else:
         series_filter = ast.Tuple(
             exprs=[
-                ast.Tuple(
-                    exprs=[
-                        ast.Constant(value=key.namespace),
-                        ast.Constant(value=key.environment),
-                        ast.Constant(value=key.severity),
-                    ]
-                )
+                ast.Tuple(exprs=[ast.Constant(value=part) for part in (key.namespace, key.environment, key.severity)])
                 for key in series_keys
             ]
         )
@@ -352,7 +347,6 @@ def _build_series(
     window_start: dt.datetime,
     window_end: dt.datetime,
     interval_minutes: int,
-    coarsened_reason: CoarsenedReason | None = None,
 ) -> BandSeries:
     by_time = {row.target_time: row for row in series_rows.slots}
     lifetime_start = series_rows.lifetime_start
@@ -393,7 +387,7 @@ def _build_series(
         history_start=lifetime_start,
         band_ready_at=band_ready_at,
         interval_minutes=interval_minutes,
-        coarsened_reason=coarsened_reason,
+        coarsened_reason=None,
         buckets=buckets,
     )
 
@@ -427,35 +421,38 @@ def _coarsen_sparse_series(
     series keeps the reason from the requested grain, because that is the grain
     the caller asked for and did not get."""
     settled: list[BandSeries] = []
-    pending: dict[_SeriesKey, tuple[BandSeries, CoarsenedReason]] = {}
+    reasons: dict[_SeriesKey, CoarsenedReason] = {}
+    pending: dict[_SeriesKey, BandSeries] = {}
     for candidate in series:
         shortfall = _density_shortfall(candidate)
         if shortfall is None:
             settled.append(candidate)
-        else:
-            pending[_series_key(candidate)] = (candidate, shortfall)
+            continue
+        key = _series_key(candidate)
+        reasons[key] = shortfall
+        pending[key] = candidate
 
-    coarser_rungs = [rung for rung in INTERVAL_LADDER_MINUTES if rung > interval_minutes]
-    for rung in coarser_rungs:
+    for rung in (rung for rung in INTERVAL_LADDER_MINUTES if rung > interval_minutes):
         if not pending:
             break
         rung_start = floor_to_interval(window_start, rung)
         rung_end = floor_to_interval(window_end, rung)
         rows = fetch_series_slot_rows(team, service_name, rung_start, rung_end, rung, series_keys=list(pending))
-        for key, (fallback, reason) in list(pending.items()):
-            key_rows = rows.get(key)
-            if key_rows is None:
+        still_failing: dict[_SeriesKey, BandSeries] = {}
+        for key, fallback in pending.items():
+            if key not in rows:
                 settled.append(fallback)
-                del pending[key]
                 continue
-            candidate = _build_series(key, key_rows, rung_start, rung_end, rung, coarsened_reason=reason)
-            if _density_shortfall(candidate) is None or rung == coarser_rungs[-1]:
+            candidate = replace(
+                _build_series(key, rows[key], rung_start, rung_end, rung), coarsened_reason=reasons[key]
+            )
+            if _density_shortfall(candidate) is None:
                 settled.append(candidate)
-                del pending[key]
             else:
-                pending[key] = (candidate, reason)
+                still_failing[key] = candidate
+        pending = still_failing
 
-    settled.extend(fallback for fallback, _ in pending.values())
+    settled.extend(pending.values())
     return settled
 
 
@@ -469,12 +466,13 @@ def _parse_bound(value: str, *, now: dt.datetime) -> dt.datetime:
 
 
 def pick_interval_minutes(window_start: dt.datetime, window_end: dt.datetime) -> int:
-    """The first ladder rung at or above the step that cuts the window into BUCKET_TARGET buckets, capped at the coarsest."""
-    step_minutes = (window_end - window_start).total_seconds() / 60 / BUCKET_TARGET
-    for grain in INTERVAL_LADDER_MINUTES:
-        if grain >= step_minutes:
-            return grain
-    return INTERVAL_LADDER_MINUTES[-1]
+    """The first ladder rung at or above the step that cuts the window into BUCKET_TARGET buckets, capped at the coarsest.
+
+    The span is measured on bounds floored to the finest rung, as the query at that rung would see them."""
+    finest = INTERVAL_LADDER_MINUTES[0]
+    span = floor_to_interval(window_end, finest) - floor_to_interval(window_start, finest)
+    step_minutes = span.total_seconds() / 60 / BUCKET_TARGET
+    return next((grain for grain in INTERVAL_LADDER_MINUTES if grain >= step_minutes), INTERVAL_LADDER_MINUTES[-1])
 
 
 def resolve_window(
@@ -496,10 +494,7 @@ def resolve_window(
     window_end = min(window_end, now)
     window_start = _parse_bound(date_from, now=now) if date_from else window_end - dt.timedelta(days=WINDOW_DAYS)
     if interval_minutes is None:
-        finest = INTERVAL_LADDER_MINUTES[0]
-        interval_minutes = pick_interval_minutes(
-            floor_to_interval(window_start, finest), floor_to_interval(window_end, finest)
-        )
+        interval_minutes = pick_interval_minutes(window_start, window_end)
     # Snapping can move either bound by up to one interval, so every check runs
     # on the snapped values the query will actually see.
     window_start = floor_to_interval(window_start, interval_minutes)

@@ -444,13 +444,12 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def series_bands(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         data = request.validated_data
         service_name: str = data["serviceName"]
-        requested_interval = data.get("intervalMinutes")
         date_range: dict[str, Any] = data.get("dateRange") or {}
         try:
             window = resolve_window(
                 date_range.get("date_from"),
                 date_range.get("date_to"),
-                interval_minutes=int(requested_interval) if requested_interval is not None else None,
+                interval_minutes=data.get("intervalMinutes"),
             )
         except SeriesBandsWindowInvalid as err:
             return Response({"error": str(err)}, status=status.HTTP_400_BAD_REQUEST)
