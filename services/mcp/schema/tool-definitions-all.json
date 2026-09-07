@@ -5172,6 +5172,20 @@
             "readOnlyHint": false
         }
     },
+    "feature-flags-copy-dependencies-check": {
+        "description": "Preview what a cross-project copy would do to a flag's transitive flag dependencies. Copies nothing and changes nothing. Provide `feature_flag_key`, `from_project` (the source project ID) and `target_project_ids`. Returns `can_copy_dependencies`, `dependency_count`, `copied_dependency_keys` (dependencies missing from a target project, which a copy would create), `reused_dependency_keys` (dependencies that already have an active same-key flag in every target project), plus `warnings` and a human-readable `reason`. A false `can_copy_dependencies` does not always mean the copy is blocked: it is also false when there is nothing to copy, because the flag has no dependencies or every dependency is already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only when it is non-empty. Call this before every `feature-flags-copy-flags-create` copy; it is read-only and returns an empty result when the flag has no dependencies. Set that tool's `copy_dependencies` only when the user approves copying the keys this check reports. Requires write scope because it checks the same copy eligibility and edit permissions the copy itself enforces.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Check whether a flag's dependencies can be copied",
+        "title": "Check whether a flag's dependencies can be copied",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flags-copy-flags-create": {
         "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
         "category": "Feature flags",
@@ -5678,8 +5692,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "heatmaps-mcp"
+        }
     },
     "heatmaps-list": {
         "description": "Aggregated heatmap interactions captured on a page. Filter by `url_exact` (one page) or `url_pattern` (regex across pages), a date window (`date_from`/`date_to`, data is retained 90 days), and optionally a viewport range (`viewport_width_min`/`viewport_width_max`, CSS px) to isolate a device class. Set `type` to 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. For clicks each result is a point — `pointer_relative_x` (0..1 across the viewport), `pointer_y` (absolute pixels down the page), and a `count`; 'scrolldepth' returns reach buckets instead. For the click types the response also includes a `fold` summary — `pct_below_fold` (share of non-fixed interactions that landed below the user's initial viewport, i.e. required scrolling), `below_fold_count`, `total_count`, and the `median_viewport_height` (the typical fold line in CSS px) — so a high `pct_below_fold` flags engaged content sitting off the first screen. `rageclick` hotspots and shallow scroll depth are the strongest signals that something on the page is confusing or buried. Heatmaps only know coordinates, not what was clicked — cross-reference autocapture events on the same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot. Click results are returned hottest-first and capped at `limit` (default 500); busy pages have thousands of distinct coordinates, so the default page plus the `fold` summary is usually enough for analysis — raise `limit` or page with `offset` only if you need more, and check `has_more` to know when the list is truncated.",
@@ -5693,8 +5706,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "heatmaps-mcp"
+        }
     },
     "heatmaps-saved-create": {
         "description": "Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render of the page at each target width — poll `heatmaps-saved-get` until `status` is 'completed'; the rendered page (with data overlaid) is then viewable by the user in the PostHog UI. Provide `widths` (CSS px, 100-3000) to control which viewports are rendered, or omit it for sensible defaults. The URL must be exact — wildcards are not allowed.",
@@ -5708,8 +5720,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "heatmaps-mcp"
+        }
     },
     "heatmaps-saved-get": {
         "description": "Get a single saved heatmap by its `short_id`, including per-width render `status`. Poll this after `heatmaps-saved-create` until `status` is 'completed'; the rendered page is then viewable by the user in the PostHog UI.",
@@ -5723,8 +5734,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "heatmaps-mcp"
+        }
     },
     "heatmaps-saved-list": {
         "description": "List saved heatmaps for the project. A saved heatmap pins a page URL plus a set of viewport widths and (for type 'screenshot') renders the page so heatmap data can be overlaid on it. Filter by `type`, `status`, `created_by`, or a `search` substring on URL/name. The rendered page (screenshot with data overlaid) is viewable by the user in the PostHog UI.",
@@ -5738,8 +5748,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "heatmaps-mcp"
+        }
     },
     "heatmaps-saved-regenerate": {
         "description": "Re-run screenshot generation for a saved heatmap of type 'screenshot' by its `short_id`. Clears the existing renders and re-renders at every target width; `status` returns to 'processing'. Use when a page has changed or a render failed.",
@@ -5753,8 +5762,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "heatmaps-mcp"
+        }
     },
     "heatmaps-saved-update": {
         "description": "Update a saved heatmap by its `short_id`. Send only the fields to change — rename via `name`, change `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call). Changing the `url` of a 'screenshot' heatmap triggers a fresh render.",
@@ -5768,8 +5776,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "heatmaps-mcp"
+        }
     },
     "inbox-report-artefacts-create": {
         "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `task_run` (associates a tasks.Task with the report — this IS the task↔report association: content.task_id defaults to your own task, product/type label the run and default to tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry), `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Returns the created artefact including its id.",
@@ -8416,7 +8423,7 @@
         }
     },
     "notebooks-add-cell": {
-        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one. notebooks-list-frames reports that rate, and notebooks-compute-options lists the presets.",
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. Cells can read the notebook's variables (see notebooks-get, set with notebooks-set-variables): a SQL cell as a bare `{name}` placeholder, a Python cell as a plain global. A SQL cell reading an undeclared `{name}` fails to run, so declare the variable first. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one. notebooks-list-frames reports that rate, and notebooks-compute-options lists the presets.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
@@ -8521,7 +8528,7 @@
         }
     },
     "notebooks-get": {
-        "description": "The full notebook view: title, markdown source, and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown. When you do not have the notebook's short_id, find it with notebooks-list.",
+        "description": "The full notebook view: title, markdown source, the notebook's variables (name, type, value; a SQL cell reads one as `{name}`, a Python cell as a global — change them with notebooks-set-variables), and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell changed, an upstream changed, or, for a SQL cell that ran on ClickHouse, a variable it reads changed), so its displayed result is outdated. A changed variable value does not make a Python cell, or a SQL cell that reads a Python-created dataframe, stale: on those, 'done' means the code is current, not the values it ran with. Re-run them from the stale_cells list notebooks-set-variables returns, and re-run before trusting a result whose values may have changed since. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown. When you do not have the notebook's short_id, find it with notebooks-list.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",
@@ -8626,8 +8633,23 @@
         },
         "feature_flag": "revamped-py-notebooks"
     },
+    "notebooks-set-variables": {
+        "description": "Declare or change a markdown notebook's variables: named, typed values that cells read without hardcoding them — a SQL cell as a bare `{name}` placeholder (bound as a value, never as SQL text), a Python cell as a plain global. Use one for an input the reader will want to change (a country, a date range start, a threshold, a row limit) instead of repeating a literal across cells. The list you pass replaces the whole set, so read the current one from notebooks-get first and include every variable you want to keep. Returns the saved variables and stale_cells: cells whose code reads a variable that was added, removed, retyped, or given a new value. Nothing re-runs automatically — re-run each stale cell with notebooks-update-cell (no code) so its result reflects the new values.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Set a notebook's variables; cells read them as {name} in SQL or globals in Python.",
+        "title": "Set notebook variables",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-update-cell": {
-        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one.",
+        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update a cell's code and re-run it.",
@@ -12756,7 +12778,7 @@
         }
     },
     "workflow-health": {
-        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request (same-repo PRs only — fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows and compare.",
+        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches only, same-repo PRs — fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows and compare.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Per-workflow CI health",
