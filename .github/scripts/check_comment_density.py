@@ -128,7 +128,7 @@ def _classify_slash(line: str, state: ParserState) -> tuple[bool, ParserState]:
     if state == "template_literal":
         return False, _slash_state_after_line(line, state)
 
-    if state == "block_comment":
+    if state == "block_comment" or line.startswith(("/*", "{/*")):
         end = line.find("*/")
         is_comment = end == -1 or line[end + 2 :].strip(" }") == ""
         return is_comment, _slash_state_after_line(line, state)
@@ -136,11 +136,7 @@ def _classify_slash(line: str, state: ParserState) -> tuple[bool, ParserState]:
     if line.startswith("//"):
         return True, None
 
-    is_comment = False
-    if line.startswith(("/*", "{/*")):
-        end = line.find("*/")
-        is_comment = end == -1 or line[end + 2 :].strip(" }") == ""
-    return is_comment, _slash_state_after_line(line, state)
+    return False, _slash_state_after_line(line, state)
 
 
 def _classify_hash(line: str, state: ParserState) -> tuple[bool, ParserState]:
