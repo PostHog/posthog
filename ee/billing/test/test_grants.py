@@ -8,7 +8,7 @@ from posthog.models import Organization, OrganizationMembership, PersonalAPIKey,
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from ee.billing.grants import BillingEntitlement, effective_billing_grants
+from ee.billing.grants import BillingEntitlement, effective_billing_grants, entitlements_for
 
 OWNER = OrganizationMembership.Level.OWNER
 ADMIN = OrganizationMembership.Level.ADMIN
@@ -60,7 +60,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         self.assertEqual(grants.sub, f"user:{self.user.distinct_id}")
         self.assertEqual(grants.scope, ["billing:read"])
         self.assertEqual(grants.roles, ["owner"])
-        self.assertEqual(grants.entitlements, [BillingEntitlement.FULL_ACCESS.value])
+        self.assertEqual(grants.entitlements, entitlements_for(BillingEntitlement.FULL_ACCESS))
         self.assertIsNone(grants.projects)
 
     @parameterized.expand(
@@ -75,7 +75,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         self.owner_only.return_value = flag_state
         grants = self._grants()
         self.assertEqual(grants.roles, ["admin"])
-        self.assertEqual(grants.entitlements, [expected.value])
+        self.assertEqual(grants.entitlements, entitlements_for(expected))
 
     @parameterized.expand(
         [
@@ -90,7 +90,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         self.member_read.return_value = member_read
         grants = self._grants()
         self.assertEqual(grants.roles, ["member"])
-        self.assertEqual(grants.entitlements, [expected.value])
+        self.assertEqual(grants.entitlements, entitlements_for(expected))
 
     def test_non_member_gets_nothing(self):
         outsider = User.objects.create_user(email="outsider@example.com", password="x", first_name="o")
@@ -111,7 +111,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         for scopes in (["billing:write"], ["*"]):
             grants = self._grants(_personal_key_authenticator(self.user, scopes))
             self.assertEqual(grants.scope, ["billing:read", "billing:write"])
-            self.assertEqual(grants.entitlements, [BillingEntitlement.FULL_ACCESS.value])
+            self.assertEqual(grants.entitlements, entitlements_for(BillingEntitlement.FULL_ACCESS))
 
     def test_team_scoped_key_is_clipped_to_this_organizations_teams_whatever_the_role(self):
         self._set_level(OWNER)
@@ -122,7 +122,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         )
         grants = self._grants(authenticator)
         self.assertEqual(grants.projects, [self.team.id])
-        self.assertEqual(grants.entitlements, [BillingEntitlement.FULL_ACCESS.value])
+        self.assertEqual(grants.entitlements, entitlements_for(BillingEntitlement.FULL_ACCESS))
 
     def test_key_scoped_only_to_foreign_teams_grants_nothing(self):
         self._set_level(OWNER)
@@ -147,7 +147,9 @@ class TestEffectiveBillingGrants(APIBaseTest):
         self.member_read.return_value = True
         with patch("ee.billing.grants.visible_team_ids", return_value=[self.other_team.id]) as visible:
             grants = self._grants()
-        self.assertEqual((grants.entitlements, grants.projects), ([BillingEntitlement.USAGE_READ.value], None))
+        self.assertEqual(
+            (grants.entitlements, grants.projects), (entitlements_for(BillingEntitlement.USAGE_READ), None)
+        )
         visible.assert_not_called()
 
     def test_project_secret_key_is_its_own_principal(self):
@@ -158,7 +160,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         self.assertTrue(grants.sub.startswith("project_key:"))
         self.assertEqual(grants.roles, [])
         self.assertEqual(grants.scope, ["billing:read"])
-        self.assertEqual(grants.entitlements, [BillingEntitlement.USAGE_READ.value])
+        self.assertEqual(grants.entitlements, entitlements_for(BillingEntitlement.USAGE_READ))
         self.assertEqual(grants.projects, [self.team.id])
 
     def test_project_secret_key_without_billing_scope_gets_nothing(self):

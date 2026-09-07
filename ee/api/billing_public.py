@@ -37,7 +37,13 @@ from posthog.utils import get_trusted_client_ip
 
 from ee.api.billing import BillingTimeSeriesPointSerializer, BillingUsageRequestSerializer
 from ee.billing.billing_manager import BillingManager
-from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, effective_billing_grants, visible_team_ids
+from ee.billing.grants import (
+    ORGANIZATION_BILLING_API_FLAG,
+    BillingEntitlement,
+    EffectiveBillingGrants,
+    effective_billing_grants,
+    visible_team_ids,
+)
 
 BILLING_ACCESS_DENIED = "You do not have access to Billing for this organization."
 
@@ -448,9 +454,8 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "limits",
     ]
     scope_object_write_actions: list[str] = []
-    # The routes are open to any eligible caller once deployed, so they are behind the flag the
-    # MCP billing tools carry, until the API is opened up.
-    posthog_feature_flag = "billing-mcp-read-tools"
+    # Nothing here answers until the flag is on for the caller's organization.
+    posthog_feature_flag = ORGANIZATION_BILLING_API_FLAG
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, PostHogFeatureFlagPermission]
     throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
     # Opt into the generated schema. The MCP scaffolding and generated clients read it from there.
@@ -482,9 +487,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @staticmethod
     def _covers(grants: EffectiveBillingGrants, level: BillingEntitlement) -> bool:
-        rank = {BillingEntitlement.MEMBER: 1, BillingEntitlement.USAGE_READ: 2, BillingEntitlement.FULL_ACCESS: 3}
-        highest = max((rank[BillingEntitlement(e)] for e in grants.entitlements), default=0)
-        return highest >= rank[level]
+        return level.value in grants.entitlements
 
     @classmethod
     def _require(

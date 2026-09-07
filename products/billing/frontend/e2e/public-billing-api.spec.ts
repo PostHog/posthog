@@ -8,6 +8,10 @@ import { APIRequestContext, APIResponse } from '@playwright/test'
  * adds on top: the token it mints for a real organization, the shapes it serves, the parameters it
  * validates, the links it builds and the access it computes from roles and flags.
  *
+ * The endpoints are behind the organization-billing-api feature flag, evaluated server-side. The
+ * local server reads flag definitions from its first team, so create that flag there, rolled out
+ * to everyone, before running.
+ *
  * CI has no billing behind the dev stack, so the suite only runs when asked:
  *
  *   RUN_BILLING_E2E=1 BASE_URL=http://localhost:8010 \

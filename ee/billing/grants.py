@@ -31,6 +31,8 @@ BILLING_READ_SCOPE = "billing:read"
 BILLING_WRITE_SCOPE = "billing:write"
 
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
+# Gates the organization billing API and the MCP tools that call it, until the API is opened up.
+ORGANIZATION_BILLING_API_FLAG = "organization-billing-api"
 MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
 BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
 BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
@@ -93,6 +95,15 @@ class BillingEntitlement(str, Enum):
     MEMBER = "billing:member"
     USAGE_READ = "billing:usage_read"
     FULL_ACCESS = "billing:full_access"
+
+
+ENTITLEMENT_LADDER = [BillingEntitlement.MEMBER, BillingEntitlement.USAGE_READ, BillingEntitlement.FULL_ACCESS]
+
+
+def entitlements_for(level: BillingEntitlement) -> list[str]:
+    """Every right a caller at `level` has, as the token lists them. The token names all of a
+    caller's rights, so billing checks for the one an endpoint needs and no ranking lives anywhere."""
+    return [e.value for e in ENTITLEMENT_LADDER[: ENTITLEMENT_LADDER.index(level) + 1]]
 
 
 @dataclass(frozen=True)
@@ -199,7 +210,7 @@ def _grants_for_project_secret_key(authenticator: ProjectSecretAPIKeyAuthenticat
     return EffectiveBillingGrants(
         sub=sub,
         scope=scope,
-        entitlements=[BillingEntitlement.USAGE_READ.value],
+        entitlements=entitlements_for(BillingEntitlement.USAGE_READ),
         projects=[key.team_id],
     )
 
@@ -232,5 +243,5 @@ def effective_billing_grants(
     if not anything:
         return EffectiveBillingGrants(sub=sub, roles=roles, scope=scope)
     return EffectiveBillingGrants(
-        sub=sub, scope=scope, roles=roles, entitlements=[entitlement.value], projects=projects
+        sub=sub, scope=scope, roles=roles, entitlements=entitlements_for(entitlement), projects=projects
     )
