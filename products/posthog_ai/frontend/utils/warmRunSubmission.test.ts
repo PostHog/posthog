@@ -75,9 +75,9 @@ describe('submitWithWarmRunRetry', () => {
     ])('stops without retrying an unconfirmed failure: %s', async (error) => {
         const send = jest.fn().mockRejectedValueOnce(starting()).mockRejectedValueOnce(error)
         const result = submitWithWarmRunRetry(send, disposables)
-        const rejected = await expect(result).rejects.toBe(error)
+        const rejected = result.catch((error) => error)
         await jest.advanceTimersByTimeAsync(20_000)
-        await rejected
+        await expect(rejected).resolves.toBe(error)
         expect(send).toHaveBeenCalledTimes(2)
         expect(disposables.registry.size).toBe(0)
     })
@@ -95,14 +95,14 @@ describe('submitWithWarmRunRetry', () => {
                 send.mockReturnValue(new Promise<string>((resolve) => (complete = resolve)))
             }
             const result = submitWithWarmRunRetry(send, disposables)
-            const rejected = await expect(result).rejects.toBe(error)
+            const rejected = result.catch((error) => error)
             await jest.advanceTimersByTimeAsync(10_000)
             rejectInitial(error)
             await jest.advanceTimersByTimeAsync(9_999)
             expect(send.mock.calls[0][0].signal.aborted).toBe(false)
             const attempts = send.mock.calls.length
             await jest.advanceTimersByTimeAsync(1)
-            await rejected
+            await expect(rejected).resolves.toBe(error)
             expect(send.mock.calls[0][0].signal.aborted).toBe(true)
             complete?.('late acceptance')
             await jest.advanceTimersByTimeAsync(20_000)
@@ -120,10 +120,10 @@ describe('submitWithWarmRunRetry', () => {
             send.mockRejectedValueOnce(starting())
         }
         const result = submitWithWarmRunRetry(send, disposables)
-        const rejected = await expect(result).rejects.toMatchObject({ name: 'AbortError' })
+        const rejected = result.catch((error) => error)
         await jest.advanceTimersByTimeAsync(phase === 'retry request' ? 250 : 0)
         logic.unmount()
-        await rejected
+        await expect(rejected).resolves.toMatchObject({ name: 'AbortError' })
         const attempts = send.mock.calls.length
         logic.mount()
         complete('obsolete acceptance')
