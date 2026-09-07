@@ -53,6 +53,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
     }
 
     let markdown = initial.markdown
+    let notebook = initial.notebook
     if (params.code !== undefined && params.code !== existing.code) {
         const applied = await applyMarkdownEdit(context, params.notebook_id, (current) => {
             const block = findCellTag(current, params.node_id)
@@ -62,6 +63,9 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
             return replaceCellTag(current, block, upsertProp(block.source, 'code', params.code))
         })
         markdown = applied.markdown
+        // The save response carries the notebook as it stood when the save committed, so it holds a
+        // variable edit that landed after the read above.
+        notebook = applied.notebook
     }
 
     const code = params.code ?? existing.code
@@ -78,6 +82,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
         code,
         output_name: existing.returnVariable,
         refs: collectRunRefs(cells, params.node_id),
+        variables: notebook.variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
     await applyMarkdownEdit(context, params.notebook_id, (current) => {

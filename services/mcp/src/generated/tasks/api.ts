@@ -994,6 +994,8 @@ export const tasksCreateBodyBranchMax = 255
 
 export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
 
+export const tasksCreateBodySignalReportDiscussionQuestionMax = 4000
+
 export const TasksCreateBody = () => zod
     .object({
         title: zod
@@ -1136,6 +1138,13 @@ export const TasksCreateBody = () => zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.string().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        signal_report_discussion_question: zod
+            .string()
+            .max(tasksCreateBodySignalReportDiscussionQuestionMax)
+            .optional()
+            .describe(
+                "Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task."
+            ),
         naming_source: zod
             .string()
             .optional()
