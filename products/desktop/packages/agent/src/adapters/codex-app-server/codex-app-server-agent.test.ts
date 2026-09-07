@@ -736,9 +736,7 @@ describe("CodexAppServerAgent", () => {
       sessionUpdates as Array<{
         update?: { sessionUpdate?: string; content?: unknown };
       }>
-    ).filter(
-      (update) => update.update?.sessionUpdate === "user_message_chunk",
-    );
+    ).filter((update) => update.update?.sessionUpdate === "user_message_chunk");
     expect(userMessages).toHaveLength(1);
     expect(userMessages[0]?.update).toMatchObject({
       content: { type: "text", text: "visible" },
