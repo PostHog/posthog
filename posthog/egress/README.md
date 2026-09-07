@@ -21,17 +21,15 @@ This section records what egress does not do.
 Each item below was a real proposal, so read the reason before you reopen one.
 
 **Egress does not store response data.**
-The limiter does cache control state about a budget: an installation's observed core limit, and its interactive-demand marker.
-Both are a few bytes per scope and self-expiring, so their footprint does not grow with traffic.
+The limiter keeps control state about a budget, which stays O(1) per scope and expires on its own, so its footprint does not grow with traffic.
 A response body is the opposite, because its footprint tracks request volume.
-Storing bodies therefore needs a size budget, an eviction policy, and a Redis of its own.
-`CACHES["default"]` is not that Redis: it also serves flags, org access, and cohort dependencies, so a body store there competes with the request path.
+Storing bodies therefore needs a size budget, an eviction policy, and a store of its own.
+The shared Django cache is not that store, because it also serves the request path.
 Cache what a caller needs in that caller's own cache, where the data is already smaller and better shaped than the raw response.
-`posthog/models/integration_repository_cache.py` is one existing example: it keeps the derived file tree and revalidates with a cheap SHA check.
 
 **Egress does not hide an API's response semantics from callers.**
 A transport that replays a `304` as a `200`, or an error as an empty result, leaves the caller unable to act on what the API said.
-The rate-limit path shows the shape to follow: a 403 with an exhausted window becomes a typed `GitHubRateLimitError` carrying `retry_after`, and the caller decides what to do with it.
+Classify the response instead, and hand the caller a typed result it can act on.
 "No call site changes" is not a reason to break this. If a caller has to know that nothing changed, change the caller.
 
 **Egress does not decide what a caller should request.**
