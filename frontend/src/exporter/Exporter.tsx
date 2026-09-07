@@ -72,19 +72,29 @@ function useResolvedForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 
     return systemPrefersDark ? 'dark' : 'light'
 }
 
+type UnlockScreenProps = Pick<ExportedData, 'whitelabel' | 'theme'>
+
+/** Themes the unlock screen itself, so only the component on screen writes the theme attribute. */
+function ExporterUnlockScreen({ whitelabel, theme }: UnlockScreenProps): JSX.Element {
+    const forcedTheme = useResolvedForcedTheme(theme)
+    useThemedHtml(false, forcedTheme)
+
+    return <ExporterLogin whitelabel={whitelabel} />
+}
+
 /** A cross-site iframe never gets the share cookie back, so a correct password must not reload. */
-function ExporterUnlockGate({ whitelabel }: { whitelabel?: boolean }): JSX.Element {
+function ExporterUnlockGate({ whitelabel, theme }: UnlockScreenProps): JSX.Element {
     const { unlockedData } = useValues(loginLogic())
 
     if (unlockedData) {
         return <ExporterContent {...unlockedData} />
     }
-    return <ExporterLogin whitelabel={whitelabel} />
+    return <ExporterUnlockScreen whitelabel={whitelabel} theme={theme} />
 }
 
 export function Exporter(props: ExportedData): JSX.Element {
     if (props.type === ExportType.Unlock) {
-        return <ExporterUnlockGate whitelabel={props.whitelabel} />
+        return <ExporterUnlockGate whitelabel={props.whitelabel} theme={props.theme} />
     }
     return <ExporterContent {...props} />
 }

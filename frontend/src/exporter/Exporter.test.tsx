@@ -80,6 +80,14 @@ describe('Exporter (shared dashboard)', () => {
         await waitFor(() => expect(getAllByText('My shared dashboard').length).toBeGreaterThan(0))
     })
 
+    it('applies the share theme to the unlock screen', () => {
+        render(<Exporter type={ExportType.Unlock} theme="dark" />)
+
+        expect(document.body.getAttribute('theme')).toBe('dark')
+
+        document.body.removeAttribute('theme')
+    })
+
     it('does not show auto refresh text for image exports', () => {
         const { container } = render(<Exporter {...makeDashboardExport({ type: ExportType.Image })} />)
 
