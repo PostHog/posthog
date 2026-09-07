@@ -21,6 +21,7 @@ Prop docs live on each component's props interface under `overlays/`.
 
 Variants: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin).
 A numeric line reveals its value on hover of the line itself (via a wider invisible hit area) or of its label, appended as `label: value` when it has a label and shown alone when it does not.
+`showValueOnHover: false` turns that off and removes the hit area, for a line whose caption already states the number or that should not react to the pointer.
 A vertical line resolves x through `scales.x(label)`, so it can only sit on a label.
 `axisOrientation: 'horizontal'` flips a numeric line into a vertical stripe for horizontal bar charts; it defaults from context, so callers rarely pass it.
 A line whose value falls outside a pinned axis range hides itself.
