@@ -149,6 +149,26 @@ describe('switch active environment', () => {
             expect(listCalls).toEqual([])
         })
 
+        it('keeps the active project when only the detail lookup failed and the org list still has it', async () => {
+            const { context } = makeContext({
+                orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
+                orgProjects: {
+                    'org-b': [
+                        { id: 20, organization: 'org-b', name: 'First Project' },
+                        { id: 10, organization: 'org-b', name: 'B Project' },
+                    ],
+                },
+            })
+            // Nothing cached for project 10 and its detail fetch fails, so membership can only
+            // be answered by the org's project list.
+            await context.cache.set('projectId', '10')
+
+            const result = await tool.handler(context, { orgId: 'org-b' })
+
+            expect(await context.cache.get('projectId')).toBe('10')
+            expect(result.content[0]!.text).toContain('B Project')
+        })
+
         it('clears the stale project when the org has no accessible projects', async () => {
             const { context } = makeContext({
                 orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },

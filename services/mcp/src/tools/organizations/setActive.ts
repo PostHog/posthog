@@ -38,12 +38,18 @@ async function reconcileActiveProjectForOrg(context: Context, orgId: string): Pr
 
     const projectsResult = await context.api.organizations().projects({ orgId }).list()
     if (projectsResult.success && projectsResult.data.length > 0) {
-        const first = projectsResult.data[0]!
-        const firstIdStr = first.id.toString()
-        await context.cache.set('projectId', firstIdStr)
-        await context.cache.set(`cachedProject:${firstIdStr}` as const, first)
-        await context.cache.set(`cachedProjectFetchedAt:${firstIdStr}` as const, Date.now())
-        return first
+        // The list itself proves membership, so keep the project the agent selected when it is
+        // in this org after all. Otherwise a transient failure of the detail lookup above would
+        // silently replace it with the org's first project.
+        const stillInOrg = activeProjectId
+            ? projectsResult.data.find((candidate: CachedProject) => candidate.id.toString() === activeProjectId)
+            : undefined
+        const selected = stillInOrg ?? projectsResult.data[0]!
+        const selectedIdStr = selected.id.toString()
+        await context.cache.set('projectId', selectedIdStr)
+        await context.cache.set(`cachedProject:${selectedIdStr}` as const, selected)
+        await context.cache.set(`cachedProjectFetchedAt:${selectedIdStr}` as const, Date.now())
+        return selected
     }
 
     // The org has no accessible projects — clear the stale pointer rather than leave a
