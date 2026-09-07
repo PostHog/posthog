@@ -1669,6 +1669,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 }
                 return
             }
+            // Disarms a report held for a probe that is still out: the list has answered since, and
+            // the probe's answer would otherwise fire a second report calling it empty.
+            cache.listRenderReportPending = false
             actions.listRenderResolved(recordings.length)
         },
         // One report per list, from the point its reason is final.

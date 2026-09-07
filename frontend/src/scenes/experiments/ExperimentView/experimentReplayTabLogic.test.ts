@@ -851,6 +851,34 @@ describe('experimentReplayTabLogic', () => {
         residue.unmount()
     })
 
+    it('drops a held report once the list comes back with rows', async () => {
+        // Left armed, the probe's answer would fire a second report claiming the list was empty,
+        // and an empty reason would ride on it for a list that has rows.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        let answerProbe: (response: unknown) => void = () => {}
+        recordingsListSpy.mockReturnValue(new Promise((resolve) => (answerProbe = resolve)))
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const filling = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 132, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        filling.mount()
+        await expectLogic(filling).toFinishAllListeners()
+
+        filling.actions.recordingsLoaded([])
+        await expectLogic(filling).toDispatchActions(['loadWindowRecordingProbe'])
+
+        filling.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(filling).toDispatchActions(['listRenderResolved'])
+        expect(listsRendered(captureSpy, 132)).toHaveLength(1)
+
+        answerProbe({ results: [] })
+        await expectLogic(filling).toDispatchActions(['loadWindowRecordingProbeSuccess'])
+
+        expect(listsRendered(captureSpy, 132)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 132)[0][1]).toMatchObject({ result_count: 1, empty_reason: null })
+        filling.unmount()
+    })
+
     it('probes the experiment run window rather than the default range', async () => {
         // A project can record heavily today and hold nothing over the window, so an unwindowed
         // probe would call capture healthy for a period it never looked at.
