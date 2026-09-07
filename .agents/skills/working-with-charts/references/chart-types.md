@@ -24,14 +24,13 @@ The library `AGENTS.md` lists every component and every config key; this file ad
 
 ## Rules of thumb
 
-- **Time on the x-axis means the `TimeSeries*` wrapper.** It formats ticks from `xAxis.timezone` and `interval`, formats the tooltip header to match, takes `goalLines`, `legend`, `valueLabels`, `trendLines`, `movingAverage`, `confidenceIntervals` as config, and handles multi-axis `yAxis` arrays. Only reach for the base `LineChart` / `BarChart` when the labels are categories.
+- **Time on the x-axis means the `TimeSeries*` wrapper.** Reach for the base `LineChart` / `BarChart` only when the labels are categories.
 - **Line when the path matters, bar when the bucket matters.** A daily count reads as a line; a per-release or per-week comparison reads as bars. Area is a line with `fill`, for emphasis on volume or for stacking (`percentStackView`).
 - **Stacked bars for parts of a whole per bucket, grouped bars for comparing series side by side.** Compare-to-previous on trends uses grouped bars so each period gets its own bar. Percent stacks answer "what share" rather than "how many".
 - **Pie only for a few slices that sum to a whole.** Past about eight categories, a horizontal bar reads better and the legend stops scrolling.
-- **Funnels are `FunnelChart`, not a hand-built stacked bar.** It owns the hatched drop-off track, the percent axis, `onStepClick` with `converted` versus drop-off, and `stepFooter` for per-step legends.
+- **Funnels are `FunnelChart`, not a hand-built stacked bar.**
 - **A goal that should stretch the axis is a `goalLines` config entry; a marker that should not is a `ReferenceLine` child.** Experiments draw their zero line as a goal line so zero stays on the plot.
 - **Multiple magnitudes on one chart get their own axes.** `showMultipleYAxes` on trends assigns `yAxisId` per magnitude cluster through `computeMagnitudeAxisIds`. A `0..1` probability or a `0..100` percentage on a secondary axis should pin `min` and `max` so reference lines stay on the plot.
-- **A chart the user cannot hover is a sparkline.** Hide axes, grid, crosshair, and tooltip, and surface the hovered value in a sibling element through `useChartHover()` if you need it.
 
 ## Insight display types
 

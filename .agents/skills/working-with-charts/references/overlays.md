@@ -38,10 +38,8 @@ Copy their shape when you need something similar.
 
 ## Writing a new overlay
 
-Decide where it lives first.
-
-- Generic, app-agnostic, and reusable by another host (a range box, a marker layer keyed on index and value): add it to `packages/quill/packages/charts/src/overlays/`, export it from `src/index.ts`, add a story next to it, add a `data-attr` and an accessor method in `src/testing/accessor.ts`, and update the library's `src/docs/overlays.md` in the same PR.
-- Anything that reads kea, PostHog models, product types, or app copy: keep it next to its consumer, in the product's `frontend/` or the shared `lib/components/` if two products need it.
+An overlay that reads kea, PostHog models, product types, or app copy lives next to its consumer, in the product's `frontend/` or in the shared `lib/components/` if two products need it.
+One generic enough for another host is a library change, which is out of scope here.
 
 The hooks, the positioning rules, and a minimal example are in the library's [docs/overlays.md](../../../../packages/quill/packages/charts/src/docs/overlays.md) under "Custom overlays".
 On top of those, copy the app precedent closest to your case: `BillingPeriodMarkers` for a position between labels, `MetricsExemplarMarkers` for a clickable marker, `EventMarkers` for reserving headroom through `config.margins`, and `AnnotationsLayer` for lining up with the ticks the axis drew.
