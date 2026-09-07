@@ -7,7 +7,7 @@ pub mod discovery;
 pub mod dispatcher;
 pub mod grpc_transport;
 pub mod kafka_stats;
-pub mod ledger_shadow;
+pub mod ledger_rejection;
 pub mod order_sentinel;
 pub mod readiness;
 pub mod routing;

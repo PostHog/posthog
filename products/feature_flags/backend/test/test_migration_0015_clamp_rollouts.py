@@ -126,7 +126,24 @@ class ClampRolloutPercentagesMigrationTest(TestMigrations):
         FeatureFlag = self.apps.get_model("feature_flags", "FeatureFlag")
         return FeatureFlag.objects.get(id=flag_id).filters
 
-    def test_preserves_every_other_field_while_clamping(self) -> None:
+    def test_migration_clamps_rollouts(self) -> None:
+        for check in (
+            self._check_clamps_a_straddling_variant_to_the_remainder,
+            self._check_clamps_rows_past_the_first_batch,
+            self._check_covers_soft_deleted_inactive_and_encrypted_flags,
+            self._check_keeps_real_decimals,
+            self._check_keeps_whole_numbers_as_integers,
+            self._check_leaves_correct_and_short_sums_alone,
+            self._check_preserves_every_other_field_while_clamping,
+            self._check_rounds_the_remainder_instead_of_storing_a_float_artifact,
+            self._check_skips_malformed_filters_without_raising,
+            self._check_skips_only_the_shape_that_flips_hash_dependence_with_continuity,
+            self._check_zeroes_variants_the_evaluator_can_never_reach,
+        ):
+            with self.subTest(check=check.__name__):
+                check()
+
+    def _check_preserves_every_other_field_while_clamping(self) -> None:
         assert self._filters(self.annotated_id) == {
             "groups": [{"properties": [], "rollout_percentage": 100, "variant": None}],
             "multivariate": {
@@ -140,7 +157,7 @@ class ClampRolloutPercentagesMigrationTest(TestMigrations):
             "payloads": {"v0": "1"},
         }
 
-    def test_skips_only_the_shape_that_flips_hash_dependence_with_continuity(self) -> None:
+    def _check_skips_only_the_shape_that_flips_hash_dependence_with_continuity(self) -> None:
         # Continuity on plus a 100 after a smaller variant: the one shape that can move a user.
         assert rollouts(self._filters(self.risky_with_continuity_id)) == [40, 100]
         # Same shape without continuity hashes the distinct_id either way, so it is safe.
@@ -148,18 +165,18 @@ class ClampRolloutPercentagesMigrationTest(TestMigrations):
         # The 100 comes first, so nothing smaller precedes it and the classification is unchanged.
         assert rollouts(self._filters(self.leading_full_with_continuity_id)) == [100, 0]
 
-    def test_clamps_rows_past_the_first_batch(self) -> None:
+    def _check_clamps_rows_past_the_first_batch(self) -> None:
         assert rollouts(self._filters(self.last_batch_id)) == [80, 20]
 
-    def test_clamps_a_straddling_variant_to_the_remainder(self) -> None:
+    def _check_clamps_a_straddling_variant_to_the_remainder(self) -> None:
         assert rollouts(self._filters(self.straddling_id)) == [40, 40, 20]
         assert rollouts(self._filters(self.two_over_id)) == [60, 40]
 
-    def test_zeroes_variants_the_evaluator_can_never_reach(self) -> None:
+    def _check_zeroes_variants_the_evaluator_can_never_reach(self) -> None:
         assert rollouts(self._filters(self.first_takes_all_id)) == [100, 0]
         assert rollouts(self._filters(self.unreachable_id)) == [50, 50, 0]
 
-    def test_keeps_whole_numbers_as_integers(self) -> None:
+    def _check_keeps_whole_numbers_as_integers(self) -> None:
         # A float here would re-break the .NET and Java SDKs that #84957 fixed. The decimal
         # fixture is the one that pins the conversion: its remainder is whole, so without it
         # the stored value would be 33.0.
@@ -167,23 +184,23 @@ class ClampRolloutPercentagesMigrationTest(TestMigrations):
         assert rollouts(self._filters(self.whole_remainder_id)) == [33.5, 33.5, 33]
         assert [type(r) for r in rollouts(self._filters(self.whole_remainder_id))] == [float, float, int]
 
-    def test_rounds_the_remainder_instead_of_storing_a_float_artifact(self) -> None:
+    def _check_rounds_the_remainder_instead_of_storing_a_float_artifact(self) -> None:
         assert rollouts(self._filters(self.drifting_remainder_id)) == [10.1, 20.2, 30.3, 39.4]
 
-    def test_keeps_real_decimals(self) -> None:
+    def _check_keeps_real_decimals(self) -> None:
         assert rollouts(self._filters(self.fractional_id)) == [33.33, 33.33, 33.34]
 
-    def test_covers_soft_deleted_inactive_and_encrypted_flags(self) -> None:
+    def _check_covers_soft_deleted_inactive_and_encrypted_flags(self) -> None:
         assert rollouts(self._filters(self.soft_deleted_id)) == [70, 30]
         assert rollouts(self._filters(self.inactive_id)) == [70, 30]
         assert rollouts(self._filters(self.encrypted_id)) == [60, 40]
 
-    def test_leaves_correct_and_short_sums_alone(self) -> None:
+    def _check_leaves_correct_and_short_sums_alone(self) -> None:
         assert rollouts(self._filters(self.exact_id)) == [40, 40, 20]
         assert rollouts(self._filters(self.under_id)) == [30, 30]
         assert rollouts(self._filters(self.drifting_id)) == [0.01, 64.04, 35.95]
 
-    def test_skips_malformed_filters_without_raising(self) -> None:
+    def _check_skips_malformed_filters_without_raising(self) -> None:
         # Reaching any assertion here means the scan completed; these rows stay as they were.
         assert self._raw_filters(self.junk["filters-not-dict"]) == ["nope"]
         assert self._filters(self.junk["multivariate-list"])["multivariate"] == ["nope"]

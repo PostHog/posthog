@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
@@ -114,7 +115,8 @@ async function runAndWriteBack(
     nodeType: 'hogql' | 'python',
     code: string,
     outputName: string,
-    cells: CellTagBlock[]
+    cells: CellTagBlock[],
+    variables: Schemas.NotebookVariable[] | undefined
 ): Promise<ShapedRunResult> {
     const projectId = await context.stateManager.getProjectId()
     const notebookPath = notebookPathFor(projectId, notebookId)
@@ -125,6 +127,7 @@ async function runAndWriteBack(
         code,
         output_name: outputName,
         refs,
+        variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
     // Mirror the editor's write-back so humans opening the notebook see the result: runId
@@ -239,10 +242,17 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     const initial = await fetchMarkdownNotebook(context, params.notebook_id)
     const dataframeName =
         params.dataframe_name ??
-        uniqueDataframeName(params.cell_type === 'sql' ? 'sql_df' : 'df', parseCellTags(initial.markdown))
+        uniqueDataframeName(
+            params.cell_type === 'sql' ? 'sql_df' : 'df',
+            parseCellTags(initial.markdown),
+            (initial.notebook.variables ?? []).map((variable) => variable.name)
+        )
     const tag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
 
-    const { markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
+    // The save response carries the notebook as it stood when the save committed, so it holds a
+    // variable edit that landed after the read above. The run binds those values to stay in step
+    // with what the notebook now declares.
+    const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
         insertBlock(current, tag, params.after_node_id)
     )
     const run = await runAndWriteBack(
@@ -252,7 +262,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         params.cell_type === 'sql' ? 'hogql' : 'python',
         params.code!,
         dataframeName,
-        parseCellTags(markdown)
+        parseCellTags(markdown),
+        notebook.variables
     )
     return wrapRunResultAsInformational({ node_id: nodeId, dataframe_name: dataframeName, run })
 }
