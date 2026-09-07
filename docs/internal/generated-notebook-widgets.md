@@ -22,6 +22,19 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
 
+## Agent access
+
+The MCP tools `notebooks-widget-generate`, `notebooks-widget-status`, and `notebooks-widget-cancel` use the same `notebook-generated-widgets` flag as the editor.
+The MCP server evaluates this flag for the authenticated user when it resolves available tools.
+Generation also requires the organization's AI data processing consent and the `notebook:write` and `query:read` scopes.
+
+An agent inserts a `Widget` component through `notebooks-add-cell`, then calls `notebooks-widget-generate` with its returned `node_id`.
+Markdown editing can also insert `<Widget nodeId="widget-example" prompt="Show an interactive chart" />` into a saved notebook.
+All notebook SQL and Python dataframes must have completed runs before generation.
+Inserting the tag does not start a generation job.
+The agent polls status and directs the user to the notebook for review and execution consent.
+MCP responses omit the preview URL so previews open through the notebook's existing consent flow.
+
 ## Generated-code trust model
 
 Generated widget source is arbitrary React and JavaScript. It is not a restricted widget schema, and PostHog does not claim to make it safe by parsing an AST, matching source text, or blocking selected syntax. JavaScript can construct equivalent behavior dynamically, so source-shape validation would create a false security boundary while breaking legitimate widgets.
