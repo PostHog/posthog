@@ -1,7 +1,10 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { HogFlowTemplate } from './hogflows/types'
 import { PREFILL_PARAMS, SCAFFOLD_PREFILL_PARAM, TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
@@ -39,9 +42,11 @@ export interface newWorkflowLogicActions {
     }
     showNewWorkflowModalForPrefill: (
         trigger: string,
+        sourceProduct: ProductKey,
         scaffold?: string
     ) => {
         scaffold: string | undefined
+        sourceProduct: ProductKey
         trigger: string
     }
 }
@@ -52,7 +57,11 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     path(['products', 'workflows', 'frontend', 'newWorkflowLogic']),
     actions({
         showNewWorkflowModal: true,
-        showNewWorkflowModalForPrefill: (trigger: string, scaffold?: string) => ({ trigger, scaffold }),
+        showNewWorkflowModalForPrefill: (trigger: string, sourceProduct: ProductKey, scaffold?: string) => ({
+            trigger,
+            sourceProduct,
+            scaffold,
+        }),
         hideNewWorkflowModal: true,
         createWorkflowFromTemplate: (template: HogFlowTemplate) => ({ template }),
         createEmptyWorkflow: true,
@@ -67,7 +76,15 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        showNewWorkflowModalForPrefill: ({ trigger, scaffold }) => {
+        showNewWorkflowModalForPrefill: ({ trigger, sourceProduct, scaffold }) => {
+            // The Workflows scene registers this intent before it opens the chooser. Without it, a
+            // person whose first workflow starts from another product gets no Workflows entry in the
+            // sidebar, and this path is missing from the cross-sell numbers.
+            void addProductIntentForCrossSell({
+                from: sourceProduct,
+                to: ProductKey.WORKFLOWS,
+                intent_context: ProductIntentContext.WORKFLOW_CREATED,
+            })
             // Stash the prefill on the current URL: the create listeners below read it from there,
             // and hideNewWorkflowModal strips it again on dismissal.
             router.actions.replace(

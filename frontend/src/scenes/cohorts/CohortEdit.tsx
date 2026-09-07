@@ -52,6 +52,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
@@ -278,7 +279,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <ScenePanelActionsSection>
                         <ButtonPrimitive
                             onClick={() =>
-                                showNewWorkflowModalForPrefill(workflowTriggerPrefillForCohort(cohort), 'email')
+                                showNewWorkflowModalForPrefill(
+                                    workflowTriggerPrefillForCohort(cohort),
+                                    ProductKey.COHORTS,
+                                    'email'
+                                )
                             }
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
@@ -849,6 +854,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                                 onClick={() =>
                                                                     showNewWorkflowModalForPrefill(
                                                                         workflowTriggerPrefillForCohort(cohort),
+                                                                        ProductKey.COHORTS,
                                                                         'email'
                                                                     )
                                                                 }

@@ -21,6 +21,7 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
 
 import { newWorkflowLogic } from 'products/workflows/frontend/Workflows/newWorkflowLogic'
@@ -60,7 +61,11 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
                                 onClick={() =>
-                                    showNewWorkflowModalForPrefill(workflowTriggerPrefillForCohort(cohort), 'email')
+                                    showNewWorkflowModalForPrefill(
+                                        workflowTriggerPrefillForCohort(cohort),
+                                        ProductKey.COHORTS,
+                                        'email'
+                                    )
                                 }
                                 disabled={!!workflowDisabledReason}
                                 tooltip={workflowDisabledReason ?? undefined}
