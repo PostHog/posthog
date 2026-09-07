@@ -2147,6 +2147,70 @@ class TaskStagedRun(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class TaskDraftPublication(TeamScopedRootMixin, UUIDModel):
+    """A Tasks-owned, server-mediated draft pull request reservation."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PUBLISHED = "published", "Published"
+        UNKNOWN = "unknown", "Unknown"
+        BLOCKED = "blocked", "Blocked"
+        REVOKED = "revoked", "Revoked"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    caller_id = models.UUIDField()
+    staged_run = models.OneToOneField(TaskStagedRun, on_delete=models.CASCADE, related_name="draft_publication")
+    logical_artifact_key = models.CharField(max_length=255)
+    repository = models.CharField(max_length=255)
+    base_sha = models.CharField(max_length=64)
+    base_branch = models.CharField(max_length=255)
+    github_integration_id = models.BigIntegerField()
+    github_installation_id = models.CharField(max_length=255)
+    head_branch = models.CharField(max_length=255)
+    commit_message = models.CharField(max_length=500)
+    pr_title = models.CharField(max_length=256)
+    pr_body = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    bundle_storage_ref = models.CharField(max_length=512, null=True, blank=True)
+    bundle_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    bundle_size = models.PositiveIntegerField(null=True, blank=True)
+    bundle_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    bundle_base_tree_sha = models.CharField(max_length=64, null=True, blank=True)
+    bundle_head_tree_sha = models.CharField(max_length=64, null=True, blank=True)
+    gate_summary_ref = models.CharField(max_length=512, null=True, blank=True)
+    gate_summary = models.JSONField(null=True, blank=True)
+    github_commit_sha = models.CharField(max_length=64, null=True, blank=True)
+    pr_number = models.PositiveIntegerField(null=True, blank=True)
+    pr_url = models.URLField(max_length=512, null=True, blank=True)
+    starts_before = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    branch_created_at = models.DateTimeField(null=True, blank=True)
+    pr_creating_at = models.DateTimeField(null=True, blank=True)
+    ambiguity_kind = models.CharField(max_length=16, null=True, blank=True)
+    reconciliation_attempts = models.PositiveSmallIntegerField(default=0)
+    published_at = models.DateTimeField(null=True, blank=True)
+    unknown_at = models.DateTimeField(null=True, blank=True)
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    reconciled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_draft_publication"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "logical_artifact_key"],
+                condition=models.Q(status__in=["pending", "unknown"]),
+                name="task_draft_publication_live_artifact_uniq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(expires_at__gt=models.F("starts_before")), name="task_draft_pub_window"
+            ),
+        ]
+
+
 class TaskRun(models.Model):
     class Status(models.TextChoices):
         NOT_STARTED = "not_started", "Not Started"

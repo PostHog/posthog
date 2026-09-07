@@ -1,4 +1,6 @@
 import shlex
+import subprocess
+from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -53,6 +55,35 @@ def test_start_agent_server_health_check_timeout_is_retryable_and_not_captured(s
 
 def test_docker_sandbox_does_not_combine_agent_server_start_and_health(sandbox: DockerSandbox):
     assert sandbox.supports_combined_agent_server_start_and_health() is False
+
+
+def test_read_file_bytes_checks_size_before_docker_copy(sandbox: DockerSandbox):
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args[1] == "cp":
+            Path(args[-1]).write_bytes(b"bundle")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    with patch.object(sandbox, "is_running", return_value=True), patch.object(sandbox, "_run", side_effect=run):
+        assert sandbox.read_file_bytes("/tmp/publication.bundle", 100) == b"bundle"
+
+    assert calls[0][1] == "exec"
+    assert calls[1][1] == "cp"
+
+
+@pytest.mark.parametrize(("returncode", "error"), [(42, ValueError), (1, SandboxExecutionError)])
+def test_read_file_bytes_distinguishes_unsafe_output_from_transient_failure(
+    sandbox: DockerSandbox, returncode: int, error: type[Exception]
+):
+    result = subprocess.CompletedProcess([], returncode, "", "unavailable")
+    with (
+        patch.object(sandbox, "is_running", return_value=True),
+        patch.object(sandbox, "_run", return_value=result),
+        pytest.raises(error),
+    ):
+        sandbox.read_file_bytes("/tmp/publication.bundle", 100)
 
 
 def test_read_agent_server_boot_metrics_includes_process_milestones(sandbox: DockerSandbox):

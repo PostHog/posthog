@@ -58,6 +58,16 @@ def _running_sandbox(box: MagicMock | None = None) -> HoglandSandbox:
     return HoglandSandbox(box=box, config=SandboxConfig(name="test-sandbox"))
 
 
+def test_read_file_bytes_uses_provider_file_api_and_enforces_limit() -> None:
+    box = _mock_box()
+    box.read_file.return_value = b"bundle"
+    sandbox = _running_sandbox(box)
+
+    assert sandbox.read_file_bytes("/tmp/publication.bundle", 10) == b"bundle"
+    with pytest.raises(ValueError, match="exceeds byte limit"):
+        sandbox.read_file_bytes("/tmp/publication.bundle", 5)
+
+
 class TestHoglandSandboxCreate:
     def _create(self, config: SandboxConfig, box: MagicMock | None = None) -> tuple[HoglandSandbox, MagicMock]:
         client = MagicMock()

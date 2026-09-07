@@ -1332,6 +1332,27 @@ async def test_staged_analysis_snapshot_failure_prevents_completion(monkeypatch)
     assert workflow._completion_error == "Staged analysis could not save its required workspace snapshot"
 
 
+async def test_completed_run_awaits_reserved_publication_child(monkeypatch) -> None:
+    publication = process_task_workflow_module.PublishTaskArtifactInput(
+        staged_run_id=uuid.UUID(int=1), publication_id=uuid.UUID(int=2)
+    )
+    execute_activity = AsyncMock(return_value=publication)
+    execute_child_workflow = AsyncMock()
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", execute_child_workflow)
+    workflow = ProcessTaskWorkflow()
+    workflow._context = _build_context(github_integration_id=123)
+
+    await workflow._publish_staged_artifact_if_reserved()
+
+    assert execute_activity.await_args.args == (process_task_workflow_module.resolve_completed_publication, "run-id")
+    assert execute_child_workflow.await_args.args == (
+        process_task_workflow_module.PublishTaskArtifactWorkflow.run,
+        publication,
+    )
+    assert execute_child_workflow.await_args.kwargs["id"] == f"task-draft-publication-{publication.publication_id}"
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):

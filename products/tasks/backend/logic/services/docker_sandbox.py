@@ -801,6 +801,51 @@ class DockerSandbox(SandboxBase):
 
         return result
 
+    def read_file_bytes(self, path: str, max_bytes: int) -> bytes:
+        if max_bytes < 0 or not path.startswith("/") or "\x00" in path:
+            raise ValueError("path and max_bytes must be bounded")
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+        bounded = self._run(
+            [
+                "docker",
+                "exec",
+                self._container_id,
+                "sh",
+                "-c",
+                'test -f "$1" && test ! -L "$1" && test "$(stat -c %s -- "$1")" -le "$2" || exit 42',
+                "sandbox-read",
+                path,
+                str(max_bytes),
+            ],
+            timeout=60,
+        )
+        if bounded.returncode == 42:
+            raise ValueError("Sandbox file exceeds byte limit or is unsafe")
+        if bounded.returncode != 0:
+            raise SandboxExecutionError(
+                "Sandbox file exceeds byte limit or is unsafe",
+                {"sandbox_id": self.id, "path": path, "max_bytes": max_bytes},
+                cause=RuntimeError(bounded.stderr),
+            )
+        with tempfile.TemporaryDirectory(prefix="sandbox-read-") as directory:
+            destination = Path(directory) / "payload"
+            result = self._run(["docker", "cp", f"{self._container_id}:{path}", str(destination)], timeout=60)
+            if result.returncode != 0 or not destination.is_file() or destination.is_symlink():
+                raise SandboxExecutionError(
+                    "Failed to read sandbox file",
+                    {"sandbox_id": self.id, "path": path},
+                    cause=RuntimeError(result.stderr),
+                )
+            size = destination.stat().st_size
+            if size > max_bytes:
+                raise ValueError("Sandbox file exceeds byte limit")
+            return destination.read_bytes()
+
     def clone_repository(
         self,
         repository: str,
