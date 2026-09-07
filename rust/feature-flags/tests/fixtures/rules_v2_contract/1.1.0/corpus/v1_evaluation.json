@@ -1,0 +1,1991 @@
+{
+  "corpus_version": "1.0.0",
+  "config_version": 1,
+  "description": "Lock-down fixtures for the frozen version 1 evaluation arm. Each case supplies complete flag definitions and an evaluation context and records the hand-derived outcome.",
+  "definition_shape": "definitions.flags uses the local evaluation feed shape: id, key, version, active, and filters with groups, multivariate, payloads, aggregation_group_type_index, holdout, and early_exit. Flag dependency filters carry the target flag key in key plus dependency_chain; server-side evaluators map the key to the fixture flag id.",
+  "context_shape": "context carries distinct_id, person_properties, and optionally groups, group_properties. definitions.group_type_mapping maps group type index strings to group type names.",
+  "expectation_rules": {
+    "value": "Every conforming evaluator returns this value: boolean, or the assigned variant string.",
+    "enabled_and_variant": "The detailed projection fields: enabled is true for any truthy value and variant is the string value or null.",
+    "payload": "The stored payload under the key true or the assigned variant key, or null.",
+    "reason": "The authoritative evaluator's reason code and condition index. condition_index is the stored position of the condition that produced the reason, or null.",
+    "local_evaluation": "conclusive: a local evaluator must return value. inconclusive: a local evaluator must not return a value and must fall back to the authoritative evaluator. remote_only: the case pins authoritative behavior for a feature that local evaluators do not implement; a local evaluator that implements it must match.",
+    "omitted_flags": "Flags absent from every remote response version. A local evaluator reports them as false.",
+    "hash_evidence": "The hash01 values the outcome depends on, computed with sha1_60_v1 from the recorded input. Cases without evidence compute no hash."
+  },
+  "reason_codes": [
+    "condition_match",
+    "no_condition_match",
+    "out_of_rollout_bound",
+    "no_group_type",
+    "holdout_condition_value",
+    "missing_dependency"
+  ],
+  "cases": [
+    {
+      "id": "v1.boolean.targeted_match_with_payload",
+      "definitions": {
+        "flags": [
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ],
+              "payloads": {
+                "true": "{\"cta\":\"Try beta search\"}"
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": "{\"cta\":\"Try beta search\"}",
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "The property filter matches and rollout_percentage 100 short-circuits, so no hash is computed. The payload stored under the key true is attached."
+    },
+    {
+      "id": "v1.boolean.targeting_miss",
+      "definitions": {
+        "flags": [
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ],
+              "payloads": {
+                "true": "{\"cta\":\"Try beta search\"}"
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "no_condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "The only condition fails its property filter, so no rollout check runs."
+    },
+    {
+      "id": "v1.boolean.rollout_included",
+      "definitions": {
+        "flags": [
+          {
+            "id": 102,
+            "key": "beta-search-rollout",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 25.5
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-61",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "beta-search-rollout": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search-rollout.user-61",
+          "hash01": 0.0042305989144046955,
+          "threshold_percentage": 25.5,
+          "threshold": 0.255,
+          "included": true
+        }
+      ],
+      "notes": "An empty property list means the condition is a pure rollout check."
+    },
+    {
+      "id": "v1.boolean.rollout_excluded",
+      "definitions": {
+        "flags": [
+          {
+            "id": 102,
+            "key": "beta-search-rollout",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 25.5
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-105",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "beta-search-rollout": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "out_of_rollout_bound",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search-rollout.user-105",
+          "hash01": 0.2851295399293007,
+          "threshold_percentage": 25.5,
+          "threshold": 0.255,
+          "included": false
+        }
+      ]
+    },
+    {
+      "id": "v1.boolean.rollout_miss_continues_to_lower_condition",
+      "definitions": {
+        "flags": [
+          {
+            "id": 103,
+            "key": "beta-search-staged",
+            "version": 2,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 10
+                },
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-105",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search-staged": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 1
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search-staged.user-105",
+          "hash01": 0.16767177534121008,
+          "threshold_percentage": 10,
+          "threshold": 0.1,
+          "included": false
+        }
+      ],
+      "notes": "Without early_exit a rollout miss on condition 0 continues; condition 1 matches at 100 percent and reports its own index."
+    },
+    {
+      "id": "v1.boolean.rollout_miss_early_exit",
+      "definitions": {
+        "flags": [
+          {
+            "id": 104,
+            "key": "beta-search-staged-early-exit",
+            "version": 2,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 10
+                },
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ],
+              "early_exit": true
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-105",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search-staged-early-exit": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "out_of_rollout_bound",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search-staged-early-exit.user-105",
+          "hash01": 0.5658264965789109,
+          "threshold_percentage": 10,
+          "threshold": 0.1,
+          "included": false
+        }
+      ],
+      "notes": "With early_exit true the rollout miss on condition 0 is terminal even though condition 1 would match."
+    },
+    {
+      "id": "v1.boolean.reason_priority_keeps_earlier_rollout_miss",
+      "definitions": {
+        "flags": [
+          {
+            "id": 103,
+            "key": "beta-search-staged",
+            "version": 2,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 10
+                },
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-105",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search-staged": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "out_of_rollout_bound",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search-staged.user-105",
+          "hash01": 0.16767177534121008,
+          "threshold_percentage": 10,
+          "threshold": 0.1,
+          "included": false
+        }
+      ],
+      "notes": "Condition 0 misses rollout and condition 1 misses targeting. out_of_rollout_bound outranks no_condition_match, so the reported index stays 0."
+    },
+    {
+      "id": "v1.boolean.reason_priority_prefers_later_rollout_miss",
+      "definitions": {
+        "flags": [
+          {
+            "id": 105,
+            "key": "beta-search-staged-reversed",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                },
+                {
+                  "properties": [],
+                  "rollout_percentage": 10
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-105",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search-staged-reversed": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "out_of_rollout_bound",
+              "condition_index": 1
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "beta-search-staged-reversed.user-105",
+          "hash01": 0.18439866572143454,
+          "threshold_percentage": 10,
+          "threshold": 0.1,
+          "included": false
+        }
+      ],
+      "notes": "Condition 0 misses targeting and condition 1 misses rollout. The higher-priority reason wins regardless of order, so the reported index is 1."
+    },
+    {
+      "id": "v1.boolean.null_rollout_is_100",
+      "definitions": {
+        "flags": [
+          {
+            "id": 115,
+            "key": "nav-refresh",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": null
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "nav-refresh": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "A null rollout_percentage behaves as 100 and computes no hash."
+    },
+    {
+      "id": "v1.multivariate.variant_from_hash_with_payload",
+      "definitions": {
+        "flags": [
+          {
+            "id": 106,
+            "key": "checkout-layout",
+            "version": 5,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100,
+                  "variant": "spacious"
+                },
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "compact",
+                    "rollout_percentage": 25
+                  },
+                  {
+                    "key": "spacious",
+                    "rollout_percentage": 25
+                  }
+                ]
+              },
+              "payloads": {
+                "compact": "{\"density\":\"compact\"}"
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-61",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout": {
+            "value": "compact",
+            "enabled": true,
+            "variant": "compact",
+            "payload": "{\"density\":\"compact\"}",
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 1
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "variant",
+          "input": "checkout-layout.user-61variant",
+          "hash01": 0.5698252224547713,
+          "cumulative_boundaries": [
+            0.5,
+            0.75,
+            1.0
+          ],
+          "selected": "compact"
+        }
+      ],
+      "notes": "Condition 0 misses targeting. Condition 1 matches at 100 percent, so only the variant hash is computed. The payload stored under the variant key is attached."
+    },
+    {
+      "id": "v1.multivariate.variant_from_hash_control",
+      "definitions": {
+        "flags": [
+          {
+            "id": 106,
+            "key": "checkout-layout",
+            "version": 5,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100,
+                  "variant": "spacious"
+                },
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "compact",
+                    "rollout_percentage": 25
+                  },
+                  {
+                    "key": "spacious",
+                    "rollout_percentage": 25
+                  }
+                ]
+              },
+              "payloads": {
+                "compact": "{\"density\":\"compact\"}"
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout": {
+            "value": "control",
+            "enabled": true,
+            "variant": "control",
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 1
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "variant",
+          "input": "checkout-layout.user-17variant",
+          "hash01": 0.13678069113210306,
+          "cumulative_boundaries": [
+            0.5,
+            0.75,
+            1.0
+          ],
+          "selected": "control"
+        }
+      ],
+      "notes": "No payload is stored under control, so payload is null."
+    },
+    {
+      "id": "v1.multivariate.variant_override",
+      "definitions": {
+        "flags": [
+          {
+            "id": 106,
+            "key": "checkout-layout",
+            "version": 5,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100,
+                  "variant": "spacious"
+                },
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "compact",
+                    "rollout_percentage": 25
+                  },
+                  {
+                    "key": "spacious",
+                    "rollout_percentage": 25
+                  }
+                ]
+              },
+              "payloads": {
+                "compact": "{\"density\":\"compact\"}"
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-61",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout": {
+            "value": "spacious",
+            "enabled": true,
+            "variant": "spacious",
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "Condition 0 matches targeting and carries a valid variant override, so the override replaces the hashed assignment."
+    },
+    {
+      "id": "v1.multivariate.invalid_variant_override_uses_hash",
+      "definitions": {
+        "flags": [
+          {
+            "id": 107,
+            "key": "checkout-layout-bad-override",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100,
+                  "variant": "wide"
+                },
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "compact",
+                    "rollout_percentage": 25
+                  },
+                  {
+                    "key": "spacious",
+                    "rollout_percentage": 25
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout-bad-override": {
+            "value": "compact",
+            "enabled": true,
+            "variant": "compact",
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "variant",
+          "input": "checkout-layout-bad-override.user-17variant",
+          "hash01": 0.5028208481218698,
+          "cumulative_boundaries": [
+            0.5,
+            0.75,
+            1.0
+          ],
+          "selected": "compact"
+        }
+      ],
+      "notes": "The override wide is not a declared variant key, so the hashed assignment is used while the matching condition index is still reported."
+    },
+    {
+      "id": "v1.multivariate.partial_rollout_included",
+      "definitions": {
+        "flags": [
+          {
+            "id": 108,
+            "key": "checkout-layout-partial",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 50
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "test",
+                    "rollout_percentage": 50
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-77",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout-partial": {
+            "value": "test",
+            "enabled": true,
+            "variant": "test",
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "checkout-layout-partial.user-77",
+          "hash01": 0.34759874309962885,
+          "threshold_percentage": 50,
+          "threshold": 0.5,
+          "included": true
+        },
+        {
+          "purpose": "variant",
+          "input": "checkout-layout-partial.user-77variant",
+          "hash01": 0.6250982837254144,
+          "cumulative_boundaries": [
+            0.5,
+            1.0
+          ],
+          "selected": "test"
+        }
+      ],
+      "notes": "Rollout and variant assignment use two independent hashes that differ only by the salt."
+    },
+    {
+      "id": "v1.multivariate.partial_rollout_excluded",
+      "definitions": {
+        "flags": [
+          {
+            "id": 108,
+            "key": "checkout-layout-partial",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 50
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "test",
+                    "rollout_percentage": 50
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-105",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout-partial": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "out_of_rollout_bound",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "checkout-layout-partial.user-105",
+          "hash01": 0.6993197170202352,
+          "threshold_percentage": 50,
+          "threshold": 0.5,
+          "included": false
+        }
+      ],
+      "notes": "A rollout miss on a multivariate flag returns false and computes no variant hash."
+    },
+    {
+      "id": "v1.group.included_by_group_key",
+      "definitions": {
+        "flags": [
+          {
+            "id": 109,
+            "key": "org-dashboard",
+            "version": 2,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "tier",
+                      "type": "group",
+                      "group_type_index": 0,
+                      "operator": "exact",
+                      "value": "gold"
+                    }
+                  ],
+                  "rollout_percentage": 60
+                }
+              ],
+              "aggregation_group_type_index": 0
+            }
+          }
+        ],
+        "group_type_mapping": {
+          "0": "organization"
+        }
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {},
+        "groups": {
+          "organization": "org-9"
+        },
+        "group_properties": {
+          "organization": {
+            "tier": "gold"
+          }
+        }
+      },
+      "expected": {
+        "flags": {
+          "org-dashboard": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "org-dashboard.org-9",
+          "hash01": 0.5753119444222963,
+          "threshold_percentage": 60,
+          "threshold": 0.6,
+          "included": true
+        }
+      ],
+      "notes": "A group flag hashes the group key, never the distinct_id."
+    },
+    {
+      "id": "v1.group.excluded_by_group_key",
+      "definitions": {
+        "flags": [
+          {
+            "id": 109,
+            "key": "org-dashboard",
+            "version": 2,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "tier",
+                      "type": "group",
+                      "group_type_index": 0,
+                      "operator": "exact",
+                      "value": "gold"
+                    }
+                  ],
+                  "rollout_percentage": 60
+                }
+              ],
+              "aggregation_group_type_index": 0
+            }
+          }
+        ],
+        "group_type_mapping": {
+          "0": "organization"
+        }
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {},
+        "groups": {
+          "organization": "org-12"
+        },
+        "group_properties": {
+          "organization": {
+            "tier": "gold"
+          }
+        }
+      },
+      "expected": {
+        "flags": {
+          "org-dashboard": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "out_of_rollout_bound",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "org-dashboard.org-12",
+          "hash01": 0.6727351878871999,
+          "threshold_percentage": 60,
+          "threshold": 0.6,
+          "included": false
+        }
+      ]
+    },
+    {
+      "id": "v1.group.integer_group_key_normalized",
+      "definitions": {
+        "flags": [
+          {
+            "id": 109,
+            "key": "org-dashboard",
+            "version": 2,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "tier",
+                      "type": "group",
+                      "group_type_index": 0,
+                      "operator": "exact",
+                      "value": "gold"
+                    }
+                  ],
+                  "rollout_percentage": 60
+                }
+              ],
+              "aggregation_group_type_index": 0
+            }
+          }
+        ],
+        "group_type_mapping": {
+          "0": "organization"
+        }
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {},
+        "groups": {
+          "organization": 42
+        },
+        "group_properties": {
+          "organization": {
+            "tier": "gold"
+          }
+        }
+      },
+      "expected": {
+        "flags": {
+          "org-dashboard": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "rollout",
+          "input": "org-dashboard.42",
+          "hash01": 0.5997466051660167,
+          "threshold_percentage": 60,
+          "threshold": 0.6,
+          "included": true
+        }
+      ],
+      "notes": "The JSON number 42 normalizes to the decimal string 42 before hashing."
+    },
+    {
+      "id": "v1.group.missing_group_key",
+      "definitions": {
+        "flags": [
+          {
+            "id": 109,
+            "key": "org-dashboard",
+            "version": 2,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "tier",
+                      "type": "group",
+                      "group_type_index": 0,
+                      "operator": "exact",
+                      "value": "gold"
+                    }
+                  ],
+                  "rollout_percentage": 60
+                }
+              ],
+              "aggregation_group_type_index": 0
+            }
+          }
+        ],
+        "group_type_mapping": {
+          "0": "organization"
+        }
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "org-dashboard": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "no_group_type",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "The context has no organization key, so the group condition is skipped and no hash is computed."
+    },
+    {
+      "id": "v1.dependency.satisfied",
+      "definitions": {
+        "flags": [
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ],
+              "payloads": {
+                "true": "{\"cta\":\"Try beta search\"}"
+              }
+            }
+          },
+          {
+            "id": 110,
+            "key": "beta-search-suggestions",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "beta-search",
+                      "type": "flag",
+                      "operator": "flag_evaluates_to",
+                      "value": true,
+                      "dependency_chain": [
+                        "beta-search"
+                      ]
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": "{\"cta\":\"Try beta search\"}",
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          },
+          "beta-search-suggestions": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "The dependency filter names the target flag key and expects boolean true, which matches any enabled result."
+    },
+    {
+      "id": "v1.dependency.unsatisfied",
+      "definitions": {
+        "flags": [
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ],
+              "payloads": {
+                "true": "{\"cta\":\"Try beta search\"}"
+              }
+            }
+          },
+          {
+            "id": 110,
+            "key": "beta-search-suggestions",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "beta-search",
+                      "type": "flag",
+                      "operator": "flag_evaluates_to",
+                      "value": true,
+                      "dependency_chain": [
+                        "beta-search"
+                      ]
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "no_condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          },
+          "beta-search-suggestions": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "no_condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "A dependency that evaluates to false fails the dependent condition as a targeting miss, not a rollout miss."
+    },
+    {
+      "id": "v1.dependency.variant_match",
+      "definitions": {
+        "flags": [
+          {
+            "id": 106,
+            "key": "checkout-layout",
+            "version": 5,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100,
+                  "variant": "spacious"
+                },
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "compact",
+                    "rollout_percentage": 25
+                  },
+                  {
+                    "key": "spacious",
+                    "rollout_percentage": 25
+                  }
+                ]
+              },
+              "payloads": {
+                "compact": "{\"density\":\"compact\"}"
+              }
+            }
+          },
+          {
+            "id": 111,
+            "key": "compact-checkout-banner",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "checkout-layout",
+                      "type": "flag",
+                      "operator": "flag_evaluates_to",
+                      "value": "compact",
+                      "dependency_chain": [
+                        "checkout-layout"
+                      ]
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-61",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout": {
+            "value": "compact",
+            "enabled": true,
+            "variant": "compact",
+            "payload": "{\"density\":\"compact\"}",
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 1
+            },
+            "local_evaluation": "conclusive"
+          },
+          "compact-checkout-banner": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "variant",
+          "input": "checkout-layout.user-61variant",
+          "hash01": 0.5698252224547713,
+          "cumulative_boundaries": [
+            0.5,
+            0.75,
+            1.0
+          ],
+          "selected": "compact"
+        }
+      ],
+      "notes": "A string expected value matches only the exact assigned variant key."
+    },
+    {
+      "id": "v1.dependency.variant_mismatch",
+      "definitions": {
+        "flags": [
+          {
+            "id": 106,
+            "key": "checkout-layout",
+            "version": 5,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100,
+                  "variant": "spacious"
+                },
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "compact",
+                    "rollout_percentage": 25
+                  },
+                  {
+                    "key": "spacious",
+                    "rollout_percentage": 25
+                  }
+                ]
+              },
+              "payloads": {
+                "compact": "{\"density\":\"compact\"}"
+              }
+            }
+          },
+          {
+            "id": 111,
+            "key": "compact-checkout-banner",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "checkout-layout",
+                      "type": "flag",
+                      "operator": "flag_evaluates_to",
+                      "value": "compact",
+                      "dependency_chain": [
+                        "checkout-layout"
+                      ]
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "free"
+        }
+      },
+      "expected": {
+        "flags": {
+          "checkout-layout": {
+            "value": "control",
+            "enabled": true,
+            "variant": "control",
+            "payload": null,
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 1
+            },
+            "local_evaluation": "conclusive"
+          },
+          "compact-checkout-banner": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "no_condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "variant",
+          "input": "checkout-layout.user-17variant",
+          "hash01": 0.13678069113210306,
+          "cumulative_boundaries": [
+            0.5,
+            0.75,
+            1.0
+          ],
+          "selected": "control"
+        }
+      ]
+    },
+    {
+      "id": "v1.dependency.missing_target",
+      "definitions": {
+        "flags": [
+          {
+            "id": 112,
+            "key": "beta-search-suggestions-orphan",
+            "version": 1,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "beta-search-legacy",
+                      "type": "flag",
+                      "operator": "flag_evaluates_to",
+                      "value": true,
+                      "dependency_chain": []
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search-suggestions-orphan": {
+            "value": false,
+            "enabled": false,
+            "variant": null,
+            "payload": null,
+            "reason": {
+              "code": "missing_dependency",
+              "condition_index": null
+            },
+            "local_evaluation": "inconclusive"
+          }
+        },
+        "omitted_flags": []
+      },
+      "notes": "The target key is not in the definitions and the dependency chain is empty. The authoritative evaluator fails the flag closed; a local evaluator must report the flag as inconclusive and fall back."
+    },
+    {
+      "id": "v1.holdout.member",
+      "definitions": {
+        "flags": [
+          {
+            "id": 113,
+            "key": "checkout-experiment",
+            "version": 4,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "test",
+                    "rollout_percentage": 50
+                  }
+                ]
+              },
+              "payloads": {
+                "test": "{\"layout\":\"test\"}"
+              },
+              "holdout": {
+                "id": 7,
+                "exclusion_percentage": 10
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-31",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "checkout-experiment": {
+            "value": "holdout-7",
+            "enabled": true,
+            "variant": "holdout-7",
+            "payload": null,
+            "reason": {
+              "code": "holdout_condition_value",
+              "condition_index": null
+            },
+            "local_evaluation": "remote_only"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "holdout",
+          "input": "holdout-user-31",
+          "hash01": 0.0194745413007599,
+          "threshold_percentage": 10,
+          "threshold": 0.1,
+          "included": true
+        }
+      ],
+      "notes": "Holdout membership is checked before any condition. The synthesized variant is holdout- followed by the holdout id, no condition index is reported, and no condition or variant hash is computed."
+    },
+    {
+      "id": "v1.holdout.not_member",
+      "definitions": {
+        "flags": [
+          {
+            "id": 113,
+            "key": "checkout-experiment",
+            "version": 4,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ],
+              "multivariate": {
+                "variants": [
+                  {
+                    "key": "control",
+                    "rollout_percentage": 50
+                  },
+                  {
+                    "key": "test",
+                    "rollout_percentage": 50
+                  }
+                ]
+              },
+              "payloads": {
+                "test": "{\"layout\":\"test\"}"
+              },
+              "holdout": {
+                "id": 7,
+                "exclusion_percentage": 10
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-77",
+        "person_properties": {}
+      },
+      "expected": {
+        "flags": {
+          "checkout-experiment": {
+            "value": "test",
+            "enabled": true,
+            "variant": "test",
+            "payload": "{\"layout\":\"test\"}",
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "remote_only"
+          }
+        },
+        "omitted_flags": []
+      },
+      "hash_evidence": [
+        {
+          "purpose": "holdout",
+          "input": "holdout-user-77",
+          "hash01": 0.1256029476953561,
+          "threshold_percentage": 10,
+          "threshold": 0.1,
+          "included": false
+        },
+        {
+          "purpose": "variant",
+          "input": "checkout-experiment.user-77variant",
+          "hash01": 0.9625813403348775,
+          "cumulative_boundaries": [
+            0.5,
+            1.0
+          ],
+          "selected": "test"
+        }
+      ],
+      "notes": "Outside the holdout the ordinary conditions run and the variant hash assigns test."
+    },
+    {
+      "id": "v1.omission.inactive_flag",
+      "definitions": {
+        "flags": [
+          {
+            "id": 114,
+            "key": "retired-banner",
+            "version": 9,
+            "active": false,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [],
+                  "rollout_percentage": 100
+                }
+              ]
+            }
+          },
+          {
+            "id": 101,
+            "key": "beta-search",
+            "version": 3,
+            "active": true,
+            "filters": {
+              "groups": [
+                {
+                  "properties": [
+                    {
+                      "key": "plan",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "enterprise"
+                    }
+                  ],
+                  "rollout_percentage": 100
+                }
+              ],
+              "payloads": {
+                "true": "{\"cta\":\"Try beta search\"}"
+              }
+            }
+          }
+        ]
+      },
+      "context": {
+        "distinct_id": "user-17",
+        "person_properties": {
+          "plan": "enterprise"
+        }
+      },
+      "expected": {
+        "flags": {
+          "beta-search": {
+            "value": true,
+            "enabled": true,
+            "variant": null,
+            "payload": "{\"cta\":\"Try beta search\"}",
+            "reason": {
+              "code": "condition_match",
+              "condition_index": 0
+            },
+            "local_evaluation": "conclusive"
+          }
+        },
+        "omitted_flags": [
+          "retired-banner"
+        ]
+      },
+      "notes": "An inactive flag is omitted from every remote response version. A local evaluator reports it as false."
+    }
+  ]
+}

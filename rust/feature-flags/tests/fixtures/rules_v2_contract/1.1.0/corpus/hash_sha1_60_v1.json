@@ -1,0 +1,660 @@
+{
+  "corpus_version": "1.0.0",
+  "algorithm": "sha1_60_v1",
+  "definition": {
+    "input": "UTF-8 bytes of prefix + identifier + salt concatenated with no separator and no escaping.",
+    "identifier_truncation": "Resolved identifiers are truncated to the first 200 Unicode scalar values before hashing. Bytes and UTF-16 code units are not the unit.",
+    "group_key_normalization": "Group keys that are JSON safe integers normalize to ordinary decimal strings. No Unicode normalization is applied to any identifier.",
+    "digest": "SHA-1 of the input bytes.",
+    "n": "The unsigned integer represented by the first 15 hexadecimal digest characters, equal to the first 60 digest bits. It is recorded as a decimal string because it exceeds the safe integer range of JSON consumers.",
+    "scale": "0xFFFFFFFFFFFFFFF, which is 2^60 - 1.",
+    "hash01": "binary64(n) / binary64(scale) using one IEEE-754 round-to-nearest-even division. binary64(scale) is exactly 2^60. Rounding the exact rational quotient once can differ in the last bit; vectors that differ record that alternative under hash01_if_quotient_rounded_once and it is not the contract value.",
+    "rollout": "rollout_percentage of 100 includes every identifier without hashing. Otherwise the identifier is included when hash01 <= rollout_percentage / 100, with the division performed in binary64.",
+    "holdout": "Legacy-era holdout membership uses prefix holdout-, an empty salt, and the same comparison as rollout against exclusion_percentage.",
+    "variant": "Each variant boundary is the previous boundary plus rollout_percentage / 100, accumulated left to right in binary64 in stored order. The first variant whose boundary satisfies hash01 < boundary is selected.",
+    "final_variant_fallback": "When no boundary satisfies the comparison, version 1 returns no variant and version 2 selects the final variant.",
+    "empty_identifier": "Version 2 never enters rollout, holdout, or variant assignment with an empty identifier, including at 100 percent.",
+    "salts": {
+      "rollout": "",
+      "variant": "variant",
+      "holdout": ""
+    },
+    "prefixes": {
+      "v1_rollout_and_variant": "flag key followed by a dot",
+      "v2_rollout_and_variant": "seed followed by a dot",
+      "legacy_era_holdout": "holdout-"
+    }
+  },
+  "vectors": [
+    {
+      "id": "hash.rollout.ascii_division_edge",
+      "purpose": "Ordinary rollout input whose quotient rounds differently when both operands convert to binary64 first.",
+      "prefix": "beta-search.",
+      "identifier": "user-17",
+      "salt": "",
+      "input": "beta-search.user-17",
+      "input_utf8_hex": "626574612d7365617263682e757365722d3137",
+      "sha1_hex": "02547515f0f76d52dc6ef8a6d021cde30b790da7",
+      "first_15_hex": "02547515f0f76d5",
+      "n": "10492988951066325",
+      "hash01": 0.009101217133290002,
+      "hash01_binary64_hex": "3f82a3a8af87bb6a",
+      "hash01_if_quotient_rounded_once": 0.009101217133290004,
+      "hash01_if_quotient_rounded_once_binary64_hex": "3f82a3a8af87bb6b",
+      "rollout_checks": [
+        {
+          "rollout_percentage": 0,
+          "threshold": 0.0,
+          "included": false
+        },
+        {
+          "rollout_percentage": 1,
+          "threshold": 0.01,
+          "included": true
+        },
+        {
+          "rollout_percentage": 25.5,
+          "threshold": 0.255,
+          "included": true
+        },
+        {
+          "rollout_percentage": 100,
+          "threshold": 1.0,
+          "included": true,
+          "short_circuit": true
+        }
+      ]
+    },
+    {
+      "id": "hash.rollout.ascii_excluded",
+      "purpose": "Rollout input just above a 28 percent threshold and just below a 29 percent threshold.",
+      "prefix": "beta-search-rollout.",
+      "identifier": "user-105",
+      "salt": "",
+      "input": "beta-search-rollout.user-105",
+      "input_utf8_hex": "626574612d7365617263682d726f6c6c6f75742e757365722d313035",
+      "sha1_hex": "48fe3fe11eaff7b8ffd4c3925d7ba32a2c34f1ce",
+      "first_15_hex": "48fe3fe11eaff7b",
+      "n": "328731978183147387",
+      "hash01": 0.2851295399293007,
+      "hash01_binary64_hex": "3fd23f8ff847abfe",
+      "rollout_checks": [
+        {
+          "rollout_percentage": 25.5,
+          "threshold": 0.255,
+          "included": false
+        },
+        {
+          "rollout_percentage": 28,
+          "threshold": 0.28,
+          "included": false
+        },
+        {
+          "rollout_percentage": 29,
+          "threshold": 0.29,
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "hash.variant.ascii",
+      "purpose": "Variant input with the literal salt appended after the identifier.",
+      "prefix": "checkout-layout.",
+      "identifier": "user-61",
+      "salt": "variant",
+      "input": "checkout-layout.user-61variant",
+      "input_utf8_hex": "636865636b6f75742d6c61796f75742e757365722d363176617269616e74",
+      "sha1_hex": "91e010d6e11120222c2b2541f8056a8b965d5efd",
+      "first_15_hex": "91e010d6e111202",
+      "n": "656963752835486210",
+      "hash01": 0.5698252224547713,
+      "hash01_binary64_hex": "3fe23c021adc2224",
+      "variant_check": {
+        "variants": [
+          {
+            "key": "control",
+            "rollout_percentage": 50
+          },
+          {
+            "key": "compact",
+            "rollout_percentage": 25
+          },
+          {
+            "key": "spacious",
+            "rollout_percentage": 25
+          }
+        ],
+        "cumulative_boundaries": [
+          0.5,
+          0.75,
+          1.0
+        ],
+        "selected": "compact"
+      }
+    },
+    {
+      "id": "hash.holdout.literal_prefix",
+      "purpose": "Legacy-era holdout input uses the literal prefix holdout- with no dot separator and no salt.",
+      "prefix": "holdout-",
+      "identifier": "user-31",
+      "salt": "",
+      "input": "holdout-user-31",
+      "input_utf8_hex": "686f6c646f75742d757365722d3331",
+      "sha1_hex": "04fc4895fdca19f473ef6ac6cd7b3534c3e897d5",
+      "first_15_hex": "04fc4895fdca19f",
+      "n": "22452617458000287",
+      "hash01": 0.0194745413007599,
+      "hash01_binary64_hex": "3f93f12257f72868",
+      "holdout_checks": [
+        {
+          "exclusion_percentage": 10,
+          "threshold": 0.1,
+          "member": true
+        },
+        {
+          "exclusion_percentage": 1,
+          "threshold": 0.01,
+          "member": false
+        },
+        {
+          "exclusion_percentage": 100,
+          "threshold": 1.0,
+          "member": true,
+          "short_circuit": true
+        }
+      ]
+    },
+    {
+      "id": "hash.concatenation.no_separator_escaping",
+      "purpose": "Prefix, identifier, and salt concatenate as plain UTF-8 with no escaping, even when they contain dots.",
+      "prefix": "release.v2.",
+      "identifier": "a.b",
+      "salt": "variant",
+      "input": "release.v2.a.bvariant",
+      "input_utf8_hex": "72656c656173652e76322e612e6276617269616e74",
+      "sha1_hex": "c3605430acad3c22ec778899eb9e577d59032dea",
+      "first_15_hex": "c3605430acad3c2",
+      "n": "879896562699523010",
+      "hash01": 0.7631886118730806,
+      "hash01_binary64_hex": "3fe86c0a861595a8"
+    },
+    {
+      "id": "hash.identifier.empty",
+      "purpose": "The arithmetic applied to an empty identifier hashes the prefix alone. Version 2 never enters rollout, holdout, or variant assignment with an empty identifier.",
+      "prefix": "beta-search.",
+      "identifier": "",
+      "salt": "",
+      "input": "beta-search.",
+      "input_utf8_hex": "626574612d7365617263682e",
+      "sha1_hex": "9f06c3435db4fc81881a8f50a9f1b58a465ba5f6",
+      "first_15_hex": "9f06c3435db4fc8",
+      "n": "716191312249573320",
+      "hash01": 0.6211969413249854,
+      "hash01_binary64_hex": "3fe3e0d8686bb6a0",
+      "identifier_empty": true,
+      "v2_rule": "empty_identifier_never_enters_rollout"
+    },
+    {
+      "id": "hash.identifier.unicode_utf8",
+      "purpose": "Non-ASCII identifiers hash their UTF-8 bytes with no Unicode normalization.",
+      "prefix": "beta-search.",
+      "identifier": "ünïcødé-😀",
+      "salt": "",
+      "input": "beta-search.ünïcødé-😀",
+      "input_utf8_hex": "626574612d7365617263682ec3bc6ec3af63c3b864c3a92df09f9880",
+      "sha1_hex": "bdd4564f8af8aaeea949f8f15e2b34613dabda56",
+      "first_15_hex": "bdd4564f8af8aae",
+      "n": "854915804241562286",
+      "hash01": 0.7415212578007152,
+      "hash01_binary64_hex": "3fe7ba8ac9f15f15",
+      "rollout_checks": [
+        {
+          "rollout_percentage": 50,
+          "threshold": 0.5,
+          "included": false
+        }
+      ]
+    },
+    {
+      "id": "hash.identifier.truncated_ascii",
+      "purpose": "Identifiers longer than 200 Unicode scalar values are truncated to the first 200 before hashing.",
+      "prefix": "beta-search.",
+      "identifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "salt": "",
+      "input": "beta-search.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "input_utf8_hex": "626574612d7365617263682e6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161",
+      "sha1_hex": "1b8416aab94af161be4c63449a6f4075192bc570",
+      "first_15_hex": "1b8416aab94af16",
+      "n": "123920916153675542",
+      "hash01": 0.10748426120816724,
+      "hash01_binary64_hex": "3fbb8416aab94af1",
+      "identifier_before_truncation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "identifier_before_truncation_scalar_values": 205,
+      "identifier_scalar_values": 200,
+      "identifier_utf8_bytes": 200,
+      "identifier_utf16_code_units": 200
+    },
+    {
+      "id": "hash.identifier.truncated_scalar_values",
+      "purpose": "Truncation counts Unicode scalar values: the 200th value is a non-BMP character, which a UTF-16 code unit slice or a byte slice would split.",
+      "prefix": "beta-search.",
+      "identifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+      "salt": "",
+      "input": "beta-search.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+      "input_utf8_hex": "626574612d7365617263682e61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161f09f9880",
+      "sha1_hex": "a0ea6b953860b06b72512954d56751650e87aae3",
+      "first_15_hex": "a0ea6b953860b06",
+      "n": "724699904953682694",
+      "hash01": 0.6285769690806571,
+      "hash01_binary64_hex": "3fe41d4d72a70c16",
+      "identifier_before_truncation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀bbbbbbbbbb",
+      "identifier_before_truncation_scalar_values": 210,
+      "identifier_scalar_values": 200,
+      "identifier_utf8_bytes": 203,
+      "identifier_utf16_code_units": 201
+    },
+    {
+      "id": "hash.identifier.exactly_200_multibyte",
+      "purpose": "An identifier of exactly 200 scalar values is not truncated even though it is 400 UTF-8 bytes.",
+      "prefix": "beta-search.",
+      "identifier": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "salt": "",
+      "input": "beta-search.éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "input_utf8_hex": "626574612d7365617263682ec3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9",
+      "sha1_hex": "6963dfbb1a9856a6c8997cd4a98b1847fb4f30a4",
+      "first_15_hex": "6963dfbb1a9856a",
+      "n": "474634961960928618",
+      "hash01": 0.41168020551649087,
+      "hash01_binary64_hex": "3fda58f7eec6a616",
+      "identifier_before_truncation": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "identifier_before_truncation_scalar_values": 200,
+      "identifier_scalar_values": 200,
+      "identifier_utf8_bytes": 400,
+      "identifier_utf16_code_units": 200
+    },
+    {
+      "id": "hash.identifier.integer_group_key",
+      "purpose": "A JSON number group key 42 normalizes to the decimal string 42 before hashing.",
+      "prefix": "org-dashboard.",
+      "identifier": "42",
+      "salt": "",
+      "input": "org-dashboard.42",
+      "input_utf8_hex": "6f72672d64617368626f6172642e3432",
+      "sha1_hex": "9988fe571337916302049584762d1ecf2e589d1a",
+      "first_15_hex": "9988fe571337916",
+      "n": "691460758410852630",
+      "hash01": 0.5997466051660167,
+      "hash01_binary64_hex": "3fe3311fcae266f2",
+      "rollout_checks": [
+        {
+          "rollout_percentage": 60,
+          "threshold": 0.6,
+          "included": true
+        },
+        {
+          "rollout_percentage": 59,
+          "threshold": 0.59,
+          "included": false
+        }
+      ],
+      "identifier_source": {
+        "json_group_key": 42
+      }
+    }
+  ],
+  "threshold_vectors": [
+    {
+      "id": "threshold.equal_is_included",
+      "hash01": 0.5,
+      "rollout_percentage": 50,
+      "threshold": 0.5,
+      "included": true,
+      "note": "hash01 equal to the threshold is included because the comparison is less than or equal."
+    },
+    {
+      "id": "threshold.next_binary64_above_is_excluded",
+      "hash01": 0.5000000000000001,
+      "rollout_percentage": 50,
+      "threshold": 0.5,
+      "included": false,
+      "note": "The next binary64 value above the threshold is excluded."
+    },
+    {
+      "id": "threshold.zero_percent_zero_hash",
+      "hash01": 0.0,
+      "rollout_percentage": 0,
+      "threshold": 0.0,
+      "included": true,
+      "note": "Zero percent has no special case; only a hash01 of exactly zero satisfies the comparison."
+    },
+    {
+      "id": "threshold.zero_percent_smallest_hash",
+      "hash01": 8.673617379884035e-19,
+      "rollout_percentage": 0,
+      "threshold": 0.0,
+      "included": false,
+      "note": "The smallest nonzero hash01 is excluded at zero percent."
+    },
+    {
+      "id": "threshold.hundred_percent_short_circuit",
+      "hash01": 1.0,
+      "rollout_percentage": 100,
+      "threshold": 1.0,
+      "included": true,
+      "short_circuit": true,
+      "note": "One hundred percent includes every identifier without computing a hash."
+    },
+    {
+      "id": "threshold.two_decimal_division_equal",
+      "hash01": 0.33340000000000003,
+      "rollout_percentage": 33.34,
+      "threshold": 0.33340000000000003,
+      "included": true,
+      "note": "The threshold is the binary64 quotient rollout_percentage / 100, which differs from the parsed decimal literal 0.3334.",
+      "parsed_decimal_literal": 0.3334
+    },
+    {
+      "id": "threshold.two_decimal_division_excluded",
+      "hash01": 0.6667000000000002,
+      "rollout_percentage": 66.67,
+      "threshold": 0.6667000000000001,
+      "included": false,
+      "note": "The next binary64 value above the 66.67 quotient is excluded."
+    },
+    {
+      "id": "threshold.two_decimal_division_included_below_quotient",
+      "hash01": 0.999,
+      "rollout_percentage": 99.9,
+      "threshold": 0.9990000000000001,
+      "included": true,
+      "note": "The parsed literal 0.999 is below the 99.9 quotient and is included.",
+      "parsed_decimal_literal": 0.999
+    }
+  ],
+  "variant_vectors": [
+    {
+      "id": "variant.zero_hash_first_variant",
+      "hash01": 0.0,
+      "note": "A hash01 of zero selects the first variant.",
+      "variants": [
+        {
+          "key": "control",
+          "rollout_percentage": 50
+        },
+        {
+          "key": "test",
+          "rollout_percentage": 50
+        }
+      ],
+      "cumulative_boundaries": [
+        0.5,
+        1.0
+      ],
+      "selected": "control"
+    },
+    {
+      "id": "variant.boundary_is_exclusive",
+      "hash01": 0.5,
+      "note": "A hash01 equal to a cumulative boundary belongs to the next variant because the comparison is strictly less than.",
+      "variants": [
+        {
+          "key": "control",
+          "rollout_percentage": 50
+        },
+        {
+          "key": "test",
+          "rollout_percentage": 50
+        }
+      ],
+      "cumulative_boundaries": [
+        0.5,
+        1.0
+      ],
+      "selected": "test"
+    },
+    {
+      "id": "variant.just_below_boundary",
+      "hash01": 0.49999999999999994,
+      "note": "The largest binary64 value below the first boundary selects the first variant.",
+      "variants": [
+        {
+          "key": "control",
+          "rollout_percentage": 50
+        },
+        {
+          "key": "test",
+          "rollout_percentage": 50
+        }
+      ],
+      "cumulative_boundaries": [
+        0.5,
+        1.0
+      ],
+      "selected": "control"
+    },
+    {
+      "id": "variant.accumulated_boundary_left_to_right",
+      "hash01": 0.3,
+      "note": "Boundaries accumulate left to right in binary64, so the second boundary is 0.30000000000000004 and a hash01 of 0.3 still selects the second variant.",
+      "variants": [
+        {
+          "key": "ten",
+          "rollout_percentage": 10
+        },
+        {
+          "key": "twenty",
+          "rollout_percentage": 20
+        },
+        {
+          "key": "thirty",
+          "rollout_percentage": 30
+        },
+        {
+          "key": "forty",
+          "rollout_percentage": 40
+        }
+      ],
+      "cumulative_boundaries": [
+        0.1,
+        0.30000000000000004,
+        0.6000000000000001,
+        1.0
+      ],
+      "selected": "twenty",
+      "parsed_decimal_literal_boundary": 0.3
+    },
+    {
+      "id": "variant.accumulated_boundary_third",
+      "hash01": 0.6,
+      "note": "The third accumulated boundary is 0.6000000000000001, so a hash01 of 0.6 selects the third variant.",
+      "variants": [
+        {
+          "key": "ten",
+          "rollout_percentage": 10
+        },
+        {
+          "key": "twenty",
+          "rollout_percentage": 20
+        },
+        {
+          "key": "thirty",
+          "rollout_percentage": 30
+        },
+        {
+          "key": "forty",
+          "rollout_percentage": 40
+        }
+      ],
+      "cumulative_boundaries": [
+        0.1,
+        0.30000000000000004,
+        0.6000000000000001,
+        1.0
+      ],
+      "selected": "thirty",
+      "parsed_decimal_literal_boundary": 0.6
+    },
+    {
+      "id": "variant.two_decimal_weights_boundary",
+      "hash01": 0.6666,
+      "note": "Two-decimal weights accumulate to 0.3333, 0.6666, and exactly 1.0; a hash01 equal to the second boundary selects the third variant.",
+      "variants": [
+        {
+          "key": "a",
+          "rollout_percentage": 33.33
+        },
+        {
+          "key": "b",
+          "rollout_percentage": 33.33
+        },
+        {
+          "key": "c",
+          "rollout_percentage": 33.34
+        }
+      ],
+      "cumulative_boundaries": [
+        0.3333,
+        0.6666,
+        1.0
+      ],
+      "selected": "c"
+    },
+    {
+      "id": "variant.hash_one_off_the_end",
+      "hash01": 1.0,
+      "note": "A hash01 of exactly 1.0 is beyond the final boundary. Version 1 returns no variant, which projects as boolean true. Version 2 selects the final variant.",
+      "variants": [
+        {
+          "key": "control",
+          "rollout_percentage": 50
+        },
+        {
+          "key": "test",
+          "rollout_percentage": 50
+        }
+      ],
+      "cumulative_boundaries": [
+        0.5,
+        1.0
+      ],
+      "selected": null,
+      "v1_result": "no_variant_boolean_true",
+      "v2_rule": "final_variant_fallback",
+      "v2_selected": "test"
+    },
+    {
+      "id": "variant.sum_below_one_off_the_end",
+      "hash01": 0.9999999999999999,
+      "note": "Weights that sum to exactly 100 can accumulate to 0.9999999999999999 in binary64, so a hash01 of 0.9999999999999999 is beyond the final boundary.",
+      "variants": [
+        {
+          "key": "a",
+          "rollout_percentage": 1.01
+        },
+        {
+          "key": "b",
+          "rollout_percentage": 10.02
+        },
+        {
+          "key": "c",
+          "rollout_percentage": 88.97
+        }
+      ],
+      "cumulative_boundaries": [
+        0.0101,
+        0.1103,
+        0.9999999999999999
+      ],
+      "selected": null,
+      "v1_result": "no_variant_boolean_true",
+      "v2_rule": "final_variant_fallback",
+      "v2_selected": "c"
+    }
+  ],
+  "seed_parity": [
+    {
+      "id": "parity.rollout_identical_bytes",
+      "flag_key": "beta-search",
+      "identifier": "user-17",
+      "salt": "",
+      "v1_input": "beta-search.user-17",
+      "v2": {
+        "seed": "beta-search",
+        "prefix": "beta-search.",
+        "identifier": "user-17",
+        "salt": "",
+        "input": "beta-search.user-17"
+      },
+      "identical_bytes": true,
+      "identical_outcome": true,
+      "hash01": 0.009101217133290002,
+      "note": "Conversion sets seed = flag key, so the v2 rollout input is byte-identical to the v1 input."
+    },
+    {
+      "id": "parity.variant_identical_bytes",
+      "flag_key": "checkout-layout",
+      "identifier": "user-61",
+      "salt": "variant",
+      "v1_input": "checkout-layout.user-61variant",
+      "v2": {
+        "seed": "checkout-layout",
+        "prefix": "checkout-layout.",
+        "identifier": "user-61",
+        "salt": "variant",
+        "input": "checkout-layout.user-61variant"
+      },
+      "identical_bytes": true,
+      "identical_outcome": true,
+      "hash01": 0.5698252224547713,
+      "note": "The variant salt is unchanged by conversion."
+    },
+    {
+      "id": "parity.holdout_identical_bytes",
+      "flag_key": "checkout-experiment",
+      "identifier": "user-31",
+      "salt": "",
+      "v1_input": "holdout-user-31",
+      "v2": {
+        "seed": "holdout-",
+        "prefix": "holdout-",
+        "identifier": "user-31",
+        "salt": "",
+        "input": "holdout-user-31"
+      },
+      "identical_bytes": true,
+      "identical_outcome": true,
+      "hash01": 0.0194745413007599,
+      "note": "The legacy-era holdout seed is the literal holdout- prefix in both versions."
+    },
+    {
+      "id": "parity.empty_identifier_divergent",
+      "flag_key": "beta-search",
+      "identifier": "",
+      "salt": "",
+      "v1_input": "beta-search.",
+      "v2": {
+        "seed": "beta-search",
+        "prefix": "beta-search.",
+        "identifier": "",
+        "salt": "",
+        "input": "beta-search."
+      },
+      "identical_bytes": true,
+      "identical_outcome": false,
+      "hash01": 0.6211969413249854,
+      "divergence": "empty_identifier",
+      "note": "The bytes are identical, but version 2 never enters rollout with an empty identifier while version 1 arithmetic hashes the prefix alone."
+    },
+    {
+      "id": "parity.final_variant_fallback_divergent",
+      "flag_key": "checkout-layout",
+      "identifier": null,
+      "salt": "variant",
+      "hash01": 1.0,
+      "identical_bytes": true,
+      "identical_outcome": false,
+      "divergence": "final_variant_fallback",
+      "note": "White-box hash01 of 1.0. Version 1 returns no variant and projects boolean true; version 2 selects the final variant. See variant.hash_one_off_the_end."
+    }
+  ]
+}

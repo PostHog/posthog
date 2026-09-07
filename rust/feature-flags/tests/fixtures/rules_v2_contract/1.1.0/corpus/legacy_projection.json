@@ -1,0 +1,661 @@
+{
+  "corpus_version": "1.0.0",
+  "config_version": 1,
+  "description": "Projection matrix from a version 1 evaluation outcome to each response protocol version. Response protocol versions are independent of the config version, which is 1 for every case.",
+  "response_protocols": {
+    "flags_v2": {
+      "endpoint": "/flags",
+      "selected_by": "v=2 or higher, or /decide with v=4 or higher",
+      "shape": "flags map of detailed results with reason and metadata; errorsWhileComputingFlags at the top level"
+    },
+    "flags_v1": {
+      "endpoint": "/flags",
+      "selected_by": "v=1 or absent, or /decide with v=3",
+      "shape": "featureFlags map of every evaluated flag plus featureFlagPayloads for flags with a payload; errorsWhileComputingFlags at the top level"
+    },
+    "decide_v2": {
+      "endpoint": "/decide",
+      "selected_by": "v=2",
+      "shape": "featureFlags map of enabled flags only"
+    },
+    "decide_v1": {
+      "endpoint": "/decide",
+      "selected_by": "v=1 or absent",
+      "shape": "featureFlags list of enabled flag keys"
+    }
+  },
+  "asserted_fields": "flags_v2 records key, enabled, variant, failed when true, reason.code, reason.condition_index, metadata.id, metadata.version, and metadata.payload. Live responses carry additional request-level and metadata fields that this corpus does not pin.",
+  "cases": [
+    {
+      "id": "projection.boolean_true",
+      "config_version": 1,
+      "outcome": {
+        "key": "beta-search",
+        "flag_id": 101,
+        "flag_version": 3,
+        "enabled": true,
+        "variant": null,
+        "payload": null,
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "condition_match",
+          "condition_index": 0
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "beta-search": {
+              "key": "beta-search",
+              "enabled": true,
+              "variant": null,
+              "reason": {
+                "code": "condition_match",
+                "condition_index": 0
+              },
+              "metadata": {
+                "id": 101,
+                "version": 3,
+                "payload": null
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "beta-search": true
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {
+            "beta-search": true
+          }
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": [
+            "beta-search"
+          ]
+        }
+      }
+    },
+    {
+      "id": "projection.boolean_true_with_payload",
+      "config_version": 1,
+      "outcome": {
+        "key": "beta-search",
+        "flag_id": 101,
+        "flag_version": 3,
+        "enabled": true,
+        "variant": null,
+        "payload": "{\"cta\":\"Try beta search\"}",
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "condition_match",
+          "condition_index": 0
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "beta-search": {
+              "key": "beta-search",
+              "enabled": true,
+              "variant": null,
+              "reason": {
+                "code": "condition_match",
+                "condition_index": 0
+              },
+              "metadata": {
+                "id": 101,
+                "version": 3,
+                "payload": "{\"cta\":\"Try beta search\"}"
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "beta-search": true
+          },
+          "featureFlagPayloads": {
+            "beta-search": "{\"cta\":\"Try beta search\"}"
+          }
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {
+            "beta-search": true
+          }
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": [
+            "beta-search"
+          ]
+        }
+      },
+      "notes": "The payload is the stored JSON string; no response version parses it."
+    },
+    {
+      "id": "projection.boolean_false_targeting_miss",
+      "config_version": 1,
+      "outcome": {
+        "key": "beta-search",
+        "flag_id": 101,
+        "flag_version": 3,
+        "enabled": false,
+        "variant": null,
+        "payload": null,
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "no_condition_match",
+          "condition_index": 0
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "beta-search": {
+              "key": "beta-search",
+              "enabled": false,
+              "variant": null,
+              "reason": {
+                "code": "no_condition_match",
+                "condition_index": 0
+              },
+              "metadata": {
+                "id": 101,
+                "version": 3,
+                "payload": null
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "beta-search": false
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {}
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": []
+        }
+      },
+      "notes": "Every evaluated flag appears in the flags_v1 map, including false results. decide_v2 and decide_v1 carry enabled flags only."
+    },
+    {
+      "id": "projection.boolean_false_out_of_rollout",
+      "config_version": 1,
+      "outcome": {
+        "key": "beta-search-rollout",
+        "flag_id": 102,
+        "flag_version": 1,
+        "enabled": false,
+        "variant": null,
+        "payload": null,
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "out_of_rollout_bound",
+          "condition_index": 0
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "beta-search-rollout": {
+              "key": "beta-search-rollout",
+              "enabled": false,
+              "variant": null,
+              "reason": {
+                "code": "out_of_rollout_bound",
+                "condition_index": 0
+              },
+              "metadata": {
+                "id": 102,
+                "version": 1,
+                "payload": null
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "beta-search-rollout": false
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {}
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": []
+        }
+      }
+    },
+    {
+      "id": "projection.variant",
+      "config_version": 1,
+      "outcome": {
+        "key": "checkout-layout",
+        "flag_id": 106,
+        "flag_version": 5,
+        "enabled": true,
+        "variant": "control",
+        "payload": null,
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "condition_match",
+          "condition_index": 1
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "checkout-layout": {
+              "key": "checkout-layout",
+              "enabled": true,
+              "variant": "control",
+              "reason": {
+                "code": "condition_match",
+                "condition_index": 1
+              },
+              "metadata": {
+                "id": 106,
+                "version": 5,
+                "payload": null
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "checkout-layout": "control"
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {
+            "checkout-layout": "control"
+          }
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": [
+            "checkout-layout"
+          ]
+        }
+      },
+      "notes": "A variant projects as its string in every map and as membership in the list."
+    },
+    {
+      "id": "projection.variant_with_payload",
+      "config_version": 1,
+      "outcome": {
+        "key": "checkout-layout",
+        "flag_id": 106,
+        "flag_version": 5,
+        "enabled": true,
+        "variant": "compact",
+        "payload": "{\"density\":\"compact\"}",
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "condition_match",
+          "condition_index": 1
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "checkout-layout": {
+              "key": "checkout-layout",
+              "enabled": true,
+              "variant": "compact",
+              "reason": {
+                "code": "condition_match",
+                "condition_index": 1
+              },
+              "metadata": {
+                "id": 106,
+                "version": 5,
+                "payload": "{\"density\":\"compact\"}"
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "checkout-layout": "compact"
+          },
+          "featureFlagPayloads": {
+            "checkout-layout": "{\"density\":\"compact\"}"
+          }
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {
+            "checkout-layout": "compact"
+          }
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": [
+            "checkout-layout"
+          ]
+        }
+      }
+    },
+    {
+      "id": "projection.holdout_variant",
+      "config_version": 1,
+      "outcome": {
+        "key": "checkout-experiment",
+        "flag_id": 113,
+        "flag_version": 4,
+        "enabled": true,
+        "variant": "holdout-7",
+        "payload": null,
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "holdout_condition_value",
+          "condition_index": null
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "checkout-experiment": {
+              "key": "checkout-experiment",
+              "enabled": true,
+              "variant": "holdout-7",
+              "reason": {
+                "code": "holdout_condition_value",
+                "condition_index": null
+              },
+              "metadata": {
+                "id": 113,
+                "version": 4,
+                "payload": null
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "checkout-experiment": "holdout-7"
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {
+            "checkout-experiment": "holdout-7"
+          }
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": [
+            "checkout-experiment"
+          ]
+        }
+      },
+      "notes": "The synthesized holdout variant projects like any other string value."
+    },
+    {
+      "id": "projection.no_group_type",
+      "config_version": 1,
+      "outcome": {
+        "key": "org-dashboard",
+        "flag_id": 109,
+        "flag_version": 2,
+        "enabled": false,
+        "variant": null,
+        "payload": null,
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "no_group_type",
+          "condition_index": 0
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "org-dashboard": {
+              "key": "org-dashboard",
+              "enabled": false,
+              "variant": null,
+              "reason": {
+                "code": "no_group_type",
+                "condition_index": 0
+              },
+              "metadata": {
+                "id": 109,
+                "version": 2,
+                "payload": null
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "org-dashboard": false
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {}
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": []
+        }
+      }
+    },
+    {
+      "id": "projection.missing_dependency",
+      "config_version": 1,
+      "outcome": {
+        "key": "beta-search-suggestions-orphan",
+        "flag_id": 112,
+        "flag_version": 1,
+        "enabled": false,
+        "variant": null,
+        "payload": null,
+        "failed": false,
+        "omitted": false,
+        "reason": {
+          "code": "missing_dependency",
+          "condition_index": null
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {
+            "beta-search-suggestions-orphan": {
+              "key": "beta-search-suggestions-orphan",
+              "enabled": false,
+              "variant": null,
+              "reason": {
+                "code": "missing_dependency",
+                "condition_index": null
+              },
+              "metadata": {
+                "id": 112,
+                "version": 1,
+                "payload": null
+              }
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {
+            "beta-search-suggestions-orphan": false
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {}
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": []
+        }
+      },
+      "notes": "A missing dependency is a closed false result, not an evaluation failure, so errorsWhileComputingFlags stays false."
+    },
+    {
+      "id": "projection.failed_evaluation",
+      "config_version": 1,
+      "outcome": {
+        "key": "beta-search",
+        "flag_id": 101,
+        "flag_version": 3,
+        "enabled": false,
+        "variant": null,
+        "payload": null,
+        "failed": true,
+        "omitted": false,
+        "reason": {
+          "code": "timeout",
+          "condition_index": null
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": true,
+          "flags": {
+            "beta-search": {
+              "key": "beta-search",
+              "enabled": false,
+              "variant": null,
+              "reason": {
+                "code": "timeout",
+                "condition_index": null
+              },
+              "metadata": {
+                "id": 101,
+                "version": 3,
+                "payload": null
+              },
+              "failed": true
+            }
+          }
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": true,
+          "featureFlags": {
+            "beta-search": false
+          },
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {}
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": []
+        }
+      },
+      "notes": "A failed evaluation projects as false in the flags_v1 map with errorsWhileComputingFlags true, is omitted from decide_v2 and decide_v1, and carries failed true in flags_v2. The reason code is representative."
+    },
+    {
+      "id": "projection.inactive_omitted",
+      "config_version": 1,
+      "outcome": {
+        "key": "retired-banner",
+        "flag_id": 114,
+        "flag_version": 9,
+        "enabled": false,
+        "variant": null,
+        "payload": null,
+        "failed": false,
+        "omitted": true,
+        "reason": {
+          "code": "no_condition_match",
+          "condition_index": null
+        }
+      },
+      "projections": {
+        "flags_v2": {
+          "response_version": 2,
+          "errorsWhileComputingFlags": false,
+          "flags": {}
+        },
+        "flags_v1": {
+          "response_version": 1,
+          "errorsWhileComputingFlags": false,
+          "featureFlags": {},
+          "featureFlagPayloads": {}
+        },
+        "decide_v2": {
+          "response_version": 2,
+          "featureFlags": {}
+        },
+        "decide_v1": {
+          "response_version": 1,
+          "featureFlags": []
+        }
+      },
+      "notes": "Inactive, archived, and deleted flags are omitted from every response version."
+    }
+  ]
+}
