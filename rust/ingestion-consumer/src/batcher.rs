@@ -54,6 +54,9 @@ struct PendingSubBatch {
     /// The accumulator groups this sub-batch carries, kept aside so the
     /// resolved send can be broken back into per-group completions.
     groups: Vec<CompletionGroup>,
+    /// The runs' epoch when the scheduler stamped one; completions then use
+    /// it instead of the awaiting batch's epoch.
+    assignment_epoch: Option<u64>,
     pending: PendingWorkerStreamSend,
 }
 
@@ -263,6 +266,7 @@ async fn scatter(
             key_offsets,
             message_count,
             groups,
+            assignment_epoch: run_epoch,
             pending,
         } = sub_batch;
         let bid = batch_id.to_string();
@@ -281,7 +285,12 @@ async fn scatter(
                         None,
                     );
                     inner.dispatcher.record_send_outcome(&worker, false);
-                    send_group_completions(&inner.completions, groups, assignment_epoch, accepted);
+                    send_group_completions(
+                        &inner.completions,
+                        groups,
+                        run_epoch.unwrap_or(assignment_epoch),
+                        accepted,
+                    );
                     accepted
                 }
                 Err(send_err) => {
@@ -416,6 +425,7 @@ fn begin_send(
         messages,
         routing_keys,
         key_offsets,
+        assignment_epoch,
     } = sub_batch;
     let groups = completion_groups(&messages);
     let message_count = messages.len();
@@ -426,6 +436,7 @@ fn begin_send(
         key_offsets,
         message_count,
         groups,
+        assignment_epoch,
         pending,
     }
 }

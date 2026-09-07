@@ -41,6 +41,9 @@ pub struct SubBatch {
     /// Per-key max offsets. Pass back to `Dispatcher::on_sub_batch_acked` on
     /// a successful ACK (only) so the order sentinel tracks ACK progress.
     pub key_offsets: Vec<KeyOffset>,
+    /// The runs' epoch, for stamping completions; `None` from the pin-stash
+    /// scheduler, whose completions are stamped by the awaiting batch.
+    pub assignment_epoch: Option<u64>,
 }
 
 struct WorkerSubBatchBuilder {
@@ -61,7 +64,9 @@ impl WorkerSubBatchBuilder {
 
 #[derive(Default)]
 struct WorkerAssignments {
-    by_worker: HashMap<WorkerId, WorkerSubBatchBuilder>,
+    /// Keyed by worker and epoch, so a sub-batch never mixes runs from two
+    /// epochs and its completions carry one stamp.
+    by_worker: HashMap<(WorkerId, Option<u64>), WorkerSubBatchBuilder>,
 }
 
 impl WorkerAssignments {
@@ -74,11 +79,12 @@ impl WorkerAssignments {
             worker,
             routing_key,
             messages,
+            assignment_epoch,
             ..
         } = dispatch;
         let builder = self
             .by_worker
-            .entry(worker)
+            .entry((worker, assignment_epoch))
             .or_insert_with(|| WorkerSubBatchBuilder {
                 messages: Vec::new(),
                 routing_keys: Vec::new(),
@@ -107,7 +113,7 @@ impl WorkerAssignments {
         self.by_worker
             .iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(worker, builder)| SubBatchInfo {
+            .map(|((worker, _), builder)| SubBatchInfo {
                 worker: worker.to_string(),
                 messages: builder.message_count(),
                 routing_keys: builder.routing_keys.len(),
@@ -119,18 +125,19 @@ impl WorkerAssignments {
         self.by_worker
             .iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(worker, builder)| (worker.clone(), builder.message_count()))
+            .map(|((worker, _), builder)| (worker.clone(), builder.message_count()))
     }
 
     fn into_sub_batches(self) -> Vec<SubBatch> {
         self.by_worker
             .into_iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(worker, builder)| SubBatch {
+            .map(|((worker, assignment_epoch), builder)| SubBatch {
                 worker,
                 messages: builder.messages,
                 routing_keys: builder.routing_keys,
                 key_offsets: builder.key_offsets,
+                assignment_epoch,
             })
             .collect()
     }
