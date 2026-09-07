@@ -357,7 +357,11 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                         actions.loadKeysSuccess(
                             values.keys.filter((k: ProjectSecretAPIKeyApi) => k.id !== submittedKeyId)
                         )
-                        actions.setEditingKeyId(null)
+                        // Another key can be open by now, so close only the editor that sent this
+                        // request. Closing the current one would discard its unsaved label and scopes.
+                        if (values.editingKeyId === submittedKeyId) {
+                            actions.setEditingKeyId(null)
+                        }
                         return
                     }
                     lemonToast.error('Failed to save project API key')

@@ -99,6 +99,35 @@ describe('projectSecretAPIKeysLogic', () => {
             expect(logic.values.keys).toEqual([LIVE_KEY])
             expect(errorToast).not.toHaveBeenCalledWith(expect.stringContaining('Failed to'))
         })
+
+        it('leaves the editor alone when the person has opened another key by then', async () => {
+            let respond: () => void
+            const held = new Promise<void>((resolve) => {
+                respond = resolve
+            })
+            useMocks({
+                patch: {
+                    [KEY_PATH]: async () => {
+                        await held
+                        return [404, { detail: 'Not found.' }]
+                    },
+                },
+            })
+            jest.spyOn(lemonToast, 'error').mockImplementation()
+
+            logic.actions.setEditingKeyId(STALE_KEY.id)
+            logic.actions.setEditingKeyValues({ label: 'Renamed', scopes: ['endpoint:read'] })
+            await expectLogic(logic, () => logic.actions.submitEditingKey()).toDispatchActions([
+                'submitEditingKeyRequest',
+            ])
+
+            logic.actions.setEditingKeyId(LIVE_KEY.id)
+            respond!()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.keys).toEqual([LIVE_KEY])
+            expect(logic.values.editingKeyId).toEqual(LIVE_KEY.id)
+        })
     })
 
     // Creating a key cannot hit a missing key, so its 404 is a real failure and stays reportable.
