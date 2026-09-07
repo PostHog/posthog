@@ -665,6 +665,13 @@ export function buildSurveyOptionalBooleanPropertyFilter(
     return `coalesce(JSONExtractString(properties, '${propertyName}'), '') != '${excludedValue}'`
 }
 
+/**
+ * Keeps one `survey sent` event per submission, so a survey that collects partial responses does
+ * not list the same submission once per event it sent.
+ *
+ * The expression ends with no line comment on purpose. Callers append to it, and HogQL skips from
+ * `--` to the end of the line, so a trailing comment would swallow whatever follows it there.
+ */
 export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
         return `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
@@ -689,7 +696,7 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
                 properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`,
                 toString(uuid)
             )
-    ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
+    )`
 }
 
 /** Matches a `survey dismissed` event carrying the answers a respondent gave before closing the survey. */

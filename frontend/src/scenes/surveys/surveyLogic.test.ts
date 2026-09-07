@@ -1347,6 +1347,27 @@ describe('survey filters', () => {
         }
     )
 
+    it('keeps the dismissal branch out of a comment on a survey that collects partial responses', async () => {
+        const survey: Survey = { ...MULTIPLE_CHOICE_SURVEY, enable_partial_responses: true }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+            logic.actions.setShowPartialResponses(true)
+        }).toDispatchActions(['loadSurveySuccess', 'setShowPartialResponses'])
+
+        const where = (logic.values.dataTableQuery as unknown as { source: { where: string[] } }).source.where
+        // HogQL skips from `--` to the end of the line, so text appended to a line that already
+        // carries a comment never reaches the parser. Drop the same text the lexer drops.
+        const visibleToParser = where
+            .join(' AND ')
+            .split('\n')
+            .map((line) => line.replace(/--.*$/, ''))
+            .join('\n')
+
+        expect(visibleToParser).toMatch(/\)\s*OR\s*\(/)
+        expect(visibleToParser).toContain(`event == '${SurveyEventName.DISMISSED}'`)
+    })
+
     it('collapses newlines in question text so the generated HogQL select stays single-line', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
         // whose text spans multiple lines used to leak past the `--` comment appended per response
