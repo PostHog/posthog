@@ -50,6 +50,7 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
+use crate::commit_manager::PendingCommits;
 use crate::types::SerializedKafkaMessage;
 use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
 
@@ -582,6 +583,10 @@ pub struct SentinelContext {
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
+    /// Frontiers awaiting the commit manager's next flush. Owned here so the
+    /// rebalance callbacks drop a departing partition's frontier before the
+    /// flush can commit it under another owner.
+    pending_commits: Arc<PendingCommits>,
     /// Advanced once per assignment callback; the gRPC transport stamps it
     /// on sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances. Distinct from the offset ledger's generations, which move
@@ -594,11 +599,13 @@ impl SentinelContext {
         commit_sentinel: Arc<CommitSentinel>,
         key_sentinel: Arc<KeyOrderSentinel>,
         topic_offset_ledger: Arc<TopicOffsetLedger>,
+        pending_commits: Arc<PendingCommits>,
     ) -> Self {
         Self {
             commit_sentinel,
             key_sentinel,
             topic_offset_ledger,
+            pending_commits,
             assignment_epoch: None,
         }
     }
@@ -616,6 +623,7 @@ impl SentinelContext {
             Arc::new(CommitSentinel::new()),
             Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
+            Arc::new(PendingCommits::new()),
         )
     }
 
@@ -627,11 +635,18 @@ impl SentinelContext {
         Arc::clone(&self.topic_offset_ledger)
     }
 
+    pub fn pending_commits(&self) -> Arc<PendingCommits> {
+        Arc::clone(&self.pending_commits)
+    }
+
     /// Start a new ledger generation for every partition in `tpl`, dropping
-    /// its window.
+    /// its window and any frontier it had ready to commit.
     fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
+        let elements = tpl.elements();
         self.topic_offset_ledger
-            .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
+            .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
+        self.pending_commits
+            .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
     }
 }
 

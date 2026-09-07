@@ -1,11 +1,14 @@
-//! Offset commits for the ingestion consumer: the sentinel check on every
-//! span, the rdkafka commit, and the monitor that confirms async commits
-//! landed on the broker.
+//! Offset commits for the ingestion consumer. Frontiers arrive one partition
+//! at a time as work completes; the manager checks each against the commit
+//! sentinel at once and commits the latest per partition on an interval, so
+//! the commit rate is bounded by the interval rather than by how often
+//! frontiers move.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common_kafka_consumer::TopicPartition;
+use common_kafka_consumer::{Offset, TopicPartition};
 use lifecycle::Handle;
 use metrics::counter;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -18,44 +21,115 @@ use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 /// How often the commit monitor fetches the group's broker-committed offsets.
 const COMMIT_MONITOR_INTERVAL: Duration = Duration::from_secs(30);
 
+/// The next-to-read offset each partition is ready to commit, awaiting the
+/// next flush. Shared with the consumer's [`SentinelContext`], which drops a
+/// partition's entry when the partition leaves the assignment: a commit
+/// issued for a partition another member now owns could move the group's
+/// offset back behind that member's progress.
+#[derive(Default)]
+pub struct PendingCommits {
+    next_to_read: Mutex<HashMap<TopicPartition, Offset>>,
+}
+
+impl PendingCommits {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replace the partition's pending offset. Frontiers only move forward,
+    /// so the latest one covers every earlier one.
+    fn record(&self, topic_partition: &TopicPartition, next_to_read: Offset) {
+        self.next_to_read
+            .lock()
+            .unwrap()
+            .insert(topic_partition.clone(), next_to_read);
+    }
+
+    /// Drop the pending offsets of partitions leaving the assignment.
+    pub fn forget_partitions<'a>(
+        &self,
+        topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
+    ) {
+        let mut pending = self.next_to_read.lock().unwrap();
+        for (topic, partition) in topic_partitions {
+            pending.remove(&TopicPartition::new(topic, partition));
+        }
+    }
+
+    /// Take everything pending, leaving nothing behind.
+    fn take(&self) -> HashMap<TopicPartition, Offset> {
+        std::mem::take(&mut *self.next_to_read.lock().unwrap())
+    }
+}
+
 /// Submits offset commits for the consumer and verifies they land.
 pub(crate) struct CommitManager {
     consumer: Arc<StreamConsumer<SentinelContext>>,
     /// Validates commit contiguity/monotonicity per partition. Shared with the
     /// consumer's [`SentinelContext`], which resets baselines on rebalance.
     sentinel: Arc<CommitSentinel>,
+    pending: Arc<PendingCommits>,
+    interval: Duration,
 }
 
 impl CommitManager {
-    pub(crate) fn new(consumer: Arc<StreamConsumer<SentinelContext>>) -> Self {
+    pub(crate) fn new(consumer: Arc<StreamConsumer<SentinelContext>>, interval: Duration) -> Self {
         let sentinel = consumer.context().commit_sentinel();
-        Self { consumer, sentinel }
+        let pending = consumer.context().pending_commits();
+        Self {
+            consumer,
+            sentinel,
+            pending,
+            interval,
+        }
     }
 
-    /// Validate and submit one commit to Kafka.
-    pub(crate) fn commit<'a>(
-        &self,
-        spans: impl IntoIterator<Item = (&'a TopicPartition, &'a OffsetSpan)>,
-    ) -> anyhow::Result<()> {
-        let spans: Vec<_> = spans.into_iter().collect();
-        // Validate contiguity/monotonicity per partition before committing, so
-        // a violation is attributed to the batch that caused it.
-        self.sentinel.check_commit(spans.iter().copied());
+    /// A partition's frontier moved: `span` is the work now ready to commit,
+    /// last-processed, in the representation the sentinel checks. The check
+    /// runs here, so a violation is attributed to the work that caused it;
+    /// the commit itself waits for the next flush.
+    pub(crate) fn on_frontier(&self, topic_partition: &TopicPartition, span: OffsetSpan) {
+        self.sentinel.check_commit([(topic_partition, &span)]);
+        self.pending.record(topic_partition, Offset(span.last + 1));
+    }
 
+    /// Commit every pending frontier in one call. Nothing pending commits
+    /// nothing.
+    pub(crate) fn flush(&self) -> anyhow::Result<()> {
+        let pending = self.pending.take();
+        if pending.is_empty() {
+            return Ok(());
+        }
         let mut tpl = TopicPartitionList::new();
-        for (topic_partition, span) in &spans {
-            // Commit offset + 1 (Kafka convention: committed offset = next to read)
+        for (topic_partition, next_to_read) in &pending {
             tpl.add_partition_offset(
                 &topic_partition.topic,
                 topic_partition.partition,
-                rdkafka::Offset::Offset(span.last + 1),
+                rdkafka::Offset::Offset(next_to_read.0),
             )?;
         }
-
         self.consumer.commit(&tpl, CommitMode::Async)?;
         counter!("ingestion_consumer_offset_commits_total").increment(1);
-
         Ok(())
+    }
+
+    /// Flush on the interval until shutdown. A failed commit fails the
+    /// process, as it would have when the consumer loop committed inline.
+    /// Aborted when the guard drops.
+    pub(crate) fn spawn_flusher(self: &Arc<Self>, handle: Handle) -> AbortOnDrop {
+        let manager = Arc::clone(self);
+        AbortOnDrop(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = handle.shutdown_recv() => return,
+                    _ = tokio::time::sleep(manager.interval) => {}
+                }
+                if let Err(err) = manager.flush() {
+                    handle.signal_failure(format!("Offset commit failed: {err:#}"));
+                    return;
+                }
+            }
+        }))
     }
 
     /// Verify async commits actually land: librdkafka drops the result of
@@ -134,5 +208,41 @@ async fn run_commit_monitor(
                 warn!(error = %err, "Commit monitor task join error");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tp(partition: i32) -> TopicPartition {
+        TopicPartition::new("events", partition)
+    }
+
+    #[test]
+    fn the_latest_frontier_per_partition_is_what_flushes() {
+        let pending = PendingCommits::new();
+        pending.record(&tp(0), Offset(10));
+        pending.record(&tp(1), Offset(20));
+        pending.record(&tp(0), Offset(12));
+
+        let taken = pending.take();
+        assert_eq!(taken.len(), 2);
+        assert_eq!(taken[&tp(0)], Offset(12));
+        assert_eq!(taken[&tp(1)], Offset(20));
+        assert!(pending.take().is_empty(), "a take leaves nothing behind");
+    }
+
+    #[test]
+    fn a_forgotten_partition_has_nothing_to_flush() {
+        let pending = PendingCommits::new();
+        pending.record(&tp(0), Offset(10));
+        pending.record(&tp(1), Offset(20));
+
+        pending.forget_partitions([("events", 0)]);
+
+        let taken = pending.take();
+        assert_eq!(taken.len(), 1);
+        assert_eq!(taken[&tp(1)], Offset(20));
     }
 }

@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
-use crate::commit_manager::CommitManager;
+use crate::commit_manager::{CommitManager, PendingCommits};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
@@ -189,6 +189,9 @@ pub struct IngestionConsumerOptions {
     /// See `Config::consumer_batch_size_kb`.
     pub batch_size_bytes: usize,
     pub batch_timeout: Duration,
+    /// How often frontiers ready to commit are committed. See
+    /// `Config::consumer_commit_interval_ms`.
+    pub commit_interval: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
     /// No-progress bound on flushing a batch's deferred groups, enforced by
@@ -217,7 +220,7 @@ pub struct IngestionConsumer {
     max_in_flight_batches: usize,
     handle: Handle,
     group_id: String,
-    commit_manager: CommitManager,
+    commit_manager: Arc<CommitManager>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// The per-partition offset ledger the commit path reads its frontiers
@@ -250,7 +253,10 @@ impl IngestionConsumer {
             options.deferred_flush_timeout,
         );
         Self {
-            commit_manager: CommitManager::new(Arc::clone(&consumer)),
+            commit_manager: Arc::new(CommitManager::new(
+                Arc::clone(&consumer),
+                options.commit_interval,
+            )),
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             consumer,
@@ -303,6 +309,7 @@ impl IngestionConsumer {
             commit_sentinel,
             key_sentinel,
             Arc::clone(&topic_offset_ledger),
+            Arc::new(PendingCommits::new()),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
@@ -320,7 +327,10 @@ impl IngestionConsumer {
         );
 
         Ok(Self {
-            commit_manager: CommitManager::new(Arc::clone(&consumer)),
+            commit_manager: Arc::new(CommitManager::new(
+                Arc::clone(&consumer),
+                Duration::from_millis(config.consumer_commit_interval_ms),
+            )),
             consumer,
             debug_recorder,
             topic_offset_ledger,
@@ -342,8 +352,8 @@ impl IngestionConsumer {
     pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         let BatcherOutputs {
-            mut completions,
-            mut errors,
+            completions,
+            errors,
         } = self.outputs.take().expect("process is called once");
 
         info!("Waiting for workers to be ready");
@@ -365,7 +375,25 @@ impl IngestionConsumer {
         });
 
         let _commit_monitor = self.commit_manager.spawn_monitor(self.handle.clone());
+        let _commit_flusher = self.commit_manager.spawn_flusher(self.handle.clone());
 
+        self.run(completions, errors).await;
+
+        // Frontiers handed over since the last flush are accepted work, and
+        // neither a shutdown nor a failed batch should leave them to replay.
+        if let Err(err) = self.commit_manager.flush() {
+            warn!(error = %err, "Final offset commit failed");
+        }
+        info!("Consumer loop stopped");
+    }
+
+    /// Poll, dispatch, and complete until shutdown drains the in-flight polls
+    /// or a batch fails.
+    async fn run(
+        &self,
+        mut completions: mpsc::UnboundedReceiver<GroupCompletion>,
+        mut errors: mpsc::UnboundedReceiver<String>,
+    ) {
         let mut in_flight_polls: VecDeque<InFlightPoll> = VecDeque::new();
         let mut accepting_new_batches = true;
 
@@ -417,8 +445,6 @@ impl IngestionConsumer {
                 return;
             }
         }
-
-        info!("Consumer loop stopped");
     }
 
     /// Submit one collected poll to the batcher and track it as in flight.
@@ -506,7 +532,7 @@ impl IngestionConsumer {
             );
         }
 
-        self.commit_offsets(&poll.partitions)?;
+        self.settle_poll(&poll.partitions);
         emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
             batch_id: poll.poll_id.clone(),
@@ -691,23 +717,20 @@ impl IngestionConsumer {
         })
     }
 
-    /// Settle the batch against the ledger and commit each partition's
-    /// frontier. A partition without a frontier is not committed and stays on
-    /// its last committed offset.
-    fn commit_offsets(
-        &self,
-        partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-    ) -> anyhow::Result<()> {
+    /// Settle the poll against the ledger and hand each partition's frontier
+    /// to the commit manager. A partition without a frontier stays on its
+    /// last commit.
+    fn settle_poll(&self, partitions: &HashMap<TopicPartition, PartitionDeliveries>) {
         if partitions.is_empty() {
             // Unreachable while batches require messages to be spawned; counted
             // so "no empty commits" is a measurable guarantee, not an assumption.
             counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
             warn!("Commit requested with no offsets");
-            return Ok(());
+            return;
         }
 
-        let mut settled = Vec::with_capacity(partitions.len());
-        let mut frontier_spans = Vec::with_capacity(partitions.len());
+        let mut settled = 0usize;
+        let mut advanced = 0usize;
         for (topic_partition, partition) in partitions {
             // A rejected slice is not committed, and the commit sentinel
             // keeps its baseline. A stale slice belongs to an assignment the
@@ -719,17 +742,20 @@ impl IngestionConsumer {
             let Ok(frontier) = self.settle(topic_partition, partition) else {
                 continue;
             };
-            settled.push(topic_partition);
-            if let Some(span) = frontier_span(&partition.span, frontier) {
-                frontier_spans.push((topic_partition, span));
-            }
+            settled += 1;
+            let Some(span) = frontier_span(&partition.span, frontier) else {
+                continue;
+            };
+            self.topic_offset_ledger.take_frontier(topic_partition);
+            self.commit_manager.on_frontier(topic_partition, span);
+            advanced += 1;
         }
 
-        if frontier_spans.is_empty() {
+        if advanced == 0 {
             // `rejected`: the ledger dropped every slice, expected around a
             // rebalance. `no_frontier`: a slice landed, but an earlier batch
             // is still incomplete at the front of every window it settled.
-            let reason = if settled.is_empty() {
+            let reason = if settled == 0 {
                 "rejected"
             } else {
                 "no_frontier"
@@ -739,18 +765,7 @@ impl IngestionConsumer {
                 reason,
                 "No ledger frontier available for completed offsets; skipping commit"
             );
-            return Ok(());
         }
-
-        self.commit_manager.commit(
-            frontier_spans
-                .iter()
-                .map(|(topic_partition, span)| (*topic_partition, span)),
-        )?;
-        for topic_partition in settled {
-            self.topic_offset_ledger.take_frontier(topic_partition);
-        }
-        Ok(())
     }
 
     /// Settle one partition's slice of a batch against the ledger and report
