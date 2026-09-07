@@ -30,6 +30,25 @@ export function parseMcpToolKey(mcpToolName: string): {
 }
 
 /**
+ * Optional CallToolResult fields the app-side `CallToolResultSchema` types as
+ * `.optional()`. zod rejects an explicit `null` for these, so a payload that
+ * carries one is discarded by the app's notification handler and the app stays
+ * on its loading state. Sources that model these fields as nullable (the
+ * Codex app-server serializes an absent MCP optional as JSON `null`) can emit
+ * them, so strip null keys before the result reaches the app bridge.
+ */
+const NULLABLE_RESULT_KEYS = ["structuredContent", "isError", "_meta"] as const;
+
+function omitNullOptionalFields(raw: CallToolResult): CallToolResult {
+  if (!NULLABLE_RESULT_KEYS.some((key) => raw[key] === null)) return raw;
+  const stripped: Record<string, unknown> = { ...raw };
+  for (const key of NULLABLE_RESULT_KEYS) {
+    if (stripped[key] === null) delete stripped[key];
+  }
+  return stripped as CallToolResult;
+}
+
+/**
  * Safely converts an unknown rawOutput into a well-formed CallToolResult.
  * The ACP SDK types rawOutput as `unknown`; this normalizes whatever arrives
  * so the MCP App bridge always receives valid data.
@@ -46,7 +65,7 @@ export function toCallToolResult(raw: unknown): CallToolResult {
   if (raw != null && typeof raw === "object" && "content" in raw) {
     const obj = raw as { content: unknown };
     if (Array.isArray(obj.content)) {
-      return raw as CallToolResult;
+      return omitNullOptionalFields(raw as CallToolResult);
     }
     // content exists but isn't an array — normalize to text block array
     // while preserving structuredContent, _meta, isError, etc.
@@ -54,10 +73,10 @@ export function toCallToolResult(raw: unknown): CallToolResult {
       typeof obj.content === "string"
         ? obj.content
         : JSON.stringify(obj.content);
-    return {
+    return omitNullOptionalFields({
       ...(raw as CallToolResult),
       content: [{ type: "text", text }],
-    };
+    });
   }
 
   // Wrap primitives (e.g. a bare string) into the expected shape
