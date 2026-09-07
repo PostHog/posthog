@@ -183,4 +183,52 @@ describe("useAppBridge", () => {
 
     expect(bridge.sendToolResult).toHaveBeenCalledTimes(1);
   });
+
+  it("sends an already-completed tool call's result once the app initializes", async () => {
+    // A row that only ever renders once its result is known (e.g. a chart pulled out of a
+    // collapsed tool-call group) mounts with `rawOutput` already set on the very first render —
+    // nothing else has queued a result yet when the app finishes its own handshake.
+    renderHook((props) => useAppBridge(props), {
+      initialProps: baseArgs({
+        toolCall: makeToolCall({ rawOutput: { content: [] } }),
+      }),
+    });
+
+    await act(async () => {
+      await dispatchProxyReady();
+    });
+    const bridge = bridgeInstances[0];
+
+    act(() => {
+      bridge.oninitialized?.();
+    });
+
+    expect(bridge.sendToolResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not double-deliver when a result was already queued before the app initializes", async () => {
+    // Reproduces the bug: the exec-replay effect queues the result as soon as it mounts, then
+    // `oninitialized`'s own remount catch-up sent it again with no dedup against that queue.
+    const { result } = renderHook((props) => useAppBridge(props), {
+      initialProps: baseArgs({
+        toolCall: makeToolCall({ rawOutput: { content: [] } }),
+      }),
+    });
+
+    await act(async () => {
+      await dispatchProxyReady();
+    });
+    const bridge = bridgeInstances[0];
+
+    act(() => {
+      result.current.sendResultOnce("tc-1", { content: [] });
+    });
+    expect(bridge.sendToolResult).not.toHaveBeenCalled();
+
+    act(() => {
+      bridge.oninitialized?.();
+    });
+
+    expect(bridge.sendToolResult).toHaveBeenCalledTimes(1);
+  });
 });
