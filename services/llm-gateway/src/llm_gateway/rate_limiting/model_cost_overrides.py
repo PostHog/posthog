@@ -133,17 +133,37 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         "supports_vision": True,
         "supports_prompt_caching": True,
     },
+    "gpt-6-astra": {
+        "litellm_provider": "openai",
+        "mode": "chat",
+        "max_input_tokens": 922_000,
+        "max_output_tokens": 128_000,
+        "input_cost_per_token": 1e-05,
+        "output_cost_per_token": 5e-05,
+        "cache_read_input_token_cost": 1e-06,
+        "cache_creation_input_token_cost": 1.25e-05,
+        "supports_vision": True,
+        "supports_prompt_caching": True,
+    },
 }
 
-# Provider-specific contract prices must not be replaced by a same-named LiteLLM entry.
+# Contract prices must not be replaced by a same-named LiteLLM entry.
 PINNED_MODEL_COST_OVERRIDES: Final[frozenset[str]] = frozenset(
-    {BASETEN_METRIC_MODEL, BASETEN_DEEPSEEK_METRIC_MODEL, BASETEN_GLM53_METRIC_MODEL, BASETEN_GLM53_FLASH_METRIC_MODEL}
+    {
+        BASETEN_METRIC_MODEL,
+        BASETEN_DEEPSEEK_METRIC_MODEL,
+        BASETEN_GLM53_METRIC_MODEL,
+        BASETEN_GLM53_FLASH_METRIC_MODEL,
+        "gpt-6-astra",
+    }
 )
 
 
 def apply_model_cost_overrides(model_cost: dict[str, ModelCost]) -> dict[str, ModelCost]:
     """Apply missing bridge entries and contract-pinned provider prices in place."""
     for model_id, cost in MODEL_COST_OVERRIDES.items():
-        if model_id in PINNED_MODEL_COST_OVERRIDES or model_id not in model_cost:
+        if model_id in PINNED_MODEL_COST_OVERRIDES:
+            model_cost[model_id] = cast("ModelCost", {**model_cost.get(model_id, {}), **cost})
+        elif model_id not in model_cost:
             model_cost[model_id] = cast("ModelCost", dict(cost))
     return model_cost
