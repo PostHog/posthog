@@ -38,6 +38,13 @@ CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
 # and every rejection costs the metric CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS plus one of MAX_METRIC_ATTEMPTS.
 # A large experiment can then spend its whole retry budget on backpressure and report healthy metrics as
 # failed. Sized so runs of 10 metrics or fewer, the large majority, dispatch exactly as before.
+#
+# The size is part of the workflow's replay contract, not a free tuning knob like the timing constants
+# around it. It decides how many ScheduleActivityTask commands one workflow task emits before the workflow
+# waits, so an execution that recorded its schedules under one size fails with a nondeterminism error when
+# it replays under another. A change therefore needs a new `temporalio.workflow.patched(...)` id in
+# recalculation_workflow.py that keeps the old size on the else branch, not an edit in place. See
+# .claude/rules/temporal-workflow-versioning.md.
 MAX_CONCURRENT_METRICS_PER_RUN = 10
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
