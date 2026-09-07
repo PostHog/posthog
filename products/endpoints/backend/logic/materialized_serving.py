@@ -67,13 +67,18 @@ class MaterializedServingState:
         A cache entry outlives the code that wrote it, so a payload in another shape counts
         as a miss. The caller then reads the database and rewrites the entry.
         """
+        ready = payload.get("ready")
         materialized_at = payload.get("materialized_at")
         freshness_seconds = payload.get("freshness_seconds")
-        servable_variables = payload.get("servable_variables") or []
+        servable_variables = payload.get("servable_variables")
         if (
-            not isinstance(materialized_at, str | None)
+            not isinstance(ready, bool)
+            or not isinstance(materialized_at, str | None)
+            # bool is a subclass of int, so the int check alone would accept True here
             or not isinstance(freshness_seconds, int | None)
+            or isinstance(freshness_seconds, bool)
             or not isinstance(servable_variables, list)
+            or not all(isinstance(name, str) for name in servable_variables)
         ):
             return None
         try:
@@ -81,10 +86,10 @@ class MaterializedServingState:
         except ValueError:
             return None
         return cls(
-            ready=bool(payload.get("ready")),
+            ready=ready,
             materialized_at=parsed_at,
             freshness_seconds=freshness_seconds,
-            servable_variables=frozenset(name for name in servable_variables if isinstance(name, str)),
+            servable_variables=frozenset(servable_variables),
         )
 
     @classmethod

@@ -52,6 +52,9 @@ class TestMaterializationCache(TestCase):
         [
             ("unparsable_timestamp", {"ready": True, "materialized_at": "not-a-timestamp"}),
             ("foreign_shape", {"ready": True, "materialized_at": 1234, "freshness_seconds": "3600"}),
+            ("ready_as_string", {"ready": "false", "materialized_at": None, "servable_variables": []}),
+            ("freshness_as_bool", {"ready": True, "materialized_at": None, "freshness_seconds": True}),
+            ("variable_not_a_name", {"ready": True, "materialized_at": None, "servable_variables": ["a", 1]}),
         ]
     )
     def test_payload_in_another_shape_reads_as_a_miss(self, _name, payload):
