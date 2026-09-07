@@ -602,6 +602,34 @@ impl Dispatcher {
         from_flush: bool,
         failed: Option<(String, Vec<SerializedKafkaMessage>)>,
     ) {
+        let unsent = self.settle_and_send(
+            worker,
+            message_count,
+            routing_keys,
+            from_flush,
+            failed,
+            |sub_batch| sub_batch,
+        );
+        debug_assert!(
+            unsent.is_empty(),
+            "settle dropped dispatches; use settle_and_send"
+        );
+    }
+
+    /// Like [`Dispatcher::settle`], and additionally hands the settlement's
+    /// dispatches to `send` under the lock — the key table releases a key's
+    /// next run at settlement, and sending under the lock keeps a key's runs
+    /// entering its worker's stream in dispatch order. The caller must await
+    /// every returned send and settle it exactly once.
+    pub fn settle_and_send<T>(
+        &self,
+        worker: &WorkerId,
+        message_count: usize,
+        routing_keys: &[String],
+        from_flush: bool,
+        failed: Option<(String, Vec<SerializedKafkaMessage>)>,
+        send: impl FnMut(SubBatch) -> T,
+    ) -> Vec<T> {
         let mut inner = self.inner.lock().unwrap();
 
         let now_zero = match inner.in_flight.get_mut(worker) {
@@ -640,23 +668,53 @@ impl Dispatcher {
             },
         );
 
-        if !effects.evicted_keys.is_empty() {
-            for key in &effects.evicted_keys {
+        let SchedulerEffects {
+            dispatches,
+            deferred,
+            evicted_keys,
+        } = effects;
+
+        if !evicted_keys.is_empty() {
+            for key in &evicted_keys {
                 self.key_sentinel.evict(key);
             }
             counter!(
                 "ingestion_consumer_dispatcher_pin_evictions_total",
                 "reason" => "resolved",
             )
-            .increment(effects.evicted_keys.len() as u64);
+            .increment(evicted_keys.len() as u64);
         }
+
+        let sent: Vec<T> = if dispatches.is_empty() {
+            Vec::new()
+        } else {
+            let assignments = self.note_and_assemble(dispatches);
+            for (worker, message_count) in assignments.routed_counts() {
+                *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
+                counter!(
+                    "ingestion_consumer_dispatcher_sub_batches_assigned_total",
+                    "worker" => worker.clone(),
+                )
+                .increment(1);
+                counter!(
+                    "ingestion_consumer_dispatcher_messages_routed_total",
+                    "worker" => worker.clone(),
+                )
+                .increment(message_count as u64);
+            }
+            assignments
+                .into_sub_batches()
+                .into_iter()
+                .map(send)
+                .collect()
+        };
         drop(inner);
 
-        if effects.deferred.send_failed > 0 {
+        if deferred.send_failed > 0 {
             record_if(&self.debug_recorder, || DebugEventKind::Deferred {
                 batch_id: failed_batch_id.unwrap_or_default(),
                 reason: "send_failed",
-                groups: effects.deferred.send_failed,
+                groups: deferred.send_failed,
             });
         }
         record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
@@ -665,6 +723,7 @@ impl Dispatcher {
             routing_keys: routing_keys.len(),
             cleared_deferral: from_flush,
         });
+        sent
     }
 
     /// Call when a worker ACKed a sub-batch (success path only, **before**
