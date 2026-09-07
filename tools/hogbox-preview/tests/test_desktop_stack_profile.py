@@ -101,6 +101,23 @@ class DesktopProfileStack(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Desktop access denied"):
             stack._run_desktop_readiness(123)
 
+    def test_gateway_wait_timeout_dumps_container_diagnostics(self) -> None:
+        # Both containers are restart: always, so a bad Caddyfile crash-loops
+        # instead of exiting and the wait reports only a status code.
+        backend = MagicMock(spec=PreviewBackend)
+        backend.web_port = 8000
+        backend.exec.return_value = ExecResult(0, "DESKTOP_READY_OK", "")
+        backend.wait_http_ok.side_effect = TimeoutError("never returned 200 (last=502)")
+        stack = PostHogPreviewStack(backend, desktop_pr_number=123)
+
+        with self.assertRaisesRegex(TimeoutError, "never returned 200"):
+            stack._run_desktop_readiness(123)
+
+        collected = [call.args[0] for call in backend.exec.call_args_list]
+        self.assertIn(stack._compose("ps"), collected)
+        for service in ("desktop-preview-proxy", "llm-gateway"):
+            self.assertTrue(any(f"logs --tail 40 {service}" in command for command in collected))
+
 
 class DesktopImagePull(unittest.TestCase):
     # These two are not in the golden, so every preview fetches them cold from

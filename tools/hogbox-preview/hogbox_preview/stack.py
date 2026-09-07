@@ -808,15 +808,17 @@ echo "DEEP_HEALTH_OK"
         result = self.backend.exec(f"python3 {path}", timeout=180)
         if not result.ok or "DESKTOP_READY_OK" not in result.stdout.splitlines():
             raise DesktopPreviewError(f"Desktop readiness failed:\n{result.stdout}\n{result.stderr}")
-        # Through the proxy, so a broken route fails here rather than in the app.
-        self.backend.wait_http_ok(f"{LLM_GATEWAY_PATH_PREFIX}/_liveness", expect=200, timeout=600)
-        # _liveness is a static 200: it stays green with a dead database or a
-        # misrouted desktop-access check. The authed count_tokens probe below
-        # runs token auth, the product allowlist, the desktop-access gate, and
-        # the Bedrock credentials, so installers only ship when agents can work.
         try:
+            # Through the proxy, so a broken route fails here rather than in the app.
+            self.backend.wait_http_ok(f"{LLM_GATEWAY_PATH_PREFIX}/_liveness", expect=200, timeout=600)
+            # _liveness is a static 200: it stays green with a dead database or a
+            # misrouted desktop-access check. The authed count_tokens probe below
+            # runs token auth, the product allowlist, the desktop-access gate, and
+            # the Bedrock credentials, so installers only ship when agents can work.
             self._probe_gateway_with_token(result)
-        except DesktopPreviewError:
+        except Exception:
+            # Both paths need the container output, and the wait raises
+            # TimeoutError rather than DesktopPreviewError.
             self._dump_desktop_container_diagnostics()
             raise
         timing.stage("desktop readiness pass")
@@ -824,6 +826,13 @@ echo "DEEP_HEALTH_OK"
     def _dump_desktop_container_diagnostics(self) -> None:
         # Mirror deep_health(): a bare "not 200" costs hours; the container's
         # own stderr names the failure (bad Caddyfile, unreachable Postgres).
+        # Status first: both services are restart: always, so a boot failure
+        # crash-loops and reads as "Restarting" instead of as an exited container.
+        try:
+            status = self.backend.exec(self._compose("ps"), timeout=60)
+            sys.stderr.write(f"--- desktop container status ---\n{status.stdout}\n{status.stderr}\n")
+        except Exception as e:
+            sys.stderr.write(f"--- desktop container status collection failed: {e}\n")
         for service in ("desktop-preview-proxy", "llm-gateway"):
             try:
                 logs = self.backend.exec(
