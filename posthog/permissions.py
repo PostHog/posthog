@@ -30,7 +30,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.exceptions import Conflict, CurrentTeamNotFound, EnterpriseFeatureException, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -87,14 +87,14 @@ def get_organization_from_view(view) -> Organization:
         organization = view.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError, AssertionError):
+    except (KeyError, AttributeError, AssertionError, CurrentTeamNotFound):
         pass
 
     try:
         organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError, AssertionError):
+    except (KeyError, AttributeError, AssertionError, CurrentTeamNotFound):
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
@@ -303,14 +303,14 @@ class VerifiedDomainEnforcementPermission(BasePermission):
             organization = view.team.organization
             if isinstance(organization, Organization):
                 return organization
-        except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
+        except (KeyError, AttributeError, AssertionError, Team.DoesNotExist, CurrentTeamNotFound):
             pass
 
         try:
             organization = view.organization
             if isinstance(organization, Organization):
                 return organization
-        except (KeyError, AttributeError, AssertionError):
+        except (KeyError, AttributeError, AssertionError, CurrentTeamNotFound):
             pass
 
         return None
@@ -758,7 +758,7 @@ class APIScopePermission(ScopeBasePermission):
         psak = request.successful_authenticator.project_secret_api_key
         try:
             team_id = view.team.id
-        except (AttributeError, KeyError, Team.DoesNotExist):
+        except (AttributeError, KeyError, Team.DoesNotExist, CurrentTeamNotFound):
             raise PermissionDenied("Project secret API keys are only supported on project-based endpoints.")
 
         if team_id != psak.team_id:
@@ -805,7 +805,7 @@ class APIScopePermission(ScopeBasePermission):
                 team = view.team
                 if team.id not in scoped_teams:
                     raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
-            except (KeyError, AttributeError):
+            except (KeyError, AttributeError, CurrentTeamNotFound):
                 raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations and not skip_team_and_org:

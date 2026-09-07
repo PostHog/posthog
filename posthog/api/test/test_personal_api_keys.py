@@ -19,7 +19,7 @@ from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -688,6 +688,14 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
             self.user.save()
             response = self._do_request(f"/api/feature_flag/?token={self.team.api_token}")
             assert response.status_code == status.HTTP_200_OK
+
+            # Without a token there is no project to serve, so the route must say so clearly.
+            OrganizationMembership.objects.filter(user=self.user).delete()
+            self.user.current_organization = None
+            self.user.save()
+            response = self._do_request("/api/feature_flag/")
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+            assert response.json()["detail"] == "This endpoint requires a current project to be set on your account."
         finally:
             self.user.current_team = original_team
             self.user.save()
@@ -1111,6 +1119,21 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
         response = self._do_request(f"/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_legacy_route_without_a_current_team_is_denied(self):
+        # /api/person carries no project in the path, so the scoped-teams check falls back to the
+        # user's current team. A user without one must get the denial for unsupported endpoints.
+        OrganizationMembership.objects.filter(user=self.user).delete()
+        self.user.current_team = None
+        self.user.current_organization = None
+        self.user.save()
+
+        response = self._do_request("/api/person?distinct_id=abc")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert (
+            response.json()["detail"] == "API keys with scoped projects are only supported on project-based endpoints."
+        )
 
     def test_data_management_activity_ignores_the_users_current_project(self):
         # The viewset is INTERNAL, so the `*` wildcard does not reach it — the action names its own scope
