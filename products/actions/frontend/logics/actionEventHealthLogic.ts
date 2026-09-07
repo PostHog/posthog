@@ -59,6 +59,15 @@ export type actionEventHealthLogicType = MakeLogicType<
     actionEventHealthLogicMeta
 >
 
+/**
+ * The `names` filter on `event_definitions` splits every value it receives on commas, so an event
+ * name that contains one is asked about as two different names and never comes back. PostHog cannot
+ * answer for such a name, and no tag is better than a "Not seen" tag on a step that matches fine.
+ */
+function isResolvableName(name: string | null | undefined): name is string {
+    return !!name && !name.includes(',')
+}
+
 export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
     path(['products', 'actions', 'actionEventHealthLogic']),
     actions({
@@ -68,9 +77,7 @@ export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
         requestedNames: [
             [] as string[],
             {
-                requestEventNames: (state, { names }) => [
-                    ...new Set([...state, ...names.filter((name): name is string => !!name)]),
-                ],
+                requestEventNames: (state, { names }) => [...new Set([...state, ...names.filter(isResolvableName)])],
             },
         ],
     }),

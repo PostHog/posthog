@@ -65,4 +65,15 @@ describe('actionEventHealthLogic', () => {
 
         expect(requestedSearches).toHaveLength(1)
     })
+
+    // The endpoint splits each `names` value on commas, so it answers about `purchase` and
+    // `completed` instead. The full name then looks like it has no definition, which drew a
+    // "Not seen" tag on a step that matches fine.
+    it('stays quiet about an event name containing a comma', async () => {
+        logic.actions.requestEventNames(['purchase,completed'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedSearches).toHaveLength(0)
+        expect(logic.values.eventHealthIssues['purchase,completed']).toBeUndefined()
+    })
 })
