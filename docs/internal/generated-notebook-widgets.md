@@ -24,6 +24,11 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 ## Agent access
 
+The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
+Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.
+The user clicks **Generate widget** in the inserted block's settings to start generation.
+The widget flag and SQL/Python cell flag are independent; enabling widgets does not grant access to SQLV2 or PythonV2 cells.
+
 The MCP tools `notebooks-widget-generate`, `notebooks-widget-status`, and `notebooks-widget-cancel` use the same `notebook-generated-widgets` flag as the editor.
 The MCP server evaluates this flag for the authenticated user when it resolves available tools.
 Generation also requires the organization's AI data processing consent and the `notebook:write` and `query:read` scopes.
