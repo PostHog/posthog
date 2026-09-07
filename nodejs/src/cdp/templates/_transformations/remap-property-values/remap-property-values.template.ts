@@ -29,21 +29,42 @@ fun remapValue(value) {
 
 let returnEvent := event
 
-fun remapIn(properties, propertyName) {
+fun remapIn(properties, key) {
     if (not empty(properties)) {
-        if (has(keys(properties), propertyName)) {
-            properties[propertyName] := remapValue(properties[propertyName])
+        if (has(keys(properties), key)) {
+            properties[key] := remapValue(properties[key])
         }
     }
     return null
 }
 
-for (let propertyName in splitByString(',', inputs.propertyNames)) {
-    propertyName := trim(propertyName)
-    if (not empty(propertyName)) {
-        remapIn(returnEvent.properties, propertyName)
-        remapIn(returnEvent.properties.$set, propertyName)
-        remapIn(returnEvent.properties.$set_once, propertyName)
+// Walk a dot path like '$set.plan' down to the object holding the last key
+fun resolveParent(properties, parts) {
+    let current := properties
+    let i := 1
+    while (i < length(parts)) {
+        if (empty(current)) {
+            return null
+        }
+        if (not has(keys(current), parts[i])) {
+            return null
+        }
+        current := current[parts[i]]
+        i := i + 1
+    }
+    return current
+}
+
+for (let propertyPath in splitByString(',', inputs.propertyNames)) {
+    propertyPath := trim(propertyPath)
+    if (not empty(propertyPath)) {
+        let parts := splitByString('.', propertyPath)
+        let key := parts[length(parts)]
+        remapIn(resolveParent(returnEvent.properties, parts), key)
+        if (length(parts) == 1) {
+            remapIn(returnEvent.properties.$set, key)
+            remapIn(returnEvent.properties.$set_once, key)
+        }
     }
 }
 
@@ -55,7 +76,7 @@ return returnEvent
             type: 'string',
             label: 'Properties to remap',
             description:
-                'Comma-separated list of event properties to remap, for example "plan, region". Person properties set on the event ($set and $set_once) are remapped too.',
+                'Comma-separated list of event properties to remap, for example "plan, region". A name on its own also remaps the person properties the event sets. Use a dot path such as "$set.plan" to remap one nested property.',
             required: true,
         },
         {

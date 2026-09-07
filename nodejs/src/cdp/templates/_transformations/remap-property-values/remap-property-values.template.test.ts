@@ -81,6 +81,52 @@ describe('remap-property-values.template', () => {
         expect(result.properties.tier).toBe('gold')
     })
 
+    it('remaps a nested property named by a dot path', async () => {
+        const globals = tester.createGlobals({
+            event: {
+                properties: {
+                    plan: 'starter',
+                    $set: { plan: 'starter' },
+                },
+            },
+        })
+
+        const result = await invoke({ propertyNames: '$set.plan', valueMapping: { starter: 'free' } }, globals)
+
+        expect(result.properties.$set.plan).toBe('free')
+        expect(result.properties.plan).toBe('starter')
+    })
+
+    it('leaves the event alone when a dot path does not resolve', async () => {
+        const globals = tester.createGlobals({
+            event: {
+                properties: {
+                    plan: 'starter',
+                },
+            },
+        })
+
+        const result = await invoke({ propertyNames: 'missing.plan', valueMapping: { starter: 'free' } }, globals)
+
+        expect(result.properties).toEqual({ plan: 'starter' })
+    })
+
+    it('leaves array and object values as they are', async () => {
+        const globals = tester.createGlobals({
+            event: {
+                properties: {
+                    codes: ['grp_a1', 'grp_a2'],
+                    details: { code: 'grp_a1' },
+                },
+            },
+        })
+
+        const result = await invoke({ propertyNames: 'codes, details', valueMapping: { grp_a1: 'grp_b2' } }, globals)
+
+        expect(result.properties.codes).toEqual(['grp_a1', 'grp_a2'])
+        expect(result.properties.details).toEqual({ code: 'grp_a1' })
+    })
+
     it('leaves the event alone when the property is missing', async () => {
         const globals = tester.createGlobals({
             event: {
