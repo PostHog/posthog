@@ -1052,8 +1052,8 @@ class ModalSandbox(AgentServerLaunchMixin):
             return result
 
         except TimeoutError as e:
-            if capture:
-                capture_exception(e)
+            # SandboxTimeoutError captures with the sandbox context. A capture here wins the
+            # SDK's per-instance dedup and drops that context from the event.
             raise SandboxTimeoutError(
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},

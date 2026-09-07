@@ -27,6 +27,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxProvisionError,
+    SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
@@ -498,6 +499,26 @@ class TestModalSandboxAgentServer:
         assert "secret-token" not in exc.value.context["command"]
         assert "secret-token" not in exc.value.context["error"]
         capture_exception.assert_not_called()
+
+    @pytest.mark.parametrize("capture,expect_capture", [(True, True), (False, False)])
+    def test_execute_timeout_captures_once_with_sandbox_context(
+        self, mock_sandbox: Any, capture: bool, expect_capture: bool
+    ):
+        mock_sandbox._sandbox.exec.side_effect = builtins.TimeoutError("deadline exceeded")
+
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as error_capture,
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception") as raw_capture,
+            pytest.raises(SandboxTimeoutError),
+        ):
+            mock_sandbox.execute("echo hello", timeout_seconds=30, capture=capture)
+
+        raw_capture.assert_not_called()
+        assert error_capture.called == expect_capture
+        if expect_capture:
+            context = error_capture.call_args.args[1]
+            assert context["sandbox_id"] == "test-sandbox-id"
+            assert context["timeout_seconds"] == 30
 
     def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
