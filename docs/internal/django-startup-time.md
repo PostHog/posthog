@@ -85,9 +85,12 @@ Confirm the module is absent from a bare `django.setup()` first, then add it.
 It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/repo_invariants/setup_import_baseline.txt` costs ≥100ms.
 There are deliberately no per-entry time budgets — absolute timings flake in CI — time is only the materiality gate for _new arrivals_: known names are never timed, and a new arrival is deterministic (the PR that adds the import, adds it).
 Two captures are taken and the per-name minimum used, because a cold first boot pays page-cache misses that can double a package's apparent cost.
-The baseline lists every name already on the setup path, cheap ones included, so a slow or busy runner cannot inflate a long-standing import past the threshold and fail the build on it.
+The baseline holds a full snapshot of the third-party and stdlib roots on the setup path, down to about a millisecond each, so a slow or busy runner cannot inflate one of those past the threshold and fail the build on it.
+First-party names are judged per module, and the baseline carries only the modules that measure a few milliseconds, so most `posthog.*` and `products.*` modules on the path are absent from it.
+Each of those costs 1-5ms, so reaching the gate takes roughly a 20x inflation in both captures: the residual flake window is small, but it is not shut.
 For the same reason CI runs this one guard in its own step, outside the parallel group that saturates the runner.
 When it fires: defer the import (the failure message carries the playbook); baseline a package only when every process genuinely needs it during setup, with a justifying comment.
+The exception is a first-party module whose import predates the change under test. That is the gap above, not a new import, so add the module to the baseline.
 
 ## Doing it right, and keeping it right
 

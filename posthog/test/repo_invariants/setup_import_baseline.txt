@@ -10,10 +10,16 @@
 #
 # Because time is the only gate, a name missing from this file fails as soon as a slow or
 # busy runner inflates its measured cost, even when the import has been on the path for
-# months. The lists below are therefore a full snapshot of what setup imports today, not
-# only the expensive part of it. Every name already on the path is listed, which leaves
-# the guard the one job it can do reliably: report a name that was not there before.
-# Names measured below ~1ms are left out. Nothing that small has crossed the gate.
+# months. The third-party and stdlib list below is therefore a full snapshot of the roots
+# setup imports today, down to about 1ms each, not only the expensive part of it. That
+# leaves the guard the one job it can do reliably: report a root that was not there before.
+#
+# The first-party list is NOT a full snapshot. Those names are judged per module, and only
+# modules measuring a few milliseconds are listed; the setup path holds hundreds more in the
+# 1-5ms range. Reaching the threshold from there takes roughly a 20x inflation in both
+# captures, so the residual flake window is small, but it is open. When the guard fires on a
+# first-party module whose import predates the change under test, it found that gap: add the
+# module below.
 #
 # Before adding an entry: defer the import instead (function-local, TYPE_CHECKING, lazy
 # facade, or a light activity_logging/visibility module for ready() wiring). Add here only
@@ -54,6 +60,7 @@ dateutil
 defusedxml
 django
 django_filters
+django_redis
 dns
 drf_spectacular
 email
