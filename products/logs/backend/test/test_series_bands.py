@@ -127,6 +127,14 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         [
             # A stray row two weeks before the sustained start does not date the lifetime.
             ("stray_then_sustained", WINDOW_START - dt.timedelta(weeks=3), WINDOW_START - dt.timedelta(weeks=1), 1),
+            # A stray row five days before the sustained start shares one week-long
+            # run with it, and still does not date the lifetime.
+            (
+                "nearby_stray_then_sustained",
+                WINDOW_START - dt.timedelta(weeks=1, days=5),
+                WINDOW_START - dt.timedelta(weeks=1),
+                1,
+            ),
             # Traffic that starts mid-week dates the lifetime at that slot, not a week boundary.
             ("mid_week_start", None, WINDOW_START - dt.timedelta(days=10, hours=19), 1),
             # No sustained traffic at all dates the lifetime at the window start.

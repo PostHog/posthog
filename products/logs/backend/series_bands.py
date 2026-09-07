@@ -152,6 +152,10 @@ def fetch_series_slot_rows(
     # week, so a series without sustained traffic is dated from the window start
     # and reports as learning with band_ready_at ahead of the window.
     alive_slots = max(1, math.ceil(ALIVE_SLOT_FRACTION * SECONDS_PER_WEEK / (interval_minutes * 60)))
+    # Sustained traffic also has to start straight away. A stray row a few days
+    # ahead of a dense stretch fits inside the same week-long run, so the run
+    # cannot open on a gap wider than the mean spacing its own slots allow.
+    alive_gap_seconds = SECONDS_PER_WEEK // max(1, alive_slots - 1)
     # The series cap ranks over the whole 42d, not the display window: a series
     # that went silent this week has zero window volume, and ranking on the
     # window alone would drop exactly the series a silence should surface. The
@@ -190,7 +194,8 @@ def fetch_series_slot_rows(
                 arraySort(groupArray(toUnixTimestamp(slot))) AS slot_times,
                 arrayFirst(
                     i -> i + {alive_slots} - 1 <= length(slot_times)
-                        AND slot_times[i + {alive_slots} - 1] - slot_times[i] < {week_seconds},
+                        AND slot_times[i + {alive_slots} - 1] - slot_times[i] < {week_seconds}
+                        AND slot_times[i + 1] - slot_times[i] <= {alive_gap_seconds},
                     arrayEnumerate(slot_times)
                 ) AS alive_index,
                 if(alive_index = 0, {window_start}, toDateTime(slot_times[alive_index])) AS lifetime_start
@@ -226,6 +231,7 @@ def fetch_series_slot_rows(
             "baseline_seconds": ast.Constant(value=BASELINE_WEEKS * SECONDS_PER_WEEK),
             "week_seconds": ast.Constant(value=SECONDS_PER_WEEK),
             "alive_slots": ast.Constant(value=alive_slots),
+            "alive_gap_seconds": ast.Constant(value=alive_gap_seconds),
             "max_series_plus_probe": ast.Constant(value=MAX_SERIES + 1),
             "row_limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
         },
