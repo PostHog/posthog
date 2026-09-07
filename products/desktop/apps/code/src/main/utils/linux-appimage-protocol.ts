@@ -165,6 +165,8 @@ export async function registerAppImageSchemes(
   }
 
   await runXdg("update-desktop-database", [applicationsDir]);
+  // One scheme at a time: each call rewrites the same mimeapps list, so
+  // overlapping calls can drop an association.
   for (const scheme of schemes) {
     await runXdg("xdg-mime", [
       "default",

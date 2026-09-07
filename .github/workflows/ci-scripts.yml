@@ -105,4 +105,6 @@ jobs:
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
             # preinstalled python3.
             - name: Node script tests
-              run: node --test .github/scripts/*.test.js .github/scripts/*.test.mjs
+              run: |
+                  node --test .github/scripts/*.test.js .github/scripts/*.test.mjs \
+                      .github/scripts/desktop/*.test.js

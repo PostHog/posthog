@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSelectableRegions } from "./RegionSelect";
+import { getSelectableRegions } from "./regionOptions";
 
 describe("getSelectableRegions", () => {
   it.each([

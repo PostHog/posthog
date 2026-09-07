@@ -145,6 +145,7 @@ jobs:
               continue-on-error: true
               with:
                   ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
                   sparse-checkout: |
                       .github/scripts/desktop/desktop-preview-decision.js
                   sparse-checkout-cone-mode: false
@@ -888,6 +889,19 @@ jobs:
             contents: read
             pull-requests: write
         steps:
+            # The comment body is composed by a module on the TRUSTED default
+            # branch, never the PR's copy, and it carries the record-merge rules
+            # that a unit test pins. Fails open like every other checkout here:
+            # a blip leaves the require below to fail the (cosmetic) step.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              continue-on-error: true
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/desktop/desktop-preview-comment.js
+                  sparse-checkout-cone-mode: false
+
             # Cosmetic, like every other reporter here: an API blip must not
             # red a preview that came up.
             - name: Post desktop preview status on the PR
@@ -904,63 +918,35 @@ jobs:
                   LINUX: ${{ needs.desktop-installers.outputs.linux || 'skipped' }}
               with:
                   script: |
+                      const { composeDesktopPreviewComment, MARKER } = require('./.github/scripts/desktop/desktop-preview-comment.js');
                       const pr = Number(process.env.PR);
                       const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pr });
-                      if (current.state !== 'open' || current.head.sha !== process.env.SHA ||
+                      if (current.state !== 'open' ||
                           !current.labels.some(l => l.name === 'desktop-preview') ||
                           current.labels.some(l => l.name === 'no-preview')) return;
-                      const marker = '<!-- desktop-preview-comment -->';
-                      // The last installer build is kept in the comment so a backend-only
-                      // push, which rebuilds no installers, still links the ones testers have.
-                      const stateRe = /<!-- desktop-preview-installers (\{.*?\}) -->/;
                       const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pr });
-                      const ex = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
-                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                      const previous = ex?.body.match(stateRe);
-                      const prior = previous ? JSON.parse(previous[1]) : null;
-                      const currentResults = [process.env.MACOS, process.env.WINDOWS, process.env.LINUX];
-                      let installers = null;
-                      if (process.env.INSTALLERS_REQUESTED === 'true' && currentResults.some(r => r !== 'skipped')) {
-                          // Only real build results replace the stored record: a
-                          // skipped job (failed bring-up) must not destroy the
-                          // download links testers already have.
-                          installers = { runUrl, sha: process.env.SHA, macos: process.env.MACOS, windows: process.env.WINDOWS, linux: process.env.LINUX };
-                      } else if (prior && prior.macos !== 'skipped') {
-                          installers = prior;
+                      const ex = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(MARKER));
+                      // A run whose SHA is no longer the head still owns the installers it
+                      // built, so it updates that record and leaves the backend one alone.
+                      const result = composeDesktopPreviewComment({
+                          prNumber: pr,
+                          sha: process.env.SHA,
+                          headSha: current.head.sha,
+                          url: process.env.URL,
+                          backendReady: process.env.BACKEND_READY === 'true',
+                          gateway: process.env.GATEWAY === 'true',
+                          installersRequested: process.env.INSTALLERS_REQUESTED === 'true',
+                          results: { macos: process.env.MACOS, windows: process.env.WINDOWS, linux: process.env.LINUX },
+                          runId: context.runId,
+                          runUrl: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                          existingBody: ex?.body ?? null,
+                      });
+                      if (result.skip) {
+                          core.info(`nothing to report: ${result.reason}`);
+                          return;
                       }
-                      const rows = installers ? [
-                          ['macOS (arm64 + x64)', installers.macos],
-                          ['Windows x64', installers.windows],
-                          ['Linux (x64 + arm64)', installers.linux],
-                      ] : [];
-                      const platform = (r) => r[1] === 'success' ? '✅ built' : (r[1] === 'skipped' ? '— skipped' : `❌ ${r[1]}`);
-                      const allOk = rows.length > 0 && rows.every(r => r[1] === 'success');
-                      const anyOk = rows.some(r => r[1] === 'success');
-                      const backendOk = process.env.BACKEND_READY === 'true';
-                      const status = !backendOk ? '❌ backend failed' : !installers ? '⏳ backend ready, no installers yet' : allOk ? '✅ ready' : anyOk ? '⚠️ partially built' : '❌ installer build failed';
-                      const installerSection = installers
-                          ? `**[Download installers from run ${installers.runUrl.split('/').pop()}](${installers.runUrl}#artifacts)** (built from ${installers.sha.slice(0, 7)}; requires repo access, expires in 7 days).\n\n` +
-                            `| Platform | Status |\n|--|--|\n` + rows.map(r => `| ${r[0]} | ${platform(r)} |`).join('\n') + `\n\n`
-                          : `No installers have been built for this preview yet. Push a change under \`products/desktop/\` or re-add the \`desktop-preview\` label to build them.\n\n`;
-                      const agents = process.env.GATEWAY === 'true'
-                          ? `Agents run through this preview's own LLM gateway on Bedrock. Claude models only.`
-                          : `Agent model calls are unavailable in this preview: its gateway did not start.`;
-                      const body =
-                          `${marker}\n` + (installers ? `<!-- desktop-preview-installers ${JSON.stringify(installers)} -->\n` : '') +
-                          `### 🖥️ Desktop preview &middot; ${status}\n\n` +
-                          (process.env.URL ? `Backend: ${process.env.URL} (VPN required), running ${process.env.SHA.slice(0, 7)}.\n\n` : '') +
-                          `Sign in with \`desktop-tester-1@example.com\` or \`desktop-tester-2@example.com\`, password \`posthog-desktop-preview\`.\n\n` +
-                          `${agents}\n\n` +
-                          installerSection +
-                          `The macOS builds are **signed but not notarized**. Clear the quarantine flag once:\n\n` +
-                          '```sh\n' +
-                          `xattr -dr com.apple.quarantine \"/Applications/PostHog Preview PR ${pr}.app\"` +
-                          '\n```\n\n' +
-                          `Pushes that touch only backend code update the backend in place; installers rebuild when desktop code changes. ` +
-                          `Backend test data and sessions can reset on a push.\n\n` +
-                          `<sub>Preview installers have automatic updates and product analytics disabled.</sub>`;
-                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
-                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
+                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body: result.body });
+                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body: result.body });
 
     retire-desktop:
         name: '[Optional] retire desktop preview'

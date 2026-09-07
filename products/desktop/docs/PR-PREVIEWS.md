@@ -27,6 +27,7 @@ xattr -dr com.apple.quarantine "/Applications/PostHog Preview PR 123.app"
 The backend follows every push: the box behind the stable URL is replaced with the PR's new commit.
 Installers rebuild only when the push touches `products/desktop/**` or the installer workflow.
 A backend-only push keeps the installer you already have, and the preview comment keeps linking it.
+The comment holds the backend and the installers as two separate records, so an installer build that finishes after a later push still adds its links.
 The desktop app tolerates a backend that is newer than the installer, the same way the released app tolerates backend deploys.
 
 ## Agents in a preview
@@ -80,6 +81,9 @@ An ordinary build never offers the `preview` region.
 
 A preview build registers only its own URL scheme, so for US and EU it uses the loopback OAuth callback `http://localhost:8237/callback`, the one development builds use for every region.
 If a development build can sign in to US Cloud, a preview build can too.
+PostHog matches that redirect URI exactly, so the port is fixed and only one app can hold it.
+Two apps that use the loopback callback, such as a development build and a preview build, must therefore sign in to US or EU one after the other.
+Sign-in to the preview region itself uses the app's own scheme and has no such limit.
 
 Readiness requires a real tester login, PKCE authorization and token exchange, an authenticated user read, desktop project access, and a gateway liveness check through the proxy.
 

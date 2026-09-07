@@ -101,9 +101,19 @@ export class OAuthCallbackServer {
       }
 
       server.on("error", (error) => {
+        // The port is fixed because PostHog matches the redirect URI exactly, so
+        // only one app on this machine can hold the callback at a time. Two apps
+        // that use the loopback callback (a dev build and a PR preview build, or
+        // two preview builds) must therefore sign in one after the other.
+        const portTaken =
+          (error as NodeJS.ErrnoException).code === "EADDRINUSE";
         finish(() =>
           reject(
-            new Error(`Failed to start callback server: ${error.message}`),
+            new Error(
+              portTaken
+                ? `Another PostHog app is signing in on port ${port}. Finish that sign-in, then try again.`
+                : `Failed to start callback server: ${error.message}`,
+            ),
           ),
         );
       });

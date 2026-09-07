@@ -1,4 +1,7 @@
-import { desktopPreviewIdentity, getPreviewDeployment } from "./desktop-preview";
+import {
+  desktopPreviewIdentity,
+  getPreviewDeployment,
+} from "./desktop-preview";
 import { scoutSkillSlug } from "./scout-naming";
 
 const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
@@ -50,8 +53,9 @@ export function isPostHogCodeDeeplink(
   if (!href) return false;
   try {
     const protocol = new URL(href).protocol;
-    const previewSlug = getPreviewDeployment()
-      ? desktopPreviewIdentity(getPreviewDeployment()!).slug
+    const deployment = getPreviewDeployment();
+    const previewSlug = deployment
+      ? desktopPreviewIdentity(deployment).slug
       : null;
     return (
       protocol === `${DEEPLINK_PROTOCOL_PRODUCTION}:` ||

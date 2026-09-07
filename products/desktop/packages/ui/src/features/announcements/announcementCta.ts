@@ -1,5 +1,8 @@
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import { getActiveDeeplinkProtocol, isPostHogCodeDeeplink } from "@posthog/shared";
+import {
+  getActiveDeeplinkProtocol,
+  isPostHogCodeDeeplink,
+} from "@posthog/shared";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useCallback } from "react";
 
