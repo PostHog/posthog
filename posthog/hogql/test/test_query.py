@@ -44,7 +44,7 @@ from posthog.hogql.test.utils import (
     pretty_print_response_in_tests,
 )
 
-from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.errors import CHQueryErrorPostgresqlConnectionFailure, CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -2231,8 +2231,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.clickhouse, "")
         mock_sync_execute.assert_not_called()
 
-    def test_transient_s3_error_is_retried_once(self):
-        transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
+    @parameterized.expand(
+        [
+            ("s3", CHQueryErrorS3Error("S3 error occurred.", code=499)),
+            ("postgres", CHQueryErrorPostgresqlConnectionFailure("Could not reach the database.", code=614)),
+        ]
+    )
+    def test_transient_error_is_retried_once(self, _name, transient_error):
         with (
             patch(
                 "posthog.hogql.query.sync_execute", side_effect=[transient_error, ([(1,)], [("1", "UInt8")])]
