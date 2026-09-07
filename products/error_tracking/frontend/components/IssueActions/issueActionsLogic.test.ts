@@ -25,6 +25,7 @@ describe('issueActionsLogic', () => {
 
     let errorToast: jest.SpyInstance
     let infoToast: jest.SpyInstance
+    let successToast: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
@@ -32,6 +33,7 @@ describe('issueActionsLogic', () => {
         mockErrorTrackingIssuesMergeCreate.mockResolvedValue({ success: true, target_issue_id: 'issue-one' })
         errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         infoToast = jest.spyOn(lemonToast, 'info').mockImplementation(jest.fn())
+        successToast = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
         logic = issueActionsLogic()
         logic.mount()
     })
@@ -116,5 +118,25 @@ describe('issueActionsLogic', () => {
         expect(infoToast).toHaveBeenCalledWith(
             'These issues were merged already. The list now shows the current issues.'
         )
+    })
+
+    it.each<[string, boolean]>([
+        ['announces the cohort once it exists', true],
+        ['does not announce a cohort it failed to create', false],
+    ])('%s', async (_name, assignSucceeds) => {
+        jest.spyOn(api.cohorts, 'create').mockResolvedValue({ id: 7 } as never)
+        const assign = jest.spyOn(api.errorTracking, 'assignCohort')
+        if (assignSucceeds) {
+            assign.mockResolvedValue({ id: 'cohort-7' })
+        } else {
+            assign.mockRejectedValue(new ApiError('Server error', 500))
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.createIssueCohort('issue-one', 'Impacted users', 'a description')
+        }).toDispatchActions([assignSucceeds ? 'mutationSuccess' : 'mutationFailure'])
+
+        expect(successToast).toHaveBeenCalledTimes(assignSucceeds ? 1 : 0)
+        expect(errorToast).toHaveBeenCalledTimes(assignSucceeds ? 0 : 1)
     })
 })

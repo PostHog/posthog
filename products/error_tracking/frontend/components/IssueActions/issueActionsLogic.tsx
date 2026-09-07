@@ -335,6 +335,11 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 if (mutationName === 'updateIssueAssignee' || mutationName === 'assignIssues') {
                     tryShowMCPHint('error_tracking.assign')
                 }
+                // The cohort dialog cannot see whether the mutation failed, so it must not
+                // announce the cohort itself.
+                if (mutationName === 'createIssueCohort') {
+                    lemonToast.success('Cohort created')
+                }
             },
             mergeIssuesSuccess: ({ merged }) => {
                 if (!merged) {

@@ -1,7 +1,7 @@
 import { useAsyncActions } from 'kea'
 import { useCallback } from 'react'
 
-import { LemonDialog, LemonInput, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -27,7 +27,6 @@ function IssueCohortCreate({ issue }: { issue: ErrorTrackingRelationalIssue }): 
     const onCreate: IssueCohortFormHandler = useCallback(
         async (name, description) => {
             await createIssueCohort(issue.id, name, description ?? '')
-            lemonToast.success(`Cohort created`)
         },
         [issue, createIssueCohort]
     )
