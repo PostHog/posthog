@@ -730,6 +730,26 @@ class TestMSSQLSourceNonRetryableErrors:
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
 
 
+class TestMSSQLSourceRetryableErrors:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Real pymssql shape: DB-Lib error 20017 carried as (code, bytes) args.
+            pymssql.OperationalError(
+                20017, b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server\n"
+            ),
+            # The SQL-Server-message rendering of the same EOF.
+            pymssql.OperationalError(
+                "SQL Server message 20017, severity 9, state 0, procedure b'\\x00', line 0:\n"
+                "b'DB-Lib error message 20017, severity 9:\\nUnexpected EOF from the server\\n'"
+            ),
+        ],
+    )
+    def test_unexpected_eof_is_retryable(self, error):
+        retryable = MSSQLSource().get_retryable_errors()
+        assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
+
+
 class TestMSSQLSourceValidateCredentials:
     @pytest.fixture
     def source(self):

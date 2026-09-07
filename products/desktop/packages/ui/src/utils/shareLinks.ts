@@ -30,7 +30,7 @@ export function navigateToShareTarget(target: ShareLinkTarget): void {
  * per-instance, so a link from another region names rows that don't exist here —
  * opening it in-app would land on an empty canvas. Those stay browser links.
  */
-export function parseLocalShareLink(
+function parseLocalShareLink(
   href: string | undefined | null,
 ): ShareLinkTarget | null {
   if (!href) return null;

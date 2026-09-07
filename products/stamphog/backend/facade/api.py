@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, TypeVar, overload
 
-from django.db import IntegrityError
+from django.db import IntegrityError, router, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
@@ -294,13 +294,21 @@ def update_repo_config(team_id: int, config_id: str, **fields: object) -> contra
     fields.pop("provider", None)
     fields.pop("repository", None)
     fields.pop("installation_id", None)
-    obj = StamphogRepoConfig.objects.for_team(team_id).get(id=config_id)
-    was_enabled = obj.enabled
-    for name, value in fields.items():
-        setattr(obj, name, value)
-    obj.save()
-    if was_enabled and not obj.enabled:
-        _supersede_active_runs(team_id, obj)
+    write_db = router.db_for_write(StamphogRepoConfig)
+    # One transaction for the read, the save and the supersede. The row is locked because a save
+    # writes every field: two overlapping PATCHes that each read first would otherwise overwrite
+    # each other from stale objects, and each would log only the change it thinks it made. The
+    # supersede belongs here too, because a caller must never observe a disabled repo whose
+    # in-flight runs are still live, and the activity-log receiver then waits for this commit
+    # rather than running its cross-database write between the two statements.
+    with transaction.atomic(using=write_db):
+        obj = StamphogRepoConfig.objects.for_team(team_id).using(write_db).select_for_update().get(id=config_id)
+        was_enabled = obj.enabled
+        for name, value in fields.items():
+            setattr(obj, name, value)
+        obj.save()
+        if was_enabled and not obj.enabled:
+            _supersede_active_runs(team_id, obj)
     return _repo_config_to_dto(obj)
 
 
@@ -312,11 +320,14 @@ def disable_repo_config(team_id: int, config_id: str) -> None:
     leaving it satisfying required reviews forever. A disabled row keeps webhooks resolvable, and
     the disabled-repo skip path retracts standing approvals on the next head change.
     """
-    obj = StamphogRepoConfig.objects.for_team(team_id).get(id=config_id)
-    obj.enabled = False
-    obj.digest_enabled = False
-    obj.save(update_fields=["enabled", "digest_enabled", "updated_at"])
-    _supersede_active_runs(team_id, obj)
+    write_db = router.db_for_write(StamphogRepoConfig)
+    # Same locked transaction as update_repo_config, for the same reasons.
+    with transaction.atomic(using=write_db):
+        obj = StamphogRepoConfig.objects.for_team(team_id).using(write_db).select_for_update().get(id=config_id)
+        obj.enabled = False
+        obj.digest_enabled = False
+        obj.save(update_fields=["enabled", "digest_enabled", "updated_at"])
+        _supersede_active_runs(team_id, obj)
 
 
 def _supersede_active_runs(team_id: int, config: StamphogRepoConfig) -> None:

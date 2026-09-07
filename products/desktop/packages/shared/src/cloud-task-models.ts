@@ -1,6 +1,6 @@
 import type { Adapter } from "./adapter";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { restrictedModelMeta } from "./models";
+import { modelHarnessMeta, restrictedModelMeta } from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
 export interface GatewayModel {
@@ -23,6 +23,12 @@ export interface CloudTaskConfigSelectOption {
   name: string;
   description?: string;
   _meta?: Record<string, unknown>;
+}
+
+export interface CloudTaskConfigSelectGroup {
+  group: string;
+  name: string;
+  options: CloudTaskConfigSelectOption[];
 }
 
 export interface CloudTaskConfigOption {
@@ -54,14 +60,21 @@ export const BLOCKED_GATEWAY_MODEL_IDS = [
   "openai/gpt-5.3",
   "gpt-5.3-codex",
   "openai/gpt-5.3-codex",
+  "gpt-5.4",
+  "openai/gpt-5.4",
   "claude-opus-4-5",
   "anthropic/claude-opus-4-5",
   "claude-opus-4-6",
   "anthropic/claude-opus-4-6",
+  "claude-opus-4-7",
+  "anthropic/claude-opus-4-7",
   "claude-sonnet-4-5",
   "anthropic/claude-sonnet-4-5",
+  "claude-sonnet-4-6",
+  "anthropic/claude-sonnet-4-6",
   "claude-haiku-4-5",
   "anthropic/claude-haiku-4-5",
+  "@cf/zai-org/glm-5.2",
 ] as const;
 
 const BLOCKED_GATEWAY_MODELS = new Set<string>(BLOCKED_GATEWAY_MODEL_IDS);
@@ -93,12 +106,6 @@ const CLAUDE_MODE_PRESETS: readonly CloudTaskModePreset[] = [
     description: "Auto-approve file edits and shell commands",
   },
 ];
-
-const PROVIDER_NAMES: Record<string, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  "google-vertex": "Gemini",
-};
 
 const MODEL_FAMILY_ORDER = ["fable", "opus", "sonnet", "haiku"];
 const PROVIDER_PREFIXES = ["anthropic/", "openai/", "google-vertex/"];
@@ -167,6 +174,10 @@ export function isAnthropicModel(model: GatewayModel): boolean {
   return model.id.startsWith("claude-") || model.id.startsWith("anthropic/");
 }
 
+export function isAnthropicModelId(modelId: string): boolean {
+  return modelId.startsWith("claude-") || modelId.startsWith("anthropic/");
+}
+
 export function isOpenAIModel(model: GatewayModel): boolean {
   if (model.owned_by) {
     return model.owned_by === "openai";
@@ -225,6 +236,12 @@ export function pickAllowedModel(
       : best,
   ).id;
 }
+
+const PROVIDER_NAMES: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  "google-vertex": "Gemini",
+};
 
 export function getProviderName(ownedBy: string): string {
   return PROVIDER_NAMES[ownedBy] ?? ownedBy;
@@ -319,6 +336,121 @@ function getAdapterModels(
   );
 }
 
+export function adapterForModelId(modelId: string): Adapter {
+  const normalized = modelId.toLowerCase();
+  return normalized.startsWith("gpt-") || normalized.startsWith("openai/")
+    ? "codex"
+    : "claude";
+}
+
+export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+};
+
+function buildModelSelectOptions(
+  models: readonly GatewayModel[],
+  adapter: Adapter,
+): CloudTaskConfigSelectOption[] {
+  const options = getAdapterModels(models, adapter).map((model) => ({
+    value: model.id,
+    name: formatGatewayModelName(model),
+    description: `Context: ${model.context_window.toLocaleString()} tokens`,
+    _meta: {
+      ...modelHarnessMeta(adapter),
+      ...(model.allowed ? {} : restrictedModelMeta()),
+    },
+  }));
+  if (adapter === "claude") {
+    options.sort(
+      (a, b) => getClaudeModelRecency(a.value) - getClaudeModelRecency(b.value),
+    );
+  }
+  return options;
+}
+
+const MODEL_VENDOR_NAMES: Record<string, string> = {
+  "zai-org": "Z.ai",
+  moonshotai: "Moonshot AI",
+  "deepseek-ai": "DeepSeek",
+  "google-vertex": "Gemini",
+  meta: "Meta",
+};
+
+const VENDOR_GROUP_ORDER = ["anthropic", "openai"];
+
+function modelVendor(modelId: string): { key: string; name: string } {
+  const normalized = modelId.toLowerCase().replace(/^@cf\//, "");
+  if (normalized.startsWith("claude-") || normalized.startsWith("anthropic/")) {
+    return { key: "anthropic", name: "Anthropic" };
+  }
+  if (normalized.startsWith("gpt-") || normalized.startsWith("openai/")) {
+    return { key: "openai", name: "OpenAI" };
+  }
+  const org = normalized.split("/")[0];
+  const name = MODEL_VENDOR_NAMES[org];
+  if (name) return { key: org, name };
+  return { key: "other", name: "Other" };
+}
+
+/**
+ * Model options for every harness, grouped by the model's vendor, so every
+ * picker offers one identical catalog and the harness is derived from the
+ * pick. Each option keeps its harness stamp in _meta; a currentValue missing
+ * from the catalog is kept as a custom entry under its own vendor.
+ */
+export function buildProviderModelGroups(
+  models: readonly GatewayModel[],
+  adapter: Adapter,
+  currentValue?: string,
+): CloudTaskConfigSelectGroup[] {
+  const groups: CloudTaskConfigSelectGroup[] = [];
+  const groupsByVendor = new Map<string, CloudTaskConfigSelectGroup>();
+  const groupFor = (modelId: string): CloudTaskConfigSelectGroup => {
+    const vendor = modelVendor(modelId);
+    let group = groupsByVendor.get(vendor.key);
+    if (!group) {
+      group = { group: vendor.key, name: vendor.name, options: [] };
+      groupsByVendor.set(vendor.key, group);
+      groups.push(group);
+    }
+    return group;
+  };
+
+  const harnesses: Adapter[] = ["claude", "codex"];
+  for (const option of harnesses.flatMap((harness) =>
+    buildModelSelectOptions(models, harness),
+  )) {
+    groupFor(option.value).options.push(option);
+  }
+  for (const group of groups) {
+    group.options.sort((a, b) => compareModelsForPicker(a.value, b.value));
+  }
+
+  const hasCurrent =
+    !currentValue ||
+    groups.some((group) =>
+      group.options.some((option) => option.value === currentValue),
+    );
+  if (!hasCurrent && currentValue) {
+    // The current selection has to stay offered even when a gateway blip
+    // answers with an empty or partial catalog, so keep it as a custom entry
+    // stamped with the harness it is running on.
+    groupFor(currentValue).options.unshift({
+      value: currentValue,
+      name: currentValue,
+      description: "Custom model",
+      _meta: modelHarnessMeta(adapter),
+    });
+  }
+
+  const vendorRank = (key: string): number => {
+    const index = VENDOR_GROUP_ORDER.indexOf(key);
+    return index === -1 ? VENDOR_GROUP_ORDER.length : index;
+  };
+  return groups.sort((a, b) => vendorRank(a.group) - vendorRank(b.group));
+}
+
 function getModeOptions(
   adapter: Adapter,
   modePresets?: readonly CloudTaskModePreset[],
@@ -339,20 +471,7 @@ export function buildCloudTaskConfigOptions(
   modePresets?: readonly CloudTaskModePreset[],
 ): CloudTaskConfigOption[] {
   const adapterModels = getAdapterModels(models, adapter);
-  const modelOptions: CloudTaskConfigSelectOption[] = adapterModels.map(
-    (model) => ({
-      value: model.id,
-      name: formatGatewayModelName(model),
-      description: `Context: ${model.context_window.toLocaleString()} tokens`,
-      ...(model.allowed ? {} : { _meta: restrictedModelMeta() }),
-    }),
-  );
-
-  if (adapter === "claude") {
-    modelOptions.sort(
-      (a, b) => getClaudeModelRecency(a.value) - getClaudeModelRecency(b.value),
-    );
-  }
+  const modelOptions = buildModelSelectOptions(models, adapter);
 
   const defaultModel =
     adapter === "codex"

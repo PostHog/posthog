@@ -4,6 +4,7 @@ import {
   buildCreatePrReportPrompt,
   buildDiscussReportPrompt,
   canCreateImplementationPr,
+  canResolveReport,
 } from "./reportActions";
 
 describe("buildCreatePrReportPrompt", () => {
@@ -199,5 +200,32 @@ describe("canCreateImplementationPr", () => {
     expect(
       canCreateImplementationPr({ ...base, implementation_pr_merged: true }),
     ).toBe(true);
+  });
+
+  it("blocks creation while linked implementation work is loading or active", () => {
+    const report = {
+      id: "r",
+      status: "ready",
+      actionability: "immediately_actionable",
+    } as Partial<SignalReport> as SignalReport;
+
+    expect(
+      canCreateImplementationPr(report, { isTaskLookupPending: true }),
+    ).toBe(false);
+    expect(
+      canCreateImplementationPr(report, { hasLiveImplementationTask: true }),
+    ).toBe(false);
+  });
+});
+
+describe("canResolveReport", () => {
+  it.each([
+    [true, "ready"],
+    [true, "pending_input"],
+    [false, "in_progress"],
+    [false, "resolved"],
+    [false, "suppressed"],
+  ] as const)("returns %s for %s reports", (expected, status) => {
+    expect(canResolveReport({ status } as SignalReport)).toBe(expected);
   });
 });

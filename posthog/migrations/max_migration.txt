@@ -1,1 +1,1 @@
-1329_drop_cimd_metadata_url
+1342_drop_cimd_blocklist_table

@@ -20,17 +20,17 @@ pytestmark = [pytest.mark.django_db]
             "data_interval_start": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
             "use_distributed_events_recent_table": True,
         },
-        # is a backfill within the last 6 days so should use distributed_events_recent table
+        # is a backfill within the last 8 days so should use distributed_events_recent table
         {
             "is_backfill": True,
             "backfill_start_at": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
             "data_interval_start": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
             "use_distributed_events_recent_table": True,
         },
-        # is a backfill outside the last 6 days so shouldn't use distributed_events_recent table
+        # is a backfill outside the last 8 days so shouldn't use distributed_events_recent table
         {
             "is_backfill": True,
-            "backfill_start_at": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=7),
+            "backfill_start_at": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=9),
             "data_interval_start": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
             "use_distributed_events_recent_table": False,
         },

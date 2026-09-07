@@ -208,38 +208,48 @@ export interface DeploymentFrequencyBucketApi {
     deployment_count: number
 }
 
-export interface MergeToDeployBucketApi {
+export interface LeadTimeBucketApi {
     /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
     bucket_start: string
-    /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+    /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). The same population backs every lead-time series, so the stages compare bucket by bucket. */
     deployed_pr_count: number
     /**
-     * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
     min_seconds: number | null
     /**
-     * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p05_seconds: number | null
+    /**
+     * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     p25_seconds: number | null
     /**
-     * Median merge-to-deploy seconds. Null when nothing deployed.
+     * Median of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * Mean merge-to-deploy seconds. Null when nothing deployed.
+     * Mean of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     mean_seconds: number | null
     /**
-     * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * 75th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     p75_seconds: number | null
     /**
-     * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
+     * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
     max_seconds: number | null
@@ -248,14 +258,20 @@ export interface MergeToDeployBucketApi {
 export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
-    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
-    merge_to_deploy_series: MergeToDeployBucketApi[]
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    merge_to_deploy_series: LeadTimeBucketApi[]
+    /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
+    open_to_merge_series: LeadTimeBucketApi[]
+    /** Open-to-deploy distribution over the same deployed PRs and buckets: the full open to first-successful-deploy span the two stages above compose into. Empty in the same cases as merge_to_deploy_series. */
+    open_to_deploy_series: LeadTimeBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+    /** Display label for the selected environments, comma-separated, 'persistent' when no persistent environments were discovered. Use selected_environments for exact names. */
     environment_scope: string
-    /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
+    /** Distinct persistent environments from the metric scan window or the 30 days before its end, whichever starts earlier, most-deployed first. Transient environments are omitted. */
     environments: string[]
+    /** Exact environment names used for these metrics. Defaults to all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment. Explicit filters are trimmed and deduplicated. DRF rejects blank or unknown names; real transient names are allowed. */
+    selected_environments: string[]
     /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
     has_membership_data: boolean
     /** Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options. Empty when membership isn't synced. */
@@ -284,6 +300,16 @@ export interface DoraOverviewApi {
      * @nullable
      */
     median_merge_to_deploy_seconds_prev: number | null
+    /**
+     * Median seconds from a PR's open to the first successful deployment containing it — the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
+     * @nullable
+     */
+    median_open_to_deploy_seconds: number | null
+    /**
+     * Previous-window twin of median_open_to_deploy_seconds.
+     * @nullable
+     */
+    median_open_to_deploy_seconds_prev: number | null
     /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
     deployed_pr_count: number
     /** Previous-window twin of deployed_pr_count. */
@@ -324,7 +350,7 @@ export interface DoraOverviewApi {
      * @nullable
      */
     latest_deploy_status_at: string | null
-    /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    /** Bucket width of every series: the granularity param when given, else chosen to fit the window: 'hour', 'day', or 'week'. */
     series_granularity: string
 }
 
@@ -685,7 +711,7 @@ export interface CIStatusRollupApi {
     runs: number
     /** Latest runs that completed with conclusion 'success'. */
     passing: number
-    /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+    /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
     failing: number
     /** Latest runs not yet completed (queued or in progress). */
     pending: number
@@ -703,7 +729,7 @@ export interface PushCISampleApi {
      * @nullable
      */
     wall_seconds: number | null
-    /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+    /** True when any latest-per-workflow run on this push ended in a decisive failure. */
     failed: boolean
     /** True when any latest-per-workflow run on this push hasn't completed yet. */
     pending: boolean
@@ -975,7 +1001,7 @@ export interface PassRateBucketApi {
     /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
     bucket_start: string
     /**
-     * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+     * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
      * @nullable
      */
     success_rate: number | null
@@ -989,6 +1015,45 @@ export interface OpenToMergeBucketApi {
      * @nullable
      */
     p50_seconds: number | null
+}
+
+/**
+ * * `open_to_gate` - OPEN_TO_GATE
+ * * `gate_to_merge` - GATE_TO_MERGE
+ */
+export type DeliveryStageTimingStageEnumApi =
+    (typeof DeliveryStageTimingStageEnumApi)[keyof typeof DeliveryStageTimingStageEnumApi]
+
+export const DeliveryStageTimingStageEnumApi = {
+    OpenToGate: 'open_to_gate',
+    GateToMerge: 'gate_to_merge',
+} as const
+
+export interface DeliveryStageTimingApi {
+    /** Which leg this is: 'open_to_gate' (created_at to the PR's first merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds.
+     *
+     * * `open_to_gate` - OPEN_TO_GATE
+     * * `gate_to_merge` - GATE_TO_MERGE */
+    stage: DeliveryStageTimingStageEnumApi
+    /**
+     * Median seconds for this leg. Null when no PR in the window has both of its bounds observed.
+     * @nullable
+     */
+    median_seconds: number | null
+    /**
+     * 90th-percentile seconds for this leg. Null when not observed.
+     * @nullable
+     */
+    p90_seconds: number | null
+    /** PRs behind this leg's figures: those with an observed gate run. A PR that skipped the merge queue has no gate legs, so read a median against this count, not merged_pr_count. */
+    pr_count: number
+}
+
+export interface DeliveryPipelineApi {
+    /** The legs, ordered open to merge. A leg with nothing observed still appears, with a zero pr_count and null timings. The leg medians do not sum to a cycle-time median: a median of sums is not a sum of medians. */
+    stages: DeliveryStageTimingApi[]
+    /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
+    merged_pr_count: number
 }
 
 export interface ReadyToMergeBucketApi {
@@ -1006,10 +1071,12 @@ export interface RepoOverviewApi {
     cost_series: CostPerMergeBucketApi[]
     /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
-    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+    /** CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** Where a change's wall-clock time goes on the way to production, over PRs merged in the window with bots and drafts excluded. */
+    delivery_pipeline: DeliveryPipelineApi
     /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
     ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
@@ -1017,12 +1084,12 @@ export interface RepoOverviewApi {
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
     run_count_prev: number
     /**
-     * Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.
+     * Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
      * @nullable
      */
     success_rate: number | null
     /**
-     * Success rate over the previous window. Null if none completed.
+     * Conclusive-run success rate over the previous window. Null if no run reached a verdict.
      * @nullable
      */
     success_rate_prev: number | null
@@ -1315,7 +1382,7 @@ export interface TeamCIActivityApi {
 }
 
 export interface TeamCIHealthItemApi {
-    /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+    /** Owning team slug from the repo's owners.yaml map (e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
     owner_team: string
     /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
     flaky_test_count: number
@@ -1337,8 +1404,31 @@ export interface TeamCIHealthItemApi {
     quarantined_failed_run_count: number
     /** Same count over the prior window. */
     quarantined_failed_run_count_prior: number
-    /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
-    last_seen_at: string
+    /**
+     * Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. Null for a team present only through the census (no CI signal recorded).
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Test files the team owns per the daily owners.yaml census. Null until a census event exists for the repository.
+     * @nullable
+     */
+    test_file_count?: number | null
+    /**
+     * The latest census value at or before the window start, for the trend.
+     * @nullable
+     */
+    test_file_count_prior?: number | null
+    /**
+     * Merged PRs authored by the team's members in the window, bots excluded. Null when the team_members snapshot isn't synced, or for 'unowned'.
+     * @nullable
+     */
+    merged_pr_count?: number | null
+    /**
+     * Same count over the prior window.
+     * @nullable
+     */
+    merged_pr_count_prior?: number | null
 }
 
 export interface TeamCIHealthListApi {
@@ -1392,9 +1482,9 @@ export interface TrunkQuarantinedTestApi {
     runner: string
     /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
     nodeid: string
-    /** Repo-relative path of the test file, as Trunk reports it. */
+    /** Repo-relative path of the test file, empty when neither the repository nor Trunk places it. */
     file: string
-    /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+    /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
     owner_team: string
     /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
     status: string
@@ -1420,6 +1510,8 @@ export interface TrunkQuarantineDebtApi {
     tests: TrunkQuarantinedTestApi[]
     /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
     available: boolean
+    /** False when the repository's ownership files could not be read, so every test reads as 'unowned' for that reason rather than because no team claims it. */
+    owners_resolved: boolean
     /** Days a quarantine may stand before it counts as overdue. */
     ttl_days: number
     /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
@@ -1440,7 +1532,7 @@ export interface WorkflowHealthBucketApi {
     completed: number
     /** Completed runs with conclusion 'success' in this bucket. */
     successes: number
-    /** Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+    /** Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. Skipped, cancelled, neutral, and action_required runs are excluded. */
     failures: number
 }
 
@@ -1453,10 +1545,12 @@ export interface WorkflowHealthItemApi {
     workflow_name: string
     /** Total runs started in the window. */
     run_count: number
+    /** Completed runs with conclusion 'success'. */
     successful_run_count: number
+    /** Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. This is the success_rate denominator. */
     conclusive_run_count: number
     /**
-     * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+     * Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
      * @nullable
      */
     success_rate: number | null
@@ -1471,12 +1565,12 @@ export interface WorkflowHealthItemApi {
      */
     p95_seconds: number | null
     /**
-     * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
+     * When the most recent decisive failure started, or null.
      * @nullable
      */
     last_failure_at: string | null
     /**
-     * Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.
+     * Whether the most recent completed run ended in failure, timeout, startup failure, or staleness. Null when no run has completed in the window. Powers the OK/RED status badge.
      * @nullable
      */
     latest_run_failed: boolean | null
@@ -1504,11 +1598,14 @@ export interface WorkflowHealthItemApi {
     /** Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy. */
     rerun_cycles?: number
     /**
-     * Success rate over the equal-length window before date_from - the delta baseline. Null when that window had no completed runs.
+     * Conclusive-run success rate over the equal-length window before date_from - the delta baseline. Null when that window had no conclusive runs.
      * @nullable
      */
     success_rate_prev?: number | null
+    /** Successful runs that did real CI work. This is the p50/p95 sample count. */
     percentile_run_count?: number
+    /** Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check. */
+    merge_queue_run_count?: number
 }
 
 export interface WorkflowJobApi {
@@ -1648,13 +1745,17 @@ export type EngineeringAnalyticsDoraParams = {
      */
     date_to?: string
     /**
-     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to include all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment when none match. Explicit names are trimmed, deduplicated, and validated against the source, including transient environments. Blank or unknown names are rejected with a 400 response.
      */
-    environment?: string
+    environment?: string[]
     /**
      * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
      */
     github_team?: string
+    /**
+     * Bucket width for every series. Omit to pick one that fits the window: hour up to 48h, day up to 90 days, week beyond.
+     */
+    granularity?: EngineeringAnalyticsDoraGranularity
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -1664,6 +1765,15 @@ export type EngineeringAnalyticsDoraParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsDoraGranularity =
+    (typeof EngineeringAnalyticsDoraGranularity)[keyof typeof EngineeringAnalyticsDoraGranularity]
+
+export const EngineeringAnalyticsDoraGranularity = {
+    Day: 'day',
+    Hour: 'hour',
+    Week: 'week',
+} as const
 
 export type EngineeringAnalyticsFlakyTestsParams = {
     /**
@@ -1722,6 +1832,10 @@ export type EngineeringAnalyticsJobAggregatesParams = {
      */
     repo?: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsJobAggregatesRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1730,6 +1844,16 @@ export type EngineeringAnalyticsJobAggregatesParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsJobAggregatesRunScope =
+    (typeof EngineeringAnalyticsJobAggregatesRunScope)[keyof typeof EngineeringAnalyticsJobAggregatesRunScope]
+
+export const EngineeringAnalyticsJobAggregatesRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const
 
 export type EngineeringAnalyticsMasterFailuresParams = {
     /**
@@ -1950,6 +2074,10 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      */
     min_failed_prs?: number
     /**
+     * Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup.
+     */
+    owner_team?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -2003,7 +2131,7 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      */
     repo?: string
     /**
-     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope
     /**
@@ -2017,6 +2145,8 @@ export type EngineeringAnalyticsWorkflowHealthRunScope =
 
 export const EngineeringAnalyticsWorkflowHealthRunScope = {
     All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
     PullRequest: 'pull_request',
 } as const
 
@@ -2072,6 +2202,10 @@ export type EngineeringAnalyticsWorkflowRunActivityParams = {
      */
     repo: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunActivityRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -2080,6 +2214,16 @@ export type EngineeringAnalyticsWorkflowRunActivityParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsWorkflowRunActivityRunScope =
+    (typeof EngineeringAnalyticsWorkflowRunActivityRunScope)[keyof typeof EngineeringAnalyticsWorkflowRunActivityRunScope]
+
+export const EngineeringAnalyticsWorkflowRunActivityRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const
 
 export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
@@ -2099,6 +2243,10 @@ export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
      */
     repo: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunnerCostsRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -2107,6 +2255,16 @@ export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsWorkflowRunnerCostsRunScope =
+    (typeof EngineeringAnalyticsWorkflowRunnerCostsRunScope)[keyof typeof EngineeringAnalyticsWorkflowRunnerCostsRunScope]
+
+export const EngineeringAnalyticsWorkflowRunnerCostsRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const
 
 export type EngineeringAnalyticsWorkflowRunsParams = {
     /**
@@ -2126,6 +2284,10 @@ export type EngineeringAnalyticsWorkflowRunsParams = {
      */
     repo: string
     /**
+     * Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowRunsRunScope
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -2134,3 +2296,13 @@ export type EngineeringAnalyticsWorkflowRunsParams = {
      */
     workflow_name: string
 }
+
+export type EngineeringAnalyticsWorkflowRunsRunScope =
+    (typeof EngineeringAnalyticsWorkflowRunsRunScope)[keyof typeof EngineeringAnalyticsWorkflowRunsRunScope]
+
+export const EngineeringAnalyticsWorkflowRunsRunScope = {
+    All: 'all',
+    DefaultBranch: 'default_branch',
+    MergeQueue: 'merge_queue',
+    PullRequest: 'pull_request',
+} as const

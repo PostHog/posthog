@@ -48,6 +48,9 @@ export function deriveSessionViewState(
   const isNewSessionWithInitialPrompt =
     !task.latest_run?.id && !!task.description;
   const isResumingExistingSession = !!task.latest_run?.id;
+  const hasOptimisticPrompt = session?.optimisticItems.some(
+    (item) => item.type === "user_message",
+  );
   const isHydratingEmptyTranscript =
     effectiveIsCloud &&
     events.length === 0 &&
@@ -55,7 +58,10 @@ export function deriveSessionViewState(
   const isInitializing = effectiveIsCloud
     ? isHydratingEmptyTranscript ||
       (!hasError &&
-        (!session || (events.length === 0 && isCloudRunNotTerminal)))
+        (!session ||
+          (events.length === 0 &&
+            !hasOptimisticPrompt &&
+            isCloudRunNotTerminal)))
     : !session ||
       (session.status === "connecting" && events.length === 0) ||
       (session.status === "connected" &&

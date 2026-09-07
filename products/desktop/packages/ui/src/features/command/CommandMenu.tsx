@@ -3,9 +3,11 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   ChartLine,
+  CubeIcon,
   EnvelopeSimple,
   Gauge,
   GitDiffIcon,
+  HashIcon,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
@@ -81,7 +83,6 @@ import {
 } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
@@ -113,7 +114,9 @@ import {
   ZoomOutIcon,
 } from "@radix-ui/react-icons";
 import {
+  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -126,6 +129,13 @@ interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Static-importing this pulls the task-creation stack onto the mod+K path.
+const CreateChannelModalLazy = lazy(() =>
+  import("@posthog/ui/features/canvas/components/CreateChannelModal").then(
+    (module) => ({ default: module.CreateChannelModal }),
+  ),
+);
 
 const DEFAULT_RESULT_LIMIT = 8;
 const COLLAPSED_CHIP_COUNT = 5;
@@ -222,7 +232,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const inboxAvailable = useInboxAvailable();
-  const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
@@ -240,6 +249,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.activeTasks,
   );
   const [query, setQuery] = useState("");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [createChannelUsed, setCreateChannelUsed] = useState(false);
   const [recentCommands, setRecentCommands] = useState<Command[]>([]);
   const [remoteQuery, setRemoteQuery] = useState("");
   // The legacy title search only ever surfaces while the palette is browsing
@@ -418,21 +429,14 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             },
           ]
         : []),
-      // Gated like every other cost-management entry point: without spend
-      // analysis the settings page is hidden and redirects to General, so the
-      // command would not do what its label says.
-      ...(spendAnalysisEnabled
-        ? [
-            {
-              id: "cost-management",
-              label: "Cost management",
-              keywords: "cost spend limits budget savings recommendations",
-              icon: <Gauge size={12} className="text-gray-11" />,
-              action: "open-cost-management" as CommandMenuAction,
-              onRun: () => openSettingsDialog("cost-management"),
-            },
-          ]
-        : []),
+      {
+        id: "cost-management",
+        label: "Cost management",
+        keywords: "cost spend limits budget savings recommendations",
+        icon: <Gauge size={12} className="text-gray-11" />,
+        action: "open-cost-management" as CommandMenuAction,
+        onRun: () => openSettingsDialog("cost-management"),
+      },
       {
         id: "plan-usage",
         label: "Plan & usage",
@@ -474,6 +478,26 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           openTaskInput();
         },
       },
+      ...(bluebirdEnabled
+        ? [
+            {
+              id: "create-channel",
+              label: spacesLayout ? "New space" : "New channel",
+              keywords: "create add space channel context",
+              icon: spacesLayout ? (
+                <CubeIcon size={12} className="text-gray-11" />
+              ) : (
+                <HashIcon size={12} className="text-gray-11" />
+              ),
+              action: "create-channel" as CommandMenuAction,
+              onRun: () => {
+                closeSettingsDialog();
+                setCreateChannelUsed(true);
+                setCreateChannelOpen(true);
+              },
+            },
+          ]
+        : []),
       {
         id: "toggle-left-sidebar",
         label: "Toggle left sidebar",
@@ -620,7 +644,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     openFilePicker,
     loopsEnabled,
     inboxAvailable,
-    spendAnalysisEnabled,
+    bluebirdEnabled,
+    spacesLayout,
   ]);
 
   const taskSections = useMemo<CommandSection[]>(() => {
@@ -1031,6 +1056,15 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         surface="command_menu"
         onCreated={(feed) => navigateToFeed(feed.id)}
       />
+      {createChannelUsed && (
+        <Suspense fallback={null}>
+          <CreateChannelModalLazy
+            open={createChannelOpen}
+            onOpenChange={setCreateChannelOpen}
+            surface="command_menu"
+          />
+        </Suspense>
+      )}
       {/* Outlives the palette, which closes as the command runs. */}
       {archiveDialog}
     </>

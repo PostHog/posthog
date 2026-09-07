@@ -29,20 +29,21 @@ describe("AppLoadingScreen", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the loading logo immediately", () => {
+  it("renders the app shell immediately", () => {
     renderScreen();
-    expect(screen.getByTestId("app-loading-logo")).toBeInTheDocument();
+    expect(screen.getByTestId("app-loading-shell")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-loading-logo")).not.toBeInTheDocument();
     expect(
       screen.queryByText("PostHog is taking longer than expected to start"),
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the logo until just before the stall timeout", () => {
+  it("keeps the app shell until just before the stall timeout", () => {
     renderScreen();
     act(() => {
       vi.advanceTimersByTime(STALL_TIMEOUT_MS - 1);
     });
-    expect(screen.getByTestId("app-loading-logo")).toBeInTheDocument();
+    expect(screen.getByTestId("app-loading-shell")).toBeInTheDocument();
   });
 
   it("swaps to the stalled screen after the timeout", () => {
@@ -57,7 +58,7 @@ describe("AppLoadingScreen", () => {
     expect(
       screen.getByRole("button", { name: "Get support" }),
     ).toBeInTheDocument();
-    expect(screen.queryByTestId("app-loading-logo")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-loading-shell")).not.toBeInTheDocument();
   });
 
   it("clears the stall timer on unmount", () => {

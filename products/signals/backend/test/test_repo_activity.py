@@ -242,3 +242,45 @@ class TestWeeklyRefreshTask:
         assert enqueued == {(team.id, "acme/app"), (team.id, "acme/other")}
         with team_scope(team.id, canonical=True):
             assert not SignalRepositoryAreaActivity.objects.filter(id=idle.id).exists()
+
+    def test_releases_repositories_in_chained_batches_without_gaps_or_repeats(self, team, organization):
+        # A run larger than one batch must reach every warm repository exactly once, across
+        # teams, by following the (team_id, repository) cursor its follow-up batches carry.
+        now = timezone.now()
+        other_team = Team.objects.create(organization=organization, name="test-repo-activity-team-2")
+        expected = [
+            (team.id, "acme/a"),
+            (team.id, "acme/b"),
+            (team.id, "acme/c"),
+            (other_team.id, "z/one"),
+        ]
+        for owner_id, repository in expected:
+            with team_scope(owner_id, canonical=True):
+                SignalRepositoryAreaActivity.objects.create(
+                    team_id=owner_id, repository=repository, area="a/one", last_used_at=now
+                )
+
+        released: list[tuple[int, str]] = []
+
+        def drive(**kwargs: object) -> None:
+            with (
+                patch("products.signals.backend.tasks._REFRESH_BATCH_SIZE", 2),
+                patch("products.signals.backend.tasks.rebuild_signal_repository_activity.delay") as delay,
+                patch("products.signals.backend.tasks.refresh_signal_repository_activity.apply_async") as chain,
+            ):
+                refresh_signal_repository_activity(**kwargs)
+            released.extend((c.kwargs["team_id"], c.kwargs["repository"]) for c in delay.call_args_list)
+            if chain.call_args_list:
+                assert chain.call_args.kwargs["countdown"] > 0
+                drive(**chain.call_args.kwargs["kwargs"])
+
+        drive()
+
+        assert released == expected
+
+    def test_chain_survives_worker_restart_via_late_ack(self):
+        # The batch chain holds a countdown message between batches; without late ack a worker
+        # restart drops it and every repository after the cursor stays stale.
+        task = refresh_signal_repository_activity
+        assert task.acks_late is True
+        assert task.reject_on_worker_lost is True

@@ -1,6 +1,7 @@
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import {
@@ -92,6 +93,7 @@ import { USAGE_HOST } from "@posthog/core/usage/identifiers";
 import { usageMonitorModule } from "@posthog/core/usage/usage-monitor.module";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { listFilesContainingText } from "@posthog/git/queries";
+import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import {
   GIT_PR_STATUS_PROVIDER,
   type IGitPrStatus,
@@ -107,6 +109,7 @@ import { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -136,7 +139,10 @@ import {
   WORKTREE_REPOSITORY,
 } from "@posthog/workspace-server/db/identifiers";
 import { repositoriesModule } from "@posthog/workspace-server/db/repositories.module";
-import { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
+import {
+  CONNECTIVITY_SERVICE as WS_CONNECTIVITY_SERVICE,
+  GIT_SERVICE as WS_GIT_SERVICE,
+} from "@posthog/workspace-server/di/tokens";
 import { additionalDirectoriesModule } from "@posthog/workspace-server/services/additional-directories/additional-directories.module";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { agentModule } from "@posthog/workspace-server/services/agent/agent.module";
@@ -158,6 +164,7 @@ import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/a
 import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
+import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import { enrichmentModule } from "@posthog/workspace-server/services/enrichment/enrichment.module";
 import {
   ENRICHMENT_AUTH,
@@ -255,7 +262,6 @@ import { AppLifecycleService } from "../services/app-lifecycle/service";
 import {
   AuthPreferencePortAdapter,
   AuthSessionPortAdapter,
-  ConnectivityPortAdapter,
   OAuthFlowPortAdapter,
   TokenCipherPortAdapter,
 } from "../services/auth/port-adapters";
@@ -266,6 +272,7 @@ import { DevLogsService } from "../services/dev-logs/service";
 import { DevMetricsService } from "../services/dev-metrics/service";
 import { DevNetworkService } from "../services/dev-network/service";
 import { DiscordPresenceService } from "../services/discord-presence/service";
+import { DiskCache } from "../services/disk-cache/service";
 import { EncryptionService } from "../services/encryption/service";
 import { SecureStoreService } from "../services/secure-store/service";
 import { settingsStore } from "../services/settingsStore";
@@ -395,7 +402,12 @@ container.bind(AUTH_SESSION_STORE).to(AuthSessionPortAdapter);
 container.bind(AUTH_PREFERENCE_STORE).to(AuthPreferencePortAdapter);
 container.bind(AUTH_OAUTH_FLOW_SERVICE).to(OAuthFlowPortAdapter);
 container.bind(AUTH_TOKEN_CIPHER).to(TokenCipherPortAdapter);
-container.bind(AUTH_CONNECTIVITY).to(ConnectivityPortAdapter);
+container
+  .bind(WS_CONNECTIVITY_SERVICE)
+  .to(ConnectivityService)
+  .inSingletonScope();
+container.bind(AUTH_CONNECTIVITY).toService(WS_CONNECTIVITY_SERVICE);
+container.bind(CONNECTIVITY_CLIENT).toService(WS_CONNECTIVITY_SERVICE);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
@@ -704,10 +716,9 @@ container
     };
   });
 container.bind(WORKSPACE_FOCUS).toDynamicValue((ctx): WorkspaceFocus => {
-  const focus = ctx.get(FocusHostService);
   return {
     onBranchRenamed: (handler) =>
-      focus.on(FocusServiceEvent.BranchRenamed, handler),
+      ctx.get(FocusHostService).on(FocusServiceEvent.BranchRenamed, handler),
   };
 });
 container
@@ -734,6 +745,21 @@ container
   .to(SecureStoreService)
   .inSingletonScope();
 container.bind(SECURE_STORE_SERVICE).toService(MAIN_SECURE_STORE_SERVICE);
+container
+  .bind(DISK_CACHE_SERVICE)
+  .toDynamicValue(
+    (ctx) =>
+      new DiskCache({
+        // Not "cache": userData already holds Chromium's "Cache" directory, and
+        // case-insensitive file systems (default macOS, Windows) treat the two
+        // as one path, so clear() would delete the live browser cache.
+        rootDir: join(
+          ctx.get<ElectronStoragePaths>(STORAGE_PATHS_SERVICE).appDataPath,
+          "disk-cache",
+        ),
+      }),
+  )
+  .inSingletonScope();
 container
   .bind(SPEECH_SYNTHESIZER_SERVICE)
   .to(ElevenLabsSpeechService)

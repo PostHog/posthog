@@ -335,7 +335,7 @@ export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
  * @summary Per-series log volume with expected bands
  */
 export const logsAnomaliesSeriesBandsCreate = async (

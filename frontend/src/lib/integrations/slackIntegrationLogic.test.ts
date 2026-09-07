@@ -336,7 +336,7 @@ describe('slackIntegrationLogic — inactive Slack integration', () => {
         expect(logic.values.slackIntegrationInactiveMessage).toBe(inactiveDetail)
     })
 
-    it('clears the inline message on the next successful load (e.g. after reconnecting)', async () => {
+    it('keeps the message on a plain load and clears it only on a successful forced refresh', async () => {
         respondInactive = true
         await expectLogic(logic, () => {
             logic.actions.loadAllSlackChannels()
@@ -344,8 +344,15 @@ describe('slackIntegrationLogic — inactive Slack integration', () => {
         expect(logic.values.slackIntegrationInactiveMessage).toBe(inactiveDetail)
 
         respondInactive = false
+        // A plain load can be served from the backend cache without touching Slack, so its
+        // success proves nothing about the token and must not hide the reconnect banner.
         await expectLogic(logic, () => {
             logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackIntegrationInactiveMessage).toBe(inactiveDetail)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels(true)
         }).toFinishAllListeners()
         expect(logic.values.slackIntegrationInactiveMessage).toBeNull()
     })
