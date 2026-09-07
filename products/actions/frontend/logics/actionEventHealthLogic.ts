@@ -68,6 +68,34 @@ function isResolvableName(name: string | null | undefined): name is string {
     return !!name && !name.includes(',')
 }
 
+/**
+ * Proxies reject a request line longer than about 4k, the limit `propertyDefinitionsModel` already
+ * batches against. One batch spends `names=` plus the encoded name on every event, and an event
+ * name holds up to 400 characters, so a count cap alone would not bound the URL. Budget for the
+ * names and leave the rest of the 4k for the path and `limit`.
+ */
+const MAX_NAMES_QUERY_LENGTH = 3000
+
+function chunkByQueryLength(names: string[]): string[][] {
+    const chunks: string[][] = []
+    let chunk: string[] = []
+    let length = 0
+    for (const name of names) {
+        const cost = 'names='.length + encodeURIComponent(name).length + 1
+        if (chunk.length > 0 && length + cost > MAX_NAMES_QUERY_LENGTH) {
+            chunks.push(chunk)
+            chunk = []
+            length = 0
+        }
+        chunk.push(name)
+        length += cost
+    }
+    if (chunk.length > 0) {
+        chunks.push(chunk)
+    }
+    return chunks
+}
+
 export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
     path(['products', 'actions', 'actionEventHealthLogic']),
     actions({
@@ -95,14 +123,16 @@ export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
                     if (!missing.length) {
                         return values.definitions
                     }
-                    const response = await api.eventDefinitions.list({ names: missing, limit: missing.length })
-                    breakpoint()
                     const resolved: EventDefinitionsByName = Object.assign(Object.create(null), values.definitions)
                     for (const name of missing) {
                         resolved[name] = null
                     }
-                    for (const definition of response.results) {
-                        resolved[definition.name] = definition
+                    for (const chunk of chunkByQueryLength(missing)) {
+                        const response = await api.eventDefinitions.list({ names: chunk, limit: chunk.length })
+                        breakpoint()
+                        for (const definition of response.results) {
+                            resolved[definition.name] = definition
+                        }
                     }
                     return resolved
                 },

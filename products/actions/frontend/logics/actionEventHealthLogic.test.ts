@@ -59,6 +59,22 @@ describe('actionEventHealthLogic', () => {
         expect(requestedSearches[0].getAll('names')).toEqual(['fresh_event', 'stale_event'])
     })
 
+    // A page of many actions, or of long event names, used to go out as one oversized URL that a
+    // proxy rejects whole. Nothing wrote to `definitions` on failure, so every tag on the page
+    // stayed absent and the same URL went out again on the next burst.
+    it('splits a burst too long for one URL across requests', async () => {
+        const names = Array.from({ length: 40 }, (_, index) => `event_${index}_${'x'.repeat(100)}`)
+
+        logic.actions.requestEventNames(names)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedSearches.length).toBeGreaterThan(1)
+        for (const search of requestedSearches) {
+            expect(search.toString().length).toBeLessThan(4000)
+        }
+        expect(requestedSearches.flatMap((search) => search.getAll('names'))).toEqual(names)
+    })
+
     it('does not ask again for an event it already resolved', async () => {
         logic.actions.requestEventNames(['fresh_event'])
         await expectLogic(logic).toFinishAllListeners()
