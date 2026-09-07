@@ -4632,7 +4632,10 @@ ${commonInstructions}
     } catch (error) {
       this.logger.error("Failed to signal task completion", error);
     } finally {
-      if (this.session === currentSession) {
+      if (
+        (!currentSession || sessionMatchesRun) &&
+        this.session === currentSession
+      ) {
         await this.emitRtkSavings();
         await this.eventStreamSender?.stop();
       }
