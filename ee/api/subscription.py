@@ -55,7 +55,9 @@ from products.exports.backend.models.subscription import (
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
+    AIQueryPlanStatus,
     PromptRejectedError,
+    get_ai_query_plan_status as derive_ai_query_plan_status,
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
@@ -315,6 +317,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
+    ai_query_plan_status = serializers.SerializerMethodField(
+        help_text=(
+            "Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. "
+            "Null for other subscription types."
+        )
+    )
     delivery_config = DeliveryConfigSerializer(
         required=False,
         help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
@@ -344,6 +352,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "dashboard_export_insights",
             "prompt",
             "ai_prompt_config",
+            "ai_query_plan_status",
             "target_type",
             "target_value",
             "frequency",
@@ -448,6 +457,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
         return info.name if info else None
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[(status.value, status.value.replace("_", " ").capitalize()) for status in AIQueryPlanStatus],
+            allow_null=True,
+        )
+    )
+    def get_ai_query_plan_status(self, subscription: Subscription) -> Optional[str]:
+        if subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
+            return None
+        return derive_ai_query_plan_status(subscription.ai_query_plan).value
 
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):

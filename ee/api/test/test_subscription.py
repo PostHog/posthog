@@ -32,6 +32,7 @@ from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import AI_QUERY_PLAN_VERSION
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
@@ -50,6 +51,16 @@ from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
+VALID_AI_QUERY_PLAN = {
+    "overall_intent": "Count events",
+    "steps": [
+        {
+            "description": "Count matching events",
+            "query_type": "hogql",
+            "hogql": "SELECT count() FROM events WHERE {{date_range}}",
+        }
+    ],
+}
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -131,6 +142,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "dashboard_export_insights": [],
             "prompt": None,
             "ai_prompt_config": {},
+            "ai_query_plan_status": None,
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -2861,26 +2873,72 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("prompt_change_clears_plan", {"prompt": "A completely different question about retention?"}, False),
-            ("title_change_keeps_plan", {"title": "Renamed"}, True),
+            ("missing", None, "not_frozen"),
+            ("non_object", [], "not_frozen"),
+            (
+                "valid",
+                {"version": AI_QUERY_PLAN_VERSION, "plan": VALID_AI_QUERY_PLAN},
+                "frozen",
+            ),
+            ("stale", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "planner_updated"),
+            (
+                "boolean_version",
+                {"version": True, "plan": VALID_AI_QUERY_PLAN},
+                "not_frozen",
+            ),
+            (
+                "floating_version",
+                {"version": float(AI_QUERY_PLAN_VERSION), "plan": VALID_AI_QUERY_PLAN},
+                "not_frozen",
+            ),
+            ("malformed_current", {"version": AI_QUERY_PLAN_VERSION, "plan": {}}, "not_frozen"),
+            (
+                "malformed_relevant_events",
+                {
+                    "version": AI_QUERY_PLAN_VERSION,
+                    "plan": VALID_AI_QUERY_PLAN,
+                    "relevant_events": [123],
+                },
+                "not_frozen",
+            ),
+        ]
+    )
+    def test_retrieve_exposes_query_plan_status(
+        self,
+        mock_is_cloud: MagicMock,
+        mock_flag: MagicMock,
+        mock_sync: MagicMock,
+        _name: str,
+        stored: object,
+        expected: str,
+    ) -> None:
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(id=sub_id).update(ai_query_plan=stored)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ai_query_plan_status"] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "prompt_change_clears_plan",
+                {"prompt": "A completely different question about retention?"},
+                False,
+                "not_frozen",
+            ),
+            ("title_change_keeps_plan", {"title": "Renamed"}, True, "frozen"),
         ]
     )
     def test_editing_prompt_invalidates_frozen_query_plan(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, body, plan_survives
+        self, mock_is_cloud, mock_flag, mock_sync, _name, body, plan_survives, expected_status
     ):
         self._mock_temporal(mock_sync)
         frozen = {
-            "version": 1,
-            "plan": {
-                "overall_intent": "i",
-                "steps": [
-                    {
-                        "description": "d",
-                        "query_type": "hogql",
-                        "hogql": "SELECT count() FROM events WHERE {{date_range}}",
-                    }
-                ],
-            },
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": VALID_AI_QUERY_PLAN,
         }
         sub_id = self._create_subscription_for("ai_prompt")
         Subscription.objects.filter(id=sub_id).update(ai_query_plan=frozen)
@@ -2889,6 +2947,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         assert Subscription.objects.get(id=sub_id).ai_query_plan == (frozen if plan_survives else None)
+        assert response.json()["ai_query_plan_status"] == expected_status
 
     def test_orm_prompt_edit_also_invalidates_frozen_query_plan(self, mock_is_cloud, mock_flag, mock_sync):
         # The invalidation lives on Subscription.save() (not the serializer), so ORM-path edits —
@@ -3020,6 +3079,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         data = response.json()
         assert data["resource_type"] == "ai_prompt"
+        assert data["ai_query_plan_status"] == "not_frozen"
         assert data["prompt"] == "What are the biggest event gains week-over-week?"
         assert data["insight"] is None
         assert data["dashboard"] is None

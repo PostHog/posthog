@@ -9427,6 +9427,15 @@ export namespace Schemas {
       feedback_text?: string;
     }
 
+    export type AiQueryPlanStatusEnum = typeof AiQueryPlanStatusEnum[keyof typeof AiQueryPlanStatusEnum];
+
+
+    export const AiQueryPlanStatusEnum = {
+      Frozen: 'frozen',
+      NotFrozen: 'not_frozen',
+      PlannerUpdated: 'planner_updated',
+    } as const;
+
     /**
      * * `persisted` - persisted
      * * `escalated_with_best` - escalated_with_best
@@ -58668,6 +58677,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status: AiQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
@@ -67669,6 +67680,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status?: AiQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email

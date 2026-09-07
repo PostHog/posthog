@@ -153,9 +153,7 @@ git commit -S -m "fix(subscriptions): centralize frozen plan validation"
 - Modify: `ee/api/subscription.py:1-70,274-370`
 - Test: `ee/api/test/test_subscription.py:1-50,119-170,2786-2970,3055-3070`
 - Regenerate: `products/subscriptions/frontend/generated/api.schemas.ts`
-- Regenerate: `products/subscriptions/frontend/generated/api.ts`
-- Regenerate: `products/subscriptions/frontend/generated/api.zod.ts`
-- Regenerate: `services/mcp/src/generated/subscriptions/api.ts`
+- Regenerate: `services/mcp/src/api/generated.ts`
 
 **Interfaces:**
 
@@ -269,18 +267,15 @@ Run:
 flox activate -- hogli build:openapi
 ```
 
-Inspect `git diff --name-only` and `git diff`. Confirm changes are limited to the four declared generated files, the frontend enum has exactly `Frozen`, `NotFrozen`, and `PlannerUpdated`, the subscription field is nullable/read-only, and no raw plan or version appears in the contract.
+Inspect `git diff --name-only` and `git diff`. Confirm changes are limited to the two declared generated files, the frontend enum has exactly `Frozen`, `NotFrozen`, and `PlannerUpdated`, the subscription field is nullable/read-only, and no raw plan or version appears in the contract.
 
 - [ ] **Step 6: Commit the API contract**
 
 ```bash
 git add ee/api/subscription.py ee/api/test/test_subscription.py
-git add products/subscriptions/frontend/generated/api.schemas.ts products/subscriptions/frontend/generated/api.ts products/subscriptions/frontend/generated/api.zod.ts
-git add services/mcp/src/generated/subscriptions/api.ts
+git add products/subscriptions/frontend/generated/api.schemas.ts services/mcp/src/api/generated.ts
 git commit -S -m "feat(subscriptions): expose query plan status"
 ```
-
-If one declared generator-owned file remains byte-identical, omit that exact path from `git add`. Do not stage any unrelated generator output.
 
 ---
 
