@@ -53,7 +53,7 @@ same artefact-lift pattern as `priority`/`actionability`/`already_addressed` —
 so cards avoid an N+1 per-card artefact fetch. Unknown reason codes fall back to
 the raw value; cards with no dismissal artefact simply omit the label.
 
-Responder configuration is **not** an Inbox tab. It is the top-level Responders sidebar item at `/agents`. The legacy `/inbox/agents` route redirects there.
+Responder configuration is **not** an Inbox tab. It lives in Settings under the `agents` category (`/settings/agents`), on the Connections tab beside the scout fleet (`features/scouts/`). The legacy `/agents` and `/inbox/agents` routes redirect there.
 
 Reviewer scope is a UI preference stored in `inboxReviewerScopeStore`. It filters the list between reports suggested for the current user and reports for someone else. It does not change tab membership; the tab predicates are independent.
 
@@ -124,7 +124,7 @@ Card headlines are derived client-side from `summary` by `utils/reportPresentati
 
 ## Configuration Surface
 
-Responder setup lives in `features/agents/components/AgentsView.tsx`, which mounts `ConfigureAgentsSection`. This surface composes existing GitHub, Slack, source-toggle, and MCP configuration pieces. Keep setup copy outcome-focused: the user is asking Self-driving to figure out what matters, not choosing internal artefact types.
+Responder setup lives in `features/agents/components/AgentsView.tsx`, the Agents settings page, which mounts `ConfigureAgentsSection` on its Connections tab and the scout fleet on the others. This surface composes existing GitHub, Slack, source-toggle, and MCP configuration pieces. Keep setup copy outcome-focused: the user is asking Self-driving to figure out what matters, not choosing internal artefact types.
 
 Onboarding/setup should be task-backed when it starts work. Do not model it as a static checklist if the intended behavior is to launch an agent task.
 
@@ -151,7 +151,7 @@ Components come from `@posthog/quill`; layout is `div`s with Tailwind. Radix is 
 - Do not add any `@radix-ui/*` import. Use `@posthog/quill` plus `div` + Tailwind.
 - Do not reuse the deleted legacy `ReportListRow`, `ReportDetailPane`, or old list/detail stores.
 - Do not put page-level Inbox title or navigation into the global app header; `InboxView` owns the Inbox page chrome.
-- Responder configuration stays at `/agents`. The Inbox header carries a "Configure agents" link to it, but do not embed configuration UI in the Inbox itself.
+- Responder configuration stays in Settings (`/settings/agents`). The Inbox header carries a "Configure agents" link toward it, but do not embed configuration UI in the Inbox itself.
 - Scout (`signals_scout`) is a real Cloud source product. Keep it covered wherever source products surface: `INBOX_SOURCE_OPTIONS`, `SOURCE_PRODUCT_META`, and the scout-name display in `SignalCard`.
 - Scout management UI (fleet configuration, run history) lives in `features/scouts/` and is backed by the PostHog Cloud scout endpoints (`/api/projects/{teamId}/signals/scout/`). Do not add scout controls that have no backing endpoint there.
 - Do not put preview shims or mock report data in `apps/code/index.html`; the app shell should stay minimal.

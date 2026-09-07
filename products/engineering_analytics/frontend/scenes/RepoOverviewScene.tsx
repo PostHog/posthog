@@ -55,7 +55,7 @@ export function RepoOverviewScene(): JSX.Element {
 
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
     // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
-    // table then displays them failing-first-then-name. attentionPrs is already ordered failing-first.
+    // table then displays them merge-queue-first. attentionPrs is already ordered failing-first.
     const shownPrs = attentionPrs.slice(0, prPreviewCount)
     const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
     // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
@@ -216,7 +216,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 )}
                                 <Link
                                     to={
-                                        // A bare link would reset the shared window / branch / repo scope (the filters
+                                        // A bare link would reset the shared window / run scope / repo (the filters
                                         // logic re-hydrates from the URL on every route), so carry it, plus the source.
                                         withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
                                     }

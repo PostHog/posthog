@@ -313,34 +313,32 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                             })()}
 
                         {!isProperty && !hasTaxonomyPrimaryProperty(editDefinition.name) && (
-                            <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
-                                <div className="ph-ignore-input">
-                                    <LemonField
-                                        name="primary_property"
-                                        label={
-                                            <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
-                                                Primary property
-                                            </LemonLabel>
-                                        }
-                                        data-attr="definition-primary-property"
-                                    >
-                                        {({ value, onChange }) => (
-                                            <TaxonomicPopover<string>
-                                                allowClear
-                                                data-attr="definition-primary-property-picker"
-                                                groupType={TaxonomicFilterGroupType.EventProperties}
-                                                eventNames={[editDefinition.name]}
-                                                value={value ?? null}
-                                                onChange={(changedValue) =>
-                                                    onChange(typeof changedValue === 'string' ? changedValue : null)
-                                                }
-                                                placeholder="Select a primary property"
-                                                selectingKeyOnly
-                                            />
-                                        )}
-                                    </LemonField>
-                                </div>
-                            </FlaggedFeature>
+                            <div className="ph-ignore-input">
+                                <LemonField
+                                    name="primary_property"
+                                    label={
+                                        <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
+                                            Primary property
+                                        </LemonLabel>
+                                    }
+                                    data-attr="definition-primary-property"
+                                >
+                                    {({ value, onChange }) => (
+                                        <TaxonomicPopover<string>
+                                            allowClear
+                                            data-attr="definition-primary-property-picker"
+                                            groupType={TaxonomicFilterGroupType.EventProperties}
+                                            eventNames={[editDefinition.name]}
+                                            value={value ?? null}
+                                            onChange={(changedValue) =>
+                                                onChange(typeof changedValue === 'string' ? changedValue : null)
+                                            }
+                                            placeholder="Select a primary property"
+                                            selectingKeyOnly
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
                         )}
                     </div>
                 )}
