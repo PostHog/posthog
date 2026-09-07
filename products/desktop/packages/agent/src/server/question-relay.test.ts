@@ -1031,7 +1031,7 @@ describe("Question relay", () => {
         "test-run-id",
         {
           status: "failed",
-          error_message: "upstream_connection_error: fetch failed",
+          error_message: "upstream_connection_error: upstream_connection_error",
         },
       );
     });
