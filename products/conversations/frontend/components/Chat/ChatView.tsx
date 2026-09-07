@@ -31,6 +31,8 @@ export interface ChatViewProps {
     fillParent?: boolean
     /** Show a one-line field until the user focuses it, then the full composer. */
     collapseUntilActive?: boolean
+    /** When this changes, the collapsed composer closes. Ticket navigation reuses the same mount. */
+    threadId?: string
     /** Channel the ticket came from; drives the reply placeholder and send-button logo */
     channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
@@ -94,6 +96,7 @@ export function ChatView({
     maxHeight,
     fillParent = false,
     collapseUntilActive = false,
+    threadId,
     channel,
     showPrivateOption = false,
     unreadCustomerCount,
@@ -179,6 +182,7 @@ export function ChatView({
                     editingMessageId={editingMessageId}
                     onCancelEdit={onCancelEdit}
                     collapseUntilActive={collapseUntilActive}
+                    threadId={threadId}
                 />
             </div>
         </LemonCard>

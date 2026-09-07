@@ -57,6 +57,8 @@ export interface MessageInputProps {
     onCancelEdit?: () => void
     /** Show a one-line field until focused, then the full composer. */
     collapseUntilActive?: boolean
+    /** When this changes, the collapsed composer closes. Ticket navigation reuses the same mount. */
+    threadId?: string
 }
 
 export function MessageInput({
@@ -82,11 +84,17 @@ export function MessageInput({
     editingMessageId = null,
     onCancelEdit,
     collapseUntilActive = false,
+    threadId,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const [composerExpanded, setComposerExpanded] = useState(false)
+    const lastThreadIdRef = useRef(threadId)
+    if (lastThreadIdRef.current !== threadId) {
+        lastThreadIdRef.current = threadId
+        setComposerExpanded(false)
+    }
     const editorRef = useRef<RichContentEditorType | null>(null)
     const lastSeededEditId = useRef<string | null>(null)
     const draftContentRef = useRef(draftContent)

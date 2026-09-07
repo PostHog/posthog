@@ -260,6 +260,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     <ChatView
                         fillParent
                         collapseUntilActive
+                        threadId={ticketId}
                         threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}

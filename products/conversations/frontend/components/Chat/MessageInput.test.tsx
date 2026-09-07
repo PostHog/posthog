@@ -145,6 +145,36 @@ describe('MessageInput collapsed composer', () => {
         expect(screen.getByTestId('support-editor')).toHaveFocus()
     })
 
+    it('collapses again when the thread id changes', async () => {
+        const { rerender } = render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={jest.fn()}
+                    messageSending={false}
+                    collapseUntilActive
+                    threadId="ticket-a"
+                />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByPlaceholderText('Type your message...'))
+        expect(screen.getByTestId('support-editor')).toBeInTheDocument()
+
+        rerender(
+            <Provider>
+                <MessageInput
+                    onSendMessage={jest.fn()}
+                    messageSending={false}
+                    collapseUntilActive
+                    threadId="ticket-b"
+                />
+            </Provider>
+        )
+
+        expect(screen.queryByTestId('support-editor')).not.toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Type your message...')).toBeInTheDocument()
+    })
+
     test.each([
         ['draft content', { draftContent: { type: 'doc', content: [] } }],
         ['editing a message', { editingMessageId: 'note-1' }],
