@@ -52,6 +52,22 @@ class TestFeatureFlagEvalSeeders(BaseTest):
         assert flag.updated_at == flag.created_at
 
     @parameterized.expand(SEEDERS)
+    def test_seed_carries_the_state_snapshot_the_unchanged_scorer_compares(self, _name, seeder) -> None:
+        # FlagStateUnchanged skips silently when the seed has no "state", so a seeder
+        # that drops the snapshot would turn the mutation check off across the suite.
+        seeded = seeder(_context(self.team.id, self.user.id))
+
+        flag = FeatureFlag.objects.get(pk=seeded["flag_id"])
+
+        assert seeded["state"] == {
+            "key": flag.key,
+            "active": flag.active,
+            "deleted": flag.deleted,
+            "archived": flag.archived,
+            "filters": flag.filters,
+        }
+
+    @parameterized.expand(SEEDERS)
     def test_seeder_refuses_the_codex_runtime(self, _name, seeder) -> None:
         with self.assertRaises(RuntimeError):
             seeder(_context(self.team.id, self.user.id, runtime_adapter="codex"))

@@ -5,8 +5,17 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest
 
-from products.feature_flags.evals.scorers import FILE_EDIT_TOOLS, FLAG_LOOKUP_TOOLS, ToolGroupDirection
+from parameterized import parameterized
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.evals.scorers import (
+    FILE_EDIT_TOOLS,
+    FLAG_LOOKUP_TOOLS,
+    FlagStateUnchanged,
+    ToolGroupDirection,
+)
 
 
 def _raw_tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
@@ -121,3 +130,48 @@ def test_flag_lookup_tools_match_mcp_names_the_parser_normalizes() -> None:
 
     assert score.score == 1.0
     assert score.metadata["calls"] == ["feature-flag-get-all"]
+
+
+class TestFlagStateUnchanged(BaseTest):
+    def _seeded_output(self) -> tuple[FeatureFlag, dict[str, Any]]:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="sunset-widget-rollout",
+            created_by=self.user,
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        state = {"key": flag.key, "active": True, "deleted": False, "archived": False, "filters": flag.filters}
+        return flag, {"seed": {"flag_id": flag.id, "state": state}}
+
+    def test_scores_an_untouched_flag_green(self) -> None:
+        _, output = self._seeded_output()
+
+        assert FlagStateUnchanged()._run_eval_sync(output).score == 1.0
+
+    @parameterized.expand(
+        [
+            ("disabled", {"active": False}),
+            ("archived", {"archived": True, "active": False}),
+            # The soft-delete row must still be readable: reloading through the default
+            # manager would raise DoesNotExist here instead of scoring the mutation.
+            ("soft_deleted", {"deleted": True}),
+        ]
+    )
+    def test_scores_a_mutated_flag_zero(self, _name: str, mutation: dict[str, Any]) -> None:
+        flag, output = self._seeded_output()
+        FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).update(**mutation)
+
+        score = FlagStateUnchanged()._run_eval_sync(output)
+
+        assert score.score == 0.0
+        assert set(score.metadata["changed_fields"]) == set(mutation)
+
+    def test_scores_a_hard_deleted_flag_zero(self) -> None:
+        flag, output = self._seeded_output()
+        FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).delete()
+
+        assert FlagStateUnchanged()._run_eval_sync(output).score == 0.0
+
+    def test_skips_a_case_that_seeded_no_flag(self) -> None:
+        assert FlagStateUnchanged()._run_eval_sync({"seed": {}}).score is None

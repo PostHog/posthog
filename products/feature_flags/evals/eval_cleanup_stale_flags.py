@@ -24,7 +24,10 @@ that can drift. What is coverable, with invented flag keys seeded into the case 
   because a partial flag is the shape most likely to draw a speculative edit or a mutation.
 
 Every case shares ``NoToolCall`` over the flag write verbs — Phase A of the skill never
-mutates a flag, whatever else happens. Direction over a tool group is graded by
+mutates a flag, whatever else happens. ``NoToolCall`` only matches tool names, and the
+sandbox token is not scoped read-only (the harness builds one full-access context for
+every suite), so ``FlagStateUnchanged`` re-reads the seeded row after the run: a write
+that bypasses the MCP surface still fails the case. Direction over a tool group is graded by
 ``scorers.ToolGroupDirection``, which reads ``expected[<name>][<key>]`` the way
 ``SkillTriggered`` reads ``should_load``: one instance over Claude's file-edit tools
 (``should_edit``) and one over the flag read tools (``should_look_up``), so one scorer
@@ -44,7 +47,12 @@ To run:
 
 from __future__ import annotations
 
-from products.feature_flags.evals.scorers import FILE_EDIT_TOOLS, FLAG_LOOKUP_TOOLS, ToolGroupDirection
+from products.feature_flags.evals.scorers import (
+    FILE_EDIT_TOOLS,
+    FLAG_LOOKUP_TOOLS,
+    FlagStateUnchanged,
+    ToolGroupDirection,
+)
 from products.feature_flags.evals.seeders import (
     STALE_FULL_ROLLOUT_FLAG_KEY,
     STALE_PARTIAL_ROLLOUT_FLAG_KEY,
@@ -149,6 +157,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
         scorers=[
             SkillTriggered(SKILL_NAME, name=TRIGGER_SCORER_NAME),
             NoToolCall(FLAG_MUTATION_TOOLS, name="no_flag_mutation"),
+            FlagStateUnchanged(),
             ToolGroupDirection(FILE_EDIT_TOOLS, name=EDIT_SCORER_NAME, key="should_edit"),
             ToolGroupDirection(FLAG_LOOKUP_TOOLS, name=LOOKUP_SCORER_NAME, key="should_look_up"),
         ],
