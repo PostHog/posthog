@@ -21,6 +21,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import QueryError
+
 from posthog.constants import AvailableFeature
 from posthog.exceptions import (
     ClickHouseAtCapacity,
@@ -484,6 +486,27 @@ class TestEvaluateAlert:
         assert notified_alert.id == alert_with_user.id
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
+
+    async def test_evaluate_records_query_error_without_capturing_it(self, alert) -> None:
+        # A deleted or renamed warehouse table makes HogQL resolution raise QueryError on every
+        # check. The owner must fix the insight, so the message goes on the errored check and never
+        # to error tracking, which one broken insight would otherwise flood.
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=QueryError("Unknown table `stripe_invoices`."),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.new_state == AlertState.ERRORED
+        mock_capture.assert_not_called()
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None
+        assert "stripe_invoices" in check.error["message"]
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
