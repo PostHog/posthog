@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
@@ -212,15 +211,12 @@ export function LoginForm(): JSX.Element {
                                 {generalError.code === 'invalid_credentials' && (
                                     <>
                                         {/* A wrong password is the most common cause of this error.
-                                            Lead with a reset, then offer support. */}
+                                            Lead with a reset, then offer support. Autocapture reports
+                                            the click: each reset entry point has its own `data-attr`,
+                                            so one funnel can tell them apart. */}
                                         <Link
                                             to={[urls.passwordReset(), { email: login.email }]}
                                             data-attr="login-error-reset-password"
-                                            onClick={() =>
-                                                posthog.capture('login recovery reset link clicked', {
-                                                    source: 'invalid_credentials_banner',
-                                                })
-                                            }
                                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                         >
                                             Reset your password
@@ -391,7 +387,7 @@ export function LoginForm(): JSX.Element {
                                 <span>No sign-in method is set up for this account. Use</span>{' '}
                                 <Link
                                     to={[urls.passwordReset(), { email: login.email }]}
-                                    data-attr="forgot-password"
+                                    data-attr="login-no-method-reset-password"
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
                                     Forgot password?

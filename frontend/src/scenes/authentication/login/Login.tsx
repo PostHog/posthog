@@ -1,6 +1,7 @@
-import { useActions } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
+import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -13,6 +14,8 @@ export const scene: SceneExport = {
 }
 
 export function Login(): JSX.Element {
+    // Mounted here so the login funnel is only reported from the auth scenes
+    useMountedLogic(loginTelemetryLogic)
     const { startConditionalPasskeyLogin } = useActions(passkeyLogic)
 
     // WebKit (Safari/iOS) can't open the passkey modal without a user gesture, so we show
