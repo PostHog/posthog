@@ -7,7 +7,6 @@ from collections.abc import Iterator
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
-from django.db import transaction
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils import timezone
 
@@ -760,7 +759,7 @@ class CohortPopulationInProgress(APIException):
 
     status_code = status.HTTP_409_CONFLICT
     default_code = "population_in_progress"
-    default_detail = "This cohort is still being populated. Wait for it to finish, or abandon the run, then try again."
+    default_detail = "People are still being added to this cohort. Wait for that to finish, or stop it, then try again."
 
     def __init__(self, operation: CohortPopulationOperation) -> None:
         super().__init__()
@@ -774,7 +773,7 @@ class CohortPopulationAddFailed(APIException):
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "population_failed"
-    default_detail = "Adding these people didn't finish. Check the cohort's population status for recovery options."
+    default_detail = "Adding these people didn't finish. Open the cohort to see what happened and to try again."
 
     def __init__(self, operation: CohortPopulationOperation) -> None:
         super().__init__()
@@ -1063,11 +1062,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             )
 
     def _populate_from_uuid_list(self, cohort: Cohort, uuids: list[str], *, team_id: int, durable: bool) -> None:
-        """Write a caller-supplied list of person UUIDs, synchronously either way.
+        """Write a caller-supplied list of person UUIDs into a cohort this request created.
 
-        A caller that passes person ids gets its answer once the write is done, so this runs the
-        operation inline rather than dispatching it. Durable mode changes what survives a failure,
-        not when the caller hears about it.
+        The durable path runs the operation inline, so a caller that passes person ids usually
+        gets the members with its answer, and hands what does not fit in one request to a worker.
+        A failure stays on the operation, which the created cohort reports, rather than turning a
+        cohort that now exists into an error the caller would retry by creating another.
         """
         if not durable:
             cohort.insert_users_list_by_uuid(uuids, team_id=team_id)
@@ -1081,10 +1081,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             created_by_id=self.context["request"].user.pk,
             dispatch=False,
         )
-        run_operation(operation.pk, max_work_units=50)
-        operation.refresh_from_db()
-        if operation.status != CohortPopulationStatus.COMPLETED:
-            raise CohortPopulationAddFailed(operation)
+        if run_operation(operation.pk, max_work_units=50):
+            dispatch_operation(operation.pk)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -1585,12 +1583,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     code="behavioral_cohort_found",
                 )
 
-    @transaction.atomic
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         if cohort.is_static:
-            # Serialize source/deletion changes with admission, including requests loaded before it.
-            cohort.refresh_from_db(from_queryset=Cohort.objects.select_for_update().filter(team_id=cohort.team_id))
+            cohort.refresh_from_db()
         active_population = population_lifecycle.unresolved_operation_for(cohort.pk) if cohort.is_static else None
         if active_population is not None:
             source_fields = {
@@ -2275,10 +2271,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     @extend_schema(request=RemovePersonRequestSerializer)
     @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
-    @transaction.atomic
     def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
-        Cohort.objects.select_for_update().get(pk=cohort.pk, team_id=self.team_id)
         if not cohort.is_static:
             raise ValidationError("Can only remove users from static cohorts")
         raise_if_population_unresolved(cohort.pk)
@@ -2355,7 +2349,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         except ValueError:
             operation.refresh_from_db()
             raise CohortPopulationRetryRejected(
-                operation, "The saved input has expired. Stop this run and upload the list again."
+                operation, "The saved list has expired. Stop this run and upload the list again."
             )
         operation.refresh_from_db()
         dispatch_operation(operation.pk)

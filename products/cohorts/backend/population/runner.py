@@ -12,7 +12,7 @@ from django.utils import timezone
 import grpc
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
-from requests.exceptions import RequestException
+from requests.exceptions import HTTPError, RequestException
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -36,7 +36,10 @@ from products.cohorts.backend.models.population import (
 )
 from products.cohorts.backend.models.util import CohortErrorCode, count_cohort_members, parse_error_code
 from products.cohorts.backend.population import operation as operation_lifecycle
-from products.cohorts.backend.population.flag_pages import batch_evaluate_flag_page_with_retries
+from products.cohorts.backend.population.flag_pages import (
+    COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER,
+    batch_evaluate_flag_page_with_retries,
+)
 from products.cohorts.backend.population.input_store import CohortPopulationInputMissing, append_chunk, read_chunk
 from products.cohorts.backend.population.metrics import COHORT_POPULATION_OUTCOMES, COHORT_POPULATION_WORK_UNITS
 from products.cohorts.backend.population.progress import PopulationProgress
@@ -134,6 +137,10 @@ def _is_retryable(error: Exception) -> bool:
             grpc.StatusCode.ABORTED,
             grpc.StatusCode.UNKNOWN,
         }
+    if isinstance(error, HTTPError) and error.response is not None:
+        # The flags service answers a request it will never accept with a 4xx. Only a throttled or
+        # timed-out request is worth sending again.
+        return error.response.status_code in (408, 429) or error.response.status_code >= 500
     return isinstance(
         error,
         (
@@ -238,6 +245,18 @@ def _evaluate_next_flag_page(operation: CohortPopulationOperation, cohort: Cohor
         )
     except (FlagVersionConflictError, PropertyMatchingVersionConflictError) as err:
         raise PermanentPopulationError(CohortErrorCode.FLAG_CHANGED, str(err)) from err
+
+    errors_count = page.get("errors_count") or 0
+    if errors_count:
+        COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER.inc(errors_count)
+        logger.warning(
+            "cohort_from_feature_flag_eval_errors",
+            cohort_id=cohort.pk,
+            team_id=operation.team_id,
+            flag_key=feature_flag.key,
+            cursor=progress.flag_cursor,
+            errors_count=errors_count,
+        )
 
     manifest = append_chunk(operation.input_manifest or {}, page["matched_person_uuids"])
     next_cursor = page["next_cursor"]

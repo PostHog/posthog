@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -10,11 +10,11 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { CohortPopulationType, CohortType, SidePanelTab } from '~/types'
 
 const SOURCE_LABELS: Record<CohortPopulationType['source'], string> = {
-    list: 'people you added',
-    query: 'a query',
-    filters: 'matching criteria',
-    feature_flag: 'a feature flag',
-    reconcile: 'a repair of this cohort',
+    list: 'your list',
+    query: 'the query',
+    filters: 'the criteria',
+    feature_flag: 'the feature flag',
+    reconcile: 'a repair',
 }
 
 function progressSummary(population: CohortPopulationType): string | null {
@@ -38,8 +38,8 @@ export function CohortPopulationBanner({ cohort }: { cohort: CohortType }): JSX.
     if (population.status === 'completed') {
         return population.source === 'reconcile' ? (
             <LemonBanner type="warning">
-                Membership synchronization finished. This does not recover people missing from an earlier upload. Upload
-                the original list if that import was incomplete.
+                Repair finished. It synchronized the people already in this cohort, and can't recover people missing
+                from an earlier upload. If that upload was incomplete, upload the original list again.
             </LemonBanner>
         ) : null
     }
@@ -49,6 +49,22 @@ export function CohortPopulationBanner({ cohort }: { cohort: CohortType }): JSX.
     const recoveryLoading = retryPopulationLoading || abandonPopulationLoading
     const canRetry = population.available_actions.includes('retry')
 
+    const confirmAbandon = (): void => {
+        LemonDialog.open({
+            title: 'Stop adding people?',
+            description:
+                "People already added stay in the cohort. The rest of this run is dropped and can't be resumed.",
+            primaryButton: {
+                children: 'Stop',
+                status: 'danger',
+                onClick: abandonPopulation,
+            },
+            secondaryButton: {
+                children: 'Keep going',
+            },
+        })
+    }
+
     if (population.status === 'pending' || population.status === 'running') {
         return (
             <LemonBanner
@@ -56,7 +72,7 @@ export function CohortPopulationBanner({ cohort }: { cohort: CohortType }): JSX.
                 action={
                     canAbandon
                         ? {
-                              onClick: () => abandonPopulation(),
+                              onClick: confirmAbandon,
                               children: 'Stop',
                               loading: abandonPopulationLoading,
                               disabledReason: recoveryLoading ? 'Stopping' : undefined,
@@ -69,11 +85,15 @@ export function CohortPopulationBanner({ cohort }: { cohort: CohortType }): JSX.
                     <Spinner size="small" />
                     <span>
                         <strong>
-                            {canAbandon
-                                ? `Adding people from ${source}.`
-                                : 'Stopping and synchronizing people already added.'}
+                            {!canAbandon
+                                ? 'Stopping and synchronizing people already added.'
+                                : population.source === 'reconcile'
+                                  ? 'Synchronizing the people already in this cohort.'
+                                  : `Adding people from ${source}.`}
                         </strong>{' '}
-                        {progress ?? 'This can take a few minutes.'} The list below fills in as it goes.
+                        {/* The count changes on every poll, so it is kept out of the live region around this banner. */}
+                        <span aria-live="off">{progress ?? 'This can take a few minutes.'}</span> The list below fills
+                        in as it goes.
                     </span>
                 </div>
             </LemonBanner>
@@ -87,7 +107,7 @@ export function CohortPopulationBanner({ cohort }: { cohort: CohortType }): JSX.
                 action={
                     canAbandon
                         ? {
-                              onClick: () => abandonPopulation(),
+                              onClick: confirmAbandon,
                               children: 'Stop',
                               loading: abandonPopulationLoading,
                               disabledReason: recoveryLoading ? 'Stopping' : undefined,
@@ -115,9 +135,9 @@ export function CohortPopulationBanner({ cohort }: { cohort: CohortType }): JSX.
     if (population.status === 'abandoned') {
         return (
             <LemonBanner type="warning">
-                <h4 className="font-semibold mb-1">Population stopped before completion</h4>
+                <h4 className="font-semibold mb-1">Stopped before everyone was added</h4>
                 <p className="mb-0">
-                    Adding people from {source} was stopped before it finished. Some people may be missing.{' '}
+                    Adding people from {source} was stopped before it finished, so some people may be missing.{' '}
                     {progress ?? ''} Create a new cohort or upload the list again to complete it.
                 </p>
             </LemonBanner>
@@ -152,7 +172,7 @@ export function CohortPopulationBanner({ cohort }: { cohort: CohortType }): JSX.
             {canAbandon && (
                 <LemonButton
                     className="mt-2"
-                    onClick={() => abandonPopulation()}
+                    onClick={confirmAbandon}
                     loading={abandonPopulationLoading}
                     disabledReason={recoveryLoading ? 'Recovery is in progress' : undefined}
                     data-attr="cohort-population-abandon"

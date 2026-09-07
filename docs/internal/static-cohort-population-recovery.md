@@ -17,11 +17,15 @@ Feature flag operations pin definition versions and retain each fetched page bef
 Each Celery task runs one work unit: an input chunk, flag page, synchronization page, source
 materialization or final count. Checkpoints require both membership writes to succeed. Expired
 ownership tokens cannot advance progress or finalize an operation. Personhog serializes inserts per
-cohort and deduplicates person IDs, making concurrent transport retries safe.
+cohort and deduplicates person IDs. The gRPC transport never retries `InsertCohortMembers`, because
+`posthog_cohortpeople` has no unique index and a retry can overlap the attempt still running on a
+replica; the runner replays the chunk after its backoff instead.
 
 Six operation retries use exponential backoff with jitter, starting at 60 seconds and capped at
 30 minutes. Final count and cohort bookkeeping retry independently of completed membership writes.
 The dispatcher runs every two minutes to recover missed publishes, due retries and expired leases.
+A publish made within the last five minutes is not repeated, so a backed-up queue does not collect
+a duplicate delivery per pass.
 
 ClickHouse-first writes preserve existing visibility semantics. Recovery does not make the two
 stores atomically visible. A crash after ClickHouse materialization but before its checkpoint can
@@ -40,6 +44,9 @@ The read-only `population` response describes progress and available actions.
   remains unresolved. Names and descriptions remain editable.
 - Synchronous additions return `success: true` only after completion. A dependency failure returns
   a typed error with the operation to follow.
+- Creating a cohort with person IDs writes the first 50 chunks inline and hands the rest to a
+  worker. The response is the created cohort with its `population`; a failed write is reported
+  there, so a caller never has to create a second cohort to retry.
 
 The UI polls current progress without overwriting unsaved metadata. Last successful import
 statistics remain separate from the current run.
@@ -88,8 +95,9 @@ Worker counters use bounded labels:
 - `cohort_population_work_units_total{source,phase}`
 - `cohort_population_recoveries_total{reason}`
 
-The observer publishes active and recent operation counts, incomplete outcomes, and time since
-last progress under `job="cohort_population_observe"`. Check `push_time_seconds` for observation
+The observer publishes unresolved operation counts (failed runs included, since they still hold
+the cohort), recent outcomes, incomplete outcomes, and time since last progress of active runs
+under `job="cohort_population_observe"`. Check `push_time_seconds` for observation
 freshness. Cohort and operation IDs belong in structured logs; uploaded identifiers do not.
 
 The charts repository owns `CohortPopulationInsertionErrors`, `CohortPopulationFailed`,

@@ -18,6 +18,7 @@ from products.cohorts.backend.population import (
     dispatch,
     operation as lifecycle,
 )
+from products.cohorts.backend.population.admission import admit_query_or_filters_population
 
 MANIFEST = {"schema": 1, "prefix": "cohort_population/team-1/op", "chunks": 1, "total": 1, "id_type": "person_id"}
 
@@ -64,7 +65,13 @@ class TestCohortPopulationDispatch(BaseTest):
         )
         assert dispatch.dispatch_ready_operations().missed_dispatch == 1
 
-    def test_a_retry_whose_backoff_elapsed_is_dispatched_and_one_still_waiting_is_not(self) -> None:
+    def test_a_run_published_at_admission_is_not_republished_before_the_grace(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="from query", is_static=True)
+        admit_query_or_filters_population(cohort=cohort, team_id=self.team.pk, source=CohortPopulationSource.QUERY)
+
+        assert dispatch.dispatch_ready_operations().dispatched == 0
+
+    def test_a_retry_is_dispatched_once_due_and_not_while_waiting_or_already_published(self) -> None:
         due = self._operation(
             "due",
             status=CohortPopulationStatus.RETRY_SCHEDULED,
@@ -74,6 +81,12 @@ class TestCohortPopulationDispatch(BaseTest):
             "waiting",
             status=CohortPopulationStatus.RETRY_SCHEDULED,
             next_attempt_at=timezone.now() + timedelta(minutes=10),
+        )
+        self._operation(
+            "due but published within the grace",
+            status=CohortPopulationStatus.RETRY_SCHEDULED,
+            next_attempt_at=timezone.now() - timedelta(seconds=1),
+            dispatched_at=timezone.now(),
         )
 
         result = dispatch.dispatch_ready_operations()
@@ -91,6 +104,12 @@ class TestCohortPopulationDispatch(BaseTest):
             "healthy",
             status=CohortPopulationStatus.RUNNING,
             lease_expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        self._operation(
+            "lost worker published within the grace",
+            status=CohortPopulationStatus.RUNNING,
+            lease_expires_at=timezone.now() - timedelta(seconds=1),
+            dispatched_at=timezone.now(),
         )
 
         result = dispatch.dispatch_ready_operations()

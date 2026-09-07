@@ -590,7 +590,7 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            expect(await screen.findByText(/Adding people from people you added/)).toBeInTheDocument()
+            expect(await screen.findByText(/Adding people from your list/)).toBeInTheDocument()
             expect(screen.getByText(/1,000 of 2,000 processed so far/)).toBeInTheDocument()
             expect(document.querySelector('[data-attr="cohort-population-abandon"]')).toBeInTheDocument()
         })
@@ -667,7 +667,7 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            expect(await screen.findByText('Population stopped before completion')).toBeInTheDocument()
+            expect(await screen.findByText('Stopped before everyone was added')).toBeInTheDocument()
         })
 
         it('stays hidden once the run completed', async () => {

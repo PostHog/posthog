@@ -55,6 +55,7 @@ from products.cohorts.backend.population.admission import (
 )
 from products.cohorts.backend.population.dispatch import dispatch_ready_operations
 from products.cohorts.backend.population.observe import publish_population_gauges
+from products.cohorts.backend.population.operation import CohortPopulationConflict
 from products.cohorts.backend.population.runner import run_operation
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
 
@@ -616,13 +617,6 @@ def calculate_cohort_from_list(
     if id_type not in ("distinct_id", "person_id", "email"):
         raise ValueError(f"Unsupported id_type: {id_type}")
 
-    if durable_population_enabled_for(team_id):
-        # A message queued before this deploy still carries its identifiers inline. Persist them
-        # and run the durable operation, so an interruption from here on is resumable rather than
-        # taking the rest of the list with it.
-        admit_list_population(cohort=cohort, team_id=team_id, identifiers=items, id_type=id_type, dispatch=True)
-        return
-
     import_resolution = ImportResolution()
 
     # raise_on_error surfaces a batch insert failure instead of swallowing it, so a transient
@@ -630,6 +624,16 @@ def calculate_cohort_from_list(
     # insert path dedupes members already in the cohort (ClickHouse excludes existing UUIDs, the
     # InsertCohortMembers RPC dedupes on person id), so re-running the whole list adds no duplicates.
     try:
+        if durable_population_enabled_for(team_id):
+            # A message queued before this deploy still carries its identifiers inline. Persist
+            # them and run the durable operation, so an interruption from here on is resumable
+            # rather than taking the rest of the list with it. Admission failures fall through to
+            # the error path below, which releases the cohort the API marked as calculating.
+            try:
+                admit_list_population(cohort=cohort, team_id=team_id, identifiers=items, id_type=id_type)
+            except CohortPopulationConflict:
+                logger.info("calculate_cohort_from_list_superseded", cohort_id=cohort_id, team_id=team_id)
+            return
         if id_type == "distinct_id":
             batch_count = cohort.insert_users_by_list(
                 items, team_id=team_id, raise_on_error=True, import_resolution=import_resolution

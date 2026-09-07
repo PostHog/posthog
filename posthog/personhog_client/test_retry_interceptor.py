@@ -194,11 +194,12 @@ class TestRetryInterceptorMetrics:
 @pytest.mark.parametrize(
     "method,code,failures,expected_attempts",
     [
-        ("InsertCohortMembers", grpc.StatusCode.UNAVAILABLE, 1, 2),
+        ("GetPersonsByUuids", grpc.StatusCode.UNAVAILABLE, 1, 2),
         ("GetPersonsByUuids", grpc.StatusCode.UNKNOWN, 1, 2),
         ("CountCohortMembers", grpc.StatusCode.DEADLINE_EXCEEDED, 1, 2),
-        ("InsertCohortMembers", grpc.StatusCode.ABORTED, 2, 2),
-        ("InsertCohortMembers", grpc.StatusCode.PERMISSION_DENIED, 1, 1),
+        ("ListCohortMemberIds", grpc.StatusCode.ABORTED, 2, 2),
+        ("GetPersonsByUuids", grpc.StatusCode.PERMISSION_DENIED, 1, 1),
+        ("InsertCohortMembers", grpc.StatusCode.UNAVAILABLE, 1, 1),
         ("SplitPerson", grpc.StatusCode.UNAVAILABLE, 1, 1),
     ],
 )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -25,6 +25,7 @@ from products.cohorts.backend.models.population import (
 )
 from products.cohorts.backend.models.util import CohortErrorCode
 from products.cohorts.backend.population.input_store import delete_input
+from products.cohorts.backend.population.metrics import COHORT_POPULATION_OUTCOMES
 from products.cohorts.backend.population.progress import PopulationProgress
 
 logger = structlog.get_logger(__name__)
@@ -71,8 +72,13 @@ def admit(
     created_by_id: int | None = None,
     progress: PopulationProgress | None = None,
     source_config: dict[str, Any] | None = None,
+    dispatched_at: datetime | None = None,
 ) -> CohortPopulationOperation:
-    """Record an operation and mark the cohort as calculating, in one transaction."""
+    """Record an operation and mark the cohort as calculating, in one transaction.
+
+    Pass ``dispatched_at`` when the caller publishes the operation itself, so the sweep grants
+    that publish its grace instead of treating the operation as never published.
+    """
     with transaction.atomic():
         Cohort.objects.select_for_update().get(pk=cohort.pk, team_id=team_id, deleted=False, is_static=True)
         existing = unresolved_operation_for(cohort.pk)
@@ -90,6 +96,7 @@ def admit(
             input_manifest=input_manifest,
             input_expires_at=_failed_input_expiry(),
             progress=(progress or PopulationProgress()).to_json(),
+            dispatched_at=dispatched_at,
         )
         Cohort.objects.filter(pk=cohort.pk).update(is_calculating=True)
 
@@ -138,6 +145,15 @@ def claim(operation_id: UUID | str, *, worker: str) -> CohortPopulationOperation
                 operation.input_expires_at = _failed_input_expiry()
                 operation.save()
                 Cohort.objects.filter(pk=operation.cohort_id).update(**_failure_fields())
+                COHORT_POPULATION_OUTCOMES.labels(source=operation.source, outcome="failed").inc()
+                logger.warning(
+                    "cohort_population_failed",
+                    operation_id=str(operation.pk),
+                    cohort_id=operation.cohort_id,
+                    team_id=operation.team_id,
+                    error_code=operation.error_code,
+                    reason="lease_budget_exhausted",
+                )
                 return None
         operation.status = CohortPopulationStatus.RUNNING
         operation.claim_token = uuid4()
@@ -249,6 +265,7 @@ def schedule_retry(operation: CohortPopulationOperation, *, error_code: CohortEr
         "error_code": error_code.value,
         "claim_token": None,
         "lease_expires_at": None,
+        "dispatched_at": None,
     }
     if exhausted:
         fields |= {
@@ -311,7 +328,7 @@ def request_abandon(operation: CohortPopulationOperation) -> None:
         if current.status not in UNRESOLVED_COHORT_POPULATION_STATUSES:
             return
         current.abandon_requested_at = current.abandon_requested_at or django_timezone.now()
-        if current.status == CohortPopulationStatus.FAILED:
+        if current.status in (CohortPopulationStatus.FAILED, CohortPopulationStatus.RETRY_SCHEDULED):
             current.status = CohortPopulationStatus.PENDING
             current.attempts = 0
         current.next_attempt_at = None

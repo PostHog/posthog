@@ -47,9 +47,11 @@ def dispatch_ready_operations() -> DispatchPass:
     candidates = (
         CohortPopulationOperation.objects.unscoped()
         .filter(status__in=ACTIVE_COHORT_POPULATION_STATUSES)
+        # A message published within the grace is still in the queue. Publishing another only adds
+        # a delivery that fails to claim, and a backed-up queue would get one more every pass.
+        .filter(Q(dispatched_at__isnull=True) | Q(dispatched_at__lte=now - MISSED_DISPATCH_GRACE))
         .filter(
-            Q(status=CohortPopulationStatus.PENDING, dispatched_at__isnull=True)
-            | Q(status=CohortPopulationStatus.PENDING, dispatched_at__lte=now - MISSED_DISPATCH_GRACE)
+            Q(status=CohortPopulationStatus.PENDING)
             | Q(status=CohortPopulationStatus.RETRY_SCHEDULED, next_attempt_at__lte=now)
             | Q(status=CohortPopulationStatus.RUNNING, lease_expires_at__lte=now)
         )

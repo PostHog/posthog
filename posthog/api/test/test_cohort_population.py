@@ -306,3 +306,19 @@ class TestCohortPopulationAdmission(ClickhouseTestMixin, APIBaseTest):
         operation.refresh_from_db()
         assert operation.status == CohortPopulationStatus.COMPLETED
         assert count_cohort_members(team_id=self.team.pk, cohort_id=cohort_id, consistency="strong") == 1
+
+    def test_creating_with_person_ids_answers_with_the_cohort_when_the_write_does_not_finish(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["someone"])
+        flush_persons_and_events()
+
+        with patch.object(runner, "_resolve_and_insert", side_effect=ConnectionError("personhog went away")):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/cohorts/",
+                {"name": "from people", "is_static": True, "_create_static_person_ids": [str(person.uuid)]},
+                format="multipart",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert body["population"]["status"] == CohortPopulationStatus.RETRY_SCHEDULED
+        assert lifecycle.unresolved_operation_for(body["id"]) is not None

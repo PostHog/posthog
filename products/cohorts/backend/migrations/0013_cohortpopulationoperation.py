@@ -148,10 +148,7 @@ class Migration(migrations.Migration):
                         name="cohort_pop_cohort_created_idx",
                     ),
                     models.Index(
-                        condition=models.Q(
-                            ("input_deleted_at__isnull", True),
-                            ("input_expires_at__isnull", False),
-                        ),
+                        condition=models.Q(("input_manifest__isnull", False)),
                         fields=["input_expires_at"],
                         name="cohort_pop_input_expiry_idx",
                     ),

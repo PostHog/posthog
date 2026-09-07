@@ -169,9 +169,12 @@ _RETRYABLE_METHODS = frozenset(
         "CheckCohortMembership",
         "CountCohortMembers",
         "ListCohortMemberIds",
-        "InsertCohortMembers",
     }
 )
+# InsertCohortMembers is deliberately absent. posthog_cohortpeople has no unique index on the
+# membership pair, and a transport retry can overlap a first attempt the server is still running,
+# so both can pass the existence check and insert. The population runner retries that write at the
+# operation level instead, after a backoff that outlives the first attempt.
 
 
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):

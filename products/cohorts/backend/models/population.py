@@ -132,7 +132,7 @@ class CohortPopulationOperation(TeamScopedRootMixin, UUIDModel):
             # The input reaper is likewise fleet-wide, and only ever wants rows still holding input.
             models.Index(
                 fields=["input_expires_at"],
-                condition=Q(input_deleted_at__isnull=True, input_expires_at__isnull=False),
+                condition=Q(input_manifest__isnull=False),
                 name="cohort_pop_input_expiry_idx",
             ),
         ]

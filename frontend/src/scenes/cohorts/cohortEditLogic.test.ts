@@ -212,6 +212,25 @@ describe('cohortEditLogic', () => {
             logic.unmount()
         })
 
+        it('keeps polling a legacy calculation even when the record shows a finished run', async () => {
+            await initCohortLogic({ id: 1 })
+            jest.useFakeTimers()
+            try {
+                api.get.mockClear()
+                logic.actions.checkIfFinishedCalculating({
+                    ...mockCohort,
+                    is_static: true,
+                    is_calculating: true,
+                    population: { ...population, status: 'completed' },
+                })
+                jest.advanceTimersByTime(1000)
+                expect(api.get.mock.calls.some(([url]) => String(url).includes('/cohorts/1'))).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+            logic.unmount()
+        })
+
         it('submits one recovery when the retry action is dispatched twice', async () => {
             await initCohortLogic({ id: 1 })
             let finish!: (value: CohortPopulationSummaryApi) => void

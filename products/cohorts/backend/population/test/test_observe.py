@@ -30,7 +30,7 @@ class TestCohortPopulationObservation(BaseTest):
     def test_every_status_and_source_is_published_even_when_empty(self) -> None:
         result = observe._observe()
 
-        assert result.active_operations[CohortPopulationStatus.PENDING, CohortPopulationSource.QUERY] == 0
+        assert result.unresolved_operations[CohortPopulationStatus.PENDING, CohortPopulationSource.QUERY] == 0
         assert result.recent_operations[CohortPopulationStatus.FAILED, CohortPopulationSource.LIST] == 0
         assert result.incomplete_imports[CohortPopulationSource.FEATURE_FLAG] == 0
 
@@ -38,12 +38,15 @@ class TestCohortPopulationObservation(BaseTest):
         self._operation("pending list")
         self._operation("pending query", source=CohortPopulationSource.QUERY)
         self._operation("retrying", status=CohortPopulationStatus.RETRY_SCHEDULED)
+        self._operation("failed", status=CohortPopulationStatus.FAILED)
 
         result = observe._observe()
 
-        assert result.active_operations[CohortPopulationStatus.PENDING, CohortPopulationSource.LIST] == 1
-        assert result.active_operations[CohortPopulationStatus.PENDING, CohortPopulationSource.QUERY] == 1
-        assert result.active_operations[CohortPopulationStatus.RETRY_SCHEDULED, CohortPopulationSource.LIST] == 1
+        assert result.unresolved_operations[CohortPopulationStatus.PENDING, CohortPopulationSource.LIST] == 1
+        assert result.unresolved_operations[CohortPopulationStatus.PENDING, CohortPopulationSource.QUERY] == 1
+        assert result.unresolved_operations[CohortPopulationStatus.RETRY_SCHEDULED, CohortPopulationSource.LIST] == 1
+        assert result.unresolved_operations[CohortPopulationStatus.FAILED, CohortPopulationSource.LIST] == 1
+        assert (CohortPopulationStatus.FAILED, CohortPopulationSource.LIST) not in result.oldest_active_age_seconds
 
     def test_the_oldest_unresolved_operation_sets_the_stall_age(self) -> None:
         self._operation("recent")

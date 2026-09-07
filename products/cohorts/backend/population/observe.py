@@ -16,6 +16,7 @@ from posthog.metrics import pushed_metrics_registry
 from products.cohorts.backend.models.population import (
     ACTIVE_COHORT_POPULATION_STATUSES,
     RESOLVED_COHORT_POPULATION_STATUSES,
+    UNRESOLVED_COHORT_POPULATION_STATUSES,
     CohortPopulationOperation,
     CohortPopulationSource,
     CohortPopulationStatus,
@@ -32,7 +33,7 @@ _SOURCES = tuple(CohortPopulationSource)
 class ObservationPass:
     """One pass's readings of the operations table, before they are published."""
 
-    active_operations: dict[tuple[str, str], int] = field(default_factory=dict)
+    unresolved_operations: dict[tuple[str, str], int] = field(default_factory=dict)
     oldest_active_age_seconds: dict[tuple[str, str], float] = field(default_factory=dict)
     recent_operations: dict[tuple[str, str], int] = field(default_factory=dict)
     incomplete_imports: dict[str, int] = field(default_factory=dict)
@@ -54,22 +55,25 @@ def _observe() -> ObservationPass:
     # from a value to no data rather than to zero.
     for source in _SOURCES:
         result.incomplete_imports[source] = 0
+        for status in UNRESOLVED_COHORT_POPULATION_STATUSES:
+            result.unresolved_operations[status, source] = 0
         for status in ACTIVE_COHORT_POPULATION_STATUSES:
-            result.active_operations[status, source] = 0
             result.oldest_active_age_seconds[status, source] = 0.0
         for status in (*RESOLVED_COHORT_POPULATION_STATUSES, CohortPopulationStatus.FAILED):
             result.recent_operations[status, source] = 0
 
-    active = (
+    unresolved = (
         CohortPopulationOperation.objects.unscoped()
-        .filter(status__in=ACTIVE_COHORT_POPULATION_STATUSES)
+        .filter(status__in=UNRESOLVED_COHORT_POPULATION_STATUSES)
         .values("status", "source")
         .annotate(operations=Count("id"), oldest=Min("updated_at"))
     )
-    for row in active:
+    for row in unresolved:
         key = (row["status"], row["source"])
-        result.active_operations[key] = row["operations"]
-        result.oldest_active_age_seconds[key] = (now - row["oldest"]).total_seconds()
+        result.unresolved_operations[key] = row["operations"]
+        # A failed operation waits for a person, not for a worker, so its age is not a stall.
+        if row["status"] in ACTIVE_COHORT_POPULATION_STATUSES:
+            result.oldest_active_age_seconds[key] = (now - row["oldest"]).total_seconds()
 
     recent = (
         CohortPopulationOperation.objects.unscoped()
@@ -124,7 +128,7 @@ def _publish(result: ObservationPass, registry: CollectorRegistry) -> None:
         registry=registry,
     )
 
-    for (status, source), operations in result.active_operations.items():
+    for (status, source), operations in result.unresolved_operations.items():
         operations_active.labels(status=status, source=source).set(operations)
     for (status, source), age in result.oldest_active_age_seconds.items():
         oldest_active_age.labels(status=status, source=source).set(age)

@@ -108,6 +108,7 @@ def start_reconciliation(cohort: Cohort) -> CohortPopulationOperation:
         team_id=cohort.team_id,
         source=CohortPopulationSource.RECONCILE,
         progress=PopulationProgress(source_materialized=True),
+        dispatched_at=django_timezone.now(),
     )
 
 

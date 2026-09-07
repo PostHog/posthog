@@ -24,9 +24,6 @@ class FakeObjectStorage:
             raise KeyError(key)
         return self.objects.get(key)
 
-    def head_object_strict(self, key: str):
-        return {"ContentLength": len(self.objects[key])} if key in self.objects else None
-
     def delete_objects(self, keys: list[str]) -> list[str]:
         for key in keys:
             self.objects.pop(key, None)
@@ -38,6 +35,7 @@ def fake_population_storage():
     storage = FakeObjectStorage()
     with (
         patch.object(input_store, "object_storage", storage),
+        patch.object(input_store, "_require_storage", return_value=storage),
         patch.object(
             input_store,
             "_input_keys",

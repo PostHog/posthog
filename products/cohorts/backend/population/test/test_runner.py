@@ -7,6 +7,10 @@ from django.db import OperationalError
 from django.db.models.query import QuerySet
 from django.test import override_settings
 
+import requests
+from parameterized import parameterized
+from requests.exceptions import HTTPError
+
 from posthog.api.services.flags_service import FlagVersionConflictError
 from posthog.test.persons import create_person
 
@@ -27,6 +31,7 @@ from products.cohorts.backend.population.admission import (
     admit_list_population,
     admit_query_or_filters_population,
 )
+from products.cohorts.backend.population.flag_pages import COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER
 from products.cohorts.backend.population.progress import PopulationProgress
 from products.cohorts.backend.population.test.storage_fake import fake_population_storage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -422,6 +427,23 @@ class TestCohortPopulationRunnerFeatureFlagSource(ClickhouseTestMixin, APIBaseTe
         assert operation.phase == CohortPopulationPhase.WRITING_MEMBERSHIP
         assert self.storage.objects != {}
 
+    def test_evaluation_errors_reported_by_a_page_are_counted_rather_than_dropped(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["flagged"])
+        flush_persons_and_events()
+        operation = self._admit()
+        errors_before = COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER._value.get()
+
+        with patch.object(
+            runner,
+            "batch_evaluate_flag_page_with_retries",
+            return_value={"matched_person_uuids": [str(person.uuid)], "next_cursor": None, "errors_count": 3},
+        ):
+            runner.run_operation(operation.pk, max_work_units=50)
+
+        operation.refresh_from_db()
+        assert operation.status == CohortPopulationStatus.COMPLETED
+        assert COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER._value.get() == errors_before + 3
+
     def test_a_flag_definition_that_changes_mid_run_fails_the_run_rather_than_mixing_two(self) -> None:
         operation = self._admit()
 
@@ -449,3 +471,21 @@ class TestCohortPopulationRunnerFeatureFlagSource(ClickhouseTestMixin, APIBaseTe
         assert operation.status == CohortPopulationStatus.COMPLETED
         assert self.cohort.is_calculating is False
         assert self.cohort.count == 0
+
+
+def _http_error(status_code: int) -> HTTPError:
+    response = requests.Response()
+    response.status_code = status_code
+    return HTTPError(response=response)
+
+
+@parameterized.expand(
+    [
+        ("rejected_request", _http_error(400), False),
+        ("missing_flag", _http_error(404), False),
+        ("throttled", _http_error(429), True),
+        ("service_error", _http_error(503), True),
+    ]
+)
+def test_only_transient_flag_service_responses_are_retried(_name: str, error: Exception, retryable: bool) -> None:
+    assert runner._is_retryable(error) is retryable

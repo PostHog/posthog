@@ -170,9 +170,19 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                     mountedDataNodeLogic?.actions.loadData('force_blocking')
                 }
                 actions.hideAddPersonToCohortModal()
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Failed to add person to cohort:', error)
-                lemonToast.error('Unable to add person to cohort')
+                lemonToast.error(error.detail || 'Unable to add person to cohort')
+                // The cohort now carries the run that did not finish. Reload it so the page shows
+                // that run and follows it, instead of offering the same add again.
+                const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId })
+                if (mountedCohortEditLogic) {
+                    try {
+                        mountedCohortEditLogic.actions.checkIfFinishedCalculating(await api.cohorts.get(cohortId))
+                    } catch {
+                        // The toast above already reports the failure.
+                    }
+                }
             } finally {
                 actions.setCohortUpdating(false)
             }

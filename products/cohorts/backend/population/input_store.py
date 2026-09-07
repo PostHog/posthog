@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.conf import settings
 
@@ -36,11 +36,12 @@ def normalize_identifiers(identifiers: list[str], id_type: str) -> list[str]:
     if id_type not in SUPPORTED_ID_TYPES:
         raise ValueError(f"Unsupported id_type: {id_type}")
 
-    normalize = str.lower if id_type == "email" else lambda value: value
+    # Emails keep their case: the ClickHouse lookup compares the stored address verbatim, so
+    # folding case here would drop people whose stored address has capitals.
     seen: set[str] = set()
     normalized: list[str] = []
     for raw in identifiers:
-        candidate = normalize(raw.strip())
+        candidate = raw.strip()
         if candidate and id_type == "person_id":
             candidate = str(UUID(candidate))
         if not candidate or candidate in seen:
@@ -83,28 +84,29 @@ def write_input(
 
 
 def append_chunk(manifest: dict[str, Any], identifiers: list[str]) -> dict[str, Any]:
-    """Add one more chunk to an existing manifest, returning the updated manifest."""
+    """Add one more chunk to an existing manifest, returning the updated manifest.
+
+    The key comes from the index, so the manifest stays the same size however many pages a run
+    fetches. Only the attempt holding the lease can reach this write: a work unit finishes inside
+    the lease, and a replacement attempt starts only after the lease has expired.
+    """
     normalized = normalize_identifiers(identifiers, manifest["id_type"])
     index = manifest["chunks"]
-    # A replaced attempt must never overwrite a page referenced by the current owner's checkpoint.
-    key = f"{manifest['prefix']}/page-{uuid4()}.json"
-    _write_chunk(key, normalized)
-    return {
-        **manifest,
-        "chunks": index + 1,
-        "total": manifest["total"] + len(normalized),
-        "chunk_keys": [*manifest.get("chunk_keys", []), key],
-    }
+    _write_chunk(_chunk_key(manifest["prefix"], index), normalized)
+    return {**manifest, "chunks": index + 1, "total": manifest["total"] + len(normalized)}
 
 
 def _write_chunk(key: str, identifiers: list[str]) -> None:
+    _require_storage()
     object_storage.write(key, json.dumps(identifiers))
-    if object_storage.head_object_strict(key) is None:
-        raise ObjectStorageError("Population input was not persisted")
 
 
-def chunk_key(manifest: dict[str, Any], index: int) -> str:
-    return manifest["chunk_keys"][index] if "chunk_keys" in manifest else _chunk_key(manifest["prefix"], index)
+def _require_storage() -> ObjectStorage:
+    """The unavailable client accepts writes silently, which would admit a run that has no input."""
+    storage = object_storage.object_storage_client()
+    if not isinstance(storage, ObjectStorage):
+        raise ObjectStorageError("Population input storage is unavailable")
+    return storage
 
 
 def empty_manifest(*, team_id: int, operation_id: UUID | str, id_type: str) -> dict[str, Any]:
@@ -124,7 +126,7 @@ def read_chunk(manifest: dict[str, Any], index: int) -> list[str]:
     if index >= manifest["chunks"]:
         raise CohortPopulationInputMissing(f"chunk {index} is past the manifest's {manifest['chunks']} chunks")
 
-    raw = object_storage.read(chunk_key(manifest, index), missing_ok=True)
+    raw = object_storage.read(_chunk_key(manifest["prefix"], index), missing_ok=True)
     if raw is None:
         raise CohortPopulationInputMissing(f"chunk {index} of {manifest['prefix']} is no longer in storage")
     return json.loads(raw)
@@ -136,7 +138,7 @@ def input_is_readable(manifest: dict[str, Any] | None, *, start: int = 0) -> boo
         return False
     if manifest.get("chunks", 0) == 0:
         return True
-    remaining = {chunk_key(manifest, index) for index in range(start, manifest["chunks"])}
+    remaining = {_chunk_key(manifest["prefix"], index) for index in range(start, manifest["chunks"])}
     # Listing is paginated; a large upload must not require one HTTP request per retained chunk.
     for key in _input_keys(manifest["prefix"]):
         remaining.discard(key)
@@ -161,9 +163,7 @@ def delete_input(manifest: dict[str, Any] | None) -> None:
 
 
 def _input_keys(prefix: str) -> Iterator[str]:
-    storage = object_storage.object_storage_client()
-    if not isinstance(storage, ObjectStorage):
-        raise ObjectStorageError("Population input storage is unavailable")
+    storage = _require_storage()
     try:
         pages = storage.aws_client.get_paginator("list_objects_v2").paginate(
             Bucket=settings.OBJECT_STORAGE_BUCKET, Prefix=f"{prefix}/"

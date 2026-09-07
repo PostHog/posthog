@@ -17,6 +17,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.storage.object_storage import ObjectStorageError, UnavailableStorage
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
     COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
@@ -43,6 +44,7 @@ from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
+from products.cohorts.backend.population import input_store
 
 MISSING_COHORT_ID = 12345
 
@@ -1687,6 +1689,23 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 1)
         self.assertIsNotNone(cohort.last_error_at)
+
+    @override_settings(COHORT_POPULATION_DURABLE_ADMISSION_TEAM_ALLOWLIST="all")
+    def test_records_failure_when_durable_admission_cannot_store_the_list(self) -> None:
+        # A message queued before the allowlist flipped still carries its list, and storing that
+        # list is the first thing the durable path does. A storage outage there has no run to
+        # recover from, so it must release the cohort like any other final failure.
+        cohort = self._create_static_cohort()
+
+        with (
+            patch.object(input_store.object_storage, "object_storage_client", return_value=UnavailableStorage()),
+            self.assertRaises(ObjectStorageError),
+        ):
+            self._run_task(cohort, retries=0, called_directly=True)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
 
     @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_leaves_state_untouched_while_retries_remain(self, mock_insert_ch: MagicMock) -> None:

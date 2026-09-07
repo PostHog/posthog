@@ -250,6 +250,8 @@ class TestCohortPopulationOperationLifecycle(BaseTest):
         operation.refresh_from_db()
         lifecycle.request_abandon(operation)
 
+        operation.refresh_from_db()
+        assert operation.status == CohortPopulationStatus.PENDING
         assert lifecycle.claim(operation.pk, worker="worker-b") is not None
 
     def test_a_live_attempt_still_holds_its_lease_against_an_abandon_request(self) -> None:

@@ -1234,9 +1234,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            const populationActive = cohort.population
-                ? ['pending', 'running', 'retry_scheduled'].includes(cohort.population.status)
-                : cohort.is_calculating || checkIsPendingCalculation(cohort)
+            // A finished run on the record must not hide a legacy calculation that is still going,
+            // which is what a team sees once durable admission is switched off again.
+            const populationActive =
+                (cohort.population != null &&
+                    ['pending', 'running', 'retry_scheduled'].includes(cohort.population.status)) ||
+                cohort.is_calculating ||
+                checkIsPendingCalculation(cohort)
             actions.setCohort({
                 ...values.cohort,
                 is_calculating: cohort.is_calculating,

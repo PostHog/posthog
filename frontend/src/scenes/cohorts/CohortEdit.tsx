@@ -629,7 +629,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     disabledReason={
                                                         cohort.population &&
                                                         !['completed', 'abandoned'].includes(cohort.population.status)
-                                                            ? 'Finish or stop the current population before editing membership.'
+                                                            ? 'This cohort has an unfinished run. Wait for it to finish, or stop it, before changing members.'
                                                             : undefined
                                                     }
                                                     accept=".csv"
@@ -713,7 +713,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     disabledReason={
                                                         cohort.population &&
                                                         !['completed', 'abandoned'].includes(cohort.population.status)
-                                                            ? 'Finish or stop the current population before editing membership.'
+                                                            ? 'This cohort has an unfinished run. Wait for it to finish, or stop it, before changing members.'
                                                             : undefined
                                                     }
                                                     data-attr="cohort-add-users-modal-open"

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from django.db import transaction
+from django.utils import timezone as django_timezone
 
 from posthog.models.utils import uuid7
 
@@ -46,6 +49,7 @@ def admit_list_population(
             source=CohortPopulationSource.LIST,
             input_manifest=manifest,
             created_by_id=created_by_id,
+            dispatched_at=_dispatched_at(dispatch),
         )
     except Exception:
         try:
@@ -73,6 +77,7 @@ def admit_query_or_filters_population(
         source=source,
         created_by_id=created_by_id,
         source_config={"query": cohort.query, "filters": cohort.filters},
+        dispatched_at=_dispatched_at(dispatch),
     )
     _dispatch_if_asked(operation, dispatch)
     return operation
@@ -98,9 +103,14 @@ def admit_feature_flag_population(
         source=CohortPopulationSource.FEATURE_FLAG,
         input_manifest=manifest,
         created_by_id=created_by_id,
+        dispatched_at=_dispatched_at(dispatch),
     )
     _dispatch_if_asked(operation, dispatch)
     return operation
+
+
+def _dispatched_at(dispatch: bool) -> datetime | None:
+    return django_timezone.now() if dispatch else None
 
 
 def _dispatch_if_asked(operation: CohortPopulationOperation, dispatch: bool) -> None:

@@ -22,7 +22,12 @@ class TestCohortPopulationInputStore:
         [
             ("blank_and_whitespace", "distinct_id", ["a", "  ", "", " b "], ["a", "b"]),
             ("keeps_first_seen_order", "distinct_id", ["c", "a", "c", "b", "a"], ["c", "a", "b"]),
-            ("emails_fold_case", "email", ["A@example.com", "a@EXAMPLE.com"], ["a@example.com"]),
+            (
+                "emails_keep_their_case",
+                "email",
+                [" A@example.com ", "A@example.com", "a@example.com"],
+                ["A@example.com", "a@example.com"],
+            ),
             (
                 "uuids_are_canonical",
                 "person_id",

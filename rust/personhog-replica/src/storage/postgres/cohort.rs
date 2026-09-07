@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt, TryStreamExt};
 use sqlx::Acquire;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
@@ -13,20 +12,13 @@ use crate::storage::error::StorageResult;
 use crate::storage::traits::CohortStorage;
 use crate::storage::types::CohortMembership;
 
-/// Serialize the existence check because the membership pair has no unique constraint.
+/// Insert one chunk on a connection whose transaction already holds the cohort's advisory lock.
 async fn insert_cohort_members_chunk(
-    pool: &sqlx::PgPool,
+    conn: &mut sqlx::PgConnection,
     cohort_id: i64,
     person_ids: &[i64],
     version: Option<i32>,
 ) -> StorageResult<i64> {
-    let mut conn = PostgresStorage::acquire_timed(pool, "bulk_primary").await?;
-    let mut tx = conn.begin().await?;
-    // Use a separate statement so the insert gets a fresh snapshot after waiting for the lock.
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
-        .bind(cohort_id)
-        .execute(&mut *tx)
-        .await?;
     let result = sqlx::query!(
         r#"
         INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
@@ -42,9 +34,8 @@ async fn insert_cohort_members_chunk(
         person_ids,
         version,
     )
-    .execute(&mut *tx)
+    .execute(&mut *conn)
     .await?;
-    tx.commit().await?;
     Ok(result.rows_affected() as i64)
 }
 
@@ -256,29 +247,31 @@ impl CohortStorage for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // Split into fixed-size chunks inserted concurrently on the bulk pool, mirroring
-        // delete_persons. Each chunk dedups with NOT EXISTS, so a retry of the full list
-        // sees the already-committed rows and skips them — idempotent without a unique index.
-        let pool = self.bulk_primary_pool.clone();
-        let chunks: Vec<Vec<i64>> = person_ids
-            .chunks(self.bulk_chunk_size)
-            .map(|c| c.to_vec())
-            .collect();
+        let chunks: Vec<&[i64]> = person_ids.chunks(self.bulk_chunk_size).collect();
         common_metrics::histogram(
             DB_BULK_CHUNKS,
             &[("operation".to_string(), "insert_cohort_members".to_string())],
             chunks.len() as f64,
         );
 
-        let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
-            let pool = pool.clone();
-            async move { insert_cohort_members_chunk(&pool, cohort_id, &chunk, version).await }
-        }))
-        .buffer_unordered(self.bulk_max_concurrent_chunks)
-        .try_collect()
-        .await?;
-
-        let inserted: i64 = results.iter().sum();
+        // The membership pair has no unique constraint, so the existence check runs under a
+        // per-cohort advisory lock: an overlapping insert for the same cohort waits, then sees
+        // the committed rows and skips them. Chunks of one call would only queue on that lock,
+        // so they share one connection and one transaction instead of each holding a bulk
+        // connection while they wait.
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
+        let mut tx = conn.begin().await?;
+        // A separate statement, so the insert takes its snapshot after the lock is granted.
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(cohort_id)
+            .execute(&mut *tx)
+            .await?;
+        let mut inserted: i64 = 0;
+        for chunk in chunks {
+            inserted += insert_cohort_members_chunk(&mut tx, cohort_id, chunk, version).await?;
+        }
+        tx.commit().await?;
         common_metrics::histogram(
             DB_ROWS_RETURNED,
             &[
