@@ -42,6 +42,10 @@ describe('loginTelemetryLogic', () => {
                 '/api/login/precheck': precheckHandler,
                 '/api/login': () => [401, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
                 '/api/reset/': () => [200, { success: true }],
+                '/api/login/code-based-verification': () => [
+                    429,
+                    { code: 'throttled', detail: 'Request was throttled.' },
+                ],
             },
         })
         initKeaTests()
@@ -64,21 +68,24 @@ describe('loginTelemetryLogic', () => {
         login.actions.submitLogin()
         await expectLogic(login).toDispatchActions(['setGeneralError'])
 
-        expect(captureCount('login attempted')).toBe(1)
+        expect(capturedProperties('login attempted')).toMatchObject({ method: 'password' })
         expect(capturedProperties('login failed')).toMatchObject({
             step: 'login',
             error_code: 'invalid_credentials',
         })
     })
 
-    it('reports the step that rejected a verification code', () => {
-        login.actions.setCodeVerificationManualErrors({ code: 'This code is invalid or has expired.' })
+    // A throttle and an expired code are different failures. Reporting the rejected response, not the
+    // banner text, is what keeps them apart.
+    it('reports the reason the verification code was rejected', async () => {
+        login.actions.setCodeVerificationValue('code', '123456')
+        login.actions.submitCodeVerification()
+        await expectLogic(login).toDispatchActions(['submitCodeVerificationFailure']).toFinishAllListeners()
 
-        expect(capturedProperties('login failed')).toMatchObject({ step: 'code', error_code: 'invalid_code' })
+        expect(capturedProperties('login failed')).toMatchObject({ step: 'code', error_code: 'throttled' })
     })
 
-    // Editing the code clears the manual error through the same action, which must not read as a
-    // second failure.
+    // Editing the code clears the manual error, which must not read as a second failure.
     it('does not report the clearing of a code error', () => {
         login.actions.setCodeVerificationManualErrors({})
 
@@ -104,6 +111,33 @@ describe('loginTelemetryLogic', () => {
         reset.unmount()
 
         expect(captureCount('password reset requested')).toBe(1)
+    })
+
+    // The server redirects a failed SSO sign-in back to /login?error_code=..., and kea-router replays
+    // that URL while loginLogic mounts, before this logic exists. That is the case where the person
+    // is most stuck, so it must not fall through the gap.
+    it('reports an error that loginLogic already held when it mounted', () => {
+        logic.unmount()
+        login.unmount()
+        router.actions.push('/login?error_code=improperly_configured_sso&error_detail=Check+your+SSO+setup')
+        login = loginLogic()
+        login.mount()
+        logic = loginTelemetryLogic()
+        logic.mount()
+
+        expect(capturedProperties('login failed')).toMatchObject({
+            step: 'login',
+            error_code: 'improperly_configured_sso',
+        })
+        expect(captureCount('login failed')).toBe(1)
+    })
+
+    // The passkey prompt opens on its own after the precheck, so its failures are not attempts the
+    // person made. A funnel that counts driven attempts has to be able to drop them.
+    it('gives a passkey failure its own step', () => {
+        login.actions.setGeneralError('passkey_error', 'Passkey login failed')
+
+        expect(capturedProperties('login failed')).toMatchObject({ step: 'passkey' })
     })
 
     // An error raised while the auth scenes are gone — a failed passkey re-authentication inside the
