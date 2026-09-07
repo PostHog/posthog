@@ -112,33 +112,37 @@ def build_findings(failures: list[tuple[dict, bool]]) -> dict[str, list[dict]]:
 
 def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
     """Scan one tree with jscpd and return its clone list."""
-    proc = subprocess.run(
-        [
-            "npx",
-            "--yes",
-            f"jscpd@{JSCPD_VERSION}",
-            "--format",
-            FORMATS,
-            "--min-lines",
-            str(SCAN_MIN_LINES),
-            "--min-tokens",
-            str(SCAN_MIN_TOKENS),
-            "--skip-comments",
-            "--reporters",
-            "json",
-            "--output",
-            str(out_dir),
-            "--ignore",
-            IGNORE,
-            ".",
-        ],
-        capture_output=True,
-        text=True,
-        # Two scans must finish inside the CI job's timeout-minutes, or the
-        # job dies before the failure section can post.
-        timeout=SCAN_TIMEOUT_SECONDS,
-        cwd=scan_root,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                "npx",
+                "--yes",
+                f"jscpd@{JSCPD_VERSION}",
+                "--format",
+                FORMATS,
+                "--min-lines",
+                str(SCAN_MIN_LINES),
+                "--min-tokens",
+                str(SCAN_MIN_TOKENS),
+                "--skip-comments",
+                "--reporters",
+                "json",
+                "--output",
+                str(out_dir),
+                "--ignore",
+                IGNORE,
+                ".",
+            ],
+            capture_output=True,
+            text=True,
+            # Two scans must finish inside the CI job's timeout-minutes, or the
+            # job dies before the failure section can post.
+            timeout=SCAN_TIMEOUT_SECONDS,
+            cwd=scan_root,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"duplication lint could not run: jscpd exceeded {SCAN_TIMEOUT_SECONDS}s scanning {scan_root}")
+        raise SystemExit(2) from None
     report_path = out_dir / "jscpd-report.json"
     if proc.returncode != 0 or not report_path.exists():
         print(proc.stdout[-3000:])
