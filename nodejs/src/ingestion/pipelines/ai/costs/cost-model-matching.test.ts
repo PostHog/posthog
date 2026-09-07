@@ -18,8 +18,7 @@ jest.mock('./providers', () => {
                 openai: { prompt_token: 0.00000015, completion_token: 0.0000006 },
             },
         },
-        // Mirrors the synced book's real gpt-5-mini row: flex at 0.5x, fast at 2x, and the
-        // per-search fee undiscounted on every tier.
+        // Mirrors the synced book's real gpt-5-mini row.
         'openai/gpt-5-mini': {
             model: 'openai/gpt-5-mini',
             cost: {
@@ -159,7 +158,6 @@ describe('service tier pricing', () => {
         // Silently pricing flex at standard rates overstates every flex call 2x.
         expect(result?.cost.provider).toBe('openai-flex')
         expect(result?.cost.cost.prompt_token).toBe(0.000000125)
-        // The flex row keeps the undiscounted per-search fee, which a blanket multiplier could not.
         expect(result?.cost.cost.web_search).toBe(0.01)
     })
 
@@ -195,6 +193,18 @@ describe('service tier pricing', () => {
         const result = findCostFromModel('gpt-5-mini', {
             $ai_provider: 'openai',
             $ai_model_parameters: { service_tier: tier },
+        })
+        expect(result?.cost.provider).toBe('openai')
+        expect(result?.cost.cost.prompt_token).toBe(0.00000025)
+    })
+
+    it('prices error events at standard even when they carry a tier', () => {
+        // SDK error paths capture the requested tier with partial usage; a tier that was
+        // never confirmed served must not discount those tokens.
+        const result = findCostFromModel('gpt-5-mini', {
+            $ai_provider: 'openai',
+            $ai_is_error: true,
+            $ai_model_parameters: { service_tier: 'flex' },
         })
         expect(result?.cost.provider).toBe('openai')
         expect(result?.cost.cost.prompt_token).toBe(0.00000025)

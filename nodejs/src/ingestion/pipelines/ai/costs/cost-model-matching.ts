@@ -78,8 +78,14 @@ const getAiProvider = (properties: Properties): string | undefined => {
 }
 
 // From the provider's response via the SDK; a requested tier can be refused, so request-side
-// properties never price.
+// properties never price. Error events are excluded: SDK error paths capture the requested
+// tier (no response arrived to overwrite it), so their partial usage prices at standard.
 const getServedServiceTier = (properties: Properties): unknown => {
+    const isError = properties['$ai_is_error']
+    if (isError === true || isError === 'true') {
+        return undefined
+    }
+
     const modelParameters: unknown = properties['$ai_model_parameters']
 
     return modelParameters && typeof modelParameters === 'object'
