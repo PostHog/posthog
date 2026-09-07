@@ -412,6 +412,26 @@ describe("PiSessionController", () => {
     );
   });
 
+  it("reports an actionable message for a connection failure with no text", async () => {
+    const provider: PiSessionProvider = {
+      get: vi.fn(async () => {
+        throw { retryable: true };
+      }),
+    };
+    const controller = new PiSessionController(provider, {
+      openTask: vi.fn(async () => ({ success: true })),
+    } as unknown as TaskService);
+
+    await expect(controller.connect("task-1")).rejects.toBeDefined();
+
+    expect(controller.store.getState().sessions["task-1"].error).toMatchObject({
+      scope: "connection",
+      title: "Connection failed",
+      message:
+        "Couldn't reach the agent for this task. Retry, or restart to open it in a new session.",
+    });
+  });
+
   it("keeps fatal runtime errors in a retryable disconnected state", async () => {
     let onEvent: (event: AgentConversationEvent) => void = () => {};
     const session = createSession();

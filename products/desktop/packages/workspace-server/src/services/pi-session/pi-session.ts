@@ -170,11 +170,10 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);
 
-    return this.startSession(taskId, client, session, async () => {
+    return this.startSession(taskId, client, session, async (state) => {
       if (input.thinkingLevel) {
         await client.setThinkingLevel(input.thinkingLevel);
       }
-      const state = await client.getState();
 
       if (!state.sessionFile) {
         throw new Error(
@@ -214,10 +213,15 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     }
 
     const metadata = this.taskMetadataRepository.findByTaskId(taskId);
-    const sessionFile = metadata?.piSessionFile;
+    const sessionFile = metadata?.piSessionFile ?? undefined;
 
+    // The session file row only exists on the machine that started the task, so
+    // a synced task, a second device, or a reinstall has none. Start a fresh
+    // session there instead of leaving the task unopenable.
     if (!sessionFile) {
-      throw new Error(`Pi session metadata is missing for task ${taskId}`);
+      this.log.warn("No local Pi session file, starting a new session", {
+        taskId,
+      });
     }
 
     await this.stopLocked(taskId);
@@ -229,7 +233,13 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);
 
-    await this.startSession(taskId, client, session, async () => {});
+    await this.startSession(taskId, client, session, async (state) => {
+      if (!sessionFile && state.sessionFile) {
+        this.taskMetadataRepository.upsert(taskId, {
+          piSessionFile: state.sessionFile,
+        });
+      }
+    });
   }
 
   request(taskId: string, command: RpcCommand): Promise<RpcResponse> {
@@ -477,7 +487,9 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     taskId: string,
     client: PiRpcClient,
     session: ManagedPiSession,
-    initialize: () => Promise<T>,
+    initialize: (
+      state: Awaited<ReturnType<PiRpcClient["getState"]>>,
+    ) => Promise<T>,
   ): Promise<T> {
     try {
       await client.start();
@@ -487,7 +499,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       session.state = state.isStreaming ? "streaming" : "idle";
       this.touchSession(session);
 
-      const result = await initialize();
+      const result = await initialize(state);
       await this.enforceHotPoolLimit(taskId);
 
       return result;

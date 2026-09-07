@@ -138,6 +138,9 @@ export class PiOperationError extends Error {
   }
 }
 
+const UNMAPPED_SESSION_ERROR_MESSAGE =
+  "Couldn't reach the agent for this task. Retry, or restart to open it in a new session.";
+
 function normalizeSessionError(error: unknown): {
   title: string;
   message: string;
@@ -148,9 +151,15 @@ function normalizeSessionError(error: unknown): {
     message?: unknown;
     retryable?: unknown;
   };
+  // An unmapped transport failure carries no text a person can act on, so tell
+  // them what to do instead of showing the internal message.
+  const message =
+    typeof value?.message === "string" && value.message.trim().length > 0
+      ? value.message
+      : UNMAPPED_SESSION_ERROR_MESSAGE;
   return {
     title: typeof value?.title === "string" ? value.title : "Connection failed",
-    message: typeof value?.message === "string" ? value.message : String(error),
+    message,
     retryable: value?.retryable !== false,
   };
 }
