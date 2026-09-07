@@ -278,7 +278,6 @@ class InsecureAgent extends Agent {
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
-// undici also uses keepAliveTimeout as the idle timeout of an HTTP/2 session.
 function makeSecureDispatcher({
     allowH2,
     keepAliveTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
