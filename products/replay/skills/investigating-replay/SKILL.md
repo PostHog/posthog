@@ -96,11 +96,10 @@ LIMIT 100
 
 #### No rows? Recover the event session ID
 
-The recording `id` normally equals the event `$session_id`, so the queries above
-return the session's events. In rare cases the two do not match and the query
-returns no rows. When that happens, find the event `$session_id` from the
-person's events in the recording's time window. Use the recording's `distinct_id`,
-`start_time`, and `end_time` from Step 1:
+The recording `id` is the session ID. No rows means the session's events were
+ingested without it. Find candidates from the person's events in the recording
+window, padded by 100 seconds like the replay events query. `person_id` covers
+all of the person's distinct IDs:
 
 ```sql
 posthog:execute-sql
@@ -110,18 +109,18 @@ SELECT
     min(timestamp) AS first_seen,
     max(timestamp) AS last_seen
 FROM events
-WHERE distinct_id = '<distinct_id>'
-    AND timestamp >= '<start_time>'
-    AND timestamp <= '<end_time>'
+WHERE person_id = '<person_uuid>'
+    AND timestamp >= toDateTime('<start_time>') - INTERVAL 100 SECOND
+    AND timestamp <= toDateTime('<end_time>') + INTERVAL 100 SECOND
     AND properties.$session_id IS NOT NULL
 GROUP BY session_id
 ORDER BY event_count DESC
 LIMIT 10
 ```
 
-Continue only when one session ID is clearly the match. Re-run the Step 2 queries
-with that `$session_id`. Keep the recording `id` for the replay URL. In this case
-it is not interchangeable with the event `$session_id`.
+Continue only when one session ID clearly matches. Use it for the Step 2 and
+Step 3 queries only. The replay URL and all Replay Vision calls take the
+recording `id`.
 
 ### Step 3 — Check for linked error tracking issues
 
