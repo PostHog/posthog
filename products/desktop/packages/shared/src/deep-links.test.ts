@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildInboxDeeplink,
   buildLoopDeeplink,
@@ -8,6 +8,10 @@ import {
   isPostHogCodeDeeplink,
   parseGitHubIssueUrl,
 } from "./deep-links";
+import {
+  parseDesktopPreviewManifest,
+  registerPreviewDeployment,
+} from "./desktop-preview";
 
 describe("getDeeplinkProtocol", () => {
   it("returns the dev or production scheme", () => {
@@ -182,6 +186,58 @@ describe("buildScoutDeeplink", () => {
   ])("$name", ({ skillName, findingId, isDevBuild, expected }) => {
     expect(buildScoutDeeplink(skillName, findingId, { isDevBuild })).toBe(
       expected,
+    );
+  });
+});
+
+describe("preview builds", () => {
+  const PREVIEW_SCHEME = "posthog-code-preview-pr-123";
+
+  beforeEach(() => {
+    registerPreviewDeployment(
+      parseDesktopPreviewManifest({
+        schemaVersion: 1,
+        kind: "desktop-preview",
+        repository: "PostHog/posthog",
+        prNumber: 123,
+        commitSha: "1".repeat(40),
+        backendOrigin: "https://preview.example.com",
+        gatewayBaseUrl: null,
+        oauthClientId: "example-public-client-id-1234",
+      }),
+    );
+  });
+
+  afterEach(() => {
+    registerPreviewDeployment(null);
+  });
+
+  // A preview registers only its own scheme, so a posthog-code:// link copied
+  // out of a preview opens the production app or nothing.
+  it.each<{ name: string; build: () => string; expected: string }>([
+    {
+      name: "inbox",
+      build: () => buildInboxDeeplink("abc-123", null, { isDevBuild: false }),
+      expected: `${PREVIEW_SCHEME}://inbox/abc-123`,
+    },
+    {
+      name: "loop",
+      build: () => buildLoopDeeplink("loop-1", { isDevBuild: false }),
+      expected: `${PREVIEW_SCHEME}://loop/loop-1`,
+    },
+    {
+      name: "scout",
+      build: () =>
+        buildScoutDeeplink("error-tracking", null, { isDevBuild: false }),
+      expected: `${PREVIEW_SCHEME}://scout/error-tracking`,
+    },
+  ])("emits the PR scheme for $name links", ({ build, expected }) => {
+    expect(build()).toBe(expected);
+  });
+
+  it("recognizes its own scheme, which markdown rendering gates on", () => {
+    expect(isPostHogCodeDeeplink(`${PREVIEW_SCHEME}://inbox/abc-123`)).toBe(
+      true,
     );
   });
 });
