@@ -476,6 +476,8 @@ def _build_labeled_users_cte(
     having_parts.extend(compiled_kind.anchor_having_parts)
     anchor_having = f"\n              HAVING {' AND '.join(having_parts)}" if having_parts else ""
 
+    # ifNull on the label: a property-filtered action predicate is NULL on rows that lack
+    # the property, and a user whose every in-horizon row is NULL must label 0, not NULL.
     # T0 sits at a fixed fraction (hash / 2^31) of the user's [first_ts, cutoff_ts) span. A
     # `hash % span` remainder would change every time cutoff_ts moved with now(), handing the
     # same person a different T0, features, and label on each run.
@@ -503,11 +505,11 @@ def _build_labeled_users_cte(
             SELECT
                 u.person_id AS person_id,
                 u.t0_ts AS t0_ts,
-                max(
+                ifNull(max(
                     {target_cond}
                     AND toInt(toUnixTimestamp(e.timestamp)) >= u.t0_ts
                     AND toInt(toUnixTimestamp(e.timestamp)) < u.t0_ts + ({{horizon}} * 86400)
-                ) AS positive
+                ), 0) AS positive
             FROM events e
             INNER JOIN user_t0 u ON e.person_id = u.person_id
             WHERE e.timestamp >= now() - toIntervalDay({{lookback}})
