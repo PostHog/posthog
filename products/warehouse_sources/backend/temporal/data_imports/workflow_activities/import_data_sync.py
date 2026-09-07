@@ -251,6 +251,15 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
         )
         return True
 
+    # A pending corruption revive outranks the checkpoint. The repair runs later in this same activity,
+    # rebuilds the table from source, and both repartition entry points already stand aside for the
+    # marker, so nothing will advance the rewrite meanwhile. Holding here would only postpone the
+    # repair of a hollow table until the checkpoint ages out, for a checkpoint the rebuild invalidates
+    # anyway. A staged swap still holds, because the revive is best-effort: if it cannot run, the merge
+    # below would land against a layout the schema row no longer describes.
+    if schema.delta_revive_required is not None:
+        return False
+
     # `repartition_holds_import` ages the checkpoint out, so a rewrite that stops advancing releases
     # the hold on its own — the worst case is a stale table, never a stopped one.
     if not schema.repartition_holds_import:

@@ -1140,15 +1140,25 @@ def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str
         # schema row still holds the old one. The merge derives each row's partition key from that
         # row and scopes its predicate to it, so merging across the gap matches nothing and inserts
         # every fetched row instead of upserting it.
-        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, False, True),
+        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, False, None, True),
         # A live rewrite checkpoint: the resume is fenced on the live Delta version, and this merge
         # is what moves it, so importing here restarts the rewrite from row 0 forever.
-        ("rewrite_checkpoint", None, True, True),
-        ("nothing_in_flight", None, False, False),
+        ("rewrite_checkpoint", None, True, None, True),
+        # The same checkpoint on a table waiting for its corruption revive. The repair runs later in
+        # this activity and rebuilds the table from source, so holding for a checkpoint the rebuild
+        # invalidates would only leave a hollow table broken until the hold ages out.
+        (
+            "rewrite_checkpoint_with_revive_pending",
+            None,
+            True,
+            {"reason": "repartition_scan_missing_data_file", "missing_path": "part-0.parquet"},
+            False,
+        ),
+        ("nothing_in_flight", None, False, None, False),
     ]
 )
 def test_an_in_flight_repartition_holds_the_import(
-    _name: str, swap: dict | None, holds_import: bool, expected: bool
+    _name: str, swap: dict | None, holds_import: bool, revive: dict | None, expected: bool
 ) -> None:
     schema = mock.MagicMock()
     schema.id = uuid.uuid4()
@@ -1157,6 +1167,7 @@ def test_an_in_flight_repartition_holds_the_import(
     schema.repartition_swap = swap
     schema.repartition_holds_import = holds_import
     schema.repartition_rewrite = {"rows_written": 10}
+    schema.delta_revive_required = revive
 
     with mock.patch.object(module, "capture_repartition_event"):
         held = module._import_held_for_repartition(schema, mock.MagicMock())
