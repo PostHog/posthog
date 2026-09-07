@@ -109,6 +109,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
+    "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
@@ -337,6 +338,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
+    if name == "customertask":
+        return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
     if name in ("visionalertconfiguration", "visionalertevent"):
@@ -552,7 +555,10 @@ class UserAccessControl:
         """Whether the principal created the object, which grants them the highest access to it.
         Creator is a property of the principal, so a subclass that resolves for someone other than
         the requesting user must override this."""
-        return getattr(obj, "created_by", None) == self._user
+        # Compare ids so callers do not need created_by hydrated on the object. Synthetic and
+        # anonymous principals have id None, and the guard keeps them from matching.
+        creator_id = getattr(obj, "created_by_id", None)
+        return creator_id is not None and creator_id == self._user.id
 
     # ------------------------------------------------------------
     # Access control helpers
