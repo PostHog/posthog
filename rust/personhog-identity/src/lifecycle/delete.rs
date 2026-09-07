@@ -425,6 +425,8 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
                 );
                 vanished.push(person_id);
             }
+            // FencePerson mints no semantic refusal today; adding one
+            // needs an abort path first (see the merge driver's).
             Err(status) => return Err(SagaError::leader(status)),
         }
     }
