@@ -17,6 +17,7 @@ from products.endpoints.backend.presentation.throttles import (
     _is_materialized_endpoint_request,
 )
 from products.endpoints.backend.rate_limit import (
+    MATERIALIZED_ENDPOINT_CACHE_TTL,
     STALE_STATE_RECHECK_TTL,
     _check_and_cache_materialization_status,
     check_materialized_request,
@@ -503,3 +504,39 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
 
         timeout = cache_set.call_args.kwargs["timeout"]
         self.assertAlmostEqual(timeout, expected_timeout, delta=5)
+
+    @parameterized.expand(
+        [
+            ("pending_first_run_rechecks_soon", True, STALE_STATE_RECHECK_TTL),
+            ("no_materialization_holds_the_window", False, MATERIALIZED_ENDPOINT_CACHE_TTL),
+        ]
+    )
+    def test_not_ready_timeout_tracks_whether_a_run_is_pending(self, name, materialization_enabled, expected_timeout):
+        saved_query = (
+            DataWarehouseSavedQuery.objects.create(
+                name=f"{name}_query",
+                team=self.team,
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                is_materialized=True,
+                status=DataWarehouseSavedQuery.Status.RUNNING,
+                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            )
+            if materialization_enabled
+            else None
+        )
+        endpoint = Endpoint.objects.create(
+            name=name, team=self.team, created_by=self.user, is_active=True, current_version=1
+        )
+        EndpointVersion.objects.create(
+            endpoint=endpoint,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            saved_query=saved_query,
+            data_freshness_seconds=3600,
+        )
+
+        with patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set:
+            self.assertFalse(check_materialized_request(self.team.id, name, None, {}))
+
+        self.assertEqual(cache_set.call_args.kwargs["timeout"], expected_timeout)

@@ -59,21 +59,30 @@ def is_endpoint_materialization_ready(team_id: int, endpoint_name: str, version:
     return state.ready if state is not None else None
 
 
-def _cache_timeout(state: MaterializedServingState) -> int:
+def _cache_timeout(state: MaterializedServingState, *, pending: bool = False) -> int:
     # The cache only refills on a miss. A snapshot that outlives its freshness window would
     # keep the endpoint on the inline rate after the next run refreshed the table, so the
     # entry expires with the window.
     if not state.ready or state.materialized_at is None or not state.freshness_seconds:
-        return MATERIALIZED_ENDPOINT_CACHE_TTL
+        # A pending materialization becomes servable on its own, with nothing to refill the
+        # entry, so hold it only briefly. A version with no materialization keeps the full
+        # window, because it becomes servable only through an edit, which clears the entry.
+        return STALE_STATE_RECHECK_TTL if pending else MATERIALIZED_ENDPOINT_CACHE_TTL
     remaining = (state.materialized_at + timedelta(seconds=state.freshness_seconds) - timezone.now()).total_seconds()
     return int(max(STALE_STATE_RECHECK_TTL, min(remaining, MATERIALIZED_ENDPOINT_CACHE_TTL)))
 
 
 def set_endpoint_materialization_state(
-    team_id: int, endpoint_name: str, state: MaterializedServingState, version: int | None = None
+    team_id: int,
+    endpoint_name: str,
+    state: MaterializedServingState,
+    version: int | None = None,
+    *,
+    pending: bool = False,
 ) -> None:
+    """Cache the snapshot. ``pending`` marks a materialization that has yet to produce a table."""
     cache_key = get_endpoint_materialization_cache_key(team_id, endpoint_name, version)
-    cache.set(cache_key, state.to_cache(), timeout=_cache_timeout(state))
+    cache.set(cache_key, state.to_cache(), timeout=_cache_timeout(state, pending=pending))
 
 
 def set_endpoint_materialization_ready(
@@ -101,7 +110,6 @@ def clear_endpoint_materialization_cache(
 
 
 def _serving_state(endpoint: Endpoint, version: EndpointVersion, is_ready: bool) -> MaterializedServingState:
-
     saved_query = version.saved_query
     if not is_ready or saved_query is None:
         return MaterializedServingState.not_ready()
@@ -165,7 +173,10 @@ def _load_and_cache_materialization_state(
             ready=materialized_at is not None,
             materialized_at=materialized_at,
         )
-    set_endpoint_materialization_state(team_id, endpoint_name, state, version=version)
+    # A backing saved query means materialization is enabled, so a first table can land at any
+    # moment without a request or an edit to refill this entry.
+    pending = not state.ready and endpoint_version.saved_query_id is not None
+    set_endpoint_materialization_state(team_id, endpoint_name, state, version=version, pending=pending)
     return state
 
 
