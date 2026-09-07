@@ -74,8 +74,6 @@ export function InlineFileLink({
         disabled={!taskId}
         className={`m-0 inline border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] text-foreground ${taskId ? "cursor-pointer underline underline-offset-2" : ""}`}
       >
-        {/* The link shows only the filename, but a copied selection must carry
-            the path the agent wrote, so the directory stays in the DOM unseen. */}
         {directory && <span className="sr-only">{directory}</span>}
         {filename}
         {lineSuffix ? `:${lineSuffix}` : ""}

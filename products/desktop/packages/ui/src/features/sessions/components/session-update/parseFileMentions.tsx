@@ -48,8 +48,6 @@ function hasMentionTags(content: string): boolean {
 
 export const hasFileMentions = hasMentionTags;
 
-// Inline flow rather than flex: Chromium copies a flex item's text on its own
-// line, which would break a copied sentence around the chip.
 const chipClass =
   "inline-block max-w-full truncate rounded-[var(--radius-1)] bg-[var(--accent-a3)] px-1 py-px align-middle font-medium text-[var(--accent-11)]";
 
@@ -109,9 +107,6 @@ function parseMentionTags(content: string): ReactNode[] {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
 
-  // Markdown strips the spaces at a paragraph's edges, so the ones that
-  // separated the text from a neighboring chip are put back as text nodes.
-  // Without them the copied text runs the words into the chip labels.
   const pushText = (text: string, chipFollows: boolean): void => {
     if (!text.trim()) {
       if (parts.length > 0) parts.push(" ");

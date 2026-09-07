@@ -52,11 +52,6 @@ export const GithubRefChipLink = forwardRef<
         />
       }
       {...buttonProps}
-      // Inline flow rather than quill's flex, and text selection restored:
-      // Chromium copies a flex item's text on its own line and skips
-      // user-select:none, so a flex chip either vanishes from a copied
-      // sentence or breaks it across lines. The line height fills the 24px
-      // chip minus its borders, which keeps the label centered as flex did.
       className={cn(
         "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
         buttonProps.className,

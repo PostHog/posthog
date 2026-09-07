@@ -33,10 +33,6 @@ export function ArtifactChip({
     // quill's ButtonGroup is a div, and this renders inside a message's
     // paragraph, so the group's own contract is spelled out on a span instead.
     // The halves stay siblings for the same reason: no button within a button.
-    // Inline flow rather than quill's flex, and text selection restored on the
-    // name: Chromium copies a flex item's text on its own line and skips
-    // user-select:none, so a flex chip either vanishes from a copied sentence
-    // or breaks it across lines.
     // biome-ignore lint/a11y/useSemanticElements: <fieldset> is block-level and this sits in a paragraph
     <span
       role="group"
@@ -52,9 +48,6 @@ export function ArtifactChip({
         onClick={onOpen}
         disabled={disabled || !onOpen}
         aria-label={name ? `Open ${name}` : undefined}
-        // The name half leaves room for the download half, so a long name
-        // truncates inside a narrow message or activity row instead of pushing
-        // the download half out of reach.
         className={cn(
           "inline-block select-text truncate align-top leading-[1.375rem]",
           onDownload ? "max-w-[calc(100%-1.5rem)]" : "max-w-full",

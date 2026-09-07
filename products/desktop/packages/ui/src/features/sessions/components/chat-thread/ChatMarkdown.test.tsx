@@ -205,9 +205,6 @@ describe("ChatMarkdown file links", () => {
       </SessionTaskIdProvider>,
     );
 
-    // A copied selection and a screen reader both read the text, so the
-    // directory the agent wrote must be there even though only the filename
-    // is visible.
     const link = screen.getByText("helpers.ts:12");
     expect(link).toHaveTextContent("src/utils/helpers.ts:12");
   });
