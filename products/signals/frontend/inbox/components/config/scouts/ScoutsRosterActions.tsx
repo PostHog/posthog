@@ -29,11 +29,14 @@ export function ScoutsRosterActions(): JSX.Element {
     )
 }
 
-/** Takes the "Suggest a scout" spot while the strip is closed, and reopens it in place of a chat. */
+/**
+ * Takes the "Suggest a scout" spot whenever the strip is off screen: it reopens a closed strip, and
+ * on a project with no picks it starts a scan for some rather than opening a chat.
+ */
 function ShowSuggestionsButton(): JSX.Element | null {
-    const { hasBatch, stripHidden } = useValues(scoutSuggestionsLogic)
-    const { showStrip } = useActions(scoutSuggestionsLogic)
-    if (!hasBatch || !stripHidden) {
+    const { stripVisible } = useValues(scoutSuggestionsLogic)
+    const { askForSuggestions } = useActions(scoutSuggestionsLogic)
+    if (stripVisible) {
         return null
     }
     return (
@@ -41,7 +44,7 @@ function ShowSuggestionsButton(): JSX.Element | null {
             type="secondary"
             size="small"
             icon={<IconSparkles />}
-            onClick={() => showStrip()}
+            onClick={() => askForSuggestions()}
             data-attr="scout-suggestions-show"
         >
             Suggest a scout

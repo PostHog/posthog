@@ -63,10 +63,11 @@ export interface scoutSuggestionsLogicValues {
         item: ScoutSuggestionItemApi
     } | null
     expandedSuggestionId: string | null
-    hasBatch: boolean
+    hasPicks: boolean
     hiddenSuggestionIds: string[]
     isRefreshing: boolean
     stripHidden: boolean
+    stripVisible: boolean
     suggestionSet: ScoutSuggestionSetApi | null
     suggestionSetLoading: boolean
     suggestions: ScoutSuggestionItemApi[]
@@ -105,6 +106,9 @@ export interface scoutSuggestionsLogicActions {
         configId: string
         updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
+    askForSuggestions: () => {
+        value: true
+    }
     closeCreateFromSuggestion: () => {
         value: true
     }
@@ -208,7 +212,8 @@ export interface scoutSuggestionsLogicMeta {
         batchStatus: (suggestionSet: ScoutSuggestionSetApi | null) => string
         batchAgeHours: (suggestionSet: ScoutSuggestionSetApi | null) => number | null
         suggestionsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        hasBatch: (suggestionSet: ScoutSuggestionSetApi | null, suggestionsEnabled: boolean) => boolean
+        hasPicks: (suggestions: ScoutSuggestionItemApi[], suggestionsEnabled: boolean) => boolean
+        stripVisible: (hasPicks: boolean, stripHidden: boolean, isRefreshing: boolean) => boolean
         collapsed: (collapsedOverride: boolean | null) => boolean
     }
 }
@@ -268,6 +273,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             surface,
         }),
         closeCreateFromSuggestion: true,
+        askForSuggestions: true,
         suggestionCreated: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
         requestRefresh: true,
         refreshRequestRefused: true,
@@ -414,19 +420,20 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI],
         ],
-        // A project that has never been scanned has nothing to show and no refresh worth offering,
-        // so the roster and the empty state stay exactly as they were.
-        // A scan that found nothing still counts: it has a `generated_at`, and the person needs
-        // the strip's "nothing left" line and its Refresh to ask again once data arrives. So does a
-        // first scan that failed, which has no `generated_at` at all but still needs the Refresh.
-        hasBatch: [
-            (s) => [s.suggestionSet, s.suggestionsEnabled],
-            (suggestionSet: ScoutSuggestionSetApi | null, suggestionsEnabled: boolean): boolean =>
-                suggestionsEnabled &&
-                suggestionSet !== null &&
-                (suggestionSet.generated_at !== null ||
-                    suggestionSet.items.length > 0 ||
-                    suggestionSet.status === 'failed'),
+        // Every suggestions surface reads this instead of the batch row. A batch with no picks left
+        // — a scan that found nothing, picks all acted on, a scan that failed — has nothing to
+        // show, so it must not put an empty box on the roster.
+        hasPicks: [
+            (s) => [s.suggestions, s.suggestionsEnabled],
+            (suggestions: ScoutSuggestionItemApi[], suggestionsEnabled: boolean): boolean =>
+                suggestionsEnabled && suggestions.length > 0,
+        ],
+        // A running scan keeps the strip up with its skeletons, so the person who pressed for one
+        // watches it arrive rather than looking at a roster that ignored the press.
+        stripVisible: [
+            (s) => [s.hasPicks, s.stripHidden, s.isRefreshing],
+            (hasPicks: boolean, stripHidden: boolean, isRefreshing: boolean): boolean =>
+                !stripHidden && (hasPicks || isRefreshing),
         ],
         collapsed: [
             (s) => [s.collapsedOverride],
@@ -554,6 +561,13 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 surface,
             })
         },
+        askForSuggestions: () => {
+            actions.showStrip()
+            // With no picks on offer there is nothing to reopen, so the button pays for a scan.
+            if (values.suggestions.length === 0) {
+                actions.requestRefresh()
+            }
+        },
         requestRefresh: async () => {
             const teamId = values.currentTeamId
             // The reducer already shows the button as busy; this non-reactive flag is what keeps a
@@ -614,8 +628,14 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             const settled =
                 (suggestionSet?.generated_at ?? null) !== cache.refreshBaselineGeneratedAt ||
                 (suggestionSet?.status === 'failed' && cache.refreshBaselineStatus !== 'failed')
-            if (settled) {
-                actions.refreshFinished()
+            if (!settled) {
+                return
+            }
+            actions.refreshFinished()
+            // The strip closes on an empty batch, so a scan that found nothing would otherwise just
+            // take the skeletons away and leave the person guessing what the press did.
+            if (values.suggestions.length === 0) {
+                lemonToast.info('That scan found nothing new to suggest.')
             }
         },
         refreshFinished: () => {

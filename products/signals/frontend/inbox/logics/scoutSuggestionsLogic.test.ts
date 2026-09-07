@@ -134,6 +134,9 @@ describe('scoutSuggestionsLogic', () => {
     }
 
     beforeEach(() => {
+        // The strip's collapsed and closed state persists per user and project, so one test's
+        // chevron would otherwise decide how the next one opens.
+        localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
         setSuggestionsFlag(true)
@@ -169,34 +172,52 @@ describe('scoutSuggestionsLogic', () => {
         await mountWithBatch()
 
         expect(mockList).not.toHaveBeenCalled()
-        expect(logic.values.hasBatch).toBe(false)
+        expect(logic.values.hasPicks).toBe(false)
 
         // Flags usually resolve after the tab mounts, so the answer arriving is what starts the read.
         setSuggestionsFlag(true)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockList).toHaveBeenCalledTimes(1)
-        expect(logic.values.hasBatch).toBe(true)
+        expect(logic.values.hasPicks).toBe(true)
     })
 
-    // A scan that found nothing has a `generated_at`; only an unscanned project has none. The first
-    // still needs the strip, for its "nothing left" line and the Refresh that asks again.
+    // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
     it.each([
-        ['never scanned', 'empty', null, false],
-        ['scanned and found nothing', 'empty', '2026-09-01T00:00:00Z', true],
-        ['first scan failed', 'failed', null, true],
-    ])('shows the strip only once the project was scanned: %s', async (_name, status, generatedAt, expected) => {
+        ['never scanned', 'empty', null],
+        ['scanned and found nothing', 'empty', '2026-09-01T00:00:00Z'],
+        ['last scan failed', 'failed', null],
+    ])('keeps the strip off a batch with no picks: %s', async (_name, status, generatedAt) => {
         await mountWithBatch(
             suggestionSet({ status: status as ScoutSuggestionSetApi['status'], generated_at: generatedAt, items: [] })
         )
 
-        expect(logic.values.hasBatch).toBe(expected)
+        expect(logic.values.hasPicks).toBe(false)
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // The header button is the entry point whenever the strip is off screen, so it has to cover
+    // both reasons it can be: closed by the person, and empty because the project has no picks.
+    it.each([
+        ['pays for a scan when there is nothing to reopen', [] as ScoutSuggestionItemApi[], 1],
+        ['only reopens the strip when picks are waiting', [CANONICAL_ITEM, CUSTOM_ITEM], 0],
+    ])('the header button %s', async (_name, items, refreshCalls) => {
+        await mountWithBatch(suggestionSet({ items }))
+        logic.actions.hideStrip()
+        expect(logic.values.stripVisible).toBe(false)
+
+        logic.actions.askForSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Either way the strip is back on screen: with the picks, or with the scan's skeletons.
+        expect(logic.values.stripVisible).toBe(true)
+        expect(mockRefresh).toHaveBeenCalledTimes(refreshCalls)
     })
 
     it('keeps a stale batch visible, because its picks are still valid', async () => {
         await mountWithBatch(suggestionSet({ status: 'stale' }))
 
-        expect(logic.values.hasBatch).toBe(true)
+        expect(logic.values.hasPicks).toBe(true)
         expect(logic.values.suggestions).toHaveLength(2)
     })
 
