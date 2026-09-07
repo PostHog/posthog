@@ -143,7 +143,7 @@ export function ConversationMessagesDisplay({
     searchQuery,
     displayOption,
     traceId,
-    generationEventId,
+    eventId,
     generationSentiment,
     highlightMessageIndex,
 }: {
@@ -166,7 +166,7 @@ export function ConversationMessagesDisplay({
     searchQuery?: string
     displayOption?: ConversationDisplayOption
     traceId?: string | null
-    generationEventId?: string
+    eventId?: string
     generationSentiment?: GenerationSentiment | null
     /** Original $ai_input index to auto-expand and highlight (e.g. from sentiment tab deep link) */
     highlightMessageIndex?: number | null
@@ -363,7 +363,7 @@ export function ConversationMessagesDisplay({
 
     return (
         <MessageActionsMenuProvider
-            resetKey={`${generationEventId ?? ''}:${traceId ?? ''}:${inputRolesSignature}:${outputRolesSignature}`}
+            resetKey={`${eventId ?? ''}:${traceId ?? ''}:${inputRolesSignature}:${outputRolesSignature}`}
         >
             <LLMInputOutput
                 inputDisplay={inputDisplay}

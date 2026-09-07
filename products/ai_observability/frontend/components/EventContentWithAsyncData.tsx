@@ -154,7 +154,7 @@ export function EventContentConversation({
             searchQuery={searchQuery}
             displayOption={displayOption}
             traceId={traceId}
-            generationEventId={generationEventId}
+            eventId={eventId}
             generationSentiment={generationSentiment}
             highlightMessageIndex={highlightMessageIndex}
         />

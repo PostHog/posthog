@@ -480,7 +480,7 @@ describe('ConversationMessagesDisplay', () => {
                     outputNormalized={outputNormalized}
                     errorData={null}
                     raisedError={false}
-                    generationEventId="generation-1"
+                    eventId="event-1"
                 />
             </Provider>
         )
@@ -511,7 +511,7 @@ describe('ConversationMessagesDisplay', () => {
                     outputNormalized={outputNormalized}
                     errorData={null}
                     raisedError={false}
-                    generationEventId="generation-2"
+                    eventId="event-2"
                 />
             </Provider>
         )
