@@ -994,11 +994,6 @@ SQL
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
-    index "idx_uuid_bloom" {
-      expr        = "uuid"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
     index "idx_resource_fingerprint" {
       expr        = "resource_fingerprint"
       type        = "bloom_filter(0.01)"
