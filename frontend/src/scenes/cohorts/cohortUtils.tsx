@@ -693,14 +693,24 @@ export function cohortWorkflowDisabledReason(cohort: CohortType): string | null 
     if (cohort.is_static) {
         return null
     }
-    const hasBehavioralCriteria = (value: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean =>
+    const hasCriteriaOfType = (
+        value: CohortCriteriaGroupFilter | AnyCohortCriteriaType,
+        type: BehavioralFilterKey
+    ): boolean =>
         isCohortCriteriaGroup(value)
             ? value.values.some((nested) =>
-                  hasBehavioralCriteria(nested as CohortCriteriaGroupFilter | AnyCohortCriteriaType)
+                  hasCriteriaOfType(nested as CohortCriteriaGroupFilter | AnyCohortCriteriaType, type)
               )
-            : value.type === BehavioralFilterKey.Behavioral
-    if (cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)) {
-        return "Workflows can't message cohorts that filter on events. Duplicate it as a static cohort first."
+            : value.type === type
+    if (cohort.filters?.properties) {
+        if (hasCriteriaOfType(cohort.filters.properties, BehavioralFilterKey.Behavioral)) {
+            return "Workflows can't message cohorts that filter on events. Duplicate it as a static cohort first."
+        }
+        // A referenced cohort can filter on events without this cohort's own criteria showing it,
+        // so refuse the reference itself rather than resolving the whole dependency tree client-side.
+        if (hasCriteriaOfType(cohort.filters.properties, BehavioralFilterKey.Cohort)) {
+            return "Workflows can't message cohorts that reference other cohorts. Duplicate it as a static cohort first."
+        }
     }
     return null
 }

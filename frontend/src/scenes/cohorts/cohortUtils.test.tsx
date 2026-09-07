@@ -11,6 +11,7 @@ import {
 
 import {
     AnyCohortCriteriaType,
+    BehavioralCohortType,
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
@@ -259,6 +260,15 @@ describe('cohortWorkflowDisabledReason', () => {
             },
         ],
     }
+    const cohortReferenceGroup: CohortCriteriaGroupFilter = {
+        type: FilterLogicalOperator.Or,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [{ type: BehavioralFilterKey.Cohort, value: BehavioralCohortType.InCohort }],
+            },
+        ],
+    }
 
     it.each<[string, Partial<CohortType>, string | null]>([
         [
@@ -267,6 +277,11 @@ describe('cohortWorkflowDisabledReason', () => {
             "Workflows can't message",
         ],
         ['dynamic cohort with only person-property criteria', { filters: { properties: personPropertyGroup } }, null],
+        [
+            'dynamic cohort referencing another cohort',
+            { filters: { properties: cohortReferenceGroup } },
+            'reference other cohorts',
+        ],
         [
             'static cohort that kept behavioral filters',
             { is_static: true, filters: { properties: behavioralGroup } },
