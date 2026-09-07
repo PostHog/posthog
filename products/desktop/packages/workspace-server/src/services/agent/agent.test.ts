@@ -35,6 +35,16 @@ const mockAcpClient = vi.hoisted(() => ({
             _meta?: { codeToolKind?: string };
           };
         }) => Promise<unknown>;
+        sessionUpdate: (params: {
+          update: {
+            sessionUpdate: "tool_call" | "tool_call_update";
+            toolCallId: string;
+            status?: string;
+            rawInput?: unknown;
+            rawOutput?: unknown;
+            _meta?: unknown;
+          };
+        }) => Promise<void>;
       }
     | undefined,
 }));
@@ -585,6 +595,59 @@ describe("AgentService", () => {
       expect(deps.agentAuthAdapter.buildMcpServers).not.toHaveBeenCalled();
       expect(deps.mcpAppsService.addServerConfigs).not.toHaveBeenCalled();
     });
+  });
+
+  describe("MCP tool result forwarding", () => {
+    it.each([
+      [
+        "legacy claudeCode channel (Claude adapter)",
+        { claudeCode: { toolName: "mcp__posthog__query" } },
+      ],
+      [
+        "canonical posthog channel (Codex adapter)",
+        {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+      ],
+    ])(
+      "forwards tool input/result to McpAppsService for the %s",
+      async (_label, meta) => {
+        await service.startSession(baseSessionParams);
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tc-1",
+            rawInput: { sql: "SELECT 1" },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolInput).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { sql: "SELECT 1" },
+        );
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tc-1",
+            status: "completed",
+            rawOutput: { content: [{ type: "text", text: "42 rows" }] },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolResult).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { content: [{ type: "text", text: "42 rows" }] },
+          false,
+        );
+      },
+    );
   });
 
   describe("reconnect", () => {

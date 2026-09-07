@@ -508,6 +508,20 @@ function commandLocations(item: AppServerItem): ToolCallLocation[] | undefined {
   return paths.map((path) => ({ path }));
 }
 
+/** `_meta.posthog` for a tool call, so the desktop renderer routes MCP UI apps regardless of which adapter produced the call. */
+function toolCallMeta(
+  item: AppServerItem,
+  tool: ToolDescriptor,
+): ReturnType<typeof posthogToolMeta> | undefined {
+  if (item.type === "collabAgentToolCall") {
+    return posthogToolMeta({ toolName: collabAgentToolName(item.tool) });
+  }
+  if (tool.mcp) {
+    return posthogToolMeta({ toolName: mcpToolKey(tool.mcp), mcp: tool.mcp });
+  }
+  return undefined;
+}
+
 function mapItem(
   sessionId: string,
   item: AppServerItem,
@@ -517,6 +531,7 @@ function mapItem(
   if (!tool || !item.id) {
     return null;
   }
+  const meta = toolCallMeta(item, tool);
 
   if (!completed) {
     return {
@@ -529,20 +544,7 @@ function mapItem(
         status: "in_progress",
         ...(tool.rawInput !== undefined ? { rawInput: tool.rawInput } : {}),
         ...(tool.locations?.length ? { locations: tool.locations } : {}),
-        ...(item.type === "collabAgentToolCall"
-          ? {
-              _meta: posthogToolMeta({
-                toolName: collabAgentToolName(item.tool),
-              }),
-            }
-          : tool.mcp
-            ? {
-                _meta: posthogToolMeta({
-                  toolName: mcpToolKey(tool.mcp),
-                  mcp: tool.mcp,
-                }),
-              }
-            : {}),
+        ...(meta ? { _meta: meta } : {}),
       },
     };
   }
@@ -555,6 +557,12 @@ function mapItem(
       toolCallId: item.id,
       status: mapStatus(item.status),
       ...(content ? { content } : {}),
+      ...(meta ? { _meta: meta } : {}),
+      // Carries the raw MCP CallToolResult (content, structuredContent, _meta.ui)
+      // so the desktop MCP Apps host can render UI resources, not just text.
+      ...(item.type === "mcpToolCall" && item.result !== undefined
+        ? { rawOutput: item.result }
+        : {}),
     },
   };
 }
