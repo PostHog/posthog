@@ -51,22 +51,14 @@ on:
                 type: string
                 default: ''
         secrets:
+            # Only the Apple signing material stays a secret: it is the one
+            # value that must not leak into logs. Everything else moved to the
+            # repo's `vars` context (#94135), which a reusable workflow reads
+            # directly.
             APPLE_CODESIGN_CERT_BASE64:
                 required: true
             APPLE_CODESIGN_CERT_PASSWORD:
                 required: true
-            APPLE_TEAM_ID:
-                required: true
-            AWS_TWIG_APP_ASSETS_ROLE_ARN:
-                required: true
-            AWS_TWIG_APP_ASSETS_REGION:
-                required: true
-            AWS_TWIG_APP_ASSETS_BUCKET:
-                required: true
-            VITE_POSTHOG_API_KEY:
-                required: false
-            VITE_POSTHOG_API_HOST:
-                required: false
         outputs:
             macos:
                 description: Conclusion of the macOS build matrix (both arches).
@@ -106,8 +98,9 @@ jobs:
             NODE_ENV: production
             npm_config_arch: ${{ matrix.arch }}
             npm_config_platform: darwin
-            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_KEY || '' }}
-            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_HOST || '' }}
+            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_API_KEY || '' }}
+            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_API_HOST || '' }}
+            VITE_POSTHOG_UI_HOST: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_UI_HOST || '' }}
             # No sourcemap secrets: without them the posthog vite plugin skips
             # release creation and sourcemap upload, keeping test builds
             # hermetic instead of calling the prod API and flaking on it.
@@ -115,7 +108,7 @@ jobs:
             # key is empty, so no preview session reports to a PostHog project.
             CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
             CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
-            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
             # Sign but do not notarize. This build verifies the packaging pipeline,
             # not Gatekeeper distribution; the runner can launch a signed-but-unnotarized
             # app for the smoke test. Notarization runs only in the tag release
@@ -183,13 +176,13 @@ jobs:
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184d # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
-                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  role-to-assume: ${{ vars.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ vars.AWS_TWIG_APP_ASSETS_REGION }}
                   mask-aws-account-id: true
                   unset-current-credentials: true
 
             - name: Download BerkeleyMono fonts from S3
-              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+              run: aws s3 cp s3://${{ vars.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
 
             - name: Build workspace packages
               run: |
@@ -322,8 +315,9 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_KEY || '' }}
-            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_HOST || '' }}
+            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_API_KEY || '' }}
+            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_API_HOST || '' }}
+            VITE_POSTHOG_UI_HOST: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_UI_HOST || '' }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -443,8 +437,9 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_KEY || '' }}
-            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && secrets.VITE_POSTHOG_API_HOST || '' }}
+            VITE_POSTHOG_API_KEY: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_API_KEY || '' }}
+            VITE_POSTHOG_API_HOST: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_API_HOST || '' }}
+            VITE_POSTHOG_UI_HOST: ${{ inputs.build_kind != 'preview' && vars.VITE_POSTHOG_UI_HOST || '' }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
