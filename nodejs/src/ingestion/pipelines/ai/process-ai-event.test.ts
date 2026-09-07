@@ -1236,10 +1236,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
         })
 
-        // A model, provider or framework that is not a string used to throw where the
-        // cost path lowercases it, and the event then reached the user billed at
-        // nothing, with no error. Reasoning tokens are set because the output path
-        // reads the model too.
+        // Reasoning tokens make the output-cost path inspect the model as well.
         it.each<{ description: string; properties: Record<string, unknown> }>([
             { description: 'numeric model', properties: { $ai_model: 4 } },
             { description: 'boolean model', properties: { $ai_model: true } },
