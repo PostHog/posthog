@@ -6,7 +6,7 @@ from posthog.models.user import User
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
-    HostShapeError,
+    ShapeError,
     validate_external_host,
 )
 
@@ -84,7 +84,7 @@ class PostgreSQLServerIntegration:
         host = common._return_non_empty_str_from_config(config, "host", friendly_name="Host", kind=cls.integration_kind)
         try:
             validate_external_host(host)
-        except HostShapeError:
+        except ShapeError:
             # Decided from the form alone, so it names what to fix without saying anything
             # about our network. The value itself is never echoed: it can be a pasted
             # connection string carrying a password.
