@@ -282,7 +282,6 @@ async fn main() -> anyhow::Result<()> {
         liveness,
         builder_cfg.metrics_port,
     );
-    precreate_counters();
 
     let pg_pool = get_pool(&infra.read_database_url, infra.database_max_connections)
         .expect("Failed to create database pool");
@@ -325,7 +324,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Register every counter series this binary can emit, at zero, so all of them
-/// are present on `/metrics` from boot.
+/// are present on `/metrics` from boot. Called from `spawn_metrics_server`,
+/// immediately after the recorder install it depends on.
 ///
 /// Counters are created lazily by `metrics::counter!`, so a series does not
 /// exist until its first increment, and an absent series is indistinguishable
@@ -359,15 +359,15 @@ fn precreate_counters() {
     // live metric's label set and regroup the dashboard panel that reads it.
     metrics::counter!(BUILDS_TOTAL, "result" => RESULT_SUCCESS).increment(0);
 
-    for result in [RESULT_SUCCESS, RESULT_FAILURE] {
-        metrics::counter!(DLQ_PRODUCED, "result" => result).increment(0);
-    }
+    metrics::counter!(DLQ_PRODUCED, "result" => RESULT_SUCCESS).increment(0);
+    metrics::counter!(DLQ_PRODUCED, "result" => RESULT_FAILURE).increment(0);
 
-    // The whole category set on both metrics, including categories only one of
-    // the two paths can reach (`cache_parse` comes from the shadow live-read,
-    // `s3` and `serialize` from the real write). Which constructor feeds which
-    // metric is a property of the error mapping, so encoding it here would be
-    // the hand-maintained list this design avoids.
+    // The whole category set on both metrics. That publishes four series no
+    // emitter reaches: `BUILDS_TOTAL{reason=cache_parse}`, which only the
+    // shadow live-read produces, and `SHADOW_FAILURES` for `s3`, `serialize`
+    // and `other`, which only the real write produces. The alternative is a
+    // per-category map of which metric it reaches, and the compiler can force a
+    // new variant to fill that in but not to fill it in correctly.
     for category in FailureCategory::iter() {
         metrics::counter!(BUILDS_TOTAL, "result" => RESULT_FAILURE, "reason" => category.as_label())
             .increment(0);
@@ -733,10 +733,6 @@ impl ShadowOutcome {
             Self::Mismatch(_) => ShadowOutcomeLabel::MismatchConfirmed,
         }
     }
-
-    fn as_label(&self) -> &'static str {
-        self.label().as_label()
-    }
 }
 
 /// Run one team's shadow compare and emit its telemetry. Never writes to the
@@ -754,7 +750,7 @@ async fn process_shadow_team(
     // Recorded for every outcome: the per-team wall time delays the next batch
     // whether the compare matched, mismatched, or failed.
     metrics::histogram!(SHADOW_BUILD_DURATION_SECONDS).record(start.elapsed().as_secs_f64());
-    metrics::counter!(SHADOW_BUILDS, "outcome" => outcome.as_label()).increment(1);
+    metrics::counter!(SHADOW_BUILDS, "outcome" => outcome.label().as_label()).increment(1);
     match outcome {
         ShadowOutcome::Match | ShadowOutcome::LiveEntryMissing => {}
         ShadowOutcome::Failed(failure) => {
@@ -1127,49 +1123,56 @@ fn init_tracing() {
 
 /// Install the Prometheus recorder and serve `/metrics` plus the health routes.
 ///
-/// The recorder is installed synchronously, before this returns, because
-/// `metrics::counter!` writes to whichever recorder is installed at the moment
-/// it runs. Installing it inside the spawned task would race `main`'s
-/// `precreate_counters` call, and the series that lost the race would go to the
-/// no-op recorder and never reach `/metrics`.
+/// The recorder install stays inside the spawned task, and `precreate_counters`
+/// runs directly after it in that same task. Two reasons it sits here rather
+/// than in `main`. Straight-line order in one task is what guarantees the
+/// registrations reach the installed recorder, because `metrics::counter!`
+/// writes to whichever recorder is installed at the moment it runs. And
+/// `install_recorder` builds a `quanta::Clock`, whose TSC calibration busy-spins
+/// for up to 200ms, so running it here keeps that off the startup critical path
+/// and overlaps it with the database, Redis, and Kafka client setup in `main`.
 fn spawn_metrics_server(
     handle: lifecycle::Handle,
     readiness: lifecycle::ReadinessHandler,
     liveness: lifecycle::LivenessHandler,
     port: u16,
 ) {
-    let health_router = Router::new()
-        .route(
-            "/_readiness",
-            get(move || {
-                let r = readiness.clone();
-                async move { r.check().await }
-            }),
-        )
-        .route("/_liveness", get(move || async move { liveness.check() }));
-
-    // Reuse the crate's shared recorder/router setup (prometheus install +
-    // /metrics + product label + HTTP metrics middleware), overriding the
-    // seconds-shaped histograms off its ms-shaped default buckets.
-    let overrides = [
-        (
-            Matcher::Full(BUILD_DURATION_SECONDS.to_string()),
-            BUILD_DURATION_BUCKETS,
-        ),
-        (
-            Matcher::Full(E2E_LATENCY_SECONDS.to_string()),
-            E2E_LATENCY_BUCKETS,
-        ),
-        (
-            Matcher::Full(SHADOW_BUILD_DURATION_SECONDS.to_string()),
-            BUILD_DURATION_BUCKETS,
-        ),
-    ];
-    let router =
-        setup_metrics_routes_for_product_with_overrides(health_router, METRICS_PRODUCT, &overrides);
-
     tokio::spawn(async move {
         let _guard = handle.process_scope();
+
+        let health_router = Router::new()
+            .route(
+                "/_readiness",
+                get(move || {
+                    let r = readiness.clone();
+                    async move { r.check().await }
+                }),
+            )
+            .route("/_liveness", get(move || async move { liveness.check() }));
+
+        // Reuse the crate's shared recorder/router setup (prometheus install +
+        // /metrics + product label + HTTP metrics middleware), overriding the
+        // seconds-shaped histograms off its ms-shaped default buckets.
+        let overrides = [
+            (
+                Matcher::Full(BUILD_DURATION_SECONDS.to_string()),
+                BUILD_DURATION_BUCKETS,
+            ),
+            (
+                Matcher::Full(E2E_LATENCY_SECONDS.to_string()),
+                E2E_LATENCY_BUCKETS,
+            ),
+            (
+                Matcher::Full(SHADOW_BUILD_DURATION_SECONDS.to_string()),
+                BUILD_DURATION_BUCKETS,
+            ),
+        ];
+        let router = setup_metrics_routes_for_product_with_overrides(
+            health_router,
+            METRICS_PRODUCT,
+            &overrides,
+        );
+        precreate_counters();
 
         let bind = format!("0.0.0.0:{port}");
         let listener = tokio::net::TcpListener::bind(&bind)
@@ -1191,7 +1194,7 @@ mod tests {
 
     use super::{
         fold_message, max_per_partition, precreate_counters, retry_backoff, truncate_for_header,
-        BuildFailure, ShadowOutcome, TeamBatch, DLQ_ERROR_HEADER_MAX,
+        BuildFailure, ShadowOutcome, ShadowOutcomeLabel, TeamBatch, DLQ_ERROR_HEADER_MAX,
     };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
@@ -1462,23 +1465,26 @@ mod tests {
         // The outcome label is the shadow window's primary telemetry; a wrong
         // label here misreads the ramp with no other test catching it.
         let cases = [
-            (ShadowOutcome::Match, "match"),
-            (ShadowOutcome::LiveEntryMissing, "live_entry_missing"),
+            (ShadowOutcome::Match, ShadowOutcomeLabel::Match),
+            (
+                ShadowOutcome::LiveEntryMissing,
+                ShadowOutcomeLabel::LiveEntryMissing,
+            ),
             (
                 ShadowOutcome::Failed(BuildFailure::database("pg unreachable")),
-                "error",
+                ShadowOutcomeLabel::Error,
             ),
             (
                 ShadowOutcome::Mismatch(shadow_observation(false).await),
-                "mismatch_suppressed",
+                ShadowOutcomeLabel::MismatchSuppressed,
             ),
             (
                 ShadowOutcome::Mismatch(shadow_observation(true).await),
-                "mismatch_confirmed",
+                ShadowOutcomeLabel::MismatchConfirmed,
             ),
         ];
         for (outcome, expected) in cases {
-            assert_eq!(outcome.as_label(), expected);
+            assert_eq!(outcome.label(), expected);
         }
     }
 
@@ -1549,12 +1555,13 @@ mod tests {
     #[test]
     fn precreate_counters_registers_every_series_at_zero() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+        use std::collections::BTreeSet;
 
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         metrics::with_local_recorder(&recorder, precreate_counters);
 
-        let mut got: Vec<(String, DebugValue)> = snapshotter
+        let got: Vec<(String, DebugValue)> = snapshotter
             .snapshot()
             .into_vec()
             .into_iter()
@@ -1568,24 +1575,13 @@ mod tests {
                 (format!("{}{{{}}}", key.name(), labels.join(",")), value)
             })
             .collect();
-        got.sort_by(|(left, _), (right, _)| left.cmp(right));
 
-        // A series missing here is the ambiguity this function exists to remove:
-        // it reads as a real zero once the builder is running, so "nothing has
-        // gone to the DLQ" and "the DLQ producer is dead" look the same again.
-        // Reported as the two differences rather than as two full lists, so the
+        // Compared as the two differences rather than as two full lists, so a
         // failure names the series instead of printing the whole inventory.
-        let series: Vec<&str> = got.iter().map(|(name, _)| name.as_str()).collect();
-        let missing: Vec<&str> = EXPECTED_PRECREATED_SERIES
-            .iter()
-            .filter(|expected| !series.contains(*expected))
-            .copied()
-            .collect();
-        let unexpected: Vec<&str> = series
-            .iter()
-            .filter(|found| !EXPECTED_PRECREATED_SERIES.contains(found))
-            .copied()
-            .collect();
+        let expected: BTreeSet<&str> = EXPECTED_PRECREATED_SERIES.iter().copied().collect();
+        let found: BTreeSet<&str> = got.iter().map(|(name, _)| name.as_str()).collect();
+        let missing: Vec<&str> = expected.difference(&found).copied().collect();
+        let unexpected: Vec<&str> = found.difference(&expected).copied().collect();
         assert!(
             missing.is_empty() && unexpected.is_empty(),
             "not pre-created: {missing:#?}\npre-created but not expected: {unexpected:#?}"
