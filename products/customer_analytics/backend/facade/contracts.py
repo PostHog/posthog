@@ -862,6 +862,7 @@ class CustomerProfileConfigView:
     scope: str = ""
     content: Any = None
     sidebar: Any = None
+    pinned_properties: list[str] = field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

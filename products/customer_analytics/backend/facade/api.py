@@ -1036,6 +1036,7 @@ def _to_customer_profile_config_view(config: CustomerProfileConfig) -> contracts
         scope=config.scope,
         content=config.content,
         sidebar=config.sidebar,
+        pinned_properties=config.pinned_properties,
         created_at=config.created_at,
         updated_at=config.updated_at,
     )
@@ -1088,12 +1089,18 @@ def create_customer_profile_config(
     scope: str,
     content: Any,
     sidebar: Any,
+    pinned_properties: list[str],
     organization_id,
     user: "User",
     was_impersonated: bool,
 ) -> contracts.CustomerProfileConfigView:
     config = CustomerProfileConfig.objects.create(
-        team_id=team_id, created_by=user, scope=scope, content=content, sidebar=sidebar
+        team_id=team_id,
+        created_by=user,
+        scope=scope,
+        content=content,
+        sidebar=sidebar,
+        pinned_properties=pinned_properties,
     )
     _log_customer_profile_config_activity(
         instance=config,

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
@@ -18,6 +18,8 @@ interface PropertiesProps {
     onPin: (propertyName: string) => void
     onUnpin: (propertyName: string) => void
     type: PropertyDefinitionType
+    /** Rendered next to the filters, for controls that act on the pinned set as a whole. */
+    actions?: React.ReactNode
 }
 
 export function Properties({
@@ -26,6 +28,7 @@ export function Properties({
     onPin,
     onUnpin,
     type,
+    actions,
 }: PropertiesProps): JSX.Element | null {
     const [searchTerm, setSearchTerm] = useState('')
     const [showPinnedOnly, setShowPinnedOnly] = useState(true)
@@ -63,7 +66,7 @@ export function Properties({
 
     return (
         <div className="py-2 px-4 text-xs">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
                 <LemonInput
                     type="search"
                     placeholder="Search properties..."
@@ -79,6 +82,7 @@ export function Properties({
                     size="small"
                 />
                 <LemonCheckbox checked={showPinnedOnly} onChange={setShowPinnedOnly} label="Pinned only" size="small" />
+                {actions}
             </div>
 
             {numProperties === 0 ? (

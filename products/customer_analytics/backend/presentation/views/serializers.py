@@ -854,6 +854,16 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
     scope = serializers.ChoiceField(choices=_PROFILE_CONFIG_SCOPE_CHOICES)
     content = serializers.JSONField(required=False, allow_null=True, default=dict)
     sidebar = serializers.JSONField(required=False, allow_null=True, default=dict)
+    pinned_properties = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text=(
+            "Property keys the whole team sees pinned on this profile scope, in pin order. "
+            "Each person can still pin and unpin on top of this list in their own browser. "
+            "An empty list means the team has set no shared default."
+        ),
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
@@ -862,7 +872,7 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
         # Pin the OpenAPI component name to the pre-isolation one (DataclassSerializer would
         # otherwise name it after the wrapped dataclass, ``CustomerProfileConfigView``).
         ref_name = "CustomerProfileConfig"
-        fields = ["id", "scope", "content", "sidebar", "created_at", "updated_at"]
+        fields = ["id", "scope", "content", "sidebar", "pinned_properties", "created_at", "updated_at"]
 
     def validate_content(self, value):
         return self._validate_json(field="content", value=value)

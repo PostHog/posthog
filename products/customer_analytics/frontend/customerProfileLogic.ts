@@ -423,21 +423,31 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                     return null
                 }
 
+                // `content` and `sidebar` are declared as Record<string, any> on the config type but
+                // are stored as node arrays; cast to their real shape for the shared filter. A config
+                // that holds no layout — one saved for its pinned properties alone — falls back to the
+                // default layout rather than rendering an empty profile.
+                const storedNodes = Array.isArray(customerProfileConfig.content)
+                    ? (customerProfileConfig.content as JSONContent[])
+                    : []
+                if (!storedNodes.length) {
+                    return null
+                }
+
                 // Saved configs bypass defaultContent, so apply the same availability filter here —
                 // otherwise a previously-saved Zendesk/support panel would render against a product
                 // or source that is no longer set up.
-                // `content` is declared as Record<string, any> on the config type but is stored as a
-                // node array; cast to its real shape for the shared filter.
-                const availableContent = filterAvailablePanels(customerProfileConfig.content as JSONContent[], {
+                const availableContent = filterAvailablePanels(storedNodes, {
                     isJourneysEnabled: !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS],
                     isSupportEnabled: !!currentTeam?.conversations_enabled,
                     hasZendeskSource,
                     dataWarehouseSourcesLoading,
                 })
 
-                const sidebar = customerProfileConfig.sidebar.map((node: JSONContent) =>
-                    scopedAddAttrFunction({ attrs, node })
-                )
+                const storedSidebar = Array.isArray(customerProfileConfig.sidebar)
+                    ? (customerProfileConfig.sidebar as JSONContent[])
+                    : []
+                const sidebar = storedSidebar.map((node: JSONContent) => scopedAddAttrFunction({ attrs, node }))
                 return availableContent.map((node: JSONContent, index: number) => {
                     if (index === 0) {
                         return scopedAddAttrFunction({ attrs, node, children: sidebar })

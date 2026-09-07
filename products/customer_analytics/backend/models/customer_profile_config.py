@@ -16,4 +16,5 @@ class CustomerProfileConfig(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     content = models.JSONField(default=dict)
     sidebar = models.JSONField(default=dict)
+    pinned_properties = models.JSONField(default=list)
     scope = models.CharField(max_length=255, choices=Scope)

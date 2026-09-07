@@ -1,1 +1,1 @@
-0049_validate_customer_task_foreign_keys
+0050_customerprofileconfig_pinned_properties
