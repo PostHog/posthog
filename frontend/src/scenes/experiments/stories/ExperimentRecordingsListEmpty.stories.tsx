@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { screen, waitFor } from '@testing-library/dom'
+import { screen, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
@@ -105,18 +105,54 @@ export const ExperimentRecordingsEmptyEndedPastRetention: Story = {
     ],
 }
 
-/** The two metric-filter reasons need the filter switched on, which only the menu can do. */
-const pickFiredNone: Story['play'] = async ({ canvasElement }) => {
-    // Storybook leaves testing-library's test id attribute at its default, unlike jest and
-    // Playwright, so the trigger's `data-attr` has to be matched as a plain attribute.
-    const trigger = await waitFor(() => {
-        const button = canvasElement.querySelector<HTMLElement>('[data-attr="experiment-recordings-metric-filter"]')
+/**
+ * Waits for a control the scene renders once the experiment has loaded, then clicks it. Storybook
+ * leaves testing-library's test id attribute at its default, unlike jest and Playwright, so a
+ * `data-attr` has to be matched as a plain attribute.
+ */
+async function clickWhenRendered(canvasElement: HTMLElement, dataAttr: string): Promise<void> {
+    const control = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
         if (!button) {
-            throw new Error('Metric filter not yet rendered')
+            throw new Error(`${dataAttr} not yet rendered`)
         }
         return button
     })
-    await userEvent.click(trigger)
+    await userEvent.click(control)
+}
+
+/** Narrowed to one variant, so the reason is the facet rather than anything about the project. */
+export const ExperimentRecordingsEmptyVariantHasNone: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('test-1'))
+    },
+}
+
+/**
+ * Narrowed to the sessions the exposure happened in. The scope is offered only once the server
+ * confirms this experiment can be asked for it, so the story answers that check first.
+ */
+export const ExperimentRecordingsEmptyInSessionHasNone: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/in_session_exposure/`]: {
+                    available: true,
+                    unavailable_reason: null,
+                    uses_stamped_fallback: false,
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await clickWhenRendered(canvasElement, 'experiment-recordings-exposure-scope-in-session')
+    },
+}
+
+/** The two metric-filter reasons need the filter switched on, which only the menu can do. */
+const pickFiredNone: Story['play'] = async ({ canvasElement }) => {
+    await clickWhenRendered(canvasElement, 'experiment-recordings-metric-filter')
     // The menu content is a portal outside the canvas, so this searches the whole document.
     await userEvent.click(await screen.findByText('Fired none'))
 }

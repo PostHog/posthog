@@ -77,6 +77,8 @@ const ACTION_ATTRS = [
     'experiment-recordings-empty-ad-blocker-docs',
     'experiment-recordings-empty-retry-metric-filter',
     'experiment-recordings-empty-exposure-docs',
+    'experiment-recordings-empty-show-all-variants',
+    'experiment-recordings-empty-all-sessions',
 ]
 
 interface ReasonCase {
@@ -160,6 +162,24 @@ const REASON_CASES: ReasonCase[] = [
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
         copy: 'A session can be missing for a few reasons',
         actions: ['experiment-recordings-empty-retention-docs', 'experiment-recordings-empty-ad-blocker-docs'],
+    },
+    {
+        // Narrowed to one variant, so the probe never runs and the copy names the variant rather
+        // than claiming nobody exposed was recorded.
+        reason: ExperimentReplayListEmptyReason.VariantHasNone,
+        experimentId: 210,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+        copy: 'No recordings for the test variant',
+        actions: ['experiment-recordings-empty-show-all-variants'],
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.InSessionHasNone,
+        experimentId: 211,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setExposureScope('in_session'),
+        copy: 'No recordings of the sessions the exposure happened in',
+        actions: ['experiment-recordings-empty-all-sessions'],
     },
     {
         reason: ExperimentReplayListEmptyReason.NoRecordingsInWindow,

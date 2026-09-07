@@ -223,6 +223,20 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experiment: { start_date: daysAgo(1), end_date: null },
     },
     {
+        // Behind a facet the probe would answer a wider question than the list asked, so it is not
+        // asked at all. `toHaveBeenCalledTimes(0)` below is what holds that.
+        reason: ExperimentReplayListEmptyReason.VariantHasNone,
+        experimentId: 141,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.InSessionHasNone,
+        experimentId: 142,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setExposureScope('in_session'),
+    },
+    {
         reason: ExperimentReplayListEmptyReason.NoRecordingsInWindow,
         experimentId: 127,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
@@ -814,6 +828,35 @@ describe('experimentReplayTabLogic', () => {
         }
     )
 
+    it('reports no reason for the hidden-recordings action, and the reason for the others', async () => {
+        // `show_hidden` is offered when rows came back and the browser hid them, so the list is not
+        // empty. Sending the reason there would count a cause of emptiness against a list that had
+        // recordings, and every reason's click-through rate would be measured against it.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const empty = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 143, start_date: daysAgo(1), end_date: null } as Experiment,
+        })
+        empty.mount()
+        await expectLogic(empty).toFinishAllListeners()
+
+        empty.actions.listEmptyActionClicked('show_hidden')
+        empty.actions.listEmptyActionClicked('replay_settings')
+        await expectLogic(empty).toFinishAllListeners()
+
+        const clicks = captureSpy.mock.calls.filter(
+            ([event, properties]) =>
+                event === 'experiment recordings empty state action clicked' &&
+                (properties as any)?.experiment_id === 143
+        )
+        expect(clicks.map(([, properties]) => (properties as any).empty_reason)).toEqual([
+            null,
+            ExperimentReplayListEmptyReason.TooEarly,
+        ])
+
+        empty.unmount()
+    })
+
     it('asks the run-window probe once per visit, and holds the report until it answers', async () => {
         // Re-asking on every facet change would put one ClickHouse read behind every click, and the
         // answer cannot change within a visit. Reporting before it lands would stamp the
@@ -833,8 +876,8 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(residue).toDispatchActions(['loadWindowRecordingProbe'])
         expect(listsRendered(captureSpy, 130)).toHaveLength(0)
 
-        // A facet change reloads the list, and must not put a second read behind it.
-        residue.actions.setSelectedVariantKey('test')
+        // A second empty render while the same probe is out arms the hold once, not once per
+        // render, and asks no second read.
         residue.actions.recordingsLoaded([])
         await expectLogic(residue).toDispatchActions(['recordingsLoaded'])
         expect(recordingsListSpy).toHaveBeenCalledTimes(1)
@@ -849,6 +892,42 @@ describe('experimentReplayTabLogic', () => {
             probe_result: 'rows',
         })
         residue.unmount()
+    })
+
+    it('answers a facet change from the facet, without waiting on the probe or asking a second read', async () => {
+        // Narrowing to a variant settles the reason on its own, so the held report is released to
+        // the facet rather than to the probe. Re-asking the probe per facet change would put one
+        // ClickHouse read behind every click, and its answer could not change the facet's reason.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        let answerProbe: (response: unknown) => void = () => {}
+        recordingsListSpy.mockReturnValue(new Promise((resolve) => (answerProbe = resolve)))
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const faceted = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 144, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        faceted.mount()
+        await expectLogic(faceted).toFinishAllListeners()
+
+        faceted.actions.recordingsLoaded([])
+        await expectLogic(faceted).toDispatchActions(['loadWindowRecordingProbe'])
+        expect(listsRendered(captureSpy, 144)).toHaveLength(0)
+
+        faceted.actions.setSelectedVariantKey('test')
+        faceted.actions.recordingsLoaded([])
+        await expectLogic(faceted).toDispatchActions(['listRenderResolved'])
+        expect(recordingsListSpy).toHaveBeenCalledTimes(1)
+        expect(listsRendered(captureSpy, 144)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 144)[0][1]).toMatchObject({
+            empty_reason: 'variant_has_none',
+            variant: 'test',
+        })
+
+        // The probe answering afterwards must not fire a second report for the same list.
+        answerProbe({ results: [{ id: 'any-session' }] })
+        await expectLogic(faceted).toDispatchActions(['loadWindowRecordingProbeSuccess'])
+        expect(listsRendered(captureSpy, 144)).toHaveLength(1)
+
+        faceted.unmount()
     })
 
     it('drops a held report once the list comes back with rows', async () => {

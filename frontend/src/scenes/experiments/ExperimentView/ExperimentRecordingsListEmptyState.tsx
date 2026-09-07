@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
@@ -46,12 +46,10 @@ function ReasonBanner({
     reason,
     context,
     onAction,
-    onRetryMetricFilter,
 }: {
     reason: ExperimentReplayListEmptyReason
     context: ExperimentRecordingsListEmptyContext
     onAction: (action: ExperimentRecordingsEmptyAction) => void
-    onRetryMetricFilter: () => void
 }): JSX.Element {
     if (reason === ExperimentReplayListEmptyReason.ReplayDisabled) {
         return (
@@ -76,7 +74,7 @@ function ReasonBanner({
         return (
             <LemonBanner type="info">
                 No recordings yet. The experiment started {startedWhen(context.daysSinceStart)}, and a recording appears
-                here once an exposed person's session ends.
+                here once an exposed person's session has been captured.
             </LemonBanner>
         )
     }
@@ -111,14 +109,40 @@ function ReasonBanner({
                 type="info"
                 action={{
                     children: 'Try again',
-                    onClick: () => {
-                        onAction('retry_metric_filter')
-                        onRetryMetricFilter()
-                    },
+                    onClick: () => onAction('retry_metric_filter'),
                     'data-attr': 'experiment-recordings-empty-retry-metric-filter',
                 }}
             >
                 The metric filter could not be loaded, so the list has nothing to show.
+            </LemonBanner>
+        )
+    }
+    if (reason === ExperimentReplayListEmptyReason.VariantHasNone) {
+        return (
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'Show all variants',
+                    onClick: () => onAction('show_all_variants'),
+                    'data-attr': 'experiment-recordings-empty-show-all-variants',
+                }}
+            >
+                No recordings for the {context.variantKey} variant. The other variants can still have some.
+            </LemonBanner>
+        )
+    }
+    if (reason === ExperimentReplayListEmptyReason.InSessionHasNone) {
+        return (
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'All sessions',
+                    onClick: () => onAction('all_sessions'),
+                    'data-attr': 'experiment-recordings-empty-all-sessions',
+                }}
+            >
+                No recordings of the sessions the exposure happened in. The same people can still have recordings of
+                their other sessions.
             </LemonBanner>
         )
     }
@@ -209,14 +233,30 @@ function ReasonBanner({
  */
 export function ExperimentRecordingsListEmptyState({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
-    const { listEmptyReason, listEmptyContext } = useValues(logic)
-    const { listEmptyActionClicked, loadSessionBucket } = useActions(logic)
+    const { listEmptyReason, listEmptyContext, windowRecordingProbeLoading } = useValues(logic)
+    const { listEmptyActionClicked, loadSessionBucket, setSelectedVariantKey, setExposureScope } = useActions(logic)
     const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings } = useActions(sessionRecordingsPlaylistLogic)
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
 
     const recordingsAreHidden = hideViewedRecordings !== false
+    // The probe decides between two reasons, and until it lands neither is established. Showing the
+    // placeholder first would put one answer on screen and swap it for another a moment later.
+    const probePending =
+        windowRecordingProbeLoading && listEmptyReason === ExperimentReplayListEmptyReason.UnknownInWindow
+
+    // Reporting the click and acting on it in one place, so a reason only has to name its action.
+    const runAction = (action: ExperimentRecordingsEmptyAction): void => {
+        listEmptyActionClicked(action)
+        if (action === 'retry_metric_filter') {
+            loadSessionBucket()
+        } else if (action === 'show_all_variants') {
+            setSelectedVariantKey(null)
+        } else if (action === 'all_sessions') {
+            setExposureScope('all_exposed')
+        }
+    }
 
     return (
         <div className="flex flex-col gap-2" data-attr="experiment-recordings-empty-state">
@@ -239,14 +279,12 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
             )}
             {/* Rows the API returned are hidden in the browser, so the list is empty only because of
                 the setting. A reason names a cause of emptiness, and here there is nothing to explain. */}
-            {hiddenRecordingsCount === 0 && (
-                <ReasonBanner
-                    reason={listEmptyReason}
-                    context={listEmptyContext}
-                    onAction={listEmptyActionClicked}
-                    onRetryMetricFilter={loadSessionBucket}
-                />
-            )}
+            {hiddenRecordingsCount === 0 &&
+                (probePending ? (
+                    <LemonSkeleton className="h-16 w-full" />
+                ) : (
+                    <ReasonBanner reason={listEmptyReason} context={listEmptyContext} onAction={runAction} />
+                ))}
         </div>
     )
 }

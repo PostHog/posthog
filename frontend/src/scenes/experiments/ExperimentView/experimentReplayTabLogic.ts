@@ -166,6 +166,8 @@ export type ExperimentRecordingsEmptyAction =
     | 'retry_metric_filter'
     | 'show_hidden'
     | 'exposure_docs'
+    | 'show_all_variants'
+    | 'all_sessions'
 
 /**
  * The dates and settings the empty-state copy names. The component reads them from here so that it
@@ -180,6 +182,8 @@ export interface ExperimentRecordingsListEmptyContext {
     endDate: string | null
     /** The project's replay retention window, which `ended_past_retention` is decided against. */
     retentionWindowDays: number
+    /** The variant the list is narrowed to, null when it holds every variant. */
+    variantKey: string | null
 }
 
 /**
@@ -211,6 +215,17 @@ export enum ExperimentReplayListEmptyReason {
     EndedPastRetention = 'ended_past_retention',
     /** Launched within the last few days, so recordings may not have been captured yet. */
     TooEarly = 'too_early',
+    /**
+     * The list is narrowed to one variant, and that variant has nothing. Decided before the probe,
+     * which counts recordings across the whole project: on a narrowed list it can only find the
+     * other variants' recordings, and `exposed_not_recorded` would then call them unexposed.
+     */
+    VariantHasNone = 'variant_has_none',
+    /**
+     * The list is narrowed to the sessions the exposure happened in, and that narrower set has
+     * nothing. The same people can still own recordings of their other sessions.
+     */
+    InSessionHasNone = 'in_session_has_none',
     /**
      * The probe found no recording anywhere on the project over the run window. Replay is on, so
      * capture is the thing to look at rather than how the experiment links to it.
@@ -628,10 +643,13 @@ export interface experimentReplayTabLogicMeta {
             bucketSessionIds: string[] | undefined,
             sessionBucketError: string | null,
             windowRecordingProbe: boolean | null,
+            effectiveVariantKey: string | null,
+            effectiveExposureScope: ExperimentReplayExposureScope,
             arg: any
         ) => ExperimentReplayListEmptyReason
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
+            effectiveVariantKey: string | null,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -1182,6 +1200,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.bucketSessionIds,
                 s.sessionBucketError,
                 s.windowRecordingProbe,
+                s.effectiveVariantKey,
+                s.effectiveExposureScope,
                 (_, props) => props.experiment,
             ],
             (
@@ -1189,6 +1209,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 bucketSessionIds: string[] | undefined,
                 sessionBucketError: string | null,
                 windowRecordingProbe: boolean | null,
+                effectiveVariantKey: string | null,
+                effectiveExposureScope: ExperimentReplayExposureScope,
                 experiment: Experiment
             ): ExperimentReplayListEmptyReason => {
                 if (!currentTeam?.session_recording_opt_in) {
@@ -1215,6 +1237,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (daysSinceStart < TOO_EARLY_DAYS) {
                     return ExperimentReplayListEmptyReason.TooEarly
                 }
+                // The facets come before the probe, and the probe never runs behind one. The probe
+                // counts recordings across the project, so on a narrowed list it answers a wider
+                // question than the one the list asked: it would find the other variants' sessions
+                // and `exposed_not_recorded` would report that nobody exposed was recorded, while
+                // the experiment holds recordings the facet is hiding.
+                if (effectiveVariantKey !== null) {
+                    return ExperimentReplayListEmptyReason.VariantHasNone
+                }
+                if (effectiveExposureScope === 'in_session') {
+                    return ExperimentReplayListEmptyReason.InSessionHasNone
+                }
                 // A window that expired only in part gets no reason of its own, whether the
                 // experiment ended or still runs: its retained days are inside retention, so an
                 // empty list there is unexplained. `days_since_start` and `retention_period` ride
@@ -1230,15 +1263,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         listEmptyContext: [
-            (s) => [s.currentTeam, (_, props) => props.experiment],
+            (s) => [s.currentTeam, s.effectiveVariantKey, (_, props) => props.experiment],
             (
                 currentTeam: TeamPublicType | TeamType | null,
+                effectiveVariantKey: string | null,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
                 startDate: experiment.start_date ?? null,
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
+                variantKey: effectiveVariantKey,
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so
@@ -1624,7 +1659,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         },
         listEmptyActionClicked: ({ action }) => {
             actions.reportExperimentRecordingsEmptyActionClicked(props.experiment.id, {
-                empty_reason: values.listEmptyReason,
+                // `show_hidden` is offered when the API did return rows and the browser is hiding
+                // them, so the list is not empty and no reason explains it. `listEmptyReason` still
+                // holds a value there, and reporting it would read as a cause of an emptiness that
+                // never happened.
+                empty_reason: action === 'show_hidden' ? null : values.listEmptyReason,
                 action,
             })
         },
@@ -1674,7 +1713,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             cache.listRenderReportPending = false
             actions.listRenderResolved(recordings.length)
         },
-        // One report per list, from the point its reason is final.
+        // One report per list, from the point its reason is final. A hold is one report, not one per
+        // render: two empty renders while the same probe is out (a facet change, say) leave the hold
+        // armed once, and the probe's answer flushes it a single time.
         listRenderResolved: ({ resultCount }) => {
             actions.reportExperimentRecordingsListRendered(props.experiment.id, {
                 ...values.filterContext,
