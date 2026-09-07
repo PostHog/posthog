@@ -17,7 +17,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import Func, QuerySet, Value
+from django.db.models import F, Func, QuerySet, Value
 from django.db.models.functions import Lower
 
 import requests
@@ -282,31 +282,22 @@ class EmailLookupHandler:
     @staticmethod
     def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
         """
-        Get user by email with backwards compatibility.
-        First tries exact match (for existing users), then case-insensitive fallback.
+        Resolve an email address to a user, case-insensitively.
 
-        Handles the edge case where multiple users exist with case variations of the same email
-        (e.g., test@email.com, Test@email.com, TEST@email.com) by:
-        1. Preferring exact case match if it exists
-        2. Returning the first case-insensitive match deterministically if no exact match
+        Accounts created before signup lowercased emails can differ from a newer account only by
+        letter case. One case-insensitive rule keeps every caller on the same account, so a login,
+        a password reset, and the login precheck cannot disagree about who is signing in.
+        `EmailMultiRecordHandler` chooses between case variations when more than one matches.
         """
         from posthog.models.user import User
 
         queryset = User.objects.filter(is_active=is_active) if is_active else User.objects.all()
 
-        # First try: exact match (preserves existing behavior)
-        try:
-            return queryset.get(email=email)
-        except User.DoesNotExist:
-            pass
-
-        # Second try: case-insensitive match
         try:
             return queryset.get(email__iexact=email)
         except User.DoesNotExist:
             return None
         except MultipleObjectsReturned:
-            # Handle multiple case variations of the same email
             return EmailMultiRecordHandler.handle_multiple_users(
                 queryset.filter(email__iexact=email), email, "user_lookup"
             )
@@ -326,7 +317,11 @@ class EmailMultiRecordHandler:
         Returns:
             Last logged in user deterministically
         """
-        case_insensitive_matches = queryset.order_by("-last_login")
+        # Postgres sorts NULLs first on a DESC order, so an account that never logged in would win
+        # the tie-break. The account a person still uses is the one that logged in most recently.
+        # `-pk` keeps the choice stable when no candidate has ever logged in, so every caller that
+        # resolves this address agrees on one account.
+        case_insensitive_matches = queryset.order_by(F("last_login").desc(nulls_last=True), "-pk")
         user_count = case_insensitive_matches.count()
         last_logged_in_user = case_insensitive_matches.first()
 
