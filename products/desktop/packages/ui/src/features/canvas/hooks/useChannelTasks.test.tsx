@@ -64,6 +64,8 @@ describe("useChannelTaskMutations", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // `clearAllMocks` keeps implementations, so a rejection would leak onward.
+    mutations.file.mockResolvedValue({ taskId: "t1", channelId: "dest" });
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -107,6 +109,7 @@ describe("useChannelTaskMutations", () => {
       ["channel-feed", "source"],
       ["space-tree-tasks", "source"],
       ["task-feed-results", "mine"],
+      ["task-activity"],
     ];
     for (const queryKey of taskCacheKeys) {
       queryClient.setQueryData(queryKey, []);
@@ -120,6 +123,36 @@ describe("useChannelTaskMutations", () => {
     for (const queryKey of taskCacheKeys) {
       expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true);
     }
+  });
+
+  it("filing a selection invalidates once, not once per task", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
+
+    await act(async () => {
+      await result.current.fileTasks("dest", ["t1", "t2", "t3"]);
+    });
+
+    expect(mutations.file).toHaveBeenCalledTimes(3);
+    expect(
+      invalidate.mock.calls.filter(
+        ([filters]) =>
+          (filters?.queryKey as string[] | undefined)?.[0] === "channel-feed",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("skips the invalidation pass when the whole selection failed", async () => {
+    mutations.file.mockRejectedValue(new Error("nope"));
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
+
+    await act(async () => {
+      const { failedIds } = await result.current.fileTasks("dest", ["t1"]);
+      expect(failedIds).toEqual(["t1"]);
+    });
+
+    expect(invalidate).not.toHaveBeenCalled();
   });
 
   it("unfiling a task invalidates only the channel that listed it", async () => {

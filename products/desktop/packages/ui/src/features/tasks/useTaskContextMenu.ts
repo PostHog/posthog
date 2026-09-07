@@ -4,32 +4,21 @@ import {
 } from "@posthog/core/tasks/contextMenuActions";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
+import { trackFileTask } from "@posthog/ui/features/canvas/trackFileTask";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useRestoreTask } from "@posthog/ui/features/suspension/useRestoreTask";
 import { useSuspendTask } from "@posthog/ui/features/suspension/useSuspendTask";
 import { useDeleteTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
 import { toast } from "@posthog/ui/primitives/toast";
-import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useCallback, useState } from "react";
 
 const log = logger.scope("context-menu");
-
-function trackFiling(channelId: string, taskId: string, success: boolean) {
-  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-    action_type: "file_task",
-    surface: "task_context_menu",
-    channel_id: channelId,
-    task_id: taskId,
-    success,
-  });
-}
 
 export function useTaskContextMenu() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -169,9 +158,9 @@ export function useTaskContextMenu() {
               toast.success(
                 channelName ? `Filed to ${channelName}` : "Task filed",
               );
-              trackFiling(intent.channelId, task.id, true);
+              trackFileTask(intent.channelId, task.id, true);
             } catch (error) {
-              trackFiling(intent.channelId, task.id, false);
+              trackFileTask(intent.channelId, task.id, false);
               toast.error("Couldn't file task", {
                 description:
                   error instanceof Error ? error.message : String(error),

@@ -94,7 +94,7 @@ export function useSidebarBulkActions(
     enabled: bluebirdEnabled,
   });
   const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
-  const { fileTask } = useChannelTaskMutations();
+  const { fileTasks } = useChannelTaskMutations();
 
   const liveTaskIds = useLiveTaskIds(selectedCount > 0);
 
@@ -218,19 +218,15 @@ export function useSidebarBulkActions(
       if (selectedCount === 0 || isFiling) return;
       setIsFiling(true);
       try {
-        const results = await Promise.allSettled(
-          taskIds.map((taskId) => fileTask(channelId, taskId)),
-        );
-        const failedIds = taskIds.filter(
-          (_, i) => results[i].status === "rejected",
-        );
-        for (const [i, taskId] of taskIds.entries()) {
+        const { failedIds } = await fileTasks(channelId, taskIds);
+        const failed = new Set(failedIds);
+        for (const taskId of taskIds) {
           track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
             action_type: "file_task",
             surface: "sidebar_bulk",
             channel_id: channelId,
             task_id: taskId,
-            success: results[i].status === "fulfilled",
+            success: !failed.has(taskId),
           });
         }
         reconcileSelection(failedIds);
@@ -239,7 +235,7 @@ export function useSidebarBulkActions(
         setIsFiling(false);
       }
     },
-    [fileTask, isFiling, reconcileSelection, report, selectedCount, taskIds],
+    [fileTasks, isFiling, reconcileSelection, report, selectedCount, taskIds],
   );
 
   // Memoized because SidebarMenu's bulk callbacks depend on this object; a
