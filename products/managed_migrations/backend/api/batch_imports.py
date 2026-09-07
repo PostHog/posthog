@@ -125,7 +125,11 @@ class BatchImportSerializer(serializers.ModelSerializer):
         try:
             validate_external_url(value)
         except ValueError:
-            raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")
+            # The value is not echoed. A URL carries its credentials in the userinfo, and this
+            # message reaches the response body, the request log and error tracking.
+            raise serializers.ValidationError(
+                "Invalid endpoint URL. Check that it starts with http:// or https:// and carries no credentials."
+            )
         return value
 
     def create(self, validated_data: dict) -> BatchImport:

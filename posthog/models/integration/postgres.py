@@ -3,7 +3,12 @@
 from typing import ClassVar, Literal, NamedTuple
 
 from posthog.models.user import User
-from posthog.security.url_validation import validate_external_host
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    HostShapeError,
+    validate_external_host,
+)
 
 from . import common, model
 
@@ -79,13 +84,15 @@ class PostgreSQLServerIntegration:
         host = common._return_non_empty_str_from_config(config, "host", friendly_name="Host", kind=cls.integration_kind)
         try:
             validate_external_host(host)
+        except HostShapeError:
+            # Decided from the form alone, so it names what to fix without saying anything
+            # about our network. The value itself is never echoed: it can be a pasted
+            # connection string carrying a password.
+            raise common.IntegrationError(INVALID_HOST_MESSAGE)
         except ValueError:
-            # One message for every reason. The value can be a pasted connection string
-            # carrying a password, so it is not echoed, and reporting whether a host resolved
-            # internally would answer that question for someone probing the network.
-            raise common.IntegrationError(
-                "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
-            )
+            # One message for a host that does not resolve and for one that resolves inside
+            # our network, so the error cannot be used to map it.
+            raise common.IntegrationError(UNREACHABLE_HOST_MESSAGE)
 
         port = config.get("port", None)
         try:
