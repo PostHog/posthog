@@ -1045,6 +1045,7 @@ describe("TaskCreationSaga", () => {
       cloudRunSource: "signal_report",
       signalReportId: "report-123",
       signalReportTaskRelationship: "discussion",
+      signalReportDiscussionQuestion: "why?",
       githubIntegrationId: 123,
     });
 
@@ -1061,6 +1062,7 @@ describe("TaskCreationSaga", () => {
         repositories: undefined,
         signal_report: "report-123",
         signal_report_task_relationship: "discussion",
+        signal_report_discussion_question: "why?",
       }),
     );
     expect(createTaskRunMock).toHaveBeenCalledWith(

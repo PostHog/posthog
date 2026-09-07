@@ -458,6 +458,63 @@ describe("buildSessionOptions", () => {
     });
   });
 
+  describe("ANTHROPIC_CUSTOM_HEADERS on the direct-Bedrock path", () => {
+    const originalProjectId = process.env.POSTHOG_PROJECT_ID;
+    const originalCustomHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
+    const originalUseBedrock = process.env.CLAUDE_CODE_USE_BEDROCK;
+
+    beforeEach(() => {
+      delete process.env.POSTHOG_PROJECT_ID;
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS;
+      process.env.CLAUDE_CODE_USE_BEDROCK = "1";
+    });
+
+    afterEach(() => {
+      for (const [key, value] of [
+        ["POSTHOG_PROJECT_ID", originalProjectId],
+        ["ANTHROPIC_CUSTOM_HEADERS", originalCustomHeaders],
+        ["CLAUDE_CODE_USE_BEDROCK", originalUseBedrock],
+      ] as const) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+
+    // AWS strips underscore-named headers before validating the SigV4
+    // signature, so signing them yields 403 SignatureDoesNotMatch. On direct
+    // Bedrock they reach no gateway, so they are dropped; hyphen-only headers
+    // sign fine and stay.
+    it("drops underscore-named x-posthog-property headers and keeps hyphen-only ones", () => {
+      process.env.POSTHOG_PROJECT_ID = "42";
+      process.env.ANTHROPIC_CUSTOM_HEADERS =
+        "x-posthog-property-task_id: task-abc";
+
+      const headers = buildSessionOptions({
+        ...makeParams(),
+        taskId: "task-123",
+      }).env?.ANTHROPIC_CUSTOM_HEADERS;
+
+      expect(headers).not.toContain("x-posthog-property-task_id");
+      expect(headers).not.toContain("x-posthog-property-$ai_session_id");
+      expect(headers).toContain("X-PostHog-Project-Id: 42");
+      expect(headers).toContain("x-posthog-use-bedrock-fallback: true");
+    });
+
+    it("keeps underscore-named headers when not on the direct-Bedrock path", () => {
+      delete process.env.CLAUDE_CODE_USE_BEDROCK;
+
+      const headers = buildSessionOptions({
+        ...makeParams(),
+        taskId: "task-123",
+      }).env?.ANTHROPIC_CUSTOM_HEADERS;
+
+      expect(headers).toContain("x-posthog-property-$ai_session_id: task-123");
+    });
+  });
+
   describe("machineAuth (own Claude subscription)", () => {
     const STRIPPED_KEYS = [
       "ANTHROPIC_BASE_URL",
