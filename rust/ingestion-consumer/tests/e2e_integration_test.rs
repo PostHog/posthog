@@ -25,7 +25,6 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
-use ingestion_consumer::config::LedgerMode;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -436,7 +435,6 @@ struct Harness {
     pub ledger: Arc<TopicOffsetLedger>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
-    ledger_mode: LedgerMode,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -533,7 +531,6 @@ impl Harness {
             registry_config,
             0,
             ComponentOptions::new(),
-            LedgerMode::Shadow,
         )
         .await
     }
@@ -556,7 +553,6 @@ impl Harness {
             ComponentOptions::new()
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
-            LedgerMode::Shadow,
         )
         .await
     }
@@ -574,24 +570,6 @@ impl Harness {
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
-            LedgerMode::Shadow,
-        )
-        .await
-    }
-
-    /// Single worker and partition, ledger commit mode: the Kafka commit
-    /// comes from the ledger frontier instead of the batch spans.
-    async fn start_commit_mode(topic: &str) -> Self {
-        Self::start_inner(
-            topic,
-            1,
-            1,
-            1,
-            Duration::from_secs(60),
-            fast_registry_config(),
-            0,
-            ComponentOptions::new(),
-            LedgerMode::Commit,
         )
         .await
     }
@@ -606,7 +584,6 @@ impl Harness {
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
         component_options: ComponentOptions,
-        ledger_mode: LedgerMode,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -642,9 +619,7 @@ impl Harness {
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
         let context = SentinelContext::detached();
-        let ledger = context
-            .topic_offset_ledger()
-            .expect("a detached context carries a ledger");
+        let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
         let consumer = IngestionConsumer::from_parts(
@@ -660,7 +635,6 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
-                ledger_mode,
             },
             handle,
         );
@@ -683,7 +657,6 @@ impl Harness {
             ledger,
             max_in_flight,
             deferred_flush_timeout,
-            ledger_mode,
         }
     }
 
@@ -720,9 +693,7 @@ impl Harness {
         self.shutdown = handle.shutdown_token();
 
         let context = SentinelContext::detached();
-        self.ledger = context
-            .topic_offset_ledger()
-            .expect("a detached context carries a ledger");
+        self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
         let consumer = IngestionConsumer::from_parts(
@@ -738,7 +709,6 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
                 debug_recorder: None,
-                ledger_mode: self.ledger_mode,
             },
             handle,
         );
@@ -2018,13 +1988,21 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
     harness.stop().await;
 }
 
-/// Commit mode: the broker-committed offset is the ledger frontier — one past
-/// everything the workers accepted — and a restart resumes from it with no
-/// loss and no redelivery.
+/// The broker-committed offset is the ledger frontier — one past everything
+/// the workers accepted — and a restart resumes from it with no loss and no
+/// redelivery.
 #[tokio::test]
-async fn commit_mode_commits_the_ledger_frontier() {
+async fn the_committed_offset_is_the_ledger_frontier() {
     let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
-    let mut harness = Harness::start_commit_mode(&topic).await;
+    let mut harness = Harness::start(
+        &topic,
+        1,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
 
     for seq in 0..10usize {
@@ -2582,7 +2560,6 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            ledger_mode: LedgerMode::Shadow,
         },
         handle2,
     );
@@ -2690,7 +2667,6 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            ledger_mode: LedgerMode::Shadow,
         },
         handle2,
     );
@@ -2804,7 +2780,6 @@ async fn fenced_static_member_exits_on_fatal_error() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            ledger_mode: LedgerMode::Shadow,
         },
         handle,
     );

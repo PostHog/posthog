@@ -78,6 +78,7 @@ from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     AgentPeerMessage,
     Channel,
+    ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -156,10 +157,10 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 -----END PRIVATE KEY-----"""
 
 
-# A discuss-report kickoff prompt: the report URL line the frontend prepends, then the user's question.
+# A discuss-report kickoff prompt: the report URL line the web app prepends, then the user's question.
 _DISCUSS_PROMPT = (
-    "Let's discuss this PostHog Inbox report: "
-    "https://us.posthog.com/project/2/inbox/reports/x\n\nIs this still happening?"
+    "Answer this question about the PostHog Inbox report at "
+    "https://us.posthog.com/project/2/inbox/reports/x:\n\nIs this still happening?"
 )
 
 
@@ -1697,6 +1698,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.ONBOARDING,),
             (Task.OriginProduct.SIGNALS_CHAT,),
             (Task.OriginProduct.TASK_ANALYSIS,),
+            (Task.OriginProduct.REVIEW_HOG,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -1970,16 +1972,19 @@ class TestTaskAPI(BaseTaskAPITest):
         else:
             self.assertFalse(notes.exists())
 
-    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT):
+    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT, discussion_question=None):
+        data = {
+            "title": "Discuss report",
+            "description": description,
+            "origin_product": "signal_report",
+            "signal_report": str(report_id),
+            "signal_report_task_relationship": "discussion",
+        }
+        if discussion_question is not None:
+            data["signal_report_discussion_question"] = discussion_question
         return self.client.post(
             "/api/projects/@current/tasks/",
-            {
-                "title": "Discuss report",
-                "description": description,
-                "origin_product": "signal_report",
-                "signal_report": str(report_id),
-                "signal_report_task_relationship": "discussion",
-            },
+            data,
             format="json",
         )
 
@@ -2098,6 +2103,25 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(self._discussion_notes().exists())
+
+    @parameterized.expand([("question", "Why now?", True), ("blank", "", False)])
+    def test_explicit_discussion_question_controls_forwarding(self, _name, question, should_forward):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="New report title")
+        response = self._post_discussion_task(
+            report.id,
+            description="Discuss report: Old report title — stale question",
+            discussion_question=question,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        if should_forward:
+            note = self._discussion_notes().get()
+            self.assertIn("Why now?", note.content)
+            self.assertNotIn("stale question", note.content)
+        else:
+            self.assertFalse(self._discussion_notes().exists())
 
     def test_create_task_with_signal_report_accepts_free_form_relationship(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
@@ -10159,6 +10183,32 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         for client in (self.client, recipient_client):
             self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
 
+    def test_handoff_adds_recipient_to_a_private_space(self):
+        recipient = self.create_organization_user("recipient")
+        private = tasks_facade.create_private_channel(
+            self.team.id, self.user.id, name="squad", member_ids=[], star=False
+        )
+        assert private is not None
+        with team_scope(self.team.id):
+            channel = Channel.objects.get(id=private.id)
+        task = self.create_task(created_by=self.user)
+        task.channel = channel
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.channel_id, channel.id)
+        self.assertTrue(
+            ChannelMembership.objects.unscoped().filter(channel_id=channel.id, user_id=recipient.id).exists()
+        )
+
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        for client in (self.client, recipient_client):
+            self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
+
     def test_handoff_requires_control_of_the_task(self):
         colleague = self.create_organization_user("colleague")
         with team_scope(self.team.id):
@@ -14137,6 +14187,7 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertTrue(body["created"])
         analysis_task = Task.objects.get(id=body["analysis_task_id"])
         self.assertEqual(analysis_task.origin_product, Task.OriginProduct.TASK_ANALYSIS)
+        self.assertTrue(analysis_task.internal)
         self.assertIn("analyzing-task-runs", analysis_task.description)
         run = analysis_task.latest_run
         assert run is not None
