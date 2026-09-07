@@ -175,16 +175,14 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
     frequency_mode = serializers.ChoiceField(
         choices=[
             ("tiered", "tiered"),
-            ("dag_schedule", "dag_schedule"),
             ("managed_viewset", "managed_viewset"),
             ("legacy", "legacy"),
             ("no_node", "no_node"),
         ],
         help_text="What governs this view's cadence. 'tiered' is the only mode where `options` is "
-        "meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single "
-        "DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 "
-        "backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has "
-        "no data modeling node to store a cadence on.",
+        "meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns "
+        "the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, "
+        "and 'no_node' means the view has no data modeling node to store a cadence on.",
     )
     options = SyncFrequencyOptionSerializer(
         many=True,
@@ -504,17 +502,15 @@ class DataWarehouseSavedQuerySerializerMixin:
 
     @extend_schema_field(serializers.BooleanField())
     def get_sync_frequency_managed_by_dag(self, view: DataWarehouseSavedQuery) -> bool:
-        return bool(self.context.get("sync_frequency_managed_by_dag", False))  # type: ignore[attr-defined]
+        # Cadence is per view on every team now; the field stays so older clients keep parsing.
+        return False
 
     @extend_schema_field(SyncFrequencyBoundsSerializer())
     def get_sync_frequency_bounds(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
         from products.data_modeling.backend.facade.api import saved_query_target_bounds
 
-        team_mode = self.context.get("team_frequency_mode", "legacy")  # type: ignore[attr-defined]
         if view.managed_viewset is not None:
             return _unbounded_frequency_payload("managed_viewset")
-        if team_mode != "tiered":
-            return _unbounded_frequency_payload(team_mode)
 
         resolved = saved_query_target_bounds(view.team_id, view.pk)
         if resolved is None:
@@ -992,16 +988,8 @@ class DataWarehouseSavedQuerySerializer(
                 database=self.context.get("database"),
             )
 
-        dag_managed_frequency = False
-        if sync_frequency:
-            from products.data_modeling.backend.facade.api import tiered_schedules_enabled
-
-            # On tiered schedules the frequency writes through to the DAG node's freshness target;
-            # on a single DAG schedule that one schedule owns cadence and per-query frequency edits
-            # are rejected.
-            if not tiered_schedules_enabled(instance.team):
-                raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
-            dag_managed_frequency = True
+        # The frequency writes through to the DAG node's freshness target.
+        dag_managed_frequency = bool(sync_frequency)
 
         soft_update = validated_data.pop("soft_update", False)
 
@@ -1548,21 +1536,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
-        context["team_frequency_mode"] = self._team_frequency_mode()
-        context["sync_frequency_managed_by_dag"] = context["team_frequency_mode"] == "dag_schedule"
         return context
-
-    def _team_frequency_mode(self) -> str:
-        """Which scheduler owns materialization cadence for this team.
-
-        Mirrors the branch `update()` takes on a `sync_frequency` write: `tiered` writes the DAG node's
-        freshness target and is the only mode with bounds, and `dag_schedule` rejects the write because
-        the team's one DAG schedule owns cadence. Team-scoped, so the per-view rejections (managed
-        viewsets, views with no node) are not reflected here.
-        """
-        from products.data_modeling.backend.facade.api import tiered_schedules_enabled
-
-        return "tiered" if tiered_schedules_enabled(self.team) else "dag_schedule"
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -1857,7 +1831,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             saved_query_target_bounds,
         )
 
-        if sync_frequency_interval is not None and self._team_frequency_mode() == "tiered":
+        if sync_frequency_interval is not None:
             # Ask before writing, so the ordinary refusal never has to be undone below. Names only
             # what this caller may read, matching the bounds payload — otherwise one rejected
             # materialize reads back a node they were never shown.

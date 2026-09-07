@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import {
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonSelect,
-    LemonTable,
-    LemonTableColumns,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -19,9 +11,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { DataModelingDAG, DataModelingSyncInterval } from '~/types'
+import { DataModelingDAG } from '~/types'
 
-import { SYNC_FREQUENCY_OPTIONS, dagsLogic } from './dagsLogic'
+import { dagsLogic } from './dagsLogic'
 
 const DEFAULT_DAG_NAME = 'Default'
 
@@ -62,21 +54,7 @@ export function DagsTab(): JSX.Element {
         {
             title: 'Sync frequency',
             key: 'sync_frequency',
-            render: (_, dag) =>
-                dag.frequency_managed_by_nodes ? (
-                    <span className="text-muted">Managed per model</span>
-                ) : (
-                    <LemonSelect<DataModelingSyncInterval>
-                        value={dag.sync_frequency ?? '24hour'}
-                        options={SYNC_FREQUENCY_OPTIONS}
-                        size="small"
-                        onChange={(value) => {
-                            if (value && value !== dag.sync_frequency) {
-                                updateDag({ ...dag, sync_frequency: value })
-                            }
-                        }}
-                    />
-                ),
+            render: () => <span className="text-muted">Managed per model</span>,
         },
         {
             key: 'actions',
