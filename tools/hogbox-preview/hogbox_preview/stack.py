@@ -34,10 +34,41 @@ Recipe (mount-over-image — the default, ~minutes per PR):
 from __future__ import annotations
 
 import sys
+import json
 import secrets
 
 from . import timing
 from .backend import PreviewBackend
+from .desktop_profile import (
+    DesktopPreviewError,
+    build_deployment_metadata_document,
+    build_desktop_readiness_script,
+    build_oauth_seed_script,
+    parse_readiness_output,
+)
+
+
+class DesktopProfileConfig:
+    """Inputs for the desktop preview profile. All values are derived or
+    validated upstream (the CI resolve step); nothing here is PR-authored
+    free text. `commit_sha` is the EXACT PR head SHA the backend was checked
+    out at — the readiness gate refuses to report ready for any other value,
+    so an installer can never be told to test a revision the box isn't
+    running."""
+
+    def __init__(self, *, pr_number: int, commit_sha: str, organization_id: str | None = None):
+        if not isinstance(pr_number, int) or pr_number <= 0:
+            raise ValueError(f"pr_number must be a positive integer, got {pr_number!r}")
+        if (
+            not isinstance(commit_sha, str)
+            or len(commit_sha) != 40
+            or not all(c in "0123456789abcdef" for c in commit_sha)
+        ):
+            raise ValueError("commit_sha must be a full 40-char hex SHA")
+        self.pr_number = pr_number
+        self.commit_sha = commit_sha
+        self.organization_id = organization_id
+
 
 # The tool's compose override MUST stay in sync with the golden bake script (hogland
 # scripts/posthog-preview-setup.sh): both write docker-compose.preview.yml, and
@@ -129,6 +160,7 @@ class PostHogPreviewStack:
         reset_db: bool = False,
         mount: bool = True,
         frontend_dist_tar: str | None = None,
+        desktop_profile: DesktopProfileConfig | None = None,
     ):
         self.backend = backend
         # One random Django SECRET_KEY per stack (i.e. per provisioned box). Pinned
@@ -152,6 +184,9 @@ class PostHogPreviewStack:
         # Turbo cache). When set, swap_frontend serves the PR's own frontend
         # instead of the golden image's :master SPA. None => keep :master.
         self.frontend_dist_tar = frontend_dist_tar
+        # Desktop preview profile: OAuth app + testers + deployment metadata +
+        # desktop readiness. None => the ordinary preview recipe unchanged.
+        self.desktop_profile = desktop_profile
 
     # --- public API ----------------------------------------------------------
     def bring_up(self) -> str:
@@ -190,6 +225,8 @@ class PostHogPreviewStack:
         self.up_web()
         self.wait_for_health()
         self.deep_health()
+        if self.desktop_profile:
+            self.apply_desktop_profile()
         return url
 
     def swap_frontend_only(self) -> str:
@@ -743,6 +780,83 @@ echo "DEEP_HEALTH_OK"
             f"{r.stdout.strip()}\n{r.stderr.strip()}\n"
             f"--- docker logs --tail 40 posthog-web-1 ---\n{logs.stdout.strip()}"
         )
+
+    # --- desktop preview profile ---------------------------------------------
+    def apply_desktop_profile(self) -> None:
+        """Provision the desktop OAuth app + testers, publish the deployment
+        metadata document, and gate on desktop readiness. Each step runs
+        INSIDE the guest; this method only ships scripts in and consumes their
+        JSON/markers out."""
+        assert self.desktop_profile is not None
+        cfg = self.desktop_profile
+        timing.stage("desktop profile: oauth app + testers")
+        self._run_desktop_oauth_seed(cfg)
+        timing.stage("desktop profile: deployment metadata")
+        self._publish_deployment_metadata(cfg)
+        timing.stage("desktop profile: readiness gate")
+        self._run_desktop_readiness(cfg)
+
+    def _run_desktop_oauth_seed(self, cfg: DesktopProfileConfig) -> None:
+        script = build_oauth_seed_script(
+            pr_number=cfg.pr_number,
+            organization_id=cfg.organization_id,
+        )
+        self.backend.write_file(f"{self.repo_dir}/desktop-oauth-seed.py", script)
+        run = self._compose("run --rm -T web python /code/desktop-oauth-seed.py")
+        result = self.backend.run_long(run, name="desktop-oauth-seed", timeout=600)
+        if "oauth_app" not in result.stdout:
+            raise DesktopPreviewError(f"desktop OAuth seed produced no result: {result.stdout.strip()[:400]}")
+
+    def _publish_deployment_metadata(self, cfg: DesktopProfileConfig) -> None:
+        """Serve /static/desktop-preview/deployment.json from the staticfiles
+        WhiteNoise mount. The web container is RECREATED (never restarted — the
+        Unit-listener gotcha) so the serving process re-reads its static
+        files."""
+        doc = build_deployment_metadata_document(
+            pr_number=cfg.pr_number,
+            commit_sha=cfg.commit_sha,
+            deployment_generation=self._deployment_generation(),
+        )
+        mkdir = "mkdir -p staticfiles/desktop-preview"
+        write = "cat > staticfiles/desktop-preview/deployment.json <<'EOF'\n" + doc + "\nEOF"
+        check = "test -s staticfiles/desktop-preview/deployment.json"
+        self.backend.exec(f"cd {self.repo_dir} && {mkdir} && {write} && {check}", timeout=60)
+        self.up_web()
+        # The document must actually be served as JSON, not resolved to the
+        # SPA: probe it the way the installed client will.
+        probe = self.backend.exec(
+            f"curl -s -m 15 -o /tmp/meta.json -w '%{{http_code}}' http://localhost:{self.backend.web_port}/static/desktop-preview/deployment.json",
+            timeout=60,
+        )
+        if probe.stdout.strip() != "200":
+            raise DesktopPreviewError(f"deployment metadata not served (HTTP {probe.stdout.strip()})")
+        served = self.backend.exec("cat /tmp/meta.json", timeout=30)
+        try:
+            actual = json.loads(served.stdout)
+        except json.JSONDecodeError as e:
+            raise DesktopPreviewError(f"deployment metadata served non-JSON body: {served.stdout[:200]}") from e
+        if actual != json.loads(doc):
+            raise DesktopPreviewError("deployment metadata served a different document than requested")
+
+    def _deployment_generation(self) -> int:
+        """Monotonic generation for the metadata document: one per bring-up of
+        this box. The generation distinguishes replacement events for humans;
+        the SHA is the machine-checked identity."""
+        return int(__import__("time").time())
+
+    def _run_desktop_readiness(self, cfg: DesktopProfileConfig) -> None:
+        script = build_desktop_readiness_script(
+            pr_number=cfg.pr_number,
+            backend_origin=self.backend.web_url.rstrip("/"),
+            oauth_client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
+            commit_sha=cfg.commit_sha,
+        ).replace("{PORT}", str(self.backend.web_port))
+        self.backend.write_file(f"{self.repo_dir}/desktop-readiness.sh", script)
+        result = self.backend.exec(f"cd {self.repo_dir} && bash desktop-readiness.sh", timeout=300)
+        verdict = parse_readiness_output(result.stdout)
+        if verdict["status"] != "ok":
+            raise DesktopPreviewError(f"desktop readiness failed: {verdict['reason']}\n{result.stdout.strip()[-800:]}")
+        timing.stage("desktop readiness pass")
 
     # --- internal ------------------------------------------------------------
     def _compose(self, args: str) -> str:

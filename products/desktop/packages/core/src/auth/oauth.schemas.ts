@@ -5,6 +5,16 @@ export const cloudRegion = z.enum(CLOUD_REGIONS);
 export type CloudRegion = z.infer<typeof cloudRegion>;
 
 /**
+ * Serialized deployment target for a session: an ordinary region by value, or
+ * `"preview"` for a desktop-preview deployment (whose origin and client id come
+ * from the build's injected `AUTH_PREVIEW_DEPLOYMENT` manifest, so the wire
+ * value stays opaque). Existing ordinary sessions keep their exact serialized
+ * values; `"preview"` never resolves to a production URL.
+ */
+export const deploymentTarget = z.enum([...CLOUD_REGIONS, "preview"]);
+export type DeploymentTarget = z.infer<typeof deploymentTarget>;
+
+/**
  * Error codes for OAuth operations.
  * - network_error: Transient network issue, should retry
  * - server_error: Server error (5xx), should retry

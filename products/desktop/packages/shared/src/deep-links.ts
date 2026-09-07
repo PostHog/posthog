@@ -9,6 +9,26 @@ export function getDeeplinkProtocol(isDevBuild: boolean): string {
     : DEEPLINK_PROTOCOL_PRODUCTION;
 }
 
+/**
+ * The schemes a build accepts, in order of preference. A preview build gets
+ * exactly one scheme — its own — so it can never steal `posthog-code://` or
+ * legacy `twig://`/`array://` callbacks from the production app, and the
+ * production app can never intercept the preview's OAuth callback.
+ */
+export function getDeeplinkProtocolOptions(
+  isDevBuild: boolean,
+  previewScheme: string | null,
+): string[] {
+  if (previewScheme) {
+    return [previewScheme];
+  }
+  return isDevBuild
+    ? [DEEPLINK_PROTOCOL_DEVELOPMENT]
+    : [DEEPLINK_PROTOCOL_PRODUCTION, ...LEGACY_PROTOCOLS];
+}
+
+export const LEGACY_PROTOCOLS = ["twig", "array"];
+
 export function isPostHogCodeDeeplink(
   href: string | undefined,
 ): href is string {

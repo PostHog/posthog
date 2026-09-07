@@ -103,6 +103,10 @@
     "./disk-cache": {
       "types": "./dist/disk-cache.d.ts",
       "import": "./dist/disk-cache.js"
+    },
+    "./preview-deployment": {
+      "types": "./dist/preview-deployment.d.ts",
+      "import": "./dist/preview-deployment.js"
     }
   },
   "scripts": {

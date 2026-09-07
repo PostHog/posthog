@@ -60,6 +60,10 @@ import {
   NOTIFICATIONS_SERVICE,
   type NotificationTarget,
 } from "@posthog/platform/notifications";
+import {
+  PREVIEW_DEPLOYMENT,
+  type PreviewDeploymentInfo,
+} from "@posthog/platform/preview-deployment";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
 import {
   type Adapter,
@@ -109,6 +113,7 @@ import {
 import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
 import { HEDGEHOG_MODE_HOST } from "@posthog/ui/shell/hedgehogModeHost";
 import { posthogFeatureFlags } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { bindPreviewFeatureFlags } from "@posthog/ui/shell/previewFeatureFlags";
 import type { ImperativeQueryClient } from "@posthog/ui/shell/queryClient";
 import { IMPERATIVE_QUERY_CLIENT } from "@posthog/ui/shell/queryClient";
 import {
@@ -125,6 +130,7 @@ import { ELEVENLABS_API_KEY_STORE_KEY } from "@posthog/workspace-server/services
 import { container } from "@renderer/di/container";
 import { RendererAuthSideEffects } from "@renderer/platform-adapters/auth-side-effects";
 import { desktopDiskCacheImages } from "@renderer/platform-adapters/desktop-disk-cache-images";
+import { resolveRendererPreviewDeployment } from "@renderer/platform-adapters/desktop-preview-deployment";
 import { gitCacheKeyProvider } from "@renderer/platform-adapters/git-cache-keys";
 import { RendererHedgehogModeHost } from "@renderer/platform-adapters/hedgehog-mode-host";
 import { setupStore } from "@renderer/platform-adapters/setup";
@@ -435,9 +441,16 @@ container.bind<ISpeechNotifySettings>(SPEECH_NOTIFY_SETTINGS).toConstantValue({
   },
 });
 
-container
-  .bind<FeatureFlags>(FEATURE_FLAGS)
-  .toConstantValue(posthogFeatureFlags);
+container.bind<FeatureFlags>(FEATURE_FLAGS).toConstantValue(
+  // A preview build layers the manifest's flag overrides over the analytics
+  // flags: they apply before first render and survive flag refreshes, and
+  // false overrides persist too. Ordinary builds bind the analytics flags
+  // unchanged.
+  bindPreviewFeatureFlags(
+    posthogFeatureFlags,
+    resolveRendererPreviewDeployment(),
+  ),
+);
 
 container
   .bind<IAuthSideEffects>(AUTH_SIDE_EFFECTS)
@@ -446,6 +459,9 @@ container
 
 container.bind(SETUP_STORE).toConstantValue(setupStore);
 
+container
+  .bind<PreviewDeploymentInfo | null>(PREVIEW_DEPLOYMENT)
+  .toConstantValue(resolveRendererPreviewDeployment());
 container
   .bind(HOST_CAPABILITIES)
   .toConstantValue({ localWorkspaces: true } satisfies HostCapabilities);

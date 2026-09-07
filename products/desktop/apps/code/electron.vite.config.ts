@@ -11,6 +11,10 @@ import { loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { buildExternals } from "./runtime-dependencies";
 import {
+  assertOrdinaryBuild,
+  loadPreviewBuildConfig,
+} from "./scripts/preview-config.mts";
+import {
   createForceDevModeDefine,
   createPosthogPlugin,
   mainAliases,
@@ -86,6 +90,17 @@ const computeDevThirdPartyExternals = (): RegExp[] =>
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, "../.."), "");
   const isDev = mode === "development";
+  // Preview builds supply a validated manifest; an ordinary build fails closed
+  // if one is present (a release build must never bake preview configuration).
+  const preview = loadPreviewBuildConfig();
+  if (isDev || mode === "test") {
+    assertOrdinaryBuild(preview);
+  }
+  const previewDefine = {
+    __DESKTOP_PREVIEW_MANIFEST__: JSON.stringify(
+      preview ? preview.manifest : null,
+    ),
+  };
 
   return {
     main: {
@@ -116,6 +131,7 @@ export default defineConfig(({ mode }) => {
         "process.env.SKILLS_ZIP_URL": JSON.stringify(SKILLS_ZIP_URL),
         "process.env.CONTEXT_MILL_ZIP_URL":
           JSON.stringify(CONTEXT_MILL_ZIP_URL),
+        ...previewDefine,
         ...createForceDevModeDefine(),
       },
       resolve: {
@@ -231,6 +247,7 @@ export default defineConfig(({ mode }) => {
       },
       envDir: path.resolve(__dirname, "../.."),
       define: {
+        ...previewDefine,
         ...createForceDevModeDefine(),
         __APP_VERSION__: JSON.stringify(pkg.version),
       },

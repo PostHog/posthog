@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { cloudRegion, type oAuthTokenResponse } from "./oauth.schemas";
+import {
+  cloudRegion,
+  deploymentTarget,
+  type oAuthTokenResponse,
+} from "./oauth.schemas";
 
 const authStatusSchema = z.enum(["anonymous", "restoring", "authenticated"]);
 export const orgProjectsSchema = z.object({
@@ -107,6 +111,7 @@ export const authStateSchema = z.object({
   status: authStatusSchema,
   bootstrapComplete: z.boolean(),
   cloudRegion: cloudRegion.nullable(),
+  deploymentTarget: deploymentTarget.nullable(),
   orgProjectsMap: orgProjectsMapSchema,
   currentOrgId: z.string().nullable(),
   currentProjectId: z.number().nullable(),
@@ -117,9 +122,11 @@ export const authStateSchema = z.object({
   sessionEndReason: z.enum(["impersonation_expired"]).nullable().optional(),
 });
 export type AuthState = z.infer<typeof authStateSchema>;
+export type { DeploymentTarget } from "./oauth.schemas";
+export { deploymentTarget } from "./oauth.schemas";
 
 export const loginInput = z.object({
-  region: cloudRegion,
+  region: deploymentTarget,
 });
 export const loginOutput = z.object({
   state: authStateSchema,

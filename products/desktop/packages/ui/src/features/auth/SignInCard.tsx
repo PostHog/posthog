@@ -1,9 +1,9 @@
-import type { CloudRegion } from "@posthog/shared";
+import type { DeploymentTarget } from "@posthog/core/auth/schemas";
 import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
 import { OAuthControls } from "./OAuthControls";
 
 interface SignInCardProps {
-  onAuthInitiated?: (region: CloudRegion) => void;
+  onAuthInitiated?: (region: DeploymentTarget) => void;
   includeDevRegion?: boolean;
 }
 

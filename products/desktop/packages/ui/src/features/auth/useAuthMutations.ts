@@ -1,6 +1,6 @@
+import type { DeploymentTarget } from "@posthog/core/auth/schemas";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import type { CloudRegion } from "@posthog/shared";
 import { clearCapturedLogs } from "@posthog/ui/shell/logCapture";
 import { useMutation } from "@tanstack/react-query";
 import { AUTH_SIDE_EFFECTS, type IAuthSideEffects } from "./identifiers";
@@ -9,7 +9,7 @@ export function useLoginMutation() {
   const hostClient = useHostTRPCClient();
   const fx = useService<IAuthSideEffects>(AUTH_SIDE_EFFECTS);
   return useMutation({
-    mutationFn: (region: CloudRegion) =>
+    mutationFn: (region: DeploymentTarget) =>
       hostClient.auth.login.mutate({ region }).then((r) => r.state),
     onSuccess: (state, region) =>
       fx.onAuthSuccess(region, state.currentProjectId),

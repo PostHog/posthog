@@ -1,6 +1,11 @@
-import type { CloudRegion } from "@posthog/shared";
+import type {
+  AuthDeploymentTarget,
+  CloudRegion,
+  DesktopPreviewManifest,
+} from "@posthog/shared";
 import type {
   CancelFlowOutput,
+  DeploymentTarget,
   RefreshTokenOutput,
   StartFlowOutput,
 } from "./oauth.schemas";
@@ -8,6 +13,13 @@ import type {
 export interface AuthSessionRecord {
   refreshTokenEncrypted: string;
   cloudRegion: CloudRegion;
+  deploymentTarget: DeploymentTarget;
+  /**
+   * Deployment identity recorded at sign-in for a preview session; null for
+   * ordinary regions. A changed value means the stored credentials belong to
+   * a different deployment and must be discarded, not refreshed.
+   */
+  deploymentId: string | null;
   selectedProjectId: number | null;
   scopeVersion: number;
 }
@@ -15,6 +27,8 @@ export interface AuthSessionRecord {
 export interface PersistAuthSessionRecord {
   refreshTokenEncrypted: string;
   cloudRegion: CloudRegion;
+  deploymentTarget: DeploymentTarget;
+  deploymentId: string | null;
   selectedProjectId: number | null;
   scopeVersion: number;
 }
@@ -74,11 +88,11 @@ export const AUTH_PREFERENCE_STORE = Symbol.for(
  * browser launch, window focus).
  */
 export interface IAuthOAuthFlowService {
-  startFlow(region: CloudRegion): Promise<StartFlowOutput>;
-  startSignupFlow(region: CloudRegion): Promise<StartFlowOutput>;
+  startFlow(target: AuthDeploymentTarget): Promise<StartFlowOutput>;
+  startSignupFlow(target: AuthDeploymentTarget): Promise<StartFlowOutput>;
   refreshToken(
     refreshToken: string,
-    region: CloudRegion,
+    target: AuthDeploymentTarget,
   ): Promise<RefreshTokenOutput>;
   cancelFlow(): CancelFlowOutput;
 }
@@ -122,3 +136,17 @@ export const AUTH_CONNECTIVITY = Symbol.for("posthog.core.auth.connectivity");
 export const AUTH_TOKEN_OVERRIDE = Symbol.for(
   "posthog.core.auth.tokenOverride",
 );
+
+/**
+ * The preview deployment this build targets, or null in an ordinary build.
+ * A host binds the validated build-time manifest as a constant value; core
+ * resolves every API origin, OAuth client id, and gateway URL through it, so
+ * a preview build can never reach a production deployment and an ordinary
+ * build is unaffected. Injected rather than imported so web and mobile hosts
+ * that never offer preview selection bind null and stay unchanged.
+ */
+export const AUTH_PREVIEW_DEPLOYMENT = Symbol.for(
+  "posthog.core.auth.previewDeployment",
+);
+
+export type AuthPreviewDeployment = DesktopPreviewManifest | null;

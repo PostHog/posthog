@@ -14,6 +14,7 @@ import {
   AUTH_CONNECTIVITY,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
+  AUTH_PREVIEW_DEPLOYMENT,
   AUTH_SESSION_STORE,
   AUTH_TOKEN_CIPHER,
   AUTH_TOKEN_OVERRIDE,
@@ -115,6 +116,10 @@ import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
+import {
+  PREVIEW_DEPLOYMENT,
+  type PreviewDeploymentInfo,
+} from "@posthog/platform/preview-deployment";
 import { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
@@ -258,6 +263,7 @@ import { ElectronUrlLauncher } from "../platform-adapters/electron-url-launcher"
 import { electronUsageThresholdStore } from "../platform-adapters/electron-usage-threshold-store";
 import { ElectronWorkspaceSettings } from "../platform-adapters/electron-workspace-settings";
 import { posthogNodeAnalytics } from "../platform-adapters/posthog-analytics";
+import { getPreviewManifest } from "../preview";
 import { AppLifecycleService } from "../services/app-lifecycle/service";
 import {
   AuthPreferencePortAdapter,
@@ -411,6 +417,19 @@ container.bind(CONNECTIVITY_CLIENT).toService(WS_CONNECTIVITY_SERVICE);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
+// The preview deployment comes from the build-inlined manifest; null in an
+// ordinary build, which keeps every existing region behavior.
+container.bind(AUTH_PREVIEW_DEPLOYMENT).toConstantValue(getPreviewManifest());
+{
+  const manifest = getPreviewManifest();
+  const previewInfo: PreviewDeploymentInfo | null = manifest
+    ? {
+        manifest,
+        label: `PR ${manifest.prNumber} · ${manifest.commitSha.slice(0, 7)}`,
+      }
+    : null;
+  container.bind(PREVIEW_DEPLOYMENT).toConstantValue(previewInfo);
+}
 container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
 container.load(authProxyModule);

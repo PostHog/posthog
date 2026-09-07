@@ -2,17 +2,28 @@ import { createRequire } from "node:module";
 import type { Configuration } from "electron-builder";
 import { asarUnpackGlobs, packagedFileGlobs } from "./runtime-dependencies";
 import beforePack from "./scripts/before-pack";
+import {
+  assertOrdinaryBuild,
+  loadPreviewBuildConfig,
+} from "./scripts/preview-config.mts";
 
 const require = createRequire(import.meta.url);
 
 const skipNotarize =
   process.env.SKIP_NOTARIZE === "1" || !process.env.APPLE_TEAM_ID;
 
+// Preview packaging: one identity per PR, no updater feed. An ordinary build
+// fails closed when preview configuration is present.
+const preview = loadPreviewBuildConfig();
+if (!preview) {
+  assertOrdinaryBuild(null);
+}
+
 const config: Configuration = {
   // Original release bundle id; changing it breaks existing installs' data dir and Keychain entries.
-  appId: "com.posthog.array",
-  productName: "PostHog",
-  executableName: "PostHog",
+  appId: preview ? preview.identity.appId : "com.posthog.array",
+  productName: preview ? preview.identity.productName : "PostHog",
+  executableName: preview ? preview.identity.executableName : "PostHog",
 
   directories: {
     output: "out",
@@ -63,15 +74,17 @@ const config: Configuration = {
 
   protocols: [
     {
-      name: "PostHog",
-      schemes: ["posthog-code"],
+      name: preview ? preview.identity.productName : "PostHog",
+      schemes: preview ? [preview.identity.scheme] : ["posthog-code"],
     },
   ],
 
   mac: {
     target: ["dmg", "zip"],
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Desktop-${version}-${arch}-mac.${ext}",
+    artifactName: preview
+      ? `${preview.identity.artifactPrefix}-\${version}-\${arch}-mac.\${ext}`
+      : // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
+        "PostHog-Desktop-${version}-${arch}-mac.${ext}",
     icon: "build/app-icon.icns",
     category: "public.app-category.productivity",
     hardenedRuntime: true,
@@ -103,8 +116,10 @@ const config: Configuration = {
 
   win: {
     target: ["nsis"],
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Desktop-${version}-${arch}-win.${ext}",
+    artifactName: preview
+      ? `${preview.identity.artifactPrefix}-\${version}-\${arch}-win.\${ext}`
+      : // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
+        "PostHog-Desktop-${version}-${arch}-win.${ext}",
     // electron-builder generates the multi-size .ico from this 1024px PNG; a real
     // .ico must be >=256px and the committed app-icon.ico is only 32px.
     icon: "build/app-icon.png",
@@ -117,29 +132,40 @@ const config: Configuration = {
 
   linux: {
     target: ["AppImage", "deb", "rpm"],
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Desktop-${version}-${arch}-linux.${ext}",
+    artifactName: preview
+      ? `${preview.identity.artifactPrefix}-\${version}-\${arch}-linux.\${ext}`
+      : // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
+        "PostHog-Desktop-${version}-${arch}-linux.${ext}",
     icon: "build/app-icon.png",
     category: "Development",
-    mimeTypes: ["x-scheme-handler/posthog-code"],
+    mimeTypes: preview
+      ? [`x-scheme-handler/${preview.identity.scheme}`]
+      : ["x-scheme-handler/posthog-code"],
   },
 
   deb: {
-    packageName: "posthog-code",
+    packageName: preview ? preview.identity.userDataDirName : "posthog-code",
     maintainer: "PostHog <eng@posthog.com>",
     packageCategory: "devel",
   },
 
   rpm: {
-    packageName: "posthog-code",
+    packageName: preview ? preview.identity.userDataDirName : "posthog-code",
   },
 
   // Installs built from this config poll the CloudFront-fronted update feed
-  // (the S3 bucket is private; reads go through the CDN).
-  publish: {
-    provider: "generic",
-    url: "https://desktop-releases.posthog.com/stable",
-  },
+  // (the S3 bucket is private; reads go through the CDN). A preview build
+  // publishes no feed metadata at all: there is nothing to update to, and the
+  // updater is disabled in preview builds (electron-updater.ts) so neither the
+  // poll nor a manual "check for updates" can reach the stable feed.
+  ...(preview
+    ? {}
+    : {
+        publish: {
+          provider: "generic",
+          url: "https://desktop-releases.posthog.com/stable",
+        },
+      }),
 };
 
 export default config;

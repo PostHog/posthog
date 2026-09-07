@@ -1,7 +1,8 @@
-import { getDeeplinkProtocol } from "@posthog/shared";
+import { getDeeplinkProtocolOptions } from "@posthog/shared";
 import { app } from "electron";
 import { container } from "./di/container";
 import { DEEP_LINK_SERVICE } from "./di/tokens";
+import { getPreviewIdentity } from "./preview";
 import type { DeepLinkService } from "./services/deep-link/service";
 import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
@@ -16,10 +17,11 @@ function getDeepLinkService(): DeepLinkService {
 }
 
 function findDeepLinkUrlInArgs(args: string[]): string | undefined {
-  const prefixes = [`${getDeeplinkProtocol(isDevBuild())}://`];
-  if (!isDevBuild()) {
-    prefixes.push("twig://", "array://");
-  }
+  const schemes = getDeeplinkProtocolOptions(
+    isDevBuild(),
+    getPreviewIdentity()?.scheme ?? null,
+  );
+  const prefixes = schemes.map((scheme) => `${scheme}://`);
   return args.find((arg) => prefixes.some((p) => arg.startsWith(p)));
 }
 

@@ -1,9 +1,14 @@
-import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
+import type {
+  AuthPreviewDeployment,
+  AuthService,
+  FetchLike,
+} from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
+  AUTH_PREVIEW_DEPLOYMENT,
   AUTH_SESSION_STORE,
   AUTH_TOKEN_CIPHER,
   AUTH_TOKEN_OVERRIDE,
@@ -128,6 +133,10 @@ import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor"
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import type { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import type { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
+import type {
+  PREVIEW_DEPLOYMENT,
+  PreviewDeploymentInfo,
+} from "@posthog/platform/preview-deployment";
 import type { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
@@ -327,6 +336,7 @@ export interface MainBindings {
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;
   [APP_META_SERVICE]: ElectronAppMeta;
+  [PREVIEW_DEPLOYMENT]: PreviewDeploymentInfo | null;
   [DIALOG_SERVICE]: ElectronDialog;
   [CLIPBOARD_SERVICE]: ElectronClipboard;
   [CRYPTO_SERVICE]: ElectronCrypto;
@@ -377,6 +387,7 @@ export interface MainBindings {
   [AUTH_TOKEN_CIPHER]: TokenCipherPortAdapter;
   [AUTH_CONNECTIVITY]: ConnectivityService;
   [AUTH_TOKEN_OVERRIDE]: string | null;
+  [AUTH_PREVIEW_DEPLOYMENT]: AuthPreviewDeployment;
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
   [QUICK_ASK_FETCH]: FetchLike;

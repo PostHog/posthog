@@ -20,6 +20,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { app, crashReporter, protocol } from "electron";
+import { getPreviewIdentity } from "./preview";
 import { fixPath } from "./utils/fixPath";
 import { shouldRefuseInternalChildBoot } from "./utils/internal-child-guard";
 
@@ -36,11 +37,29 @@ if (shouldRefuseInternalChildBoot(app.isPackaged, process.env)) {
 
 const isDev = !app.isPackaged;
 
-// Set app name for single-instance lock, crashReporter, etc
-const appName = isDev ? "posthog-code-dev" : "posthog-code";
-app.setName(isDev ? "PostHog (Development)" : "PostHog");
+// Preview identity must land before storage, secure storage, loggers, protocol
+// handling, and the single-instance lock initialize — every one of them keys
+// off app name or the userData path, so a preview app must not share the
+// ordinary app's name. isDev stays false in a preview: it is a packaged build.
+const previewIdentity = getPreviewIdentity();
 
-// Set userData path for @posthog/code
+// Set app name for single-instance lock, crashReporter, etc
+const appName = previewIdentity
+  ? previewIdentity.userDataDirName
+  : isDev
+    ? "posthog-code-dev"
+    : "posthog-code";
+app.setName(
+  previewIdentity
+    ? previewIdentity.productName
+    : isDev
+      ? "PostHog (Development)"
+      : "PostHog",
+);
+
+// Set userData path for @posthog/code. A preview app's directory is a sibling
+// of the ordinary one under the same app-data root, so sessions, settings, and
+// Claude configuration never cross between a preview and the production app.
 const appDataPath = app.getPath("appData");
 const userDataPath =
   process.env.POSTHOG_E2E_USER_DATA_DIR ??

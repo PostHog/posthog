@@ -8,6 +8,12 @@ const mockAppLifecycle = vi.hoisted(() => ({
   registerDeepLinkScheme: vi.fn(),
 }));
 
+// Preview identity state for the module under test; null by default so the
+// ordinary-build behavior is what the rest of this file exercises.
+const mockPreviewIdentity = vi.hoisted(() => ({
+  current: null as { scheme: string } | null,
+}));
+
 vi.mock("../../utils/logger.js", () => ({
   logger: {
     scope: () => ({
@@ -17,6 +23,10 @@ vi.mock("../../utils/logger.js", () => ({
       debug: vi.fn(),
     }),
   },
+}));
+
+vi.mock("../../preview.js", () => ({
+  getPreviewIdentity: () => mockPreviewIdentity.current,
 }));
 
 import type { IAppLifecycle } from "@posthog/platform/app-lifecycle";
@@ -29,6 +39,7 @@ describe("DeepLinkService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.POSTHOG_CODE_IS_DEV = "false";
+    mockPreviewIdentity.current = null;
     service = new DeepLinkService(mockAppLifecycle as unknown as IAppLifecycle);
   });
 
@@ -38,6 +49,7 @@ describe("DeepLinkService", () => {
     } else {
       process.env.POSTHOG_CODE_IS_DEV = originalIsDev;
     }
+    mockPreviewIdentity.current = null;
   });
 
   describe("registerProtocol", () => {
@@ -76,6 +88,54 @@ describe("DeepLinkService", () => {
       service.registerProtocol();
 
       expect(mockAppLifecycle.registerDeepLinkScheme).toHaveBeenCalledTimes(3);
+    });
+
+    describe("preview builds", () => {
+      it("registers only the preview scheme", () => {
+        mockPreviewIdentity.current = {
+          scheme: "posthog-code-preview-pr-123",
+        };
+
+        service.registerProtocol();
+
+        expect(mockAppLifecycle.registerDeepLinkScheme).toHaveBeenCalledTimes(
+          1,
+        );
+        expect(mockAppLifecycle.registerDeepLinkScheme).toHaveBeenCalledWith(
+          "posthog-code-preview-pr-123",
+        );
+      });
+
+      it("does not claim production or legacy callbacks", () => {
+        mockPreviewIdentity.current = {
+          scheme: "posthog-code-preview-pr-123",
+        };
+
+        service.registerProtocol();
+        service.registerHandler(
+          "task",
+          vi.fn(() => true),
+        );
+
+        expect(service.handleUrl("posthog-code://task/123")).toBe(false);
+        expect(service.handleUrl("twig://task/123")).toBe(false);
+        expect(service.handleUrl("array://callback?code=abc")).toBe(false);
+      });
+
+      it("handles its own OAuth callback scheme", () => {
+        mockPreviewIdentity.current = {
+          scheme: "posthog-code-preview-pr-123",
+        };
+        const handler = vi.fn(() => true);
+        service.registerProtocol();
+        service.registerHandler("callback", handler);
+
+        const result = service.handleUrl(
+          "posthog-code-preview-pr-123://callback?code=abc",
+        );
+        expect(result).toBe(true);
+        expect(handler).toHaveBeenCalledWith("", expect.any(URLSearchParams));
+      });
     });
   });
 
