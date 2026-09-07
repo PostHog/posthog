@@ -1652,7 +1652,7 @@
     "verifyEmail": {
         "template": "/verify_email",
         "params": [],
-        "scope": "project"
+        "scope": "global"
     },
     "visualReviewFlakiness": {
         "template": "/visual_review/repos/{repoId}/flakiness",
