@@ -76,4 +76,23 @@ describe('issuesDataNodeLogic', () => {
         expect(mockPerformQuery.mock.calls[0][2]).toBe('force_blocking')
         expect(initialResults).toEqual([issue])
     })
+
+    // The optimistic collapse keeps the first selected row, which is wrong in both of these cases,
+    // and the list showed a row the user could not merge away until they reloaded the page.
+    it.each([
+        ['the merge wrote into another issue', 'issue-other', true],
+        ['the merge moved nothing', issue.id, false],
+    ])('reloads the list when %s', async (_name, targetId, merged) => {
+        await expectLogic(logic, () => {
+            logic.actions.mergeIssuesSuccess(issue.id, targetId, merged)
+        })
+            .toDispatchActions(['reloadData', 'loadData'])
+            .toFinishAllListeners()
+    })
+
+    it('keeps the optimistic list when the merge wrote into the first selected issue', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.mergeIssuesSuccess(issue.id, issue.id, true)
+        }).toNotHaveDispatchedActions(['reloadData'])
+    })
 })

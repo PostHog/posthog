@@ -15,6 +15,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -167,6 +168,12 @@ class ErrorTrackingIssueMergeRequestSerializer(serializers.Serializer):
 
 class ErrorTrackingIssueMergeResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(help_text="Whether the merge completed successfully.")
+    target_issue_id = serializers.UUIDField(
+        help_text=(
+            "ID of the issue the other issues were merged into. This is the requested issue, "
+            "unless that issue was merged away already, in which case it is one of the other requested issues."
+        )
+    )
 
 
 class ErrorTrackingIssueSplitFingerprintSerializer(serializers.Serializer):
@@ -275,20 +282,25 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            merge_result = issues_facade.merge_issues(
+            merge_outcome = issues_facade.merge_issues(
                 self.team.id,
                 UUID(str(pk)),
                 ids,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
-        except IssueNotFoundError:
-            raise NotFound("Issue not found")
-        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
-            raise NotFound("Issue not found")
-        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
+        except issues_facade.MergeTargetsStaleError:
+            raise Conflict("These issues were merged already. Reload the list to see the current issues.")
+        if merge_outcome.result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
+            raise Conflict("The issues changed while the merge ran. Try again.")
+        if merge_outcome.result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
             raise ValidationError("Issue fingerprints changed before merge. Please retry.")
-        return Response({"success": merge_result == issues_facade.ErrorTrackingIssueMergeResult.MERGED})
+        return Response(
+            {
+                "success": merge_outcome.result == issues_facade.ErrorTrackingIssueMergeResult.MERGED,
+                "target_issue_id": str(merge_outcome.target_issue_id),
+            }
+        )
 
     @validated_request(
         request_serializer=ErrorTrackingIssueSplitRequestSerializer,

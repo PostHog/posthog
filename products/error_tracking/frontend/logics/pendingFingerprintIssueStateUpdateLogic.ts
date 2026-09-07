@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
@@ -180,7 +181,12 @@ async function resolveFingerprintsForIssues(
                 api.errorTracking.fingerprints
                     .list(id)
                     .then((rows: ErrorTrackingFingerprint[]) => [id, rows.map((r) => r.fingerprint)] as const)
-                    .catch(() => [id, [] as string[]] as const)
+                    .catch((error: unknown) => {
+                        // Without these fingerprints the overlay cannot hide the merged rows, so the
+                        // list looks like the merge did nothing. Report it instead of hiding it.
+                        posthog.captureException(error, { issue_id: id })
+                        return [id, [] as string[]] as const
+                    })
             )
         )
         for (const [id, fingerprints] of responses) {
