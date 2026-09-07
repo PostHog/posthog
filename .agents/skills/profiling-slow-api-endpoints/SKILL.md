@@ -59,17 +59,12 @@ Use `EXPLAIN (ANALYZE, BUFFERS)` against the production read replica through
 [`querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md),
 which carries the auth path, the safety rules, and how to read the output.
 
-Two things to establish there:
-
-- **Which index the planner reaches for.** An index scoped to the tenant
-  behaves nothing like a global index on a searched column.
-- **Whether a predicate rewrite changes what it can reach.** This is the
-  usual lever, and it costs no migration. Run both forms and put the timings
-  side by side.
+Establish two things there: which index the planner reaches for, and whether a
+predicate rewrite changes what it can reach. The rewrite is the usual lever,
+because it costs no migration.
 
 Profile the SQL the endpoint really sends, with its ordering and page size.
-A paginated endpoint normally runs the predicate twice, once to count and once
-to fetch, so a saving there counts double.
+A simplified query takes a different plan.
 
 ## 4. Size the deciding dimension across the fleet
 
@@ -81,7 +76,9 @@ A rewrite that wins for the median project can lose badly for the largest, and
 the largest projects are the ones that notice. Query both ends: the biggest
 projects, and the percentile where most projects actually sit. Set the
 threshold from the crossover you measured, then leave headroom on the side
-where being wrong is expensive.
+where being wrong is expensive. The
+[Metabase skill](../querying-production-databases-via-metabase/SKILL.md) has
+the query.
 
 ## 5. Make the choice cheap, fail-open, and reversible
 
@@ -127,11 +124,6 @@ number moved. If the endpoint has a user-visible behavior change, see
 
 ## Traps
 
-- **One run is not a measurement.** State whether the cache was warm and run
-  each form more than once.
-- **A number in an old PR is not current.** Statistics move. Re-run it.
-- **`ORDER BY` and `LIMIT` change the plan.** Do not profile a simplified
-  query.
 - **Adding an index is not the default fix.** A global index on a searched
   column can be the cause, because the planner cannot scope it to one tenant.
 - **Do not move first paint behind a second request.** When a secondary call

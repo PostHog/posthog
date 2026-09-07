@@ -24,10 +24,8 @@ is different:
 
 - **ClickHouse** — `system.query_log` analysis: which queries are slow, what
   they read, who runs them.
-- **Postgres** (the app database) — the real query plan for an app query. This
-  is the only way to see which index production actually uses, because the
-  planner's choice depends on production statistics that a local database does
-  not have.
+- **Postgres** (the app database) — the real query plan for an app query, and
+  how a per-project table's rows spread across the fleet.
 
 For pre-built canned ClickHouse queries (slow query summaries, materialization
 analysis), see the `query-performance-analysis` repo, which is the source of
@@ -251,8 +249,8 @@ Read it in this order:
 ### Sizing a dimension across the fleet
 
 Before you make a plan choice conditional on a number, measure how that number
-is distributed. A rewrite that wins for the median project can lose badly for
-the largest one, and the largest projects are the ones that notice:
+is distributed across projects, so a win for the median project cannot ship as
+a regression for the largest one:
 
 ```sql
 SELECT COALESCE(project_id, team_id) AS project, count(*) AS definitions
@@ -261,8 +259,9 @@ GROUP BY 1 ORDER BY definitions DESC LIMIT 20
 ```
 
 Check both ends: the biggest projects, and the percentile where most projects
-actually sit. Pick the threshold from the crossover you measured, then leave
-headroom.
+actually sit.
+[`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md)
+covers how to turn that into a threshold.
 
 ### Gotchas
 
