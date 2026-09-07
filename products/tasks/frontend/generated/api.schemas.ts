@@ -1126,15 +1126,33 @@ export interface PaginatedChannelDTOListApi {
 }
 
 /**
- * Request body for creating (resolve-or-create) or renaming a public channel.
+ * * `public` - public
+ * * `private` - private
  */
+export type TaskChannelWriteTypeEnumApi = (typeof TaskChannelWriteTypeEnumApi)[keyof typeof TaskChannelWriteTypeEnumApi]
+
+export const TaskChannelWriteTypeEnumApi = {
+    Public: 'public',
+    Private: 'private',
+} as const
+
 export interface ChannelWriteApi {
     /**
-     * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+     * Channel name, shown as #<name>. Uses lowercase letters and hyphens.
      * @maxLength 128
      */
     name: string
-    /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+    /** Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
+    /**
+     * User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.
+     * @maxItems 100
+     */
+    member_ids?: number[]
+    /** Star a new channel for the requester. This field does not change stars on an existing channel. */
     star?: boolean
 }
 
@@ -1213,6 +1231,11 @@ export interface PatchedChannelUpdateApi {
      * @nullable
      */
     auto_archive_after_days?: number | null
+    /** Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator and the requester as members. Making it public removes its member list. Personal #me spaces cannot change.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
 }
 
 export interface ChannelDeleteConflictApi {
@@ -1281,6 +1304,14 @@ export interface PaginatedChannelInstructionsDTOListApi {
     /** @nullable */
     previous?: string | null
     results: ChannelInstructionsDTOApi[]
+}
+
+export interface ChannelMembersWriteApi {
+    /**
+     * Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.
+     * @maxItems 100
+     */
+    user_ids: number[]
 }
 
 /**
@@ -1820,13 +1851,6 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
     FullAccess: 'full-access',
 } as const
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface TaskCreateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -1957,6 +1981,11 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /**
+     * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
+     * @maxLength 4000
+     */
+    signal_report_discussion_question?: string
     /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
     naming_source?: string
     /**
@@ -1976,13 +2005,6 @@ export interface TaskCreateApi {
     runtime?: TaskRuntimeEnumApi
 }
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface TaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -2115,13 +2137,6 @@ export interface TaskWriteApi {
     channel?: string | null
 }
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface PatchedTaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -4276,6 +4291,87 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
+ * The default AI run triple stored at team or user level.
+ *
+ * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+ * their responses. `runtime_adapter` and `model` must be set together; send all three
+ * as null to clear a stored preference.
+ */
+export interface TasksAIRunPreferencesApi {
+    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+     * @nullable
+     */
+    model?: string | null
+    /** Default reasoning effort for models that expose an effort control.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+}
+
+/**
+ * * `user` - user
+ * * `team` - team
+ * * `none` - none
+ */
+export type TasksResolvedAIRunDefaultsSourceEnumApi =
+    (typeof TasksResolvedAIRunDefaultsSourceEnumApi)[keyof typeof TasksResolvedAIRunDefaultsSourceEnumApi]
+
+export const TasksResolvedAIRunDefaultsSourceEnumApi = {
+    User: 'user',
+    Team: 'team',
+    None: 'none',
+} as const
+
+/**
+ * The AI run triple a new run will effectively use when the caller pins nothing,
+ * plus which preference level supplied it.
+ */
+export interface TasksResolvedAIRunDefaultsApi {
+    /**
+     * Effective default runtime adapter, or null when no preference is stored.
+     * @nullable
+     */
+    runtime_adapter: string | null
+    /**
+     * Effective default model identifier, or null when no preference is stored.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Effective default reasoning effort, or null when unset or unsupported.
+     * @nullable
+     */
+    reasoning_effort: string | null
+    /** Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.
+     *
+     * * `user` - user
+     * * `team` - team
+     * * `none` - none */
+    source: TasksResolvedAIRunDefaultsSourceEnumApi
+}
+
+/**
+ * The requesting user's per-project tasks configuration.
+ */
+export interface TasksUserConfigResponseApi {
+    /** The requesting user's per-project default AI run triple; all fields null when unset. */
+    ai_run_preferences: TasksAIRunPreferencesApi
+    /** The defaults a new run will use when no explicit runtime selection is sent. */
+    resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+}
+
+/**
  * The team's active onboarding wizard cloud run, used to rehydrate
  * the setup-progress FAB when the run was started server-side (drop flow).
  */
@@ -4291,6 +4387,14 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+/**
+ * Team-level tasks configuration.
+ */
+export interface TasksTeamConfigResponseApi {
+    /** Project-wide default AI run triple; all fields null when unset. */
+    ai_run_preferences: TasksAIRunPreferencesApi
 }
 
 /**
@@ -4670,6 +4774,8 @@ export const TaskRunEnvironmentEnumApi = {
 } as const
 
 export interface TaskRunSummaryApi {
+    /** ID of the latest run. */
+    id: string
     status: TaskRunStatusEnumApi | null
     environment: TaskRunEnvironmentEnumApi | null
 }
@@ -4682,6 +4788,11 @@ export interface TaskSummaryDTOApi {
     title: string
     /** @nullable */
     repository: string | null
+    /**
+     * ID of the user who created the task, or null for system-created tasks.
+     * @nullable
+     */
+    created_by_id: number | null
     created_at: string
     updated_at: string
     origin_product?: string
@@ -5235,6 +5346,28 @@ export type TasksRunsStreamRetrieveParams = {
 }
 
 export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksConfigListParams = {
     /**
      * Number of results to return per page.
      */

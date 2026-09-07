@@ -2,52 +2,35 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    HogFunctionsCreateBody,
-    HogFunctionsDestroyParams,
-    HogFunctionsDiscardDraftCreateParams,
-    HogFunctionsInvocationsCreateBody,
-    HogFunctionsInvocationsCreateParams,
-    HogFunctionsListQueryParams,
-    HogFunctionsLogsRetrieveParams,
-    HogFunctionsLogsRetrieveQueryParams,
-    HogFunctionsMetricsRetrieveParams,
-    HogFunctionsMetricsRetrieveQueryParams,
-    HogFunctionsPartialUpdateBody,
-    HogFunctionsPartialUpdateParams,
-    HogFunctionsPublishCreateBody,
-    HogFunctionsPublishCreateParams,
-    HogFunctionsRearrangePartialUpdateBody,
-    HogFunctionsRetrieveParams,
-    HogFunctionsRevisionsListParams,
-    HogFunctionsRevisionsListQueryParams,
-    HogFunctionsRevisionsRestoreCreateBody,
-    HogFunctionsRevisionsRestoreCreateParams,
-    HogFunctionsRevisionsRetrieveParams,
-} from '@/generated/cdp_functions/api'
+import * as orvalSchemas from '@/generated/cdp_functions/api'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
-    type: HogFunctionsCreateBody.shape['type'].describe(
-        'Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'
-    ),
-    template_id: HogFunctionsCreateBody.shape['template_id'].describe(
-        'ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'
-    ),
-    hog: HogFunctionsCreateBody.shape['hog'].describe(
-        'Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'
-    ),
-    enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the function is active and processing events.'),
-    execution_order: HogFunctionsCreateBody.shape['execution_order'].describe(
-        'Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.'
-    ),
-})
+const CdpFunctionsCreateSchema = () => {
+    const HogFunctionsCreateBody = orvalSchemas.HogFunctionsCreateBody()
+    return HogFunctionsCreateBody.extend({
+        type: HogFunctionsCreateBody.shape['type'].describe(
+            'Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'
+        ),
+        template_id: HogFunctionsCreateBody.shape['template_id'].describe(
+            'ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'
+        ),
+        hog: HogFunctionsCreateBody.shape['hog'].describe(
+            'Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'
+        ),
+        enabled: HogFunctionsCreateBody.shape['enabled'].describe(
+            'Whether the function is active and processing events.'
+        ),
+        execution_order: HogFunctionsCreateBody.shape['execution_order'].describe(
+            'Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.'
+        ),
+    })
+}
 
-const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas.HogFunction> => ({
+const cdpFunctionsCreate = (): ToolBase<ReturnType<typeof CdpFunctionsCreateSchema>, Schemas.HogFunction> => ({
     name: 'cdp-functions-create',
-    schema: CdpFunctionsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsCreateSchema>) => {
+    schema: CdpFunctionsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -99,12 +82,15 @@ const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas
     },
 })
 
-const CdpFunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
+const CdpFunctionsDeleteSchema = () => {
+    const HogFunctionsDestroyParams = orvalSchemas.HogFunctionsDestroyParams()
+    return HogFunctionsDestroyParams.omit({ project_id: true })
+}
 
-const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas.HogFunction> => ({
+const cdpFunctionsDelete = (): ToolBase<ReturnType<typeof CdpFunctionsDeleteSchema>, Schemas.HogFunction> => ({
     name: 'cdp-functions-delete',
-    schema: CdpFunctionsDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsDeleteSchema>) => {
+    schema: CdpFunctionsDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
@@ -115,12 +101,18 @@ const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas
     },
 })
 
-const CdpFunctionsDiscardDraftSchema = HogFunctionsDiscardDraftCreateParams.omit({ project_id: true })
+const CdpFunctionsDiscardDraftSchema = () => {
+    const HogFunctionsDiscardDraftCreateParams = orvalSchemas.HogFunctionsDiscardDraftCreateParams()
+    return HogFunctionsDiscardDraftCreateParams.omit({ project_id: true })
+}
 
-const cdpFunctionsDiscardDraft = (): ToolBase<typeof CdpFunctionsDiscardDraftSchema, Schemas.HogFunction> => ({
+const cdpFunctionsDiscardDraft = (): ToolBase<
+    ReturnType<typeof CdpFunctionsDiscardDraftSchema>,
+    Schemas.HogFunction
+> => ({
     name: 'cdp-functions-discard-draft',
-    schema: CdpFunctionsDiscardDraftSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsDiscardDraftSchema>) => {
+    schema: CdpFunctionsDiscardDraftSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsDiscardDraftSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'POST',
@@ -130,12 +122,18 @@ const cdpFunctionsDiscardDraft = (): ToolBase<typeof CdpFunctionsDiscardDraftSch
     },
 })
 
-const CdpFunctionsGetRevisionSchema = HogFunctionsRevisionsRetrieveParams.omit({ project_id: true })
+const CdpFunctionsGetRevisionSchema = () => {
+    const HogFunctionsRevisionsRetrieveParams = orvalSchemas.HogFunctionsRevisionsRetrieveParams()
+    return HogFunctionsRevisionsRetrieveParams.omit({ project_id: true })
+}
 
-const cdpFunctionsGetRevision = (): ToolBase<typeof CdpFunctionsGetRevisionSchema, Schemas.HogFunctionRevision> => ({
+const cdpFunctionsGetRevision = (): ToolBase<
+    ReturnType<typeof CdpFunctionsGetRevisionSchema>,
+    Schemas.HogFunctionRevision
+> => ({
     name: 'cdp-functions-get-revision',
-    schema: CdpFunctionsGetRevisionSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsGetRevisionSchema>) => {
+    schema: CdpFunctionsGetRevisionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsGetRevisionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunctionRevision>({
             method: 'GET',
@@ -145,17 +143,21 @@ const cdpFunctionsGetRevision = (): ToolBase<typeof CdpFunctionsGetRevisionSchem
     },
 })
 
-const CdpFunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
-    HogFunctionsInvocationsCreateBody.shape
-)
+const CdpFunctionsInvocationsCreateSchema = () => {
+    const HogFunctionsInvocationsCreateBody = orvalSchemas.HogFunctionsInvocationsCreateBody()
+    const HogFunctionsInvocationsCreateParams = orvalSchemas.HogFunctionsInvocationsCreateParams()
+    return HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
+        HogFunctionsInvocationsCreateBody.shape
+    )
+}
 
 const cdpFunctionsInvocationsCreate = (): ToolBase<
-    typeof CdpFunctionsInvocationsCreateSchema,
+    ReturnType<typeof CdpFunctionsInvocationsCreateSchema>,
     Schemas.HogFunctionInvocation
 > => ({
     name: 'cdp-functions-invocations-create',
-    schema: CdpFunctionsInvocationsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsInvocationsCreateSchema>) => {
+    schema: CdpFunctionsInvocationsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsInvocationsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.configuration !== undefined) {
@@ -185,15 +187,18 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
     },
 })
 
-const CdpFunctionsListSchema = HogFunctionsListQueryParams
+const CdpFunctionsListSchema = () => {
+    const HogFunctionsListQueryParams = orvalSchemas.HogFunctionsListQueryParams()
+    return HogFunctionsListQueryParams
+}
 
 const cdpFunctionsList = (): ToolBase<
-    typeof CdpFunctionsListSchema,
+    ReturnType<typeof CdpFunctionsListSchema>,
     WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>
 > => ({
     name: 'cdp-functions-list',
-    schema: CdpFunctionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsListSchema>) => {
+    schema: CdpFunctionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionMinimalList>({
             method: 'GET',
@@ -233,17 +238,19 @@ const cdpFunctionsList = (): ToolBase<
     },
 })
 
-const CdpFunctionsListRevisionsSchema = HogFunctionsRevisionsListParams.omit({ project_id: true }).extend(
-    HogFunctionsRevisionsListQueryParams.shape
-)
+const CdpFunctionsListRevisionsSchema = () => {
+    const HogFunctionsRevisionsListParams = orvalSchemas.HogFunctionsRevisionsListParams()
+    const HogFunctionsRevisionsListQueryParams = orvalSchemas.HogFunctionsRevisionsListQueryParams()
+    return HogFunctionsRevisionsListParams.omit({ project_id: true }).extend(HogFunctionsRevisionsListQueryParams.shape)
+}
 
 const cdpFunctionsListRevisions = (): ToolBase<
-    typeof CdpFunctionsListRevisionsSchema,
+    ReturnType<typeof CdpFunctionsListRevisionsSchema>,
     WithPostHogUrl<Schemas.PaginatedHogFunctionRevisionBasicList>
 > => ({
     name: 'cdp-functions-list-revisions',
-    schema: CdpFunctionsListRevisionsSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsListRevisionsSchema>) => {
+    schema: CdpFunctionsListRevisionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsListRevisionsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionRevisionBasicList>({
             method: 'GET',
@@ -257,14 +264,16 @@ const cdpFunctionsListRevisions = (): ToolBase<
     },
 })
 
-const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsRetrieveParams.omit({ project_id: true }).extend(
-    HogFunctionsLogsRetrieveQueryParams.shape
-)
+const CdpFunctionsLogsRetrieveSchema = () => {
+    const HogFunctionsLogsRetrieveParams = orvalSchemas.HogFunctionsLogsRetrieveParams()
+    const HogFunctionsLogsRetrieveQueryParams = orvalSchemas.HogFunctionsLogsRetrieveQueryParams()
+    return HogFunctionsLogsRetrieveParams.omit({ project_id: true }).extend(HogFunctionsLogsRetrieveQueryParams.shape)
+}
 
-const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSchema, unknown> => ({
+const cdpFunctionsLogsRetrieve = (): ToolBase<ReturnType<typeof CdpFunctionsLogsRetrieveSchema>, unknown> => ({
     name: 'cdp-functions-logs-retrieve',
-    schema: CdpFunctionsLogsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsLogsRetrieveSchema>) => {
+    schema: CdpFunctionsLogsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsLogsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -282,17 +291,21 @@ const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSch
     },
 })
 
-const CdpFunctionsMetricsRetrieveSchema = HogFunctionsMetricsRetrieveParams.omit({ project_id: true }).extend(
-    HogFunctionsMetricsRetrieveQueryParams.shape
-)
+const CdpFunctionsMetricsRetrieveSchema = () => {
+    const HogFunctionsMetricsRetrieveParams = orvalSchemas.HogFunctionsMetricsRetrieveParams()
+    const HogFunctionsMetricsRetrieveQueryParams = orvalSchemas.HogFunctionsMetricsRetrieveQueryParams()
+    return HogFunctionsMetricsRetrieveParams.omit({ project_id: true }).extend(
+        HogFunctionsMetricsRetrieveQueryParams.shape
+    )
+}
 
 const cdpFunctionsMetricsRetrieve = (): ToolBase<
-    typeof CdpFunctionsMetricsRetrieveSchema,
+    ReturnType<typeof CdpFunctionsMetricsRetrieveSchema>,
     Schemas.AppMetricsResponse
 > => ({
     name: 'cdp-functions-metrics-retrieve',
-    schema: CdpFunctionsMetricsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsMetricsRetrieveSchema>) => {
+    schema: CdpFunctionsMetricsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsMetricsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AppMetricsResponse>({
             method: 'GET',
@@ -311,18 +324,25 @@ const cdpFunctionsMetricsRetrieve = (): ToolBase<
     },
 })
 
-const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true })
-    .extend(HogFunctionsPartialUpdateBody.shape)
-    .extend({
-        enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
-            'Set to true to activate or false to deactivate the function.'
-        ),
-    })
+const CdpFunctionsPartialUpdateSchema = () => {
+    const HogFunctionsPartialUpdateBody = orvalSchemas.HogFunctionsPartialUpdateBody()
+    const HogFunctionsPartialUpdateParams = orvalSchemas.HogFunctionsPartialUpdateParams()
+    return HogFunctionsPartialUpdateParams.omit({ project_id: true })
+        .extend(HogFunctionsPartialUpdateBody.shape)
+        .extend({
+            enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
+                'Set to true to activate or false to deactivate the function.'
+            ),
+        })
+}
 
-const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
+const cdpFunctionsPartialUpdate = (): ToolBase<
+    ReturnType<typeof CdpFunctionsPartialUpdateSchema>,
+    Schemas.HogFunction
+> => ({
     name: 'cdp-functions-partial-update',
-    schema: CdpFunctionsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsPartialUpdateSchema>) => {
+    schema: CdpFunctionsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -377,14 +397,19 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
     },
 })
 
-const CdpFunctionsPublishSchema = HogFunctionsPublishCreateParams.omit({ project_id: true }).extend(
-    HogFunctionsPublishCreateBody.shape
-)
+const CdpFunctionsPublishSchema = () => {
+    const HogFunctionsPublishCreateBody = orvalSchemas.HogFunctionsPublishCreateBody()
+    const HogFunctionsPublishCreateParams = orvalSchemas.HogFunctionsPublishCreateParams()
+    return HogFunctionsPublishCreateParams.omit({ project_id: true }).extend(HogFunctionsPublishCreateBody.shape)
+}
 
-const cdpFunctionsPublish = (): ToolBase<typeof CdpFunctionsPublishSchema, Schemas.HogFunctionPublishResponse> => ({
+const cdpFunctionsPublish = (): ToolBase<
+    ReturnType<typeof CdpFunctionsPublishSchema>,
+    Schemas.HogFunctionPublishResponse
+> => ({
     name: 'cdp-functions-publish',
-    schema: CdpFunctionsPublishSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsPublishSchema>) => {
+    schema: CdpFunctionsPublishSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsPublishSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.confirm !== undefined) {
@@ -402,15 +427,18 @@ const cdpFunctionsPublish = (): ToolBase<typeof CdpFunctionsPublishSchema, Schem
     },
 })
 
-const CdpFunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpdateBody
+const CdpFunctionsRearrangePartialUpdateSchema = () => {
+    const HogFunctionsRearrangePartialUpdateBody = orvalSchemas.HogFunctionsRearrangePartialUpdateBody()
+    return HogFunctionsRearrangePartialUpdateBody
+}
 
 const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
-    typeof CdpFunctionsRearrangePartialUpdateSchema,
+    ReturnType<typeof CdpFunctionsRearrangePartialUpdateSchema>,
     Schemas.HogFunction[]
 > => ({
     name: 'cdp-functions-rearrange-partial-update',
-    schema: CdpFunctionsRearrangePartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsRearrangePartialUpdateSchema>) => {
+    schema: CdpFunctionsRearrangePartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsRearrangePartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.orders !== undefined) {
@@ -425,14 +453,21 @@ const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
     },
 })
 
-const CdpFunctionsRestoreRevisionSchema = HogFunctionsRevisionsRestoreCreateParams.omit({ project_id: true }).extend(
-    HogFunctionsRevisionsRestoreCreateBody.shape
-)
+const CdpFunctionsRestoreRevisionSchema = () => {
+    const HogFunctionsRevisionsRestoreCreateBody = orvalSchemas.HogFunctionsRevisionsRestoreCreateBody()
+    const HogFunctionsRevisionsRestoreCreateParams = orvalSchemas.HogFunctionsRevisionsRestoreCreateParams()
+    return HogFunctionsRevisionsRestoreCreateParams.omit({ project_id: true }).extend(
+        HogFunctionsRevisionsRestoreCreateBody.shape
+    )
+}
 
-const cdpFunctionsRestoreRevision = (): ToolBase<typeof CdpFunctionsRestoreRevisionSchema, Schemas.HogFunction> => ({
+const cdpFunctionsRestoreRevision = (): ToolBase<
+    ReturnType<typeof CdpFunctionsRestoreRevisionSchema>,
+    Schemas.HogFunction
+> => ({
     name: 'cdp-functions-restore-revision',
-    schema: CdpFunctionsRestoreRevisionSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsRestoreRevisionSchema>) => {
+    schema: CdpFunctionsRestoreRevisionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsRestoreRevisionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.overwrite !== undefined) {
@@ -447,12 +482,15 @@ const cdpFunctionsRestoreRevision = (): ToolBase<typeof CdpFunctionsRestoreRevis
     },
 })
 
-const CdpFunctionsRetrieveSchema = HogFunctionsRetrieveParams.omit({ project_id: true })
+const CdpFunctionsRetrieveSchema = () => {
+    const HogFunctionsRetrieveParams = orvalSchemas.HogFunctionsRetrieveParams()
+    return HogFunctionsRetrieveParams.omit({ project_id: true })
+}
 
-const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Schemas.HogFunction> => ({
+const cdpFunctionsRetrieve = (): ToolBase<ReturnType<typeof CdpFunctionsRetrieveSchema>, Schemas.HogFunction> => ({
     name: 'cdp-functions-retrieve',
-    schema: CdpFunctionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof CdpFunctionsRetrieveSchema>) => {
+    schema: CdpFunctionsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CdpFunctionsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'GET',

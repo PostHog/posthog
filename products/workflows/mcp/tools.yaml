@@ -145,7 +145,7 @@ tools:
             first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
             people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
             Provide an actions array with exactly one type='trigger' (config.type:
-            event|webhook|manual|batch|tracking_pixel) plus action nodes
+            event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes
             (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
             connected by edges. A webhook or manual trigger also needs config.template_id set to the literal
             'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'; without it
@@ -161,8 +161,9 @@ tools:
             not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an
             audience (config.filters.properties: person-property conditions and/or cohort references), one run per
             matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
-            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
-            unsupported; reject it and explain why.
+            workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its
+            cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
+            least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create

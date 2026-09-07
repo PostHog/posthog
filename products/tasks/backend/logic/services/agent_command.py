@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import socket
 import ipaddress
 from dataclasses import dataclass
@@ -39,18 +40,21 @@ BLOCKED_IP_RANGES = [
 ]
 
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
-CONTENT_BLOCK_STREAM_ERROR = "API Error: Content block not found"
-CONTENT_BLOCK_STREAM_USER_ERROR = "The model response could not be completed. Please retry the task."
+# The provider rejects a turn whose transcript content blocks do not line up
+# ("Content block not found", "Content block is not a thinking block"). The
+# wording changes with the provider, so match the family, not each string.
+CONTENT_BLOCK_ERROR = re.compile(r"API Error:\s*Content block\b", re.IGNORECASE)
+CONTENT_BLOCK_USER_ERROR = "The model response could not be completed. Please retry the task."
 TURN_ENDED_WITHOUT_RESPONSE_ERROR = "[ede_diagnostic] result_type=user"
 
 
 def is_retryable_agent_rpc_error(error: str) -> bool:
-    return CONTENT_BLOCK_STREAM_ERROR in error or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
+    return bool(CONTENT_BLOCK_ERROR.search(error)) or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
 
 
 def user_facing_agent_error(error: str | None) -> str:
-    if error and CONTENT_BLOCK_STREAM_ERROR in error:
-        return CONTENT_BLOCK_STREAM_USER_ERROR
+    if error and CONTENT_BLOCK_ERROR.search(error):
+        return CONTENT_BLOCK_USER_ERROR
     return error or "Failed to send message to sandbox"
 
 

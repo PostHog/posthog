@@ -11,11 +11,19 @@ class TestPostHogAISystemPrompt(APIBaseTest):
     def test_build_returns_preset_append_suffix(self):
         # The object form makes the agent-server append to Claude Code's prompt (a suffix), rather
         # than the bare-string form, which would replace it.
-        assert self._build() == {
-            "type": "preset",
-            "preset": "claude_code",
-            "append": POSTHOG_AI_SYSTEM_PROMPT,
-        }
+        prompt = self._build()
+        assert prompt["type"] == "preset"
+        assert prompt["preset"] == "claude_code"
+        assert prompt["append"].startswith(POSTHOG_AI_SYSTEM_PROMPT)
+
+    def test_instructs_the_agent_to_inspect_the_complete_metric_catalog(self) -> None:
+        prompt = self._build()["append"]
+
+        assert "# Governed metrics catalog" in prompt
+        assert "`metric-list`" in prompt
+        assert "`metric-describe`" in prompt
+        assert "`data-catalog-metric-run`" in prompt
+        assert "complete governed catalog" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]

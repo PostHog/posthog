@@ -528,15 +528,17 @@ def _is_transient_packet_sequence_error(e: BaseException) -> bool:
     return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
 
 
-# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach at connect time as pymysql
+# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach as pymysql
 # OperationalError(1815, 'internal connection error: dial tcp <addr>: connect: connection timed
 # out, after N attempts, reqid=...'): the vtgate handshake succeeds but dialing the tablet behind
 # it times out — a failover, a restart, or a momentary network blip that a fresh attempt recovers
 # from. 1815 is MySQL's generic ER_INTERNAL_ERROR, so key on the Go-network `dial tcp` +
 # `connection timed out` signature (no plain MySQL error carries the `dial tcp` token) rather than
-# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. This is the
-# connect-time sibling of the `code = Unavailable` tablet-unavailable case, which instead lands on
-# the first query after connect (see `_is_transient_tablet_unavailable`).
+# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. Like the
+# `code = Unavailable` tablet-unavailable case (see `_is_transient_tablet_unavailable`), this can
+# land either at connect time or on the first query against a freshly opened connection (e.g.
+# `get_table_metadata`'s information_schema lookup), so both `_connect_with_transient_retry` and
+# `_retry_on_transient_tablet_unavailable` check it.
 _VITESS_DIAL_TOKEN = "dial tcp"
 _VITESS_DIAL_TIMEOUT_TOKEN = "connection timed out"
 
@@ -712,8 +714,8 @@ def _retry_on_transient_tablet_unavailable(
     whole operation (which reopens the connection) with a bounded backoff instead of
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
-    `Unavailable` status, a mid-reparent primary, or a plain peer-reset connection drop,
-    all self-healing.
+    `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
+    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
     """
     attempt = 0
     while True:
@@ -724,6 +726,7 @@ def _retry_on_transient_tablet_unavailable(
             if attempt >= max_attempts or not (
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
+                or _is_transient_vitess_dial_timeout(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):

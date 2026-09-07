@@ -61,8 +61,6 @@ rules:
               # Migrations mutate historical models from apps.get_model, so they
               # cannot call the state machine.
               - '/products/replay_vision/backend/migrations/**'
-              # Retires legacy VisionAction rows, which have no state machine to route through.
-              - '/products/replay_vision/backend/management/commands/migrate_vision_actions.py'
 
     - id: billing-alert-state-direct-mutation
       patterns:
