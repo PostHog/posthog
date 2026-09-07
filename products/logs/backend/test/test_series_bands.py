@@ -42,8 +42,9 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (interval_minutes, window_days, banded_upper, quiet_upper)
+            # (name, interval_minutes, window_days, banded_upper, quiet_upper)
             # Hourly: floor of 2 per hour lifts the upper edge; 15 minutes gets a quarter of it.
+            # The finer grain charts 5 days, because 7 days of 15 minute buckets is over the cap.
             ("hourly", 60, 7, 57.0, 2.0),
             ("quarter_hour", 15, 5, 55.5, 0.5),
         ]

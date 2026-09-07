@@ -383,7 +383,6 @@ def run_series_bands(
 ) -> SeriesBandsResult:
     window_start = floor_to_interval(window_start, interval_minutes)
     window_end = floor_to_interval(window_end, interval_minutes)
-    _check_bucket_cap(window_start, window_end, interval_minutes)
 
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
     series = [_build_series(key, rows, window_start, window_end, interval_minutes) for key, rows in slot_rows.items()]

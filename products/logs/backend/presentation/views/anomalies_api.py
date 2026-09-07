@@ -438,8 +438,6 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 window_end=window.end,
                 interval_minutes=interval_minutes,
             )
-        except SeriesBandsWindowInvalid as err:
-            return Response({"error": str(err)}, status=status.HTTP_400_BAD_REQUEST)
         except SeriesBandsFetchTruncated as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
