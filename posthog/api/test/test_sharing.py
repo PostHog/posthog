@@ -181,6 +181,19 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
 
+    @parameterized.expand([("shared", "/shared/{token}"), ("embedded", "/embedded/{token}")])
+    @mock_exporter_template
+    def test_shared_dashboard_stays_frameable_by_any_origin(self, _name: str, path: str) -> None:
+        # A customer pastes the embed snippet into their own site, so neither clickjacking header
+        # may restrict who frames this page.
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+
+        response = self.client.get(path.format(token=config.access_token))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "X-Frame-Options" not in response.headers
+        assert "frame-ancestors" not in response.headers["Content-Security-Policy"]
+
     @freeze_time("2022-01-01")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):

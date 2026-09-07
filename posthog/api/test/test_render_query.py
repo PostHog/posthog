@@ -14,6 +14,9 @@ class TestRenderQueryView(APIBaseTest):
 
         assert response.status_code == 200
         assert "X-Frame-Options" not in response.headers
+        # A customer frames this page on their own site, so the enforced policy must not name
+        # frame-ancestors either.
+        assert "frame-ancestors" not in response.headers["Content-Security-Policy"]
 
         mock_render_template.assert_called_once()
         template_name, request = mock_render_template.call_args[0][:2]

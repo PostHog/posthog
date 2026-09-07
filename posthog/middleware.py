@@ -1265,7 +1265,6 @@ class CSPMiddleware:
                 "object-src 'none'",
                 "base-uri 'self'",
                 "form-action 'self'",
-                f"frame-ancestors {frame_ancestors}",
                 "manifest-src 'self'",
                 # A nonce here would make browsers ignore 'unsafe-inline' and block inline scripts.
                 f"script-src {permissive} 'unsafe-inline' 'unsafe-eval'",
@@ -1280,6 +1279,11 @@ class CSPMiddleware:
                 f"frame-src {permissive} http:",
                 f"connect-src {permissive} wss: {connect_debug_url}".rstrip(),
             ]
+            # `xframe_options_exempt` marks a response a customer is meant to frame on their own
+            # site: a shared dashboard, an embedded insight or a rendered query. Naming
+            # frame-ancestors there blocks the embed, like the X-Frame-Options header it lifts.
+            if not getattr(response, "xframe_options_exempt", False):
+                enforced_parts.append(f"frame-ancestors {frame_ancestors}")
             # Views that serve untrusted content, such as public surveys and canvas artifacts, set
             # their own far stricter enforced policy. Replacing it here would unsandbox them.
             response.headers.setdefault("Content-Security-Policy", "; ".join(enforced_parts))
