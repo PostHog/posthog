@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { MarkerSeverity, editor as monacoEditor } from 'monaco-editor'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconInfo, IconX } from '@posthog/icons'
 import {
@@ -184,6 +184,7 @@ export function HogFunctionTest(): JSX.Element {
     } = useActions(hogFunctionTestLogic(logicProps))
 
     const testResultsRef = useRef<HTMLDivElement>(null)
+    const [moreMenuOpen, setMoreMenuOpen] = useState(false)
     const inactive = !expanded
     const canMockFetchRequests =
         template?.id?.startsWith('template-') || hogFunction?.template?.id?.startsWith('template-')
@@ -239,7 +240,11 @@ export function HogFunctionTest(): JSX.Element {
                             ) : (
                                 <>
                                     <More
-                                        dropdown={{ closeOnClickInside: false }}
+                                        dropdown={{
+                                            closeOnClickInside: false,
+                                            visible: moreMenuOpen,
+                                            onVisibilityChange: setMoreMenuOpen,
+                                        }}
                                         overlay={
                                             <>
                                                 {canMockFetchRequests && (
@@ -299,6 +304,11 @@ export function HogFunctionTest(): JSX.Element {
                                                         fullWidth
                                                         data-attr="save-hog-test-data"
                                                         onClick={() => {
+                                                            // This menu keeps closeOnClickInside off, and
+                                                            // popovers paint above modals. Close it so the
+                                                            // dialog stays modal and the saved globals match
+                                                            // what the editor shows.
+                                                            setMoreMenuOpen(false)
                                                             LemonDialog.openForm({
                                                                 title: 'Save test data',
                                                                 initialValues: { name: '' },

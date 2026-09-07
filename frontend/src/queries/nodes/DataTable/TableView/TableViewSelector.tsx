@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useState } from 'react'
 
 import { IconChevronDown, IconDownload, IconGear, IconUser, IconGlobe, IconPlus } from '@posthog/icons'
 import {
@@ -31,6 +32,7 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
     const logic = tableViewLogic(tableViewLogicProps)
     const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, user } = useValues(logic)
     const { applyView, updateView, setShowDeleteConfirm, setIsCreating } = useActions(logic)
+    const [viewMenuOpen, setViewMenuOpen] = useState(false)
 
     const menuItems: LemonMenuItems = [
         {
@@ -52,6 +54,9 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                                             size="small"
                                             fullWidth
                                             onClick={() => {
+                                                // Popovers paint above modals, so close the menu
+                                                // to keep it off the dialog.
+                                                setViewMenuOpen(false)
                                                 LemonDialog.openForm({
                                                     title: 'Rename view',
                                                     initialValues: { name: view.name },
@@ -107,7 +112,12 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
         <BindLogic logic={tableViewLogic} props={tableViewLogicProps}>
             <div className="flex items-center gap-2">
                 {currentView ? (
-                    <LemonMenu items={menuItems} closeOnClickInside={true}>
+                    <LemonMenu
+                        items={menuItems}
+                        closeOnClickInside={true}
+                        visible={viewMenuOpen}
+                        onVisibilityChange={setViewMenuOpen}
+                    >
                         <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                             {currentView.name ? (
                                 <>
