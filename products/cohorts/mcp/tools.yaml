@@ -96,9 +96,9 @@ tools:
 
             After creating the cohort, offer to email its members with a workflow. If the user wants that, use
             'workflows-create' with a batch trigger that keeps this cohort as the audience: config.type 'batch' and
-            config.filters.properties: [{"key": "id", "type": "cohort", "value": <cohort id>, "operator": "in"}], plus
-            a function_email step. Caveat: batch audiences reject dynamic cohorts with event-based (behavioral)
-            filters — static and person-property cohorts work.
+            config.filters.properties: [{"key": "id", "type": "cohort", "value": <cohort id>, "operator": "in"}], plus a
+            function_email step. Caveat: batch audiences reject dynamic cohorts with event-based (behavioral) filters —
+            static and person-property cohorts work.
         exclude_params:
             - groups
             - deleted
