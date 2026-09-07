@@ -593,13 +593,16 @@ class FakePersonHogClient:
         self, request: person_pb2.DeletePersonsBatchForTeamRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsBatchForTeamResponse:
         deleted_count = 0
-        # Find up to batch_size persons for this team
-        to_delete = []
-        for (team_id, uuid), person in list(self._persons_by_uuid.items()):
-            if team_id == request.team_id:
-                to_delete.append((team_id, uuid, person))
-                if len(to_delete) >= request.batch_size:
-                    break
+        # Mirror the real RPC: take the batch in id order, after the caller's cursor.
+        to_delete = sorted(
+            (
+                (team_id, uuid, person)
+                for (team_id, uuid), person in self._persons_by_uuid.items()
+                if team_id == request.team_id and person.id > request.after_id
+            ),
+            key=lambda entry: entry[2].id,
+        )[: request.batch_size]
+        last_id = to_delete[-1][2].id if to_delete else 0
         for team_id, uuid, person in to_delete:
             self._persons_by_uuid.pop((team_id, uuid), None)
             self._persons_by_id.pop((team_id, person.id), None)
@@ -607,7 +610,7 @@ class FakePersonHogClient:
             for did in dids:
                 self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
             deleted_count += 1
-        response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
+        response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count, last_id=last_id)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
         return response
 
