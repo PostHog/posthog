@@ -879,6 +879,18 @@ def get_hogql_autocomplete(
                     posthog_table_names = [
                         name for name in database.get_posthog_table_names() if database.has_table(name)
                     ]
+                    table_names = list(
+                        dict.fromkeys(
+                            [
+                                *table_names,
+                                *(
+                                    f"posthog.{name}"
+                                    for name in posthog_table_names
+                                    if database.has_table(["posthog", name])
+                                ),
+                            ]
+                        )
+                    )
 
                     if len(node.chain) == 1:
                         extend_responses(
@@ -901,7 +913,8 @@ def get_hogql_autocomplete(
                     else:
                         node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
                         node_chain = ".".join(node_chain_arr)
-                        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+                        prefix = f"{node_chain}."
+                        filtered_table_names = [x.removeprefix(prefix) for x in table_names if x.startswith(prefix)]
 
                         extend_responses(
                             keys=filtered_table_names,

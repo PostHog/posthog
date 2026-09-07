@@ -12,6 +12,7 @@ import {
     IconPlug,
     IconPlus,
     IconRefresh,
+    IconStar,
     IconWarning,
 } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
@@ -218,6 +219,8 @@ export const getSidebarPropertyDefinitionTarget = (
     if (field.type !== 'json') {
         return null
     }
+
+    tableName = tableName.replace(/^posthog\./, '')
 
     const pathSegments = columnPath.split('.')
     const fieldName = pathSegments.at(-1)
@@ -1493,7 +1496,7 @@ const createSourceFolderNode = (
 
     return {
         id: sourceFolderId,
-        name: sourceType,
+        name: sourceType === 'PostHog' ? 'posthog' : sourceType,
         type: 'node',
         icon: (
             <SourceIcon
@@ -1516,6 +1519,40 @@ const createSourceFolderNode = (
             sources,
         },
         children: sourceChildren,
+    }
+}
+
+const createPopularTablesNode = (
+    tables: DatabaseSchemaTable[],
+    tableLookup: TableLookup,
+    options: FieldTraversalOptions
+): TreeDataItem => {
+    const popularNames = ['events', 'persons', 'groups', 'sessions']
+    const popularTables = popularNames.flatMap((name) => tables.filter((table) => table.name === name))
+    // Both copies share hydration and property data, but expansion belongs to each tree location.
+    const prefixNodeIds = (node: TreeDataItem): TreeDataItem => ({
+        ...node,
+        id: `popular-${node.id}`,
+        children: node.children?.map(prefixNodeIds),
+    })
+    return {
+        id: 'popular-tables',
+        name: 'Popular tables',
+        icon: <IconStar />,
+        type: 'node',
+        record: { type: 'popular-tables' },
+        children: popularTables.map((table) =>
+            prefixNodeIds(
+                createTableNode(table, null, false, tableLookup, {
+                    ...options,
+                    expandedLazyNodeIds: new Set(
+                        [...(options.expandedLazyNodeIds ?? [])]
+                            .filter((id) => id.startsWith('popular-'))
+                            .map((id) => id.slice('popular-'.length))
+                    ),
+                })
+            )
+        ),
     }
 }
 
@@ -1699,7 +1736,7 @@ const getExpandedFoldersConnectionKey = (connectionId: string | null): string =>
 
 export const getInitialExpandedFolders = (connectionId: string | null, displayedTreeData: TreeDataItem[]): string[] => {
     if (!shouldUseDirectConnectionTree(connectionId)) {
-        return [...DEFAULT_EXPANDED_FOLDERS]
+        return [...DEFAULT_EXPANDED_FOLDERS, 'popular-tables']
     }
 
     const schemaFolderIds = displayedTreeData
@@ -2764,7 +2801,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     listeners(({ actions, values }) => {
         const revealLocatedTable = (tableName: string): void => {
             actions.clearSearch()
-            const path = findDataSourceTreePath(values.displayedTreeData, tableName)
+            const resolvedName = shouldUseDirectConnectionTree(values.connectionId)
+                ? tableName
+                : tableName.replace(/^posthog\./, '')
+            const path = findDataSourceTreePath(values.displayedTreeData, resolvedName)
             if (!path) {
                 return
             }
@@ -3362,6 +3402,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add PostHog tables
                     if (posthogTables.length > 0) {
+                        const popularTablesNode = createPopularTablesNode(posthogTables, tableLookup, tableNodeOptions)
+                        if (popularTablesNode.children?.length) {
+                            sourcesChildren.push(popularTablesNode)
+                        }
                         sourcesChildren.push(
                             createSourceFolderNode('PostHog', posthogTables, [], false, tableLookup, tableNodeOptions)
                         )
@@ -3671,7 +3715,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 return Object.prototype.hasOwnProperty.call(expandedFoldersByConnection, key)
                     ? expandedFoldersByConnection[key]
-                    : [...DEFAULT_EXPANDED_FOLDERS]
+                    : getInitialExpandedFolders(connectionId, [])
             },
         ],
         defaultExpandedRootIds: [

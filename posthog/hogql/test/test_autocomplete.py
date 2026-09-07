@@ -267,7 +267,17 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def test_autocomplete_table_name(self):
         query = "select event from "
         results = self._select(query=query, start=18, end=18)
-        assert len(results.suggestions) != 0
+        labels = {suggestion.label for suggestion in results.suggestions}
+        assert {"events", "ai_events", "metrics", "posthog.events", "posthog.ai_events", "posthog.metrics"} <= labels
+        assert "error_tracking_recent_issue_state" not in labels
+        assert "posthog.error_tracking_recent_issue_state" not in labels
+
+        query = "select event from posthog."
+        results = self._select(query=query, start=len(query), end=len(query))
+        labels = {suggestion.label for suggestion in results.suggestions}
+        assert {"events", "persons", "sessions", "ai_events", "metrics"} <= labels
+        assert "system.activity_logs" not in labels
+        assert "error_tracking_recent_issue_state" not in labels
 
     def test_autocomplete_table_name_dot_notation(self):
         query = "select event from events."

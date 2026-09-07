@@ -105,23 +105,29 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
-            },
-            post: {
-                '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                    const body = (await request.json()) as Record<string, any>
-                    const kind = body?.query?.kind
-                    if (kind === 'DatabaseSchemaQuery') {
-                        return [200, { tables: {} }]
-                    }
-                    if (kind === 'HogQLMetadata') {
-                        return [200, { errors: [], warnings: [], notices: [], isValid: true }]
-                    }
-                    return [200, SQL_RESULTS]
-                },
+                '/api/projects/:team_id/warehouse_expressions/': () => [200, { results: [] }],
+                '/api/projects/:team_id/query_tab_state/user/': () => [200, { tabs: [] }],
             },
         }),
     ],
     parameters: {
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }: { request: Request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        const kind = body?.query?.kind
+                        if (kind === 'DatabaseSchemaQuery') {
+                            return [200, { tables: {} }]
+                        }
+                        if (kind === 'HogQLMetadata') {
+                            return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                        }
+                        return [200, SQL_RESULTS]
+                    },
+                },
+            },
+        },
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-07',
@@ -139,6 +145,66 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+export const DatabaseSchemaTree: Story = {
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: 'SELECT event, timestamp FROM ai_events LIMIT 100' }),
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }: { request: Request }) => {
+                        const body = await request.json()
+                        if (body?.query?.kind === 'DatabaseSchemaQuery') {
+                            return [
+                                200,
+                                {
+                                    tables: Object.fromEntries(
+                                        [
+                                            'events',
+                                            'persons',
+                                            'groups',
+                                            'sessions',
+                                            'ai_events',
+                                            'logs',
+                                            'metrics',
+                                            'session_replay_events',
+                                            'trace_spans',
+                                        ].map((name) => [
+                                            name,
+                                            {
+                                                id: name,
+                                                name,
+                                                type: 'posthog',
+                                                fields: {
+                                                    id: {
+                                                        name: 'id',
+                                                        type: 'string',
+                                                        hogql_value: 'id',
+                                                        schema_valid: true,
+                                                    },
+                                                    properties: {
+                                                        name: 'properties',
+                                                        type: 'json',
+                                                        hogql_value: 'properties',
+                                                        schema_valid: true,
+                                                    },
+                                                },
+                                            },
+                                        ])
+                                    ),
+                                },
+                            ]
+                        }
+                        if (body?.query?.kind === 'HogQLMetadata') {
+                            return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                        }
+                        return [200, SQL_RESULTS]
+                    },
+                },
+            },
+        },
+    },
+}
 
 // Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
 // has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.

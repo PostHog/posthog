@@ -910,12 +910,12 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         the transaction and clean them up.
         """
         parents = get_parents_from_model_query(team, model_name, model_query)
-        # include_hidden surfaces `posthog.*`-namespaced tables (e.g. posthog.ai_events) so they
-        # resolve as parents here too — matching the create path's get_table()-based resolution.
+        # Dependencies retain the spelling used in SQL, so recognize both PostHog table aliases.
         database = self.get_hogql_database(team)
-        posthog_table_names = set(database.get_posthog_table_names()) | set(
-            database.get_posthog_table_names(include_hidden=True)
-        )
+        posthog_table_names = set(database.get_posthog_table_names(include_hidden=True))
+        posthog_table_names |= {
+            f"posthog.{name}" for name in posthog_table_names if database.has_table(["posthog", name])
+        }
 
         base_params = {
             "team_id": team.pk,

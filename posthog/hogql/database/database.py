@@ -414,12 +414,16 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
         )
     else:
         root_tables = clone_root_tables()
+        root_tables["marketing_costs_precomputed"] = TableNode(
+            name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
+        )
         children = {
             **root_tables,
             "posthog": TableNode(
                 name="posthog",
                 children={
-                    **clone_root_tables(),
+                    # Share nodes so modifiers and lazy joins apply to both spellings of a table.
+                    **root_tables,
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
@@ -479,11 +483,6 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 },
             ),
             "system": SystemTables(),
-            # Deduplicated read interface over posthog.marketing_costs_preaggregated. Registered at root
-            # (like `sessions`) because a lazy/aggregating view only resolves cleanly from the root scope.
-            "marketing_costs_precomputed": TableNode(
-                name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
-            ),
             **children,
         }
 
@@ -698,9 +697,10 @@ class Database(BaseModel):
         return self._serialization_errors.copy()
 
     def has_table(self, table_name: str | list[str]) -> bool:
-        if isinstance(table_name, str):
-            table_name = table_name.split(".")
-        return self.tables.has_child(table_name)
+        try:
+            return self.get_table_node(table_name).table is not None
+        except ResolutionError:
+            return False
 
     def is_table_access_denied(self, table_name: str | list[str]) -> bool:
         """True if access control denied this table when the HogQL database was built.
@@ -716,6 +716,9 @@ class Database(BaseModel):
 
         if isinstance(table_name, list) and len(table_name) == 1 and "." in table_name[0]:
             table_name = table_name[0].split(".")
+
+        if len(table_name) == 1 and self.tables.has_child(["posthog", *table_name]):
+            return self.tables.get_child(["posthog", *table_name])
 
         return self.tables.get_child(table_name)
 
@@ -851,23 +854,11 @@ class Database(BaseModel):
 
     # These are the tables exposed via SQL editor autocomplete and data management
     def get_posthog_table_names(self, include_hidden: bool = False) -> list[str]:
-        if include_hidden:
-            root_keys = set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
-            posthog_node = self.tables.children.get("posthog")
-            if posthog_node and posthog_node.children:
-                posthog_only_keys = {f"posthog.{k}" for k in posthog_node.children.keys() if k not in root_keys}
-            else:
-                posthog_only_keys = set()
-            return sorted(root_keys | posthog_only_keys)
-
-        return [
-            "events",
-            "groups",
-            "persons",
-            "sessions",
-            "logs",
-            *self.get_system_table_names(),
-        ]
+        posthog_node = self.tables.children.get("posthog")
+        if posthog_node is None:
+            return []
+        names = posthog_node.resolve_all_table_names() if include_hidden else posthog_node.resolve_visible_table_names()
+        return sorted({name.removeprefix("posthog.") for name in names} | set(self.get_system_table_names()))
 
     def get_system_table_names(self) -> list[str]:
         system_tables = self.tables.children.get("system")
@@ -1199,6 +1190,8 @@ class Database(BaseModel):
                 )
 
             for table_key in _get_warehouse_table_keys(warehouse_table, direct_query=self._is_direct_query()):
+                if table_key in posthog_table_names:
+                    continue
                 if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
                     continue
 
@@ -1323,6 +1316,8 @@ class Database(BaseModel):
         # Process views using prefetched data
         views_dict = {view.name: view for view in all_views}
         for view_name in views:
+            if view_name in posthog_table_names:
+                continue
             if include_only and view_name not in include_only:
                 continue
 

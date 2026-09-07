@@ -77,20 +77,23 @@ You can mix and match `parse_expr` and `ast` nodes as you please. The example ab
 
 ## Database schema and features
 
-The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
+Explore the available tables and columns in the SQL editor sidebar.
+Popular tables provides shortcuts to `events`, `persons`, `groups`, and `sessions`.
+The `posthog` folder contains the full available PostHog catalog, including tables such as `ai_events` and `metrics`.
+Tables explicitly marked as hidden stay out of the sidebar and autocomplete, and access controls and feature gates still apply.
 
-The most up to date resource is [hogql/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database.py) on Github. At the time of writing, these tables were available:
+`posthog` is the default namespace for built-in tables.
+For example, `SELECT event FROM events` and `SELECT event FROM posthog.events` use the same table, project settings, and joins.
+This also applies to newer tables: both `ai_events` and `posthog.ai_events` work.
+Autocomplete supports both spellings and suggests table names after `posthog.`.
 
-```python
-class Database(BaseModel):
-    # Users can query from the tables below
-    events: EventsTable = EventsTable()
-    persons: PersonsTable = PersonsTable()
-    person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
-    session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
-    cohort_people: CohortPeople = CohortPeople()
-    static_cohort_people: StaticCohortPeople = StaticCohortPeople()
-```
+An unqualified name resolves in `posthog` first, then falls back to warehouse tables and saved views.
+Use a warehouse source's qualified name when it collides with a PostHog table.
+Queries scoped to a direct database connection resolve against that connection's catalog instead.
+There is no schema selector or `USE` statement.
+
+The catalog is defined in [hogql/database/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/database.py).
+Register new built-in tables under the `posthog` node so resolution and discovery include them automatically.
 
 Some tables have some fields that are actually "lazy tables". When accessed they will add a join to the table. The events table is such an example:
 
