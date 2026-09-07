@@ -142,7 +142,7 @@ export const extractDuckSqlTables = (sql: string): string[] => {
 
 // Rough by design, like the SQL extraction above: identifiers a Python cell's code mentions,
 // with string literals, comments, and attribute tails stripped. Only ever intersected with
-// sibling exports (matchesUsage), so a false positive just marks an extra cell stale.
+// sibling exports, so a false positive just marks an extra cell stale.
 export const extractPythonIdentifiers = (code: string): string[] => {
     const cleaned = (code || '')
         .replace(/('''[\s\S]*?'''|"""[\s\S]*?""")/g, ' ')
@@ -667,13 +667,6 @@ const buildDependencyUsage = (node: NotebookDependencyNode): NotebookDependencyU
     }
 }
 
-const matchesUsage = (exportName: string, usageName: string, usageNodeType: NotebookNodeType): boolean => {
-    if (usageNodeType === NotebookNodeType.DuckSQL) {
-        return normalizeDuckSqlIdentifier(exportName) === normalizeDuckSqlIdentifier(usageName)
-    }
-    return exportName === usageName
-}
-
 export type NotebookDependencyDirection = 'upstream' | 'downstream'
 
 /** Transitive closure of a node's dependencies (or dependents), including the start node. */
@@ -873,14 +866,84 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
     const upstreamSourcesByNode: Record<string, Record<string, NotebookDependencyUsage>> = {}
     const downstreamUsageByNode: Record<string, Record<string, NotebookDependencyUsage[]>> = {}
 
-    nodes.forEach((node, nodeIndex) => {
-        const upstreamNodes = nodes.slice(0, nodeIndex)
-        const downstreamNodes = nodes.slice(nodeIndex + 1)
+    // Comparing every node with every other node is quadratic and runs on each edit. Index the
+    // exports and the uses by name once, so a node resolves its sources and its dependents by
+    // lookup instead. A non-DuckSQL cell matches a name exactly; a DuckSQL cell matches it
+    // normalized. So a name is indexed under both forms, and the consumer's type picks the key.
+    const rawKey = (name: string): string => `raw:${name}`
+    const duckKey = (name: string): string => `duck:${normalizeDuckSqlIdentifier(name)}`
+    const consumerKey = (usageName: string, consumerType: NotebookNodeType): string =>
+        consumerType === NotebookNodeType.DuckSQL ? duckKey(usageName) : rawKey(usageName)
 
+    const positionByNode = new Map<NotebookDependencyNode, number>()
+    const exportersByKey = new Map<string, NotebookDependencyNode[]>()
+    const consumersByKey = new Map<string, NotebookDependencyNode[]>()
+    const appendNode = (
+        index: Map<string, NotebookDependencyNode[]>,
+        key: string,
+        node: NotebookDependencyNode
+    ): void => {
+        const list = index.get(key)
+        // Nodes arrive in document order, so a list stays sorted by position. Skip a repeat so a cell
+        // that uses one name twice is listed once.
+        if (!list) {
+            index.set(key, [node])
+        } else if (list[list.length - 1] !== node) {
+            list.push(node)
+        }
+    }
+    nodes.forEach((node, nodeIndex) => {
+        positionByNode.set(node, nodeIndex)
+        for (const exportName of node.exports) {
+            appendNode(exportersByKey, rawKey(exportName), node)
+            appendNode(exportersByKey, duckKey(exportName), node)
+        }
+        for (const usageName of node.uses) {
+            appendNode(consumersByKey, consumerKey(usageName, node.nodeType), node)
+        }
+    })
+
+    // The earliest exporter of a name is the first entry of its list, so a source before this node
+    // exists only when that entry is before it.
+    const sourceBefore = (
+        usageName: string,
+        consumerType: NotebookNodeType,
+        position: number
+    ): NotebookDependencyNode | null => {
+        const exporters = exportersByKey.get(consumerKey(usageName, consumerType))
+        const earliest = exporters?.[0]
+        return earliest && positionByNode.get(earliest)! < position ? earliest : null
+    }
+
+    // A non-DuckSQL cell using this name lives under its raw key, a DuckSQL cell under its duck key.
+    // The two lists are disjoint and sorted, so merge them and keep the dependents after this node.
+    const dependentsAfter = (exportName: string, position: number): NotebookDependencyNode[] => {
+        const rawList = consumersByKey.get(rawKey(exportName)) ?? []
+        const duckList = consumersByKey.get(duckKey(exportName)) ?? []
+        const dependents: NotebookDependencyNode[] = []
+        let rawIndex = 0
+        let duckIndex = 0
+        while (rawIndex < rawList.length || duckIndex < duckList.length) {
+            const rawNode = rawIndex < rawList.length ? rawList[rawIndex] : null
+            const duckNode = duckIndex < duckList.length ? duckList[duckIndex] : null
+            const takeRaw =
+                rawNode !== null && (duckNode === null || positionByNode.get(rawNode)! < positionByNode.get(duckNode)!)
+            const nextNode = takeRaw ? rawNode! : duckNode!
+            if (takeRaw) {
+                rawIndex++
+            } else {
+                duckIndex++
+            }
+            if (positionByNode.get(nextNode)! > position) {
+                dependents.push(nextNode)
+            }
+        }
+        return dependents
+    }
+
+    nodes.forEach((node, nodeIndex) => {
         const upstreamSources = node.uses.reduce<Record<string, NotebookDependencyUsage>>((acc, usageName) => {
-            const source = upstreamNodes.find((upstreamNode) =>
-                upstreamNode.exports.some((exportName) => matchesUsage(exportName, usageName, node.nodeType))
-            )
+            const source = sourceBefore(usageName, node.nodeType, nodeIndex)
             if (source) {
                 acc[usageName] = buildDependencyUsage(source)
             }
@@ -888,13 +951,7 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
         }, {})
 
         const downstreamUsage = node.exports.reduce<Record<string, NotebookDependencyUsage[]>>((acc, exportName) => {
-            acc[exportName] = downstreamNodes
-                .filter((downstreamNode) =>
-                    downstreamNode.uses.some((usageName) =>
-                        matchesUsage(exportName, usageName, downstreamNode.nodeType)
-                    )
-                )
-                .map(buildDependencyUsage)
+            acc[exportName] = dependentsAfter(exportName, nodeIndex).map(buildDependencyUsage)
             return acc
         }, {})
 

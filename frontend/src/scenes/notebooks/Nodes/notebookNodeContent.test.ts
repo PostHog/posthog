@@ -17,6 +17,11 @@ describe('buildNotebookDependencyGraph', () => {
         attrs: { nodeId, returnVariable, code },
     })
 
+    const duckSqlNode = (nodeId: string, returnVariable: string, code: string): Record<string, unknown> => ({
+        type: NotebookNodeType.DuckSQL,
+        attrs: { nodeId, returnVariable, code },
+    })
+
     it('links a SQLV2 node to a downstream SQLV2 node that references it by table name', () => {
         // The "Used in" back-links depend on SQLV2 producing an export and its reader listing it as a use.
         const content = {
@@ -43,6 +48,22 @@ describe('buildNotebookDependencyGraph', () => {
         expect(graph.nodesById['b'].exports).toEqual(['sql_df_2'])
         expect(graph.downstreamUsageByNode['a'].sql_df.map((usage) => usage.nodeId)).toEqual(['c'])
         expect(graph.upstreamSourcesByNode['c'].sql_df.nodeId).toEqual('a')
+    })
+
+    it('links DuckSQL cells whose names differ only by case, unlike exact-match cells', () => {
+        // A DuckSQL cell matches a name case-insensitively, so a reference in a different case still
+        // links. This exercises the normalized index key that DuckSQL cells resolve through.
+        const content = {
+            type: 'doc',
+            content: [duckSqlNode('a', 'MyDf', 'select id from events'), duckSqlNode('b', 'out', 'select * from MYDF')],
+        }
+        const graph = buildNotebookDependencyGraph(content)
+        expect(Object.values(graph.upstreamSourcesByNode['b']).map((usage) => usage.nodeId)).toContain('a')
+        expect(
+            Object.values(graph.downstreamUsageByNode['a'])
+                .flat()
+                .map((usage) => usage.nodeId)
+        ).toContain('b')
     })
 
     it('an unnamed SQL cell is not browsable as a dataframe', () => {
