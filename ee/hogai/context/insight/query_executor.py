@@ -47,6 +47,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -145,6 +146,10 @@ class AssistantQueryExecutor:
     """
 
     WAIT_TIME_S = 0.5
+    # Default ceiling on how long the async-query poll loop waits for a result. A caller that runs
+    # under a shorter deadline of its own passes `poll_timeout_seconds`, so the loop gives up with a
+    # classified timeout instead of being cancelled mid-poll.
+    MAX_POLL_WAIT_S = 60.0 * 5
 
     def __init__(
         self,
@@ -165,6 +170,7 @@ class AssistantQueryExecutor:
         insight_id=None,
         debug_timing=False,
         truncate_results: bool = True,
+        poll_timeout_seconds: Optional[float] = None,
     ) -> FormattedQueryResult:
         """
         Run a query and format the results with detailed fallback information.
@@ -174,6 +180,8 @@ class AssistantQueryExecutor:
             execution_mode: Optional execution mode override. If None, defaults to:
                           - RECENT_CACHE_CALCULATE_ASYNC_IF_STALE in production
                           - CALCULATE_BLOCKING_ALWAYS in tests
+            poll_timeout_seconds: Optional ceiling on the async-query poll loop. Defaults to
+                          MAX_POLL_WAIT_S.
 
         Returns:
             A FormattedQueryResult carrying the formatted text, whether the JSON fallback was
@@ -199,7 +207,9 @@ class AssistantQueryExecutor:
                     # Including insight ID for insight search
                     tag_queries(insight_id=insight_id)
                 execute_start = time.time()
-                response_dict = await self.aexecute_query(query, execution_mode, debug_timing=debug_timing)
+                response_dict = await self.aexecute_query(
+                    query, execution_mode, debug_timing=debug_timing, poll_timeout_seconds=poll_timeout_seconds
+                )
                 execute_elapsed = time.time() - execute_start
                 if debug_timing:
                     logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed in {execute_elapsed:.3f}s")
@@ -308,6 +318,7 @@ class AssistantQueryExecutor:
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
         execution_mode: Optional[ExecutionMode] = None,
         debug_timing=False,
+        poll_timeout_seconds: Optional[float] = None,
     ) -> dict:
         """
         Execute a query and return the response dict.
@@ -315,6 +326,8 @@ class AssistantQueryExecutor:
         Args:
             query: The query object
             execution_mode: Optional execution mode override
+            poll_timeout_seconds: Optional ceiling on the async-query poll loop. Defaults to
+                MAX_POLL_WAIT_S.
 
         Returns:
             Response dict with query results
@@ -393,9 +406,10 @@ class AssistantQueryExecutor:
                             f"{TIMING_LOG_PREFIX} Query returned incomplete, starting async polling (query_id={query_status['id']})"
                         )
 
-                    # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
-                    while total_wait_s <= 60 * 5:
+                    poll_budget_s = self.MAX_POLL_WAIT_S if poll_timeout_seconds is None else poll_timeout_seconds
+
+                    # Poll async query until completion, with linear increments
+                    while total_wait_s <= poll_budget_s:
                         poll_count += 1
                         total_wait_s += self.WAIT_TIME_S
 
@@ -434,7 +448,9 @@ class AssistantQueryExecutor:
                             logger.error(
                                 f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
                             )
-                        raise APIException(
+                        # A classified timeout, so callers can tell "ran out of time" apart from a
+                        # broken query and report it as such.
+                        raise ClickHouseQueryTimeOut(
                             "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
                         )
 

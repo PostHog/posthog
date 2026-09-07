@@ -40,6 +40,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryTimeOut
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
@@ -370,6 +371,23 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query hasn't completed in time", str(context.exception))
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_polling_stops_at_the_caller_budget(self, mock_get_query_status, mock_process_query):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False})
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.aexecute_query(query, poll_timeout_seconds=2.0)
+
+        # Callers read the timeout off the wrapped cause to tell "ran out of time" apart from a broken query.
+        self.assertIsInstance(context.exception.__context__, ClickHouseQueryTimeOut)
+        # 2s of budget at WAIT_TIME_S per poll, so the loop gives up long before MAX_POLL_WAIT_S.
+        self.assertLessEqual(mock_get_query_status.call_count, 2.0 / AssistantQueryExecutor.WAIT_TIME_S + 1)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")

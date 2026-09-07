@@ -20,11 +20,19 @@ class QueryErrorDetails(typing.TypedDict):
     message: typing.Optional[str]
 
 
-def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDetails]:
-    """Return stable details for an explicitly safe query exception in a wrapped exception chain."""
+def walk_exception_chain(exc: BaseException) -> typing.Iterator[BaseException]:
+    """Yield an exception and every cause or context it wraps, once each."""
     seen: set[int] = set()
     current: typing.Optional[BaseException] = exc
     while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+
+
+def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDetails]:
+    """Return stable details for an explicitly safe query exception in a wrapped exception chain."""
+    for current in walk_exception_chain(exc):
         if isinstance(current, ExposedHogQLError) or getattr(type(current), "user_safe", False) is True:
             code = getattr(current, "code_name", None)
             if not isinstance(code, str):
@@ -39,8 +47,6 @@ def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDe
                     "code": code,
                     "message": message.replace("\x00", ""),
                 }
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
     return None
 
 
