@@ -1,10 +1,18 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
+
+const KEY_PATH = '/api/projects/:team_id/project_secret_api_keys/:id/'
+const STALE_KEY = { id: 'stale', label: 'Stale' } as ProjectSecretAPIKeyApi
+const LIVE_KEY = { id: 'live', label: 'Live' } as ProjectSecretAPIKeyApi
 
 describe('projectSecretAPIKeysLogic', () => {
     let logic: ReturnType<typeof projectSecretAPIKeysLogic.build>
@@ -54,5 +62,41 @@ describe('projectSecretAPIKeysLogic', () => {
         expect(gatewayScope).not.toBeUndefined()
         expect(gatewayScope?.label).toBe('AI gateway')
         expect(gatewayScope?.disabledActions).toContain('write')
+    })
+
+    describe('a key that another tab already deleted', () => {
+        beforeEach(async () => {
+            // The mount load resolves with an empty list, so seed the table only once it settles.
+            await expectLogic(logic).toFinishAllListeners()
+            useMocks({
+                delete: { [KEY_PATH]: () => [404, { detail: 'Not found.' }] },
+                patch: { [KEY_PATH]: () => [404, { detail: 'Not found.' }] },
+                post: { [`${KEY_PATH}roll/`]: () => [404, { detail: 'Not found.' }] },
+            })
+            logic.actions.loadKeysSuccess([STALE_KEY, LIVE_KEY])
+        })
+
+        // A 404 here is the state the user asked for, or a row they can no longer act on. Both
+        // recover in the logic, so neither may reach the loader failure that error tracking reads.
+        it.each([
+            ['deleteKey', 'deleteKeyFailure', () => logic.actions.deleteKey(STALE_KEY.id)],
+            ['rollKey', 'rollKeyFailure', () => logic.actions.rollKey(STALE_KEY.id)],
+            [
+                'submitEditingKey',
+                'submitEditingKeyFailure',
+                () => {
+                    logic.actions.setEditingKeyId(STALE_KEY.id)
+                    logic.actions.setEditingKeyValues({ label: 'Renamed', scopes: ['endpoint:read'] })
+                    logic.actions.submitEditingKey()
+                },
+            ],
+        ])('drops its row and reports no failure when %s gets a 404', async (_name, failureAction, trigger) => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+            await expectLogic(logic, trigger).toFinishAllListeners().toNotHaveDispatchedActions([failureAction])
+
+            expect(logic.values.keys).toEqual([LIVE_KEY])
+            expect(errorToast).not.toHaveBeenCalledWith(expect.stringContaining('Failed to'))
+        })
     })
 })

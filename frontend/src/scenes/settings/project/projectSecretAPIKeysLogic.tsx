@@ -31,6 +31,13 @@ export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
 
 export const MAX_PROJECT_API_KEYS_PER_PROJECT = 10
 
+/**
+ * The table keeps a row for every key loaded on mount, and the logic never reloads that list. A key
+ * removed in another tab therefore stays clickable, and the team-scoped viewset answers 404 for it.
+ * The response is expected, so each caller recovers from it instead of raising it to error tracking.
+ */
+const isMissingKeyError = (error: unknown): boolean => (error as { status?: number } | null)?.status === 404
+
 // llm_gateway powers the new AI gateway here, so label it "AI gateway" (PAKs keep "LLM gateway").
 const PROJECT_SECRET_SCOPE_OBJECT_NAMES: Record<string, string> = {
     llm_gateway: 'AI gateway',
@@ -265,11 +272,14 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     try {
                         await api.projectSecretApiKeys.delete(id)
                         lemonToast.success('Project API key deleted')
-                        return values.keys.filter((key: ProjectSecretAPIKeyApi) => key.id !== id)
                     } catch (error: any) {
-                        lemonToast.error('Failed to delete project API key')
-                        throw error
+                        if (!isMissingKeyError(error)) {
+                            lemonToast.error('Failed to delete project API key')
+                            throw error
+                        }
+                        lemonToast.success('That project API key was already deleted')
                     }
+                    return values.keys.filter((key: ProjectSecretAPIKeyApi) => key.id !== id)
                 },
                 rollKey: async ({ id }: { id: string }) => {
                     const origKey = values.keys.find((key: ProjectSecretAPIKeyApi) => key.id === id)
@@ -284,6 +294,10 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                         const storedKey = { ...rolledKey, value: '' }
                         return values.keys.map((key: ProjectSecretAPIKeyApi) => (key.id === id ? storedKey : key))
                     } catch (error: any) {
+                        if (isMissingKeyError(error)) {
+                            lemonToast.error('That project API key no longer exists, so we removed it from the list')
+                            return values.keys.filter((key: ProjectSecretAPIKeyApi) => key.id !== id)
+                        }
                         lemonToast.error('Failed to roll project API key')
                         throw error
                     }
@@ -331,6 +345,14 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     ])
                     actions.setEditingKeyId(null)
                 } catch (error: any) {
+                    if (isMissingKeyError(error)) {
+                        lemonToast.error('That project API key no longer exists, so we removed it from the list')
+                        actions.loadKeysSuccess(
+                            values.keys.filter((k: ProjectSecretAPIKeyApi) => k.id !== values.editingKeyId)
+                        )
+                        actions.setEditingKeyId(null)
+                        return
+                    }
                     lemonToast.error('Failed to save project API key')
                     throw error
                 }
