@@ -569,8 +569,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.67.1
-        version: 4.67.1(604eb56a6918d5c695b6cd493ea29f1c)
+        specifier: ^4.67.3
+        version: 4.67.3(604eb56a6918d5c695b6cd493ea29f1c)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6260,9 +6260,6 @@ packages:
 
   '@posthog/core@1.50.0':
     resolution: {integrity: sha512-25SnQycZbqqLodQs+GaDPGDC1oxT8+XOSGlyhiS2rtdVON9Opg2hmfJ/fpFNgMBL7YDi0rpvJiR/fudy96W4pA==}
-
-  '@posthog/core@1.50.6':
-    resolution: {integrity: sha512-Lno7WoIk5QI/HvlkW+ajfrE/DKTrKoA5pULB/HK6Om/ShGGUAJfOpOn22yWBtBvZ6R+bhAEsWXtzcc8QwNF8gQ==}
 
   '@posthog/core@1.51.0':
     resolution: {integrity: sha512-LilmmtjcrjV1LgaVNQXrAUt4IXcWIYMrwEtx6VJUUFDeBBdmeI99jshKGtAWugYeB3Wkcp9xQIVCrxIYRpNiRA==}
@@ -13957,8 +13954,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.67.1:
-    resolution: {integrity: sha512-Gt86KAxKxUUkhlGIhr2JQdsnumMhy9KLEE5OKKEJRO2AWUfwmKbi6YetSrp+i/YpZW5S5j00z/PCkz4Ck5vHlQ==}
+  posthog-react-native@4.67.3:
+    resolution: {integrity: sha512-fJDwgWlYQyor6+hy3M1G1hEHyw1t9O2GMJZoLQmiOqDZS+YcEbyqrxbvSKOPsS+0WBlHEz+kIm2kJMt8stX3Tw==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.4.3'
@@ -20977,10 +20974,6 @@ snapshots:
   '@posthog/core@1.50.0':
     dependencies:
       '@posthog/types': 1.407.1
-
-  '@posthog/core@1.50.6':
-    dependencies:
-      '@posthog/types': 1.409.1
 
   '@posthog/core@1.51.0':
     dependencies:
@@ -30067,9 +30060,9 @@ snapshots:
     optionalDependencies:
       rxjs: 7.8.2
 
-  posthog-react-native@4.67.1(604eb56a6918d5c695b6cd493ea29f1c):
+  posthog-react-native@4.67.3(604eb56a6918d5c695b6cd493ea29f1c):
     dependencies:
-      '@posthog/core': 1.50.6
+      '@posthog/core': 1.51.0
       '@posthog/types': 1.409.1
     optionalDependencies:
       '@posthog/react-native-plugin': 2.5.2(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
