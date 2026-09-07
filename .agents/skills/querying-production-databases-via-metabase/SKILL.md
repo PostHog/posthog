@@ -1,23 +1,37 @@
 ---
-name: query-clickhouse-via-metabase
+name: querying-production-databases-via-metabase
 description: >
-  Run ClickHouse `system.query_log` analysis via the internal Metabase API.
-  Use when investigating slow queries, materialization candidates, per-team
-  query performance, ClickHouse cost or memory issues, or any system.query_log
-  question. Covers prod-us and prod-eu, SSO-gated cookie auth via `hogli`,
-  and ready-to-run query patterns.
+  Run read-only analysis against PostHog's production databases through the
+  internal Metabase API. Covers ClickHouse `system.query_log` (slow queries,
+  materialization candidates, per-team query cost and memory) and the Postgres
+  app database (`EXPLAIN (ANALYZE, BUFFERS)` on a real plan, which index the
+  planner picks, how a table's rows spread across projects). Use when
+  investigating a slow ClickHouse query, a slow Django or Postgres endpoint,
+  why the planner prefers one index over another, or how large a per-project
+  table is across the fleet. Includes prod-us and prod-eu, SSO-gated cookie
+  auth via `hogli`, and ready-to-run query patterns for both engines.
 ---
 
-# Querying ClickHouse via Metabase
+# Querying production databases via Metabase
 
-PostHog's production ClickHouse clusters are reachable for ad-hoc analysis through
-internal Metabase instances. Both Metabases sit behind an AWS ALB with Cognito
-OAuth, so authentication is **SSO-gated** — Metabase API keys alone won't work.
+PostHog's production databases are reachable for ad-hoc, read-only analysis
+through internal Metabase instances. Both Metabases sit behind an AWS ALB with
+Cognito OAuth, so authentication is **SSO-gated** — Metabase API keys alone
+won't work.
 
-This skill is for `system.query_log` analysis from inside the posthog repo.
-For pre-built canned queries (slow query summaries, materialization analysis),
-see the `query-performance-analysis` repo, which is the source of truth for
-those and uses the same Metabase API surface.
+Two engines are behind the same API surface, and the reason to reach for each
+is different:
+
+- **ClickHouse** — `system.query_log` analysis: which queries are slow, what
+  they read, who runs them.
+- **Postgres** (the app database) — the real query plan for an app query. This
+  is the only way to see which index production actually uses, because the
+  planner's choice depends on production statistics that a local database does
+  not have.
+
+For pre-built canned ClickHouse queries (slow query summaries, materialization
+analysis), see the `query-performance-analysis` repo, which is the source of
+truth for those and uses the same Metabase API surface.
 
 ## Environment
 
@@ -106,7 +120,7 @@ If the DB ID is wrong, `metabase:query` exits non-zero with a pointer back
 to `metabase:databases`. Fail-fast is intentional — silently querying the
 wrong database is worse than failing.
 
-## What counts as a slow query
+## ClickHouse: what counts as a slow query
 
 ```sql
 query_duration_ms > 30000
@@ -119,7 +133,7 @@ OR exception_code IN (159, 160, 241)
 | 160  | TOO_SLOW              |
 | 241  | MEMORY_LIMIT_EXCEEDED |
 
-## Useful query patterns
+## ClickHouse query patterns
 
 ### Top slow queries in the last 24h
 
@@ -182,6 +196,84 @@ https://metabase.prod-eu.posthog.dev/question/795-look-up-query-by-query-id?quer
 
 The same can be reproduced programmatically with a `WHERE query_id = '...'`
 clause via `/api/dataset` against the right region's DB ID.
+
+## Postgres: the app database
+
+Reach for this when an endpoint is slow and the time sits in a Django query.
+An `EXPLAIN` from a local database proves nothing about production: the planner
+chooses from production statistics, so the same SQL takes a different plan
+against a table with millions of rows spread over thousands of projects.
+
+**The database you get is a read replica. Keep it that way.** Run `SELECT` and
+`EXPLAIN` only. Never `UPDATE`, `DELETE`, `INSERT`, or `CREATE INDEX`, even to
+"test" one, and never `EXPLAIN ANALYZE` a write — `ANALYZE` executes the
+statement.
+
+Discover the Postgres database ID the same way as the ClickHouse one; the list
+holds several, so read the names:
+
+```bash
+hogli metabase:databases --region us   # the app DB, and on EU also ingestion + migrations
+```
+
+### Reading a real plan
+
+Use `EXPLAIN (ANALYZE, BUFFERS)`. `BUFFERS` is what tells you whether the cost
+is rows or pages, which is usually the whole answer:
+
+```bash
+hogli metabase:query --region us --database-id <postgres-id> <<'SQL'
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT id, name FROM posthog_eventdefinition
+WHERE COALESCE(project_id, team_id) = <project_id>
+  AND name ILIKE '%session recording%'
+ORDER BY name
+LIMIT 26
+SQL
+```
+
+Read it in this order:
+
+1. **Which index did it use?** An index scoped to the tenant behaves nothing
+   like a global index on a searched column. A GIN or trigram index on `name`
+   covers every project at once, so a small project still pays to read posting
+   lists for the whole table.
+2. **Buffers, not rows.** A plan that returns 26 rows while reading tens of
+   thousands of pages is reading an index it cannot scope.
+3. **Compare plan forms, not just timings.** The lever is usually a predicate
+   rewrite that changes which index the planner can reach at all. `ILIKE` can
+   use a trigram index; `lower(name) LIKE lower(...)` cannot, so the planner
+   falls back to the tenant-scoped index. Run both and put the two timings
+   side by side.
+4. **Run each form more than once** and say whether the cache was warm. One
+   run on a cold cache is not a measurement.
+
+### Sizing a dimension across the fleet
+
+Before you make a plan choice conditional on a number, measure how that number
+is distributed. A rewrite that wins for the median project can lose badly for
+the largest one, and the largest projects are the ones that notice:
+
+```sql
+SELECT COALESCE(project_id, team_id) AS project, count(*) AS definitions
+FROM posthog_eventdefinition
+GROUP BY 1 ORDER BY definitions DESC LIMIT 20
+```
+
+Check both ends: the biggest projects, and the percentile where most projects
+actually sit. Pick the threshold from the crossover you measured, then leave
+headroom.
+
+### Gotchas
+
+- **Statistics move.** A plan you captured last month can differ today. Re-run
+  it rather than trusting a number in an old PR description.
+- **Keep the query narrow.** Metabase cuts native queries off at about 60s, and
+  an `EXPLAIN ANALYZE` really runs the query on a replica other people use.
+- **`ORDER BY` and `LIMIT` change the plan.** Profile the SQL the endpoint
+  sends, including its ordering and page size, not a simplified version.
+- **A paginated endpoint usually runs the predicate twice**, once to count and
+  once to fetch. Halving the predicate cost is worth double what it looks like.
 
 ## Parsing Metabase responses
 
