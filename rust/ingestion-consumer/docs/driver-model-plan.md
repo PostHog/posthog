@@ -326,7 +326,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 **Metrics:**
 
-- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_queued_bytes`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), and `ingestion_consumer_parked_retries_total` (counter). Queued bytes needs an alert before the switch: every key with an outstanding request buffers all later arrivals in full, and key cardinality is customer-controlled.
+- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_queued_bytes`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), `ingestion_consumer_parked_retries_total` (counter), and `ingestion_consumer_key_table_queue_wait_seconds` (histogram, by send kind): the head-of-line wait, the latency cost the one-request-per-key rule accepts. Queued bytes needs an alert before the switch: every key with an outstanding request buffers all later arrivals in full, and key cardinality is customer-controlled.
 
 ### 10. Switch to the key-table scheduler (switchover)
 

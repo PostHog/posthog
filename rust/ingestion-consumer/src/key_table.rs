@@ -18,8 +18,9 @@
 //! next change.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::{Duration, Instant};
 
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 
 use crate::order_sentinel::SendKind;
 use crate::routing::{Router, WorkerLoad};
@@ -30,6 +31,17 @@ use crate::scheduler::{
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
+/// Record the run's head-of-line wait: how long its oldest message sat
+/// queued behind the key's outstanding request, park, or epoch boundary.
+fn record_queue_wait(run: &Run, kind: SendKind) {
+    let kind = match kind {
+        SendKind::Fresh => "fresh",
+        SendKind::Resend => "resend",
+    };
+    histogram!("ingestion_consumer_key_table_queue_wait_seconds", "kind" => kind)
+        .record(run.head_wait.as_secs_f64());
+}
+
 fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
     messages
         .iter()
@@ -37,11 +49,27 @@ fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
         .sum()
 }
 
+/// One queued message: the epoch it was polled under and its arrival time,
+/// for the queue-wait histogram. A requeued failure restarts the clock, so
+/// a resend's wait measures the pause before the redelivery.
+struct QueuedMessage {
+    epoch: u64,
+    enqueued_at: Instant,
+    message: SerializedKafkaMessage,
+}
+
+/// One drained run: the longest same-epoch prefix of a key's queue.
+struct Run {
+    epoch: u64,
+    /// Age of the run's oldest message: the head-of-line wait.
+    head_wait: Duration,
+    messages: Vec<SerializedKafkaMessage>,
+}
+
 /// One key's scheduling state.
 struct KeyState {
-    /// Queued messages in arrival order, each with the assignment epoch it
-    /// was polled under. A failed run returns to the front.
-    queue: VecDeque<(u64, SerializedKafkaMessage)>,
+    /// Queued messages in arrival order. A failed run returns to the front.
+    queue: VecDeque<QueuedMessage>,
     /// A request for this key is in flight. No second dispatch may happen
     /// until it settles.
     outstanding: bool,
@@ -122,11 +150,16 @@ impl KeyTable {
     fn enqueue_back(&mut self, key: &str, epoch: u64, messages: Vec<SerializedKafkaMessage>) {
         self.queued_messages += messages.len();
         self.queued_bytes += payload_bytes(&messages);
+        let enqueued_at = Instant::now();
         self.keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new)
             .queue
-            .extend(messages.into_iter().map(|message| (epoch, message)));
+            .extend(messages.into_iter().map(|message| QueuedMessage {
+                epoch,
+                enqueued_at,
+                message,
+            }));
     }
 
     /// Return a failed run to the front of its queue, ahead of anything that
@@ -141,8 +174,13 @@ impl KeyTable {
             .or_insert_with(KeyState::new);
         state.redelivering = true;
         let epoch = state.outstanding_epoch;
+        let enqueued_at = Instant::now();
         for message in messages.into_iter().rev() {
-            state.queue.push_front((epoch, message));
+            state.queue.push_front(QueuedMessage {
+                epoch,
+                enqueued_at,
+                message,
+            });
         }
     }
 
@@ -150,16 +188,22 @@ impl KeyTable {
     /// key outstanding. A run never mixes epochs, so its completions carry
     /// one valid stamp; later-epoch messages wait for the next settlement.
     /// Returns None, with no state change, when there is nothing to dispatch.
-    fn take_run(&mut self, key: &str) -> Option<(u64, Vec<SerializedKafkaMessage>)> {
+    fn take_run(&mut self, key: &str) -> Option<Run> {
         let state = self.keys.get_mut(key)?;
         debug_assert!(!state.outstanding, "at most one request per key");
         if state.outstanding || state.queue.is_empty() {
             return None;
         }
-        let epoch = state.queue.front().expect("checked non-empty").0;
-        let mut run: Vec<SerializedKafkaMessage> = Vec::new();
-        while state.queue.front().is_some_and(|(e, _)| *e == epoch) {
-            run.push(state.queue.pop_front().expect("front checked").1);
+        let front = state.queue.front().expect("checked non-empty");
+        let epoch = front.epoch;
+        let head_wait = front.enqueued_at.elapsed();
+        let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
+        while state
+            .queue
+            .front()
+            .is_some_and(|queued| queued.epoch == epoch)
+        {
+            messages.push(state.queue.pop_front().expect("front checked").message);
         }
         state.outstanding = true;
         state.outstanding_epoch = epoch;
@@ -168,10 +212,14 @@ impl KeyTable {
         self.outstanding_keys += 1;
         // Saturate so an accounting bug publishes zero to the gauges instead
         // of a wrapped huge value.
-        debug_assert!(self.queued_messages >= run.len());
-        self.queued_messages = self.queued_messages.saturating_sub(run.len());
-        self.queued_bytes = self.queued_bytes.saturating_sub(payload_bytes(&run));
-        Some((epoch, run))
+        debug_assert!(self.queued_messages >= messages.len());
+        self.queued_messages = self.queued_messages.saturating_sub(messages.len());
+        self.queued_bytes = self.queued_bytes.saturating_sub(payload_bytes(&messages));
+        Some(Run {
+            epoch,
+            head_wait,
+            messages,
+        })
     }
 
     /// Put the key on the parked list, to be retried at the parked-retry
@@ -235,10 +283,11 @@ impl KeyTable {
         let mut purged_bytes = 0usize;
         for state in self.keys.values_mut() {
             let before = state.queue.len();
-            state.queue.retain(|(_, message)| {
-                let keep = !revoked.contains(&(message.topic.as_str(), message.partition));
+            state.queue.retain(|queued| {
+                let keep =
+                    !revoked.contains(&(queued.message.topic.as_str(), queued.message.partition));
                 if !keep {
-                    purged_bytes += message.payload_bytes();
+                    purged_bytes += queued.message.payload_bytes();
                 }
                 keep
             });
@@ -318,16 +367,17 @@ impl KeyTableScheduler {
             effects.deferred.unroutable += 1;
             return;
         };
-        let Some((epoch, messages)) = self.table.take_run(key) else {
+        let Some(run) = self.table.take_run(key) else {
             return;
         };
-        bump_load(working_load, &worker, messages.len());
+        record_queue_wait(&run, kind);
+        bump_load(working_load, &worker, run.messages.len());
         effects.dispatches.push(Dispatch {
             worker,
             routing_key: key.to_string(),
-            messages,
+            messages: run.messages,
             kind,
-            assignment_epoch: Some(epoch),
+            assignment_epoch: Some(run.epoch),
         });
     }
 
@@ -484,17 +534,18 @@ impl Scheduler for KeyTableScheduler {
             } else {
                 SendKind::Fresh
             };
-            let Some((epoch, messages)) = self.table.take_run(&key) else {
+            let Some(run) = self.table.take_run(&key) else {
                 continue;
             };
-            bump_load(&mut load, &worker, messages.len());
+            record_queue_wait(&run, kind);
+            bump_load(&mut load, &worker, run.messages.len());
             counter!("ingestion_consumer_parked_retries_total").increment(1);
             effects.dispatches.push(Dispatch {
                 worker,
                 routing_key: key,
-                messages,
+                messages: run.messages,
                 kind,
-                assignment_epoch: Some(epoch),
+                assignment_epoch: Some(run.epoch),
             });
         }
 
