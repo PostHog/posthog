@@ -59,11 +59,32 @@ describe("deriveTaskRunState", () => {
       false,
     ],
     [
-      "an old cloud run reports idle",
+      "a session for another run reports idle",
       "in_progress",
       "cloud",
-      { taskRunId: "run-2", agentIdleForRunId: "run-1" },
+      { taskRunId: "run-2", agentIdleForRunId: "run-2" },
       true,
+    ],
+    [
+      "the previous run left an idle marker",
+      "in_progress",
+      "cloud",
+      { taskRunId: "run-1", agentIdleForRunId: "run-0" },
+      true,
+    ],
+    [
+      "an old cloud session still reports work",
+      "completed",
+      "cloud",
+      { taskRunId: "run-0", cloudStatus: "in_progress" },
+      false,
+    ],
+    [
+      "the current cloud run settles while the session lags",
+      "completed",
+      "cloud",
+      { taskRunId: "run-1", cloudStatus: "in_progress" },
+      false,
     ],
     ["a cloud run completes", "completed", "cloud", undefined, false],
     ["a local run stays in progress", "in_progress", "local", undefined, false],
@@ -78,7 +99,7 @@ describe("deriveTaskRunState", () => {
     "derives loading for %s",
     (_case, status, environment, session, expected) => {
       const result = deriveTaskRunState(
-        { id: "task-1", latest_run: { status, environment } },
+        { id: "task-1", latest_run: { id: "run-1", status, environment } },
         session,
       );
 

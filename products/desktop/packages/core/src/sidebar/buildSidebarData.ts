@@ -4,6 +4,7 @@ import {
   type Task,
   type TaskRunStatus,
 } from "@posthog/shared/domain-types";
+import { resolveEffectiveCloudStatus } from "../task-detail/cloudRunState";
 import { taskActivityAt } from "../tasks/taskActivity";
 import { getRepositoryInfo } from "./groupTasks";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
@@ -218,10 +219,16 @@ export function deriveTaskRunState(
   TaskData,
   "id" | "isGenerating" | "taskRunId" | "taskRunStatus" | "taskRunEnvironment"
 > {
-  const taskRunStatus =
-    session?.cloudStatus ?? task.latest_run?.status ?? undefined;
+  // The task detail header reads the same rule, so a row and its header cannot
+  // disagree about one task. A session that belongs to an earlier run does not
+  // speak for the current one: it must not report work the run has finished,
+  // nor hide work on a run it never watched.
+  const latestRunId = task.latest_run?.id;
+  const sessionRunsLatestRun =
+    latestRunId !== undefined && session?.taskRunId === latestRunId;
+  const taskRunStatus = resolveEffectiveCloudStatus(task, session) ?? undefined;
   const isAgentIdle =
-    session !== undefined && session.agentIdleForRunId === session.taskRunId;
+    sessionRunsLatestRun && session?.agentIdleForRunId === latestRunId;
   const isActiveCloudRun =
     task.latest_run?.environment === "cloud" &&
     taskRunStatus !== undefined &&
