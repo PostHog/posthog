@@ -28,7 +28,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
     ensure_marketing_sessions_precomputed,
 )
 
-from .attribution_base import MAX_TOUCHPOINTS_PER_PERSON
+from .attribution_base import MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
 from .constants import UNKNOWN_CHANNEL
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
@@ -243,11 +243,15 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
             )
         ],
     )
+    # Counted before the array is capped: the footer reports "N of M" exactly, so a conversion the cap
+    # drops has to show up as unattributed rather than vanish from M.
+    conversion_count: ast.Expr = ast.Call(name="count", args=[])
     if not runner.allows_multiple_conversions_per_visitor:
         conversions = ast.Call(
             name="arraySlice",
             args=[ast.Call(name="arraySort", args=[conversions]), ast.Constant(value=1), ast.Constant(value=1)],
         )
+        conversion_count = ast.Constant(value=1)
 
     def bound(fn: str) -> ast.Expr:
         return ast.Call(
@@ -258,6 +262,7 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
         select=[
             ast.Alias(alias="conv_person_id", expr=ast.Field(chain=["events", "person_id"])),
             ast.Alias(alias="conversions", expr=conversions),
+            ast.Alias(alias=PERSON_CONVERSION_COUNT, expr=conversion_count),
             ast.Alias(alias="first_conversion", expr=bound("min")),
             ast.Alias(alias="last_conversion", expr=bound("max")),
         ],
@@ -385,6 +390,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
         select=[
             ast.Alias(alias="person_id", expr=ast.Field(chain=["c", "conv_person_id"])),
             ast.Field(chain=["c", "conversions"]),
+            ast.Field(chain=["c", PERSON_CONVERSION_COUNT]),
             ast.Alias(alias="touchpoints", expr=ast.Field(chain=["t", "touchpoints"])),
         ],
         select_from=ast.JoinExpr(

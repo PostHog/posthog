@@ -644,16 +644,26 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         person_arrays = ctes["person_arrays"].expr
         assert isinstance(person_arrays, ast.SelectQuery)
 
-        class FindSubqueryIn(TraversingVisitor):
+        # Asserts the restriction exists, not the shape it takes: a semi-join in the WHERE and a join
+        # against the converters subquery both pay for the scan, and which one is used is free to change.
+        class FindConverterSubquery(TraversingVisitor):
             def __init__(self) -> None:
                 self.found = False
 
-            def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-                if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
+            def visit_select_query(self, node: ast.SelectQuery) -> None:
+                if node is not person_arrays and _selects_person_id(node):
                     self.found = True
-                super().visit_compare_operation(node)
+                super().visit_select_query(node)
 
-        finder = FindSubqueryIn()
+        def _selects_person_id(node: ast.SelectQuery) -> bool:
+            for column in node.select:
+                expr = column.expr if isinstance(column, ast.Alias) else column
+                if isinstance(expr, ast.Field) and expr.chain[-1] == "person_id":
+                    return True
+            return False
+
+        finder = FindConverterSubquery()
+        finder.visit(person_arrays.select_from)
         finder.visit(person_arrays.where)
         self.assertTrue(finder.found, "person_arrays must restrict the events scan to converting persons")
 
