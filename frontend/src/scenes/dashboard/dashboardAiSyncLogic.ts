@@ -119,6 +119,11 @@ function asRecordArray(value: unknown): Record<string, unknown>[] | null {
     return records.every((record): record is Record<string, unknown> => record !== null) ? records : null
 }
 
+function isEmptyRecord(value: unknown): boolean {
+    const record = asRecord(value)
+    return record !== null && Object.keys(record).length === 0
+}
+
 function asPositiveSafeInteger(value: unknown): number | null {
     const parsed = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value
     return typeof parsed === 'number' && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
@@ -362,15 +367,18 @@ function resolveDashboardMutation(
         }
         const requestedTileIds = input.tile_order.map(asPositiveSafeInteger)
         const returned = parseDashboardTileIds(output, requestedDashboardId)
+        const validRequestedTileIds = requestedTileIds.filter((id): id is number => id !== null)
+        const returnedTileIds = new Set(returned.tileIds)
         if (
-            requestedTileIds.some((id) => id === null) ||
+            validRequestedTileIds.length !== requestedTileIds.length ||
+            new Set(validRequestedTileIds).size !== validRequestedTileIds.length ||
             !returned.valid ||
-            requestedTileIds.length !== returned.tileIds.length ||
-            requestedTileIds.some((id, index) => id !== returned.tileIds[index])
+            returnedTileIds.size !== returned.tileIds.length ||
+            validRequestedTileIds.some((id) => !returnedTileIds.has(id))
         ) {
             return null
         }
-        return candidate('dashboard', target.dashboardId, requestedTileIds as number[])
+        return candidate('dashboard', target.dashboardId, validRequestedTileIds)
     }
 
     if (BATCH_ADD_TOOLS.has(toolName) || toolName === 'dashboard-widgets-batch-update') {
@@ -700,6 +708,9 @@ function resolveAlertMutation(
     if (requestInsightId === null || responseIdentity === null) {
         return { candidate: null, ownership: knownOwnership }
     }
+    if (toolName === 'alert-delete' && Object.keys(output).length > 0 && outputAlertId === undefined) {
+        return { candidate: null, ownership: knownOwnership }
+    }
 
     const learnedInsightKey = knownOwnership.alertInsightById[alertId]
     const evidence: InsightIdentifier[] = [
@@ -761,6 +772,7 @@ export function resolveDashboardAiMutation(
         event.toolName === 'alert-delete' &&
         (event.invocation.output === null ||
             event.invocation.output === undefined ||
+            isEmptyRecord(event.invocation.output) ||
             (typeof event.invocation.output === 'string' && !event.invocation.output.trim()))
     if (!parsedOutput && !hasEmptyAlertDeleteOutput) {
         return { candidate: null, ownership: knownOwnership }

@@ -281,6 +281,60 @@ describe('resolveDashboardAiMutation candidate classification', () => {
         }
     )
 
+    it('classifies a partial preserve reorder from the full dashboard response', () => {
+        expect(
+            resolveFor(
+                'dashboard-reorder-tiles',
+                { id: 7, tile_order: [42, 41], layout: 'preserve' },
+                {
+                    id: 7,
+                    tiles: [
+                        { id: 41, dashboard_id: 7 },
+                        { id: 42, dashboard_id: 7 },
+                        { id: 61, dashboard_id: 7 },
+                    ],
+                }
+            ).candidate
+        ).toEqual(dashboardCandidate({ tileIds: [41, 42] }))
+    })
+
+    it('classifies a complete three-column reorder when the full dashboard response contains every requested tile', () => {
+        expect(
+            resolveFor(
+                'dashboard-reorder-tiles',
+                { id: 7, tile_order: [42, 41], layout: 'three_column' },
+                {
+                    id: 7,
+                    tiles: [
+                        { id: 42, dashboard_id: 7 },
+                        { id: 41, dashboard_id: 7 },
+                    ],
+                }
+            ).candidate
+        ).toEqual(dashboardCandidate({ tileIds: [41, 42] }))
+    })
+
+    it.each([
+        ['a missing requested tile', [42], [{ id: 41, dashboard_id: 7 }]],
+        [
+            'duplicate requested tile IDs',
+            [42, 42],
+            [
+                { id: 42, dashboard_id: 7 },
+                { id: 42, dashboard_id: 7 },
+            ],
+        ],
+        [
+            'an unsafe requested tile ID',
+            [Number.MAX_SAFE_INTEGER + 1],
+            [{ id: Number.MAX_SAFE_INTEGER + 1, dashboard_id: 7 }],
+        ],
+    ])('rejects a reorder with %s', (_case, tileOrder, tiles) => {
+        expect(
+            resolveFor('dashboard-reorder-tiles', { id: 7, tile_order: tileOrder }, { id: 7, tiles }).candidate
+        ).toBeNull()
+    })
+
     it('rejects a direct third-party MCP event with the same dashboard tool name before changing ownership', () => {
         const ownership = emptyOwnership()
         const directInvocation = {
@@ -570,7 +624,7 @@ describe('resolveDashboardAiMutation candidate classification', () => {
     })
 
     it('resolves a cold ID-only alert delete from committed tile alert IDs and removes that ownership', () => {
-        const result = resolveFor('alert-delete', { id: 'alert-1' }, undefined)
+        const result = resolveFor('alert-delete', { id: 'alert-1' }, {})
 
         expect(result.candidate).toEqual({
             family: 'alert',
@@ -580,6 +634,17 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             deletesDashboard: false,
         })
         expect(result.ownership.alertInsightById).toEqual({ 501: '101' })
+    })
+
+    it.each([
+        ['an array', []],
+        ['a non-empty malformed object', { unexpected: true }],
+    ])('rejects alert deletion output shaped as %s', (_case, output) => {
+        const ownership = emptyOwnership()
+        const result = resolveFor('alert-delete', { id: 'alert-1' }, output, ownership)
+
+        expect(result).toEqual({ candidate: null, ownership })
+        expect(result.ownership).toBe(ownership)
     })
 
     it('rejects malformed alert deletion output instead of treating it as an empty 204 response', () => {
