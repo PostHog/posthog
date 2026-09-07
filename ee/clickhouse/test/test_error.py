@@ -5,6 +5,8 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
+    POSTGRESQL_CONNECTION_FAILURE_MESSAGE,
+    ExposedCHQueryError,
     QueryErrorCategory,
     classify_query_error,
     clickhouse_error_type,
@@ -212,6 +214,18 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 614. DB::Exception: Connection to `proxy.internal:5432`, database `posthog`, "
+                "user `reader` failed: timeout expired. (POSTGRESQL_CONNECTION_FAILURE). Stack trace:\n\n"
+                "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=614,
+            ),
+            "CHQueryErrorPostgresqlConnectionFailure",
+            POSTGRESQL_CONNECTION_FAILURE_MESSAGE,
+            614,
+            "CHQueryErrorPostgresqlConnectionFailure",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
@@ -261,3 +275,11 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
     if is_cluster:
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
         assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED
+
+
+def test_postgres_connection_failure_is_user_safe_and_transient():
+    # A dropped connection to the Postgres behind a function-call table is infrastructure, not a bad
+    # query: the user gets a readable 400 instead of a stack trace, and the query retries once.
+    wrapped = wrap_clickhouse_query_error(ServerException("DB::Exception: Connection failed.", code=614))
+    assert isinstance(wrapped, ExposedCHQueryError)
+    assert isinstance(wrapped, CH_TRANSIENT_ERRORS)

@@ -69,7 +69,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorPostgresqlConnectionFailure,
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    ExposedCHQueryError,
+)
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -82,7 +87,7 @@ if TYPE_CHECKING:
 
 tracer = trace.get_tracer(__name__)
 
-TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+TRANSIENT_ERROR_RETRY_DELAY_SECONDS = 1.0
 
 
 @dataclasses.dataclass(frozen=False)
@@ -786,9 +791,14 @@ class HogQLQueryExecutor:
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
-                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
-                    # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
-                    sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
+                except (
+                    CHQueryErrorS3Error,
+                    CHQueryErrorS3FileChangedDuringRead,
+                    CHQueryErrorPostgresqlConnectionFailure,
+                ):
+                    # Files backing a warehouse table can be replaced mid-read; one retry re-lists them.
+                    # A dropped Postgres proxy connection behind a function-call table clears the same way.
+                    sleep(TRANSIENT_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
             except Exception as e:
                 if self.debug:

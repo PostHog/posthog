@@ -94,6 +94,12 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 )
 
 
+POSTGRESQL_CONNECTION_FAILURE_MESSAGE = (
+    "We couldn't reach the database that backs this table. This is usually a short outage that "
+    "fixes itself, so run the query again. Contact support if it keeps happening."
+)
+
+
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
     file_uri = match.group(1) if match else "unknown file"
@@ -159,6 +165,13 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # into an actionable message instead of leaking the internals.
         return CHQueryErrorCorruptedParquetMetadata(
             CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
+        )
+    elif name == "POSTGRESQL_CONNECTION_FAILURE":
+        # Some HogQL tables read our app Postgres through a proxy with the ClickHouse postgresql()
+        # function. A dropped proxy connection is transient infrastructure, and the raw message
+        # names the host, database and user, so replace it instead of passing it through.
+        return CHQueryErrorPostgresqlConnectionFailure(
+            POSTGRESQL_CONNECTION_FAILURE_MESSAGE, code=err.code, code_name="postgresql_connection_failure"
         )
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
@@ -251,6 +264,12 @@ class CHQueryErrorS3Error(InternalCHQueryError):
 
 class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
+
+    pass
+
+
+class CHQueryErrorPostgresqlConnectionFailure(ExposedCHQueryError):
+    """ClickHouse could not reach the Postgres behind a `postgresql()` function-call table."""
 
     pass
 
@@ -1050,6 +1069,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorPostgresqlConnectionFailure,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
