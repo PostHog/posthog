@@ -36,6 +36,27 @@ class TestUrlValidation:
 
         assert uv.resolve_host_ips("example.com") == {ipaddress.ip_address("93.184.216.34")}
 
+    def test_resolve_host_ips_resolves_an_idn_host_but_not_a_url(self, monkeypatch):
+        # Every other test replaces resolve_host_ips itself, so nothing else runs a real host
+        # string through its shape gate. The gate has to admit an internationalized name, whose
+        # punycode form is a hostname, while still keeping a URL away from the resolver.
+        queried: list[str] = []
+
+        class Answers:
+            def addresses(self):
+                return iter(["93.184.216.34"])
+
+        class Resolver:
+            def resolve_name(self, host, *, lifetime):
+                queried.append(host)
+                return Answers()
+
+        monkeypatch.setattr(uv.dns.resolver, "Resolver", Resolver)
+
+        assert uv.resolve_host_ips("münchen.de") == {ipaddress.ip_address("93.184.216.34")}
+        assert uv.resolve_host_ips("postgresql://db.example.com:5432/analytics") == set()
+        assert queried == ["münchen.de"]
+
     def test_resolve_url_hosts_ips_deduplicates_hosts(self, monkeypatch):
         def fake_resolve_hosts_ips(hosts):
             assert hosts == {"shared.example.com"}
@@ -91,9 +112,19 @@ class TestUrlValidation:
 
         assert uv.resolve_hosts_ips({"busy.example.com"}) == {"busy.example.com": set()}
 
-    def test_is_url_allowed_disallowed_scheme(self):
-        ok, err = uv.is_url_allowed("javascript:alert(1)")
-        assert not ok and "scheme" in (err or "")
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "javascript:alert(1)",
+            # urlparse reads no scheme at all here, which used to end the reason at a colon and
+            # tell the reader nothing.
+            "not-a-url",
+        ],
+    )
+    def test_is_url_allowed_rejects_anything_that_is_not_http(self, url):
+        ok, err = uv.is_url_allowed(url)
+        assert not ok
+        assert "must start with http" in (err or "")
 
     def test_is_url_allowed_localhost(self):
         ok, err = uv.is_url_allowed("http://localhost")
