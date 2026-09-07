@@ -9,6 +9,7 @@ import {
     LemonDialog,
     LemonInput,
     LemonSegmentedButton,
+    LemonSegmentedButtonOption,
     LemonTable,
     LemonTableColumns,
     Link,
@@ -26,20 +27,23 @@ import { errorTrackingEditAccessDisabledReason } from 'products/error_tracking/f
 import { symbolSetFailureMessage } from './symbolSetFailure'
 import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
-const SYMBOL_SET_FILTER_OPTIONS = [
+const SYMBOL_SET_FILTER_OPTIONS: LemonSegmentedButtonOption<SymbolSetStatusFilter>[] = [
     {
         label: <IconCheckCircle />,
         value: 'valid',
+        tooltip: 'Symbol sets with an uploaded file',
     },
     {
         label: <IconWarning />,
         value: 'invalid',
+        tooltip: 'Symbol sets with no uploaded file',
     },
     {
         label: 'All',
         value: 'all',
+        tooltip: 'All symbol sets',
     },
-] as { label: string; value: SymbolSetStatusFilter }[]
+]
 
 export function SymbolSets(): JSX.Element {
     const { symbolSetStatusFilter, searchQuery, selectedSymbolSetIds, deleteSymbolSetResponseLoading } =
@@ -106,7 +110,7 @@ export function SymbolSets(): JSX.Element {
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        <span className="mb-0">Status:</span>
+                        <span className="mb-0">File:</span>
                         <LemonSegmentedButton
                             size="xsmall"
                             value={symbolSetStatusFilter}
