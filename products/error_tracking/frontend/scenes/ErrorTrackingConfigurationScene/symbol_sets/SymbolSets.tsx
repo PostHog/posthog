@@ -23,6 +23,7 @@ import { pluralize } from 'lib/utils/strings'
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
 import { errorTrackingEditAccessDisabledReason } from 'products/error_tracking/frontend/utils'
 
+import { symbolSetFailureMessage } from './symbolSetFailure'
 import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
@@ -130,8 +131,10 @@ const SymbolSetTable = (): JSX.Element => {
         deleteSymbolSetResponseLoading,
         shiftKeyHeld,
         previouslyCheckedIndex,
+        symbolSetsLoadFailed,
     } = useValues(symbolSetLogic)
     const {
+        loadSymbolSets,
         deleteSymbolSet,
         downloadSymbolSet,
         setSymbolSetOrder,
@@ -140,12 +143,15 @@ const SymbolSetTable = (): JSX.Element => {
         setPage,
     } = useActions(symbolSetLogic)
 
-    const symbolSets = symbolSetResponse?.results || []
+    // A failed load leaves the previous page of results in the loader value, so drop them and let
+    // the empty state explain why the list is empty.
+    const loadedResponse = symbolSetsLoadFailed ? null : symbolSetResponse
+    const symbolSets = loadedResponse?.results || []
     const pagination = {
         controlled: true,
         pageSize: RESULTS_PER_PAGE,
         currentPage: page,
-        entryCount: symbolSetResponse?.count ?? 0,
+        entryCount: loadedResponse?.count ?? 0,
         onBackward: () => setPage(page - 1),
         onForward: () => setPage(page + 1),
     }
@@ -215,21 +221,25 @@ const SymbolSetTable = (): JSX.Element => {
         {
             title: 'Status',
             render: (_, { failure_reason, has_uploaded_file }) => {
-                const statusTooltip =
-                    failure_reason || (!has_uploaded_file ? 'No source map file has been uploaded' : undefined)
+                const failureMessage = symbolSetFailureMessage(failure_reason)
+                // Cymbal reads a stored failure reason before it reads the uploaded file, so a set
+                // that has both is not usable yet, even though the file is there.
+                const isFailed = has_uploaded_file && !!failureMessage
+
+                if (!has_uploaded_file || isFailed) {
+                    return (
+                        <Tooltip title={failureMessage ?? 'No source map file has been uploaded'} placement="top">
+                            <span className="text-danger cursor-pointer">
+                                <IconWarning /> {isFailed ? 'Failed' : 'Missing'}
+                            </span>
+                        </Tooltip>
+                    )
+                }
 
                 return (
-                    <Tooltip title={statusTooltip} placement="top">
-                        {!has_uploaded_file ? (
-                            <span className="text-danger cursor-pointer">
-                                <IconWarning /> Missing
-                            </span>
-                        ) : (
-                            <span className="text-success">
-                                <IconCheckCircle /> Uploaded
-                            </span>
-                        )}
-                    </Tooltip>
+                    <span className="text-success">
+                        <IconCheckCircle /> Uploaded
+                    </span>
                 )
             },
         },
@@ -297,11 +307,23 @@ const SymbolSetTable = (): JSX.Element => {
 
     const emptyState = (
         <div className="flex flex-col justify-center items-center gap-2 p-4 text-center">
-            <div className="font-semibold">No symbol sets found</div>
-            <div className="text-secondary">
-                Learn how to upload them from the{' '}
-                <Link to="https://posthog.com/docs/error-tracking/upload-source-maps">docs</Link>
-            </div>
+            {symbolSetsLoadFailed ? (
+                <>
+                    <div className="font-semibold">Couldn't load symbol sets</div>
+                    <div className="text-secondary">The request to PostHog failed, so this list is empty.</div>
+                    <LemonButton type="secondary" size="small" onClick={() => loadSymbolSets()}>
+                        Try again
+                    </LemonButton>
+                </>
+            ) : (
+                <>
+                    <div className="font-semibold">No symbol sets found</div>
+                    <div className="text-secondary">
+                        Learn how to upload them from the{' '}
+                        <Link to="https://posthog.com/docs/error-tracking/upload-source-maps">docs</Link>
+                    </div>
+                </>
+            )}
         </div>
     )
 

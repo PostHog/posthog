@@ -134,6 +134,7 @@ def create_symbol_set(
                 raise ValidationError("Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
+            symbol_set.failure_reason = None
             symbol_set.save()
 
         except ErrorTrackingSymbolSet.DoesNotExist:
@@ -293,12 +294,21 @@ def bulk_create_symbol_sets(
                     detail=f"Symbol set {existing.ref} already exists with different content.",
                 )
 
+            # Cymbal reads a stored failure reason before it reads the uploaded file, so a reason
+            # left over from an earlier attempt keeps the new symbols unused. The caller is
+            # uploading symbols for this ref, which supersedes that failure.
+            if existing.failure_reason is not None:
+                existing.failure_reason = None
+                dirty = True
+
             if dirty:
                 to_update.append(existing)
 
         # We update only the symbol sets we modified the release of - for all others, this is a no-op (we assume they were uploaded
         # during a prior attempt or something).
-        ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
+        ErrorTrackingSymbolSet.objects.bulk_update(
+            to_update, ["release", "content_hash", "storage_ptr", "failure_reason"]
+        )
 
         refresh_last_used(team, chunk_ids)
 
