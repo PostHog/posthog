@@ -5172,6 +5172,20 @@
             "readOnlyHint": false
         }
     },
+    "feature-flags-copy-dependencies-check": {
+        "description": "Preview what a cross-project copy would do to a flag's transitive flag dependencies. Copies nothing and changes nothing. Provide `feature_flag_key`, `from_project` (the source project ID) and `target_project_ids`. Returns `can_copy_dependencies`, `dependency_count`, `copied_dependency_keys` (dependencies missing from a target project, which a copy would create), `reused_dependency_keys` (dependencies that already have an active same-key flag in every target project), plus `warnings` and a human-readable `reason`. A false `can_copy_dependencies` does not always mean the copy is blocked: it is also false when there is nothing to copy, because the flag has no dependencies or every dependency is already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only when it is non-empty. Call this before every `feature-flags-copy-flags-create` copy; it is read-only and returns an empty result when the flag has no dependencies. Set that tool's `copy_dependencies` only when the user approves copying the keys this check reports. Requires write scope because it checks the same copy eligibility and edit permissions the copy itself enforces.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Check whether a flag's dependencies can be copied",
+        "title": "Check whether a flag's dependencies can be copied",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flags-copy-flags-create": {
         "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
         "category": "Feature flags",
