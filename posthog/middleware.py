@@ -1212,7 +1212,13 @@ class CSPMiddleware:
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
-                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
+                # 'wasm-unsafe-eval' permits WebAssembly compilation and nothing else. It is not
+                # 'unsafe-eval': it does not permit eval() or the Function constructor. Compiling a
+                # module still requires calling WebAssembly.instantiate from JavaScript, so it grants
+                # nothing to an attacker who cannot already run script, and nothing further to one who
+                # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
+                # parses with a WebAssembly build, so both break without it.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
                 f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
                 "worker-src 'self'",
                 "child-src 'none'",

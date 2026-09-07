@@ -193,6 +193,59 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         # routing on the login somebody just took off.
         assert sorted(note.skill_name for note in self._correction_notes()) == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
 
+    @parameterized.expand([("added", {"added": ("octocat",)}), ("removed", {"removed": ("octocat",)})])
+    def test_a_scout_that_edited_the_report_is_told(self, _name: str, edit: dict[str, tuple[str, ...]]) -> None:
+        self._create_skill()
+        self._create_skill(OTHER_SCOUT_SKILL)
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+
+        self._forward(report, **edit)
+
+        # An edit is how a scout puts reviewers on a report it did not file, so the editor did the
+        # routing this human corrected — for an addition too, which no memory search would find.
+        assert [note.skill_name for note in self._correction_notes()] == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
+
+    def test_a_deleted_editing_scout_is_not_told(self) -> None:
+        self._create_skill()
+        LLMSkill.objects.create(team=self.team, name=OTHER_SCOUT_SKILL, description="gone", body="# gone", deleted=True)
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+
+        self._forward(report, removed=("octocat",))
+
+        # The touching union keeps deleted skills on purpose for autostart exclusion, so it has to be
+        # filtered here: a note addressed to a name no run answers to steers no one.
+        assert [note.skill_name for note in self._correction_notes()] == [SCOUT_SKILL]
+
+    def test_a_touching_scout_that_also_holds_the_memory_is_told_once(self) -> None:
+        self._create_skill()
+        self._create_skill(OTHER_SCOUT_SKILL)
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+        for index, skill_name in enumerate((SCOUT_SKILL, OTHER_SCOUT_SKILL)):
+            self._remember(
+                key=f"reviewer:products/logs{index}", content="octocat owns the logs path", skill_name=skill_name
+            )
+
+        self._forward(report, removed=("octocat",))
+
+        assert [note.skill_name for note in self._correction_notes()] == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
+
+    def test_an_editing_scout_replaces_the_fleet_wide_fallback(self) -> None:
+        self._create_skill(OTHER_SCOUT_SKILL)
+        report = self._create_report()
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+
+        self._forward(report, removed=("octocat",))
+
+        # Nobody emitted this report, but a scout edited it, so the correction has an audience and
+        # must not go to the whole fleet.
+        assert [note.skill_name for note in self._correction_notes()] == [OTHER_SCOUT_SKILL]
+
     def test_a_login_that_is_only_a_substring_of_a_memory_is_not_a_holder(self) -> None:
         self._create_skill()
         self._create_skill(OTHER_SCOUT_SKILL)

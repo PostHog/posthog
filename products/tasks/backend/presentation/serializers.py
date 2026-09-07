@@ -830,6 +830,9 @@ class TaskWriteSerializer(serializers.Serializer):
             # Attributes the task to a workflow, which the workflow_tasks endpoint proves
             # via its service JWT. A forged origin would fake that provenance.
             tasks_facade.TaskOriginProduct.WORKFLOW,
+            # Maps to the mintable `review_hog` gateway product, so a forged origin would
+            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
+            tasks_facade.TaskOriginProduct.REVIEW_HOG,
             tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
         }
         if value in reserved_origins:
@@ -940,6 +943,17 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    signal_report_discussion_question = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        max_length=4_000,
+        help_text=(
+            "Question to forward to the signal report's scout when creating a discussion task. "
+            "Send an empty string when there is no question. Omit only for older clients that embed "
+            "the question in the task description. Not persisted on the task."
+        ),
+    )
     naming_source = serializers.CharField(
         required=False,
         allow_blank=True,

@@ -742,6 +742,20 @@ export interface VisionSpendSeriesApi {
 }
 
 /**
+ * * `ai` - AI draft
+ * * `template` - Template
+ * * `scratch` - From scratch
+ */
+export type ScannerCreationMethodEnumApi =
+    (typeof ScannerCreationMethodEnumApi)[keyof typeof ScannerCreationMethodEnumApi]
+
+export const ScannerCreationMethodEnumApi = {
+    Ai: 'ai',
+    Template: 'template',
+    Scratch: 'scratch',
+} as const
+
+/**
  * * `focused` - Focused
  * * `balanced` - Balanced
  * * `comprehensive` - Comprehensive
@@ -850,6 +864,12 @@ export interface ReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+     *
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch */
+    creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -968,6 +988,12 @@ export interface PatchedReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+     *
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch */
+    creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -1777,6 +1803,11 @@ export interface SignalScoutConfigOptionsApi {
      * @maxItems 100
      */
     mcp_gateway_server_ids?: string[]
+    /**
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 4
+     */
+    write_scopes?: string[]
 }
 
 /**
@@ -1916,6 +1947,11 @@ export interface SignalScoutConfigApi {
      * @maxItems 100
      */
     readonly mcp_gateway_server_ids: readonly string[]
+    /**
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 4
+     */
+    readonly write_scopes: readonly string[]
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable

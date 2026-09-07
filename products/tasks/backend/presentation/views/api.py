@@ -652,8 +652,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
-        # Read before create_task, which pops the relationship out of the dict it's handed.
-        relationship = serializer.validated_data.get("signal_report_task_relationship")
+        validated_data = dict(serializer.validated_data)
+        relationship = validated_data.get("signal_report_task_relationship")
+        discussion_question = validated_data.pop("signal_report_discussion_question", None)
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
             ReportTaskCapExceeded,
         )
@@ -662,14 +663,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task = tasks_facade.create_task(
                 self.team_id,
                 self._user_id(),
-                validated_data=dict(serializer.validated_data),
+                validated_data=validated_data,
                 client_provenance=get_task_client_provenance(request),
             )
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
-        self._forward_signals_discussion_note(request, task, relationship)
+        self._forward_signals_discussion_note(request, task, relationship, discussion_question)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
@@ -694,7 +695,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     def _forward_signals_discussion_note(
-        self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None
+        self,
+        request,
+        task: tasks_contracts.TaskDetailDTO,
+        relationship: str | None,
+        question: str | None,
     ) -> None:
         """Hand an inbox "Discuss" question to Signals, which leaves it as a note for the report's scout.
 
@@ -715,6 +720,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             report_id=str(task.signal_report),
             relationship=relationship,
             text=task.description or "",
+            question=question,
             user_id=self._user_id(),
             scoped_team_ids=get_authenticator_scoped_team_ids(authenticator),
             api_scopes=get_authenticator_scopes(authenticator),

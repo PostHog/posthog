@@ -277,9 +277,9 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if applicable is False or applicable == "false":
             parts.append("N/A")
         elif result is True or result == "true":
-            parts.append("PASS")
+            parts.append("true")
         elif result is False or result == "false":
-            parts.append("FAIL")
+            parts.append("false")
 
         summary = eval_name
         if parts:
