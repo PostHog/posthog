@@ -1,6 +1,7 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
@@ -71,6 +72,23 @@ const uncached = (insight: QueryBasedInsightModel): QueryBasedInsightModel => ({
     result: null,
     last_refresh: null,
 })
+
+function deferred<T>(): {
+    promise: Promise<T>
+    resolve: (value: T) => void
+    reject: (reason: unknown) => void
+} {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve
+        reject = promiseReject
+    })
+    return { promise, resolve, reject }
+}
+
+const responseFor = (dashboard: DashboardType<QueryBasedInsightModel>): Response =>
+    new Response(JSON.stringify(dashboard), { status: 200, headers: { 'Content-Type': 'application/json' } })
 
 export const boxToId = (param: string | readonly string[]): number => {
     //path params from msw can be a string or an array
@@ -2920,6 +2938,76 @@ describe('dashboardLogic', () => {
                 })
             }).toFinishAllListeners()
             expect(loadDashboardSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('loadDashboard request ownership', () => {
+        let getResponseSpy: jest.SpiedFunction<typeof api.getResponse>
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            getResponseSpy = jest.spyOn(api, 'getResponse')
+        })
+        afterEach(() => {
+            getResponseSpy.mockRestore()
+            resumeKeaLoadersErrors()
+        })
+
+        it('ignores a superseded successful response', async () => {
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            getResponseSpy.mockClear()
+
+            const first = deferred<Response>()
+            const second = deferred<Response>()
+            getResponseSpy.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(1))
+
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(2))
+
+            second.resolve(responseFor({ ...dashboards[12], name: 'new' }))
+            await waitFor(() => expect(logic.values.dashboard?.name).toBe('new'))
+
+            first.resolve(responseFor({ ...dashboards[12], name: 'old' }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboard?.name).toBe('new')
+        })
+
+        it.each([403, 404])('ignores a superseded %i response', async (status) => {
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            getResponseSpy.mockClear()
+
+            const first = deferred<Response>()
+            const second = deferred<Response>()
+            getResponseSpy.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(1))
+
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(2))
+
+            second.resolve(responseFor({ ...dashboards[12], name: 'new' }))
+            await waitFor(() => expect(logic.values.dashboard?.name).toBe('new'))
+
+            first.reject(
+                new ApiError('Stale dashboard response', status, undefined, {
+                    code: status === 403 ? 'permission_denied' : undefined,
+                })
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboard?.name).toBe('new')
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+            expect(logic.values.error404).toBe(false)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
         })
     })
 

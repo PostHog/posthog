@@ -1511,6 +1511,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
+                        breakpoint()
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
@@ -1520,6 +1521,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
+                        breakpoint()
                         if (error.status === 404) {
                             return null
                         }
