@@ -75,7 +75,7 @@ export function StartupProgram(): JSX.Element {
         ycBatchOptions,
         currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
-    const { billing, billingLoading, accountOwner } = useValues(billingLogic)
+    const { billing, billingLoading, accountOwner, canAccessBilling } = useValues(billingLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
@@ -378,11 +378,18 @@ export function StartupProgram(): JSX.Element {
                                             cover.
                                         </p>
                                         <p className="text-muted mb-2">
-                                            You only pay for what you use. As soon as you subscribe, you can{' '}
-                                            <Link to={urls.organizationBillingSection('overview')}>
-                                                set billing limits
-                                            </Link>{' '}
-                                            as low as $0 to control your spend.
+                                            You only pay for what you use. As soon as you subscribe,{' '}
+                                            {canAccessBilling ? (
+                                                <>
+                                                    you can{' '}
+                                                    <Link to={urls.organizationBillingSection('overview')}>
+                                                        set billing limits
+                                                    </Link>{' '}
+                                                    as low as $0 to control your spend.
+                                                </>
+                                            ) : (
+                                                'an organization owner can set billing limits as low as $0 to control your spend.'
+                                            )}
                                         </p>
                                         <p className="text-muted mb-2">
                                             Startup credits are shared across all products. These products also have a
