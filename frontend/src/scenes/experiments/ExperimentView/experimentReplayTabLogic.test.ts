@@ -863,11 +863,39 @@ describe('experimentReplayTabLogic', () => {
                 duration_filter_customized: true,
             },
         },
+        {
+            name: 'a duration set with a second, stricter entry',
+            duration: [
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'active_seconds',
+                    value: 5,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'active_seconds',
+                    value: 30,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+            ],
+            expected: {
+                duration_filter_active: true,
+                duration_filter_key: 'active_seconds',
+                duration_filter_seconds: 5,
+                duration_filter_operator: 'gt',
+                duration_filter_customized: true,
+            },
+        },
     ])('reports $name on an empty list', async ({ duration, expected }) => {
         // Replay applies its default floor to every list, so a report that only said a duration
         // filter was present cannot tell the floor everyone gets from one the viewer chose. The
         // viewer edits it in the playlist's own filter bar, so the report has to read that rather
         // than the filters the tab pushed down.
+        //
+        // The last case is the fail-safe one: the reported key, threshold, and operator describe
+        // the first entry, so a set whose first entry is the default must still report as
+        // customized when a later entry is what narrowed the list.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         logic.actions.playlistFiltersChanged({ ...logic.values.recordingsFilters, duration })
         logic.actions.recordingsLoaded([])

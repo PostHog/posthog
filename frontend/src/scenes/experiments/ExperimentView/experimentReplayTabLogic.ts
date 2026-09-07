@@ -545,7 +545,11 @@ export interface experimentReplayTabLogicMeta {
             playlistFilters: RecordingUniversalFilters | null,
             recordingsFilters: RecordingUniversalFilters
         ) => RecordingDurationFilter | null
-        durationFilterCustomized: (appliedDurationFilter: RecordingDurationFilter | null) => boolean
+        durationFilterCustomized: (
+            playlistFilters: RecordingUniversalFilters | null,
+            recordingsFilters: RecordingUniversalFilters,
+            appliedDurationFilter: RecordingDurationFilter | null
+        ) => boolean
         listEmptyReason: (
             currentTeam: TeamPublicType | TeamType | null,
             bucketSessionIds: string[] | undefined,
@@ -1024,7 +1028,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // playlist's own filter bar: they can change the threshold, swap the key between
         // `active_seconds`, `duration`, and `inactive_seconds`, and flip the operator between `gt`
         // and `lt`. Null when no duration filter is applied, which the tab does itself for a watch
-        // card. Only the first entry is read, because the filter bar edits one duration filter.
+        // card. The filter bar writes one entry, but the query conversion carries every duration
+        // predicate through `having_predicates` and back, so a set from another writer can hold
+        // more. This describes the first entry only, and `durationFilterCustomized` covers the rest.
         appliedDurationFilter: [
             (s) => [s.playlistFilters, s.recordingsFilters],
             (
@@ -1034,10 +1040,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         ],
         // Whether the applied filter differs from replay's default floor, which counts removing it
         // as a difference. A reader needs this to tell an empty list under the floor everyone gets
-        // from an empty list under a threshold the viewer chose.
+        // from an empty list under a threshold the viewer chose. More than one duration filter
+        // counts as a difference too, so that a second, stricter entry can never report as the
+        // default that `appliedDurationFilter` read off the first.
         durationFilterCustomized: [
-            (s) => [s.appliedDurationFilter],
-            (appliedDurationFilter: RecordingDurationFilter | null): boolean =>
+            (s) => [s.playlistFilters, s.recordingsFilters, s.appliedDurationFilter],
+            (
+                playlistFilters: RecordingUniversalFilters | null,
+                recordingsFilters: RecordingUniversalFilters,
+                appliedDurationFilter: RecordingDurationFilter | null
+            ): boolean =>
+                (playlistFilters ?? recordingsFilters).duration.length > 1 ||
                 appliedDurationFilter === null ||
                 appliedDurationFilter.key !== defaultRecordingDurationFilter.key ||
                 appliedDurationFilter.value !== defaultRecordingDurationFilter.value ||
