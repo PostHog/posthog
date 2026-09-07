@@ -4090,7 +4090,6 @@
   ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value)
   TTL original_expiry_time_bucket
   SETTINGS
-      deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192,
       ttl_only_drop_parts = 1
   
@@ -11236,7 +11235,6 @@
   ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value)
   TTL original_expiry_time_bucket
   SETTINGS
-      deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192,
       ttl_only_drop_parts = 1
   

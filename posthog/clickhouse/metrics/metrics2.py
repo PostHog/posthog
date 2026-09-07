@@ -9,7 +9,7 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
 )
 
-from .kafka_metrics import KAFKA_METRICS_TABLE_NAME, KAFKA_NAMED_COLLECTION, KAFKA_TOPIC
+from .kafka_metrics import KAFKA_NAMED_COLLECTION, KAFKA_TOPIC
 
 KAFKA_TABLE_NAME = "kafka_metrics_avro2"
 KAFKA_GROUP = "clickhouse-metrics-avro2"
@@ -21,6 +21,7 @@ METRIC_SERIES2_TABLE_NAME = "metric_series2"
 METRIC_SERIES_DISTRIBUTED_TABLE_NAME = "metric_series_distributed"
 METRIC_ATTRIBUTES2_TABLE_NAME = "metric_attributes2"
 METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME = "metric_attributes_distributed"
+METRICS2_KAFKA_METRICS_TABLE_NAME = "metrics2_kafka_metrics"
 
 DEFAULT_RETENTION_DAYS = 90
 
@@ -250,9 +251,27 @@ PARTITION BY toDate(original_expiry_time_bucket)
 ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value)
 TTL original_expiry_time_bucket
 SETTINGS
-    deduplicate_merge_projection_mode = 'drop',
     index_granularity = 8192,
     ttl_only_drop_parts = 1
+"""
+
+
+def METRICS2_KAFKA_METRICS_TABLE_SQL() -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_KAFKA_METRICS_TABLE_NAME}
+(
+    `_partition` UInt32,
+    `_topic` String,
+    `max_offset` SimpleAggregateFunction(max, UInt64),
+    `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_lag` SimpleAggregateFunction(max, UInt64)
+)
+ENGINE = {AggregatingMergeTree(METRICS2_KAFKA_METRICS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
+ORDER BY (_topic, _partition)
+SETTINGS
+    index_granularity = 8192
 """
 
 
@@ -441,7 +460,7 @@ def METRICS2_INPUT_TO_RESOURCE_ATTRIBUTES_MV() -> str:
 def METRICS2_INPUT_TO_KAFKA_METRICS_MV() -> str:
     db = _db()
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_kafka_metrics TO {db}.{KAFKA_METRICS_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_kafka_metrics TO {db}.{METRICS2_KAFKA_METRICS_TABLE_NAME}
 AS SELECT
     _partition,
     _topic,

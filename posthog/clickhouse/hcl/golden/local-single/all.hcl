@@ -6331,9 +6331,8 @@ SQL
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_time_bucket"
     settings = {
-      deduplicate_merge_projection_mode = "drop"
-      index_granularity                 = "8192"
-      ttl_only_drop_parts               = "1"
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
     }
     column "team_id" {
       type = "Int32"
@@ -7254,6 +7253,38 @@ SQL
       type = "UInt64"
     }
     engine "null" {
+    }
+  }
+
+  table "metrics2_kafka_metrics" {
+    order_by = ["_topic", "_partition"]
+    settings = {
+      index_granularity = "8192"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics2_kafka_metrics"
+      replica_name = "{replica}-{shard}"
     }
   }
 
@@ -21594,7 +21625,7 @@ SQL
   }
 
   materialized_view "metrics2_input_to_kafka_metrics" {
-    to_table = "posthog.metrics_kafka_metrics"
+    to_table = "posthog.metrics2_kafka_metrics"
     query    = <<SQL
 SELECT
   _partition,

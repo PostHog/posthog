@@ -46,7 +46,7 @@ CREATE TABLE posthog.kafka_metrics_avro2 (
   series_fingerprint Nullable(Int64),
   has_labels Nullable(UInt8),
   retention_days Nullable(Int32)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
+) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_flush_interval_ms = 10000, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_max_block_size = 4096, kafka_num_consumers = 2, kafka_poll_max_batch_size = 4096, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_trace_spans_avro (
   uuid String,
   trace_id String,
@@ -302,7 +302,7 @@ CREATE TABLE posthog.metric_attributes2 (
   INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
   INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metric_attributes2', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metric_attributes2', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metric_attributes_distributed (
   team_id Int32,
   time_bucket DateTime64(0),
@@ -518,6 +518,15 @@ CREATE TABLE posthog.metrics2_input (
   _topic String,
   _offset UInt64
 ) ENGINE = Null();
+CREATE TABLE posthog.metrics2_kafka_metrics (
+  _partition UInt32,
+  _topic String,
+  max_offset SimpleAggregateFunction(max, UInt64),
+  max_observed_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_created_at SimpleAggregateFunction(max, DateTime64(9)),
+  max_lag SimpleAggregateFunction(max, UInt64)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics2_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics_distributed (
   uuid String,
   team_id Int32,
@@ -1155,7 +1164,7 @@ FROM
     GROUP BY
       team_id, time_bucket, service_name, resource_fingerprint, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_kafka_metrics TO posthog.metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_kafka_metrics TO posthog.metrics2_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
   _partition,
   _topic,
   maxSimpleState(_offset) AS max_offset,
