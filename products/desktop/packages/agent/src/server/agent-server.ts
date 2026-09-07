@@ -66,6 +66,7 @@ import {
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
+import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
   type AgentErrorClassification,
   classifyAgentError,
@@ -169,6 +170,17 @@ const errorWithClassificationSchema = z.object({
     // The adapter carries the app-server's own cause here, so the diagnostic
     // path can report it separately from the generic ACP display text.
     result: z.string().optional(),
+    madeProgress: z.boolean().optional(),
+    usage: z
+      .object({
+        inputTokens: z.number(),
+        outputTokens: z.number(),
+        cachedReadTokens: z.number().optional(),
+        cachedWriteTokens: z.number().optional(),
+        thoughtTokens: z.number().optional(),
+        totalTokens: z.number(),
+      })
+      .optional(),
   }),
 });
 
@@ -257,6 +269,16 @@ function hiddenTextBlock(text: string): ContentBlock {
     type: "text",
     text,
     _meta: { ui: { hidden: true } },
+  } as ContentBlock;
+}
+
+function hiddenPromptBlock(block: ContentBlock): ContentBlock {
+  const meta = block._meta as
+    | { ui?: Record<string, unknown>; [key: string]: unknown }
+    | undefined;
+  return {
+    ...block,
+    _meta: { ...meta, ui: { ...meta?.ui, hidden: true } },
   } as ContentBlock;
 }
 
@@ -434,6 +456,7 @@ export class AgentServer {
   private questionRelayedToSlack = false;
   private adapterEmittedTurnComplete = false;
   private suppressAdapterTurnComplete = false;
+  private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
@@ -1441,6 +1464,7 @@ export class AgentServer {
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
+        this.cancelledStartupSessions.add(this.session);
         await this.session.clientConnection.cancel({
           sessionId: this.session.acpSessionId,
         });
@@ -2167,6 +2191,8 @@ export class AgentServer {
     classification: AgentErrorClassification;
     message: string;
     cause: string;
+    madeProgress: boolean;
+    usage?: NonNullable<PromptResponse["usage"]>;
   } {
     const message =
       error instanceof Error ? error.message : String(error ?? "");
@@ -2184,6 +2210,8 @@ export class AgentServer {
         classification: parsed.data.data.classification,
         message,
         cause,
+        madeProgress: parsed.data.data.madeProgress ?? false,
+        usage: parsed.data.data.usage,
       };
     }
 
@@ -2192,6 +2220,7 @@ export class AgentServer {
       classification,
       message,
       cause: sanitizeAgentErrorCause(message, classification),
+      madeProgress: false,
     };
   }
 
@@ -2246,6 +2275,8 @@ export class AgentServer {
     }
     let retries = 0;
     let continueInterruptedTurn = false;
+    let retryUsage: NonNullable<PromptResponse["usage"]> | undefined;
+    this.cancelledStartupSessions.delete(originatingSession);
     for (;;) {
       const session = this.session;
       if (session !== originatingSession) {
@@ -2264,23 +2295,35 @@ export class AgentServer {
               ),
             ],
           }
-        : { ...request, sessionId: session.acpSessionId };
+        : {
+            ...request,
+            sessionId: session.acpSessionId,
+            prompt:
+              retries > 0
+                ? request.prompt.map(hiddenPromptBlock)
+                : request.prompt,
+          };
       try {
-        return await session.clientConnection.prompt(attempt);
+        const response = await session.clientConnection.prompt(attempt);
+        const usage = mergeUsage(retryUsage, response.usage ?? undefined);
+        return { ...response, ...(usage ? { usage } : {}) };
       } catch (error) {
-        const { classification, message } =
+        const { classification, message, madeProgress, usage } =
           this.extractErrorClassification(error);
+        const accumulatedUsage = mergeUsage(retryUsage, usage);
         if (
           !isRetryableUpstreamErrorClassification(classification) ||
           retries >= MAX_UPSTREAM_TURN_RETRIES
         ) {
+          this.recordTurnUsage(accumulatedUsage);
           throw error;
         }
+        retryUsage = accumulatedUsage;
         retries += 1;
         // Only a mid-response stream death guarantees the prompt reached the
         // model; connection/timeout/status failures re-send the original.
         continueInterruptedTurn ||=
-          classification === "upstream_stream_terminated";
+          classification === "upstream_stream_terminated" || madeProgress;
         this.logger.warn(
           "Turn hit a transient upstream failure; retrying after a short delay",
           {
@@ -2293,6 +2336,12 @@ export class AgentServer {
         await new Promise((resolve) =>
           setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
         );
+        if (this.cancelledStartupSessions.has(originatingSession)) {
+          return {
+            stopReason: "cancelled",
+            ...(retryUsage ? { usage: retryUsage } : {}),
+          };
+        }
       }
     }
   }

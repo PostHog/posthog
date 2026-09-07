@@ -1664,15 +1664,22 @@ describe("AgentServer HTTP Mode", () => {
         acpSessionId: "acp-1",
         payload: { run_id: "run-1" },
         logWriter: { appendRawLine: vi.fn(), flush: vi.fn(async () => {}) },
-        clientConnection: { prompt },
+        clientConnection: { prompt, cancel: vi.fn(async () => {}) },
       };
       return testServer as unknown as {
         eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
         session: unknown;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
         promptWithUpstreamRetry(request: {
           sessionId: string;
           prompt: ContentBlock[];
-        }): Promise<{ stopReason: string }>;
+        }): Promise<{
+          stopReason: string;
+          usage?: { inputTokens?: number; outputTokens?: number };
+        }>;
       };
     }
 
@@ -1776,6 +1783,77 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
+    it("stops retrying when the user cancels during the retry delay", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("API Error: Connection error."));
+        const testServer = createRetryTestServer(prompt);
+        const resultPromise = testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        });
+        await Promise.resolve();
+        await testServer.executeCommand("cancel", {});
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        await expect(resultPromise).resolves.toEqual({
+          stopReason: "cancelled",
+        });
+        expect(prompt).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("continues after tool progress and preserves usage across retries", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(
+            new RequestError(-32603, "transient failure", {
+              classification: "upstream_provider_failure",
+              result: "unexpected status 503",
+              madeProgress: true,
+              usage: {
+                inputTokens: 10,
+                outputTokens: 5,
+                totalTokens: 15,
+              },
+            }),
+          )
+          .mockResolvedValueOnce({
+            stopReason: "end_turn",
+            usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+          });
+        const testServer = createRetryTestServer(prompt);
+        const resultPromise = testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        });
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        await expect(resultPromise).resolves.toMatchObject({
+          stopReason: "end_turn",
+          usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
+        });
+        const retryRequest = prompt.mock.calls[1][0] as {
+          prompt: Array<{
+            text: string;
+            _meta?: { ui?: { hidden?: boolean } };
+          }>;
+        };
+        expect(retryRequest.prompt[0].text).toContain(
+          "Continue from where you left off",
+        );
+        expect(retryRequest.prompt[0]._meta?.ui?.hidden).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("re-sends the original prompt when the failure happened before the stream started", async () => {
       vi.useFakeTimers();
       try {
@@ -1801,7 +1879,11 @@ describe("AgentServer HTTP Mode", () => {
         };
         expect(retryRequest.sessionId).toBe("acp-1");
         expect(retryRequest.prompt).toEqual([
-          { type: "text", text: "do the task" },
+          {
+            type: "text",
+            text: "do the task",
+            _meta: { ui: { hidden: true } },
+          },
         ]);
       } finally {
         vi.useRealTimers();

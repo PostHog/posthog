@@ -2759,6 +2759,15 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
+    stub.emit("thread/tokenUsage/updated", {
+      tokenUsage: {
+        total: { inputTokens: 10, outputTokens: 5 },
+        last: { inputTokens: 10, outputTokens: 5 },
+      },
+    });
+    stub.emit("item/completed", {
+      item: { type: "fileChange", id: "edit-1", changes: [] },
+    });
     stub.emit("error", {
       willRetry: false,
       error: { message: "unexpected status 503 Service Unavailable: retry" },
@@ -2777,9 +2786,15 @@ describe("CodexAppServerAgent", () => {
     expect((err as RequestError).message).toBe(
       "The agent stopped before completing this request: unexpected status 503 Service Unavailable: retry",
     );
-    expect((err as RequestError).data).toEqual({
+    expect((err as RequestError).data).toMatchObject({
       classification: "upstream_provider_failure",
       result: "unexpected status 503",
+      madeProgress: true,
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
     });
     expect(
       extNotifications.filter(

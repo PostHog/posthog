@@ -346,6 +346,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private readonly mcp = new McpManager();
   private readonly turns = new TurnController();
   private readonly usage = new UsageTracker();
+  /** True after the current turn completes a tool that can have side effects. */
+  private turnMadeProgress = false;
   /** Pause/clear can race a goal continuation already queued by app-server. */
   private cancelNextGoalTurn = false;
   /** Native goal ticks start outside prompt(), so TurnController does not own them. */
@@ -1188,6 +1190,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.lastAgentMessage = "";
     this.lastTurnError = undefined;
     this.resetUsage();
+    this.turnMadeProgress = false;
     this.planProposal = undefined;
     this.streamedPlanToolCallId = undefined;
     // A new turn owns the idle boundary; its own completion emits the signal.
@@ -1675,6 +1678,19 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
 
     if (method === APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED) {
+      const itemType = (params as { item?: AppServerItem })?.item?.type;
+      if (
+        itemType &&
+        [
+          "commandExecution",
+          "fileChange",
+          "mcpToolCall",
+          "dynamicToolCall",
+          "collabAgentToolCall",
+        ].includes(itemType)
+      ) {
+        this.turnMadeProgress = true;
+      }
       this.captureAgentMessage(params);
       this.capturePlanProposal(params);
     }
@@ -1812,10 +1828,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         // The client displays the full cause. The error data keeps only the
         // fields that can enter wider diagnostic sinks.
         const classification = classifyAgentError(message);
+        const usage = this.usage.perTurnUsage();
         void this.failTurn(
           new RequestError(-32603, describeFatalError(message), {
             classification,
             result: sanitizeAgentErrorCause(message, classification),
+            madeProgress: this.turnMadeProgress,
+            ...(usage ? { usage } : {}),
           }),
           !isRetryableUpstreamErrorClassification(classification),
         );
