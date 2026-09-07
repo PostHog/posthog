@@ -73,6 +73,7 @@ def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, s
         "scanner_id",
         "triggered_by",
         "scanner_snapshot__model",
+        "scanner_snapshot__scanner_version",
     ).get(pk=observation_id)
     posthoganalytics.capture(
         distinct_id=replay_vision_distinct_id(obs["team_id"]),
@@ -88,6 +89,9 @@ def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, s
             "model": obs["scanner_snapshot__model"] or "",
             "triggered_by": obs["triggered_by"],
             "kind": kind,
+            # The version that produced this scan, from the snapshot rather than the live scanner, so a
+            # later edit cannot retro-attribute a failure to the config that replaced it.
+            "scanner_version": obs["scanner_snapshot__scanner_version"],
             "team_id": obs["team_id"],
             "organization_id": str(obs["team__organization_id"]),
         },
@@ -204,6 +208,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "triggered_by",
             "created_at",
             "scanner_snapshot__model",
+            "scanner_snapshot__scanner_version",
         ).get(pk=inputs.observation_id)
         model = obs["scanner_snapshot__model"] or ""
         credits = observation_credits_for_model(model)
@@ -248,6 +253,9 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "model": model,
             "credits": credits,
             "triggered_by": obs["triggered_by"],
+            # Pairs with the same property on the failure events, so a failure rate splits by the
+            # config that produced it and a prompt edit's effect on quality becomes measurable.
+            "scanner_version": obs["scanner_snapshot__scanner_version"],
             "team_id": obs["team_id"],
             "organization_id": str(obs["team__organization_id"]),
         },
