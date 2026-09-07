@@ -126,3 +126,43 @@ def check_materialization_ready(team_id: int, endpoint_name: str, version: int |
     if cached_status is None:
         return _check_and_cache_materialization_status(team_id, endpoint_name, version)
     return cached_status
+
+
+def check_materialized_request(team_id: int, endpoint_name: str, version: int | None, request_data: object) -> bool:
+    """Whether this run request will be served from the targeted version's materialized table.
+
+    The readiness cache answers "can this version serve materialized reads"; the request
+    decides whether it will (``refresh=direct``, variables the table cannot filter on, or a
+    stale materialization all run inline). A body the run action would reject is classified
+    inline, because throttling runs before validation.
+    """
+    from pydantic import ValidationError
+
+    from posthog.schema import EndpointRefreshMode, EndpointRunRequest
+
+    from products.data_modeling.backend.facade.api import saved_query_materialized_at
+    from products.endpoints.backend.logic.execution import can_serve_from_materialized
+    from products.endpoints.backend.models import Endpoint, EndpointVersion
+
+    try:
+        data = EndpointRunRequest.model_validate(request_data)
+    except ValidationError:
+        return False
+    if data.refresh == EndpointRefreshMode.DIRECT:
+        return False
+    if not check_materialization_ready(team_id, endpoint_name, version):
+        return False
+
+    try:
+        endpoint = Endpoint.objects.select_related("team").get(
+            team_id=team_id, name=endpoint_name, is_active=True, deleted=False
+        )
+        endpoint_version = endpoint.get_version(version)
+    except (Endpoint.DoesNotExist, EndpointVersion.DoesNotExist):
+        return False
+
+    saved_query = endpoint_version.saved_query
+    materialized_at = (
+        saved_query_materialized_at(saved_query) if endpoint_version.is_materialized and saved_query else None
+    )
+    return can_serve_from_materialized(endpoint.team, endpoint, endpoint_version, data, materialized_at)

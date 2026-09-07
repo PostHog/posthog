@@ -1,7 +1,7 @@
 """DRF throttles for the endpoints run API.
 
-Materialized endpoints get a higher rate budget than inline ones. Readiness is
-resolved through the facade (cached, with a DB fallback); the throttle classes
+Requests served from a materialized table get a higher rate budget than inline
+ones. That classification is resolved through the facade; the throttle classes
 and their request-parsing helpers are pure HTTP concerns and live here.
 """
 
@@ -15,7 +15,7 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
 )
 
-from products.endpoints.backend.facade.api import is_materialization_ready
+from products.endpoints.backend.facade.api import is_materialized_request
 
 ENDPOINT_RATE_LIMITED_TOTAL = Counter(
     "posthog_endpoint_rate_limited_total",
@@ -46,11 +46,11 @@ def _get_endpoint_info_from_request(request, view) -> tuple[int | None, str | No
 
 
 def _is_materialized_endpoint_request(request, view) -> bool:
-    """Check if this request targets a materialized endpoint version (cached check with lazy loading)."""
+    """Check if this request will be served from a materialized endpoint version."""
     team_id, endpoint_name, version = _get_endpoint_info_from_request(request, view)
     if not team_id or not endpoint_name:
         return False
-    return is_materialization_ready(team_id, endpoint_name, version)
+    return is_materialized_request(team_id, endpoint_name, version, getattr(request, "data", None))
 
 
 class _MaterializedRateMixin(SimpleRateThrottle):

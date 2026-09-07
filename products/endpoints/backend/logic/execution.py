@@ -301,6 +301,50 @@ def _endpoint_refresh_mode_to_refresh_type(
     return RefreshType.FORCE_BLOCKING
 
 
+def can_serve_from_materialized(
+    team: Team,
+    endpoint: Endpoint,
+    version: EndpointVersion,
+    data: EndpointRunRequest,
+    materialized_at: datetime | None,
+) -> bool:
+    """Whether this run request can be served from the version's materialized table.
+
+    Reads materialization state from the DB — the authoritative source. The redis
+    "materialization ready" cache in rate_limit.py only classifies requests for
+    throttling and is intentionally not consulted here.
+
+    Returns False if:
+    - Not materialized
+    - Materialization incomplete/failed
+    - Materialized data is stale (older than the version's data freshness target)
+    - User overrides present (variables, query)
+    - 'direct' mode requested (explicitly bypass materialization)
+    """
+    if not version.is_materialized or not version.saved_query:
+        return False
+
+    if not version.saved_query.table or materialized_at is None:
+        return False
+
+    # Check if materialized data is stale. Keyed on the version's freshness target, not
+    # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
+    if not is_materialization_fresh(materialized_at, version.data_freshness_seconds):
+        return False
+
+    # 'direct' mode explicitly bypasses materialization to run the original query
+    if data.refresh == EndpointRefreshMode.DIRECT:
+        return False
+
+    # Check if variables are valid for materialized execution
+    if data.variables:
+        strategy = strategy_for(endpoint, version, team)
+        if not strategy.can_serve_variables_from_materialized(set(data.variables.keys())):
+            return False
+
+    return True
+
+
 class EndpointExecutionService(PydanticModelMixin):
     """Executes an endpoint version, choosing the best execution path."""
 
@@ -405,42 +449,8 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         materialized_at: datetime | None,
     ) -> bool:
-        """
-        Decide whether to use materialized table or inline execution.
-
-        Reads materialization state from the DB — the authoritative source. (The redis
-        "materialization ready" cache in rate_limit.py only classifies requests for
-        throttling and is intentionally not consulted here.)
-
-        Returns False if:
-        - Not materialized
-        - Materialization incomplete/failed
-        - Materialized data is stale (older than the version's data freshness target)
-        - User overrides present (variables, query)
-        - 'direct' mode requested (explicitly bypass materialization)
-        """
-        if not version.is_materialized or not version.saved_query:
-            return False
-
-        if not version.saved_query.table or materialized_at is None:
-            return False
-
-        # Check if materialized data is stale. Keyed on the version's freshness target, not
-        # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
-        if not is_materialization_fresh(materialized_at, version.data_freshness_seconds):
-            return False
-
-        # 'direct' mode explicitly bypasses materialization to run the original query
-        if data.refresh == EndpointRefreshMode.DIRECT:
-            return False
-
-        # Check if variables are valid for materialized execution
-        if data.variables:
-            strategy = strategy_for(endpoint, version, self.team)
-            if not strategy.can_serve_variables_from_materialized(set(data.variables.keys())):
-                return False
-
-        return True
+        """Decide whether to use materialized table or inline execution."""
+        return can_serve_from_materialized(self.team, endpoint, version, data, materialized_at)
 
     def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         # Flag is scoped to orgs with a duckgres server; the worker re-checks before querying.
