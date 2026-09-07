@@ -4778,7 +4778,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const logic = tileLogic(tileLogicProps)
 
             LemonDialog.openForm({
-                title: 'Override Tile Filters',
+                title: 'Filter this tile',
                 maxWidth: '40rem',
                 initialValues: {},
                 content: (
@@ -4787,7 +4787,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     </BindLogic>
                 ),
                 tertiaryButton: {
-                    children: 'Clear All Overrides',
+                    children: 'Clear tile filters',
                     onClick: () => {
                         logic.actions.resetOverrides()
                     },
