@@ -7537,9 +7537,13 @@ snapshots:
     scenes-app-inbox-scoutsuggestionsstrip--never-generated--light:
         hash: v1.k794b7964.42ff6f1076df4cda1912e9d4da32c776e98c58ec2526dd7f1b3dcc8a2de17cbc.4amW1-ua55bSo0F7aZPgnuOXpTAdbvkhym1WzOkKfFM
     scenes-app-inbox-scoutsuggestionsstrip--nothing-left--dark:
-        hash: v1.k794b7964.4bca4c8d2bf4fdc2ab4010ae1903be8a2244023972129e4190ca6e9c08ec6568.V2__hYR_JWIqKzFZePVc63NdnTF23nDtJLwiqFwgPlU
+        hash: v1.k794b7964.669e760714fe3acda90a90713fd40015a8eda10ee6aae7c7628d6820a18a520f.05GoZkCOgwfyr5N54RAer1SGyJIYQKB8D-7g_Cb5PD8
     scenes-app-inbox-scoutsuggestionsstrip--nothing-left--light:
-        hash: v1.k794b7964.3820117f26fba2e6ed35651118de53657944447a2d4580d6fac343d84128bb5b.87vV-RofQ_1ZA3X_ODe97BVmlKHVhq79Y2LbWuwiZxM
+        hash: v1.k794b7964.6132d08f6269e363d43e27e6908ce8c719099c00bcbf2dadd41516a2c474c85b.fzuFZjcwuJfMmZybduYCmSKdSu8nGl_udgCPRZcZobw
+    scenes-app-inbox-scoutsuggestionsstrip--scanning--dark:
+        hash: v1.k794b7964.e849770feab5d46a037863d74c2ce37deca6fcec3677db1c434cc3406b22f8bc.rSRNUba302jNZkVQo0xYybhP4xAil1vHsS4ohtEJLrE
+    scenes-app-inbox-scoutsuggestionsstrip--scanning--light:
+        hash: v1.k794b7964.d7c88ad16a6054b96d398ffd66af687768fed227ca65d1713474caa80db7d18e.rp4z_jMQ78IkiLAyyOp31jI3Rrh8AdwBVEOLH_2qaAc
     scenes-app-inbox-scoutsuggestionsstrip--single-card--dark:
         hash: v1.k794b7964.4d5c0231716b6cad6a9088686a42b0d1c327d741a184db9d9bf47360d936dbb9.KBYF0nvsalBWo1FkSKwcr56qgjlQM4HzIdidtJhf5to
     scenes-app-inbox-scoutsuggestionsstrip--single-card--light:
