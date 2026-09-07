@@ -677,6 +677,14 @@ export type { SignalReportStatus };
 /** Actionability priority from the researched report (actionability judgment artefact). */
 export type SignalReportPriority = "P0" | "P1" | "P2" | "P3" | "P4";
 
+/** Latest known state of a report's implementation PR. */
+export type SignalReportPrState =
+  | "unknown"
+  | "draft"
+  | "open"
+  | "closed"
+  | "merged";
+
 /** Actionability choice from the researched report. */
 export type SignalReportActionability =
   | "immediately_actionable"
@@ -742,6 +750,8 @@ export interface SignalReport {
    * its old PR must not read as reviewable or continuable.
    */
   implementation_pr_merged?: boolean;
+  /** Latest known state of that PR, per the GitHub webhook. */
+  implementation_pr_state?: SignalReportPrState | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */

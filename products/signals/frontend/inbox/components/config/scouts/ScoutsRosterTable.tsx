@@ -84,6 +84,7 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                             config={row.config}
                             group={row.group}
                             rollup={rollups.get(row.config.skill_name)}
+                            compact={compact}
                         />
                     ),
                 },
