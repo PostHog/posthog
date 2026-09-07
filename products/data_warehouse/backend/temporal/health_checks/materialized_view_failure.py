@@ -23,6 +23,8 @@ class MaterializedViewFailureCheck(HealthCheck):
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "30 7 * * *"
     active_since_days = 30
+    # Payloads carry materialized view names and errors.
+    access_controlled_resource = "warehouse_objects"
     remediation = Remediation(
         human="""
             Open Data modeling (the Data warehouse / data modeling section). Find the failing view, open

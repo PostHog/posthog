@@ -1,5 +1,5 @@
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -43,7 +43,7 @@ from products.tasks.backend.models import Task, TaskRun
 
 
 @pytest.fixture(autouse=True)
-def enable_features():
+def enable_features() -> Iterator[None]:
     with patch("products.signals.backend.temporal.feature_discovery.self_driving_features_enabled", return_value=True):
         yield
 

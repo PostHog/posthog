@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from uuid import UUID, uuid4
 
 import pytest
@@ -35,7 +36,7 @@ from products.tasks.backend.models import Task  # tach-ignore
 
 
 @pytest.fixture(autouse=True)
-def enable_features():
+def enable_features() -> Iterator[None]:
     with patch("products.signals.backend.features.access.posthoganalytics.feature_enabled", return_value=True):
         yield
 
@@ -376,12 +377,12 @@ class TestFeatureAPI(APIBaseTest):
         ).get()
         assert FeatureLifecycle.model_validate_json(lifecycle.content).feature_stage == FeatureStage.MANAGED
 
-    def test_features_are_hidden_when_the_flag_is_disabled(self):
+    def test_features_are_hidden_when_the_flag_is_disabled(self) -> None:
         with patch("products.signals.backend.features.access.posthoganalytics.feature_enabled", return_value=False):
             response = self.client.get(f"/api/projects/{self.team.id}/signals/features/")
         assert response.status_code == 404
 
-    def test_stage_pagination_does_not_hide_live_features_behind_staged_features(self):
+    def test_stage_pagination_does_not_hide_live_features_behind_staged_features(self) -> None:
         staged_ids = []
         for stage in [FeatureStage.STAGED, FeatureStage.STAGED, FeatureStage.MANAGED]:
             report = _make_ready_feature(self.team, self.user)
@@ -405,7 +406,7 @@ class TestFeatureAPI(APIBaseTest):
         assert {row["id"] for page in [first, second] for row in page["results"]} == set(staged_ids)
         assert second["next"] is None
 
-    def test_readiness_blocks_unanswered_questions_and_empty_repository(self):
+    def test_readiness_blocks_unanswered_questions_and_empty_repository(self) -> None:
         report = _make_ready_feature(self.team, self.user)
         question = SignalReportArtefact.add_log(
             team_id=self.team.id,
@@ -432,7 +433,7 @@ class TestFeatureAPI(APIBaseTest):
         assert self.client.get(url).json()["missing"] == ["repository selection"]
 
     @patch("products.tasks.backend.facade.api.create_and_run_task")
-    def test_batch_promotions_get_distinct_owner_scouts(self, mock_create):
+    def test_batch_promotions_get_distinct_owner_scouts(self, mock_create: MagicMock) -> None:
         reports = [
             _make_ready_feature(self.team, self.user, UUID(f"01991688-1234-7000-8000-{index:012d}"))
             for index in range(2)
@@ -447,7 +448,7 @@ class TestFeatureAPI(APIBaseTest):
             assert str(report.id) in LLMSkill.objects.get(team=self.team, name=name, is_latest=True).body
 
     @patch("products.signals.backend.features.views.start_feature_discovery")
-    def test_scoped_oauth_can_read_custom_actions_and_start_discovery(self, mock_start):
+    def test_scoped_oauth_can_read_custom_actions_and_start_discovery(self, mock_start: MagicMock) -> None:
         authenticate_as_sandbox_token(self)
         mock_start.return_value = CreatedFeatureDiscovery(run_id=str(uuid4()))
         response = self.client.get(f"/api/projects/{self.team.id}/signals/features/discovery_runs/")
@@ -460,7 +461,9 @@ class TestFeatureAPI(APIBaseTest):
 
     @patch("products.signals.backend.auto_start.resolve_agent_runtime")
     @patch("products.tasks.backend.facade.api.create_and_run_task")
-    def test_generic_report_autostart_cannot_bypass_feature_readiness(self, mock_create, mock_runtime):
+    def test_generic_report_autostart_cannot_bypass_feature_readiness(
+        self, mock_create: MagicMock, mock_runtime: MagicMock
+    ) -> None:
         report = _make_ready_feature(self.team, self.user)
         SignalReportArtefact.append_status(
             team_id=self.team.id,
@@ -482,7 +485,7 @@ class TestFeatureAPI(APIBaseTest):
         mock_create.assert_not_called()
 
     @patch("products.tasks.backend.facade.api.create_and_run_task")
-    def test_implementation_task_rolls_back_when_recording_its_association_fails(self, mock_create):
+    def test_implementation_task_rolls_back_when_recording_its_association_fails(self, mock_create: MagicMock) -> None:
         report = _make_ready_feature(self.team, self.user)
         SignalReportArtefact.append_status(
             team_id=self.team.id,
@@ -497,6 +500,8 @@ class TestFeatureAPI(APIBaseTest):
             "products.signals.backend.task_run_artefacts.record_implementation_task",
             side_effect=RuntimeError("Association unavailable"),
         ):
-            response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/start_implementation/")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/features/{report.id}/start_implementation/"
+            )
             assert response.status_code == 500
         assert Task.objects.filter(team=self.team).count() == task_count
