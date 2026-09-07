@@ -56,7 +56,7 @@ describe('HttpImageFetcher', () => {
     })
     afterEach(() => jest.restoreAllMocks())
 
-    it('negotiates HTTP/2 so one TLS session serves every request to an origin', async () => {
+    it('opts every image request into HTTP/2', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
 
         await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
