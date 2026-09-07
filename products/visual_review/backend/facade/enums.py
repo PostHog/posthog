@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from django.db import models
+
 
 class RunStatus(StrEnum):
     """Status of a visual review run."""
@@ -89,6 +91,17 @@ class ChangeKind(StrEnum):
     # vertically. The content in the rows that exist in both images is within
     # both thresholds; what changed is where things sit.
     LAYOUT = "layout"
+
+
+class ShiftBandKind(models.TextChoices):
+    """Whether a shift band marks rows the current image gained or lost.
+
+    A TextChoices class so the OpenAPI component is named after it and does
+    not collide with the other `kind` fields across products.
+    """
+
+    INSERTED = "inserted"
+    DELETED = "deleted"
 
 
 class FlakinessState(StrEnum):

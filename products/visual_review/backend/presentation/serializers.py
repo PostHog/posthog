@@ -47,7 +47,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState
+from ..facade.enums import FlakinessState, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -89,12 +89,13 @@ class ClusterSummarySerializer(DataclassSerializer):
 class ShiftBandSerializer(DataclassSerializer):
     y = serializers.IntegerField(help_text="First row of the band, in current-image coordinates.")
     rows = serializers.IntegerField(help_text="How many rows the band covers.")
-    kind = serializers.CharField(
+    kind = serializers.ChoiceField(
+        choices=ShiftBandKind.choices,
         help_text=(
             "'inserted' when the current image gained these rows, 'deleted' when it lost them. "
             "A deleted band has no rows of its own in the current image, so its y is the seam "
             "the removed rows left behind."
-        )
+        ),
     )
 
     class Meta:

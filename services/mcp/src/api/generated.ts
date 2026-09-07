@@ -58372,13 +58372,28 @@ export namespace Schemas {
       results: SignalSourceConfig[];
     }
 
+    /**
+     * * `inserted` - Inserted
+     * * `deleted` - Deleted
+     */
+    export type ShiftBandKindEnum = typeof ShiftBandKindEnum[keyof typeof ShiftBandKindEnum];
+
+
+    export const ShiftBandKindEnum = {
+      Inserted: 'inserted',
+      Deleted: 'deleted',
+    } as const;
+
     export interface ShiftBand {
       /** First row of the band, in current-image coordinates. */
       y: number;
       /** How many rows the band covers. */
       rows: number;
-      /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind. */
-      kind: string;
+      /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
+       *
+       * * `inserted` - Inserted
+       * * `deleted` - Deleted */
+      kind: ShiftBandKindEnum;
     }
 
     export interface RowShift {

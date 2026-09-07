@@ -20,6 +20,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from .enums import ShiftBandKind
+
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
 # 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
@@ -228,7 +230,7 @@ class ShiftBand:
 
     y: int
     rows: int
-    kind: str  # "inserted" or "deleted"
+    kind: ShiftBandKind
 
 
 @dataclass(frozen=True)

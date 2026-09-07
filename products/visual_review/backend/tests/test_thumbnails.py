@@ -1,4 +1,5 @@
 import io
+from dataclasses import replace
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -126,9 +127,7 @@ class TestStoreThumbnail:
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
 
-        result = _make_compare_result()
-        result.thumbnail = None
-        result.thumbnail_hash = ""
+        result = replace(_make_compare_result(), thumbnail=None, thumbnail_hash="")
 
         _store_thumbnail(snapshot, result)
 

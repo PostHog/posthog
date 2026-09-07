@@ -13,6 +13,8 @@ API contracts) because this is internal storage shape, not a public DTO.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -54,7 +56,7 @@ class ShiftBand(BaseModel):
 
     y: int = Field(ge=0, description="First row of the band, in current-image coordinates")
     rows: int = Field(ge=0, description="How many rows the band covers")
-    kind: str = Field(description='"inserted" or "deleted"')
+    kind: Literal["inserted", "deleted"]
 
 
 class RowShift(BaseModel):

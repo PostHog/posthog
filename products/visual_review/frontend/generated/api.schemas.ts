@@ -361,13 +361,27 @@ export interface ArtifactApi {
     download_url: string | null
 }
 
+/**
+ * * `inserted` - Inserted
+ * * `deleted` - Deleted
+ */
+export type ShiftBandKindEnumApi = (typeof ShiftBandKindEnumApi)[keyof typeof ShiftBandKindEnumApi]
+
+export const ShiftBandKindEnumApi = {
+    Inserted: 'inserted',
+    Deleted: 'deleted',
+} as const
+
 export interface ShiftBandApi {
     /** First row of the band, in current-image coordinates. */
     y: number
     /** How many rows the band covers. */
     rows: number
-    /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind. */
-    kind: string
+    /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
+     *
+     * * `inserted` - Inserted
+     * * `deleted` - Deleted */
+    kind: ShiftBandKindEnumApi
 }
 
 export interface RowShiftApi {

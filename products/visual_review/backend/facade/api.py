@@ -21,6 +21,7 @@ from uuid import UUID
 
 from django.contrib.auth import get_user_model
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
 
@@ -131,17 +132,19 @@ def _to_row_shift(parsed: StoredRowShift | None) -> contracts.RowShift | None:
     )
 
 
-def _parse_diff_metadata(
-    diff_metadata_raw: dict | None,
-) -> tuple[contracts.ClusterSummary | None, bool, contracts.RowShift | None]:
-    """Translate the compact storage shape into the verbose wire shape.
+@frozen
+class _ParsedDiffMetadata:
+    # cluster_summary and row_shift are None for legacy rows and identical-pair
+    # rows; size_mismatch is False wherever it was not explicitly recorded.
+    cluster_summary: contracts.ClusterSummary | None = None
+    size_mismatch: bool = False
+    row_shift: contracts.RowShift | None = None
 
-    Returns `(cluster_summary, size_mismatch, row_shift)`. The cluster_summary
-    and row_shift sides are None for legacy rows and identical-pair rows;
-    size_mismatch defaults to False everywhere it isn't explicitly recorded.
-    """
+
+def _parse_diff_metadata(diff_metadata_raw: dict | None) -> _ParsedDiffMetadata:
+    """Translate the compact storage shape into the verbose wire shape."""
     if not diff_metadata_raw:
-        return None, False, None
+        return _ParsedDiffMetadata()
     parsed = DiffMetadata.model_validate(diff_metadata_raw)
     cluster_summary: contracts.ClusterSummary | None = None
     if parsed.cluster_summary is not None:
@@ -162,14 +165,18 @@ def _parse_diff_metadata(
             total=cs.total,
             truncated=cs.truncated,
         )
-    return cluster_summary, parsed.size_mismatch, _to_row_shift(parsed.row_shift)
+    return _ParsedDiffMetadata(
+        cluster_summary=cluster_summary,
+        size_mismatch=parsed.size_mismatch,
+        row_shift=_to_row_shift(parsed.row_shift),
+    )
 
 
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
-    cluster_summary, size_mismatch, row_shift = _parse_diff_metadata(snapshot.diff_metadata)
+    diff_meta = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         run_id=snapshot.run_id,
@@ -190,9 +197,9 @@ def _to_snapshot(
         metadata=snapshot.metadata or {},
         ssim_score=snapshot.ssim_score,
         change_kind=snapshot.change_kind or "",
-        cluster_summary=cluster_summary,
-        size_mismatch=size_mismatch,
-        row_shift=row_shift,
+        cluster_summary=diff_meta.cluster_summary,
+        size_mismatch=diff_meta.size_mismatch,
+        row_shift=diff_meta.row_shift,
     )
 
 
