@@ -45,6 +45,14 @@ OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
 BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
 BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
+BILLING_ACCESS_DENIED_MESSAGE = (
+    "Your PostHog user does not have billing access for this organization. "
+    "Ask someone with billing access to run this or update your role."
+)
+BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE = (
+    "Your PostHog user does not have access to billing usage and spend for this organization. "
+    "Ask someone with billing access to run this or update your role."
+)
 
 
 def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
@@ -172,7 +180,7 @@ class HasBillingAccess(permissions.BasePermission):
     Permission to allow users with Billing access to access Billing endpoints.
     """
 
-    message = "You do not have access to Billing for this organization."
+    message = BILLING_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
         try:
@@ -193,7 +201,7 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
     input here or in the billing service.
     """
 
-    message = "You do not have access to billing usage and spend data for this organization."
+    message = BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
         try:
@@ -424,7 +432,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         org = self._get_org()
         if is_token_auth_request(request):
             if not org or not isinstance(request.user, User) or not user_has_billing_access(request.user, org):
-                raise PermissionDenied("You do not have access to Billing for this organization.")
+                raise PermissionDenied(BILLING_ACCESS_DENIED_MESSAGE)
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
