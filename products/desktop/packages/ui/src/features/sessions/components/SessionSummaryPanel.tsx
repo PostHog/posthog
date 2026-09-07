@@ -4,6 +4,7 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import {
   SessionSummaryPanelView,
   type SessionSummaryState,
@@ -20,16 +21,22 @@ interface SessionSummaryPanelProps {
   taskId: string;
   /** The task's current run. A summary written for a prior run is hidden. */
   taskRunId?: string;
+  compact?: boolean;
 }
 
 /**
  * The carry-over summary, pinned above the composer that started it. The
  * summary lives only in view state, so this panel both shows it and removes
  * it. Nothing here blocks the conversation underneath.
+ *
+ * A person asks for a summary when the session is in trouble, so the dock sits
+ * outside the composer and survives the states that replace it: a disconnected
+ * session, a pending permission, and the error overlay.
  */
 export function SessionSummaryPanel({
   taskId,
   taskRunId,
+  compact = false,
 }: SessionSummaryPanelProps) {
   const entry = useSideQuestionStore((s) => s.byTaskId[taskId]);
   const dismiss = useSideQuestionStore((s) => s.dismiss);
@@ -65,17 +72,30 @@ export function SessionSummaryPanel({
   };
 
   return (
-    <SessionSummaryPanelView
-      title={entry.label ?? SESSION_SUMMARY_LABEL}
-      state={state}
-      onCopy={() => void copySummary()}
-      onRetry={() =>
-        startSessionSummary(sessionService, taskId, entry.taskRunId, "retry")
-      }
-      onDismiss={() => {
-        report(entry.status === "pending" ? "stopped_waiting" : "dismissed");
-        dismiss(taskId);
-      }}
-    />
+    // The error overlay is a later, positioned sibling, so without a stacking
+    // context of its own the dock would paint underneath it.
+    <div className="relative z-10 shrink-0">
+      <ComposerWidth compact={compact}>
+        <SessionSummaryPanelView
+          title={entry.label ?? SESSION_SUMMARY_LABEL}
+          state={state}
+          onCopy={() => void copySummary()}
+          onRetry={() =>
+            startSessionSummary(
+              sessionService,
+              taskId,
+              entry.taskRunId,
+              "retry",
+            )
+          }
+          onDismiss={() => {
+            report(
+              entry.status === "pending" ? "stopped_waiting" : "dismissed",
+            );
+            dismiss(taskId);
+          }}
+        />
+      </ComposerWidth>
+    </div>
   );
 }

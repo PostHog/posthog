@@ -739,6 +739,14 @@ export function SessionView({
 
                 {threadActions}
 
+                {taskId && !hideInput && (
+                  <SessionSummaryPanel
+                    taskId={taskId}
+                    taskRunId={activeTaskRunId}
+                    compact={compact}
+                  />
+                )}
+
                 {hasError && !showInlineBanner ? (
                   <Flex
                     align="center"
@@ -817,12 +825,6 @@ export function SessionView({
                       }`}
                     >
                       <ComposerWidth compact={compact}>
-                        {taskId && (
-                          <SessionSummaryPanel
-                            taskId={taskId}
-                            taskRunId={activeTaskRunId}
-                          />
-                        )}
                         {taskId && (
                           <SideQuestionCard
                             taskId={taskId}

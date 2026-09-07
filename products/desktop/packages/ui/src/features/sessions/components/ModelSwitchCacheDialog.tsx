@@ -92,7 +92,8 @@ function OpenModelSwitchCacheDialog({
           <AlertDialogTitle>Switch model mid-session?</AlertDialogTitle>
           <AlertDialogDescription>
             Cached context does not carry between models. Switching now resends
-            the full conversation to the new model.
+            the full conversation to the new model. The session keeps running,
+            so switching does not restore access the agent lost.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <DialogBody viewportClassName="flex flex-col gap-3.5 px-4 pb-4">
