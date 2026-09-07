@@ -35,9 +35,6 @@ _dns_resolution_executor = ThreadPoolExecutor(
 )
 _dns_resolution_capacity = BoundedSemaphore(DNS_RESOLUTION_MAX_WORKERS)
 
-# Schemes that should never be allowed for external URLs
-DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"}
-
 # Cloud metadata service hosts that should be blocked to prevent SSRF
 METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 
@@ -168,34 +165,30 @@ def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
 
 
 def _is_internal_ip_literal(host: str) -> bool:
-    """True when the host is written as an IP address we must not reach, so DNS is not needed.
-
-    Parses the address rather than matching text prefixes. A prefix match misses the whole of
-    127.0.0.0/8 except 127.0.0.1, and every long form of an IPv6 address, and it blocks an
-    ordinary name such as 10.example.com because the text happens to start with "10.".
-    """
+    """True when the host is written as an IP address we must not reach, so DNS is not needed."""
     ip = _parse_ip_literal(host)
     return ip is not None and _is_internal_ip(ip)
 
 
-# Labels joined by dots, with an optional root dot. Underscores are not valid in a hostname
-# under RFC 1123, but they resolve in practice, so the pattern keeps them: the job here is to
-# reject the parts of a URL, not to enforce the RFC.
+# Labels joined by dots, with an optional root dot. The character class is ASCII on purpose,
+# because _host_shape_error converts an internationalized name to its punycode form before it
+# matches here. Underscores are not valid in a hostname under RFC 1123, but they resolve in
+# practice, so the pattern keeps them: the job here is to reject the parts of a URL, not to
+# enforce the RFC.
 _HOSTNAME_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
-_BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?", re.ASCII)
+_BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?")
 _MAX_HOSTNAME_LENGTH = 253
+
+
+def _matches_hostname_pattern(host: str) -> bool:
+    return len(host) <= _MAX_HOSTNAME_LENGTH and _BARE_HOSTNAME.fullmatch(host) is not None
 
 
 def _canonicalize_host(host: str) -> str:
     """The one form every host check runs on.
 
-    Case and the DNS root dot do not change which server a client reaches, so they are
-    normalized once and each check below sees a single form. The root dot has to go, because
-    an absolute FQDN carries it ("db.corp.") and the block list matches exactly or by suffix,
-    so both would otherwise miss it.
-
-    Nothing else is repaired: a host is validated and then stored and connected to by the
-    caller, so whitespace or the parts of a URL have to be rejected rather than cleaned up.
+    We strip any trailing "." because an absolute FQDN carries the DNS root dot ("db.corp.").
+    The block list matches exactly or by suffix, so it would otherwise miss that form.
     """
     return host.lower().rstrip(".")
 
@@ -214,7 +207,17 @@ def _host_shape_error(host: str) -> str | None:
         return "Host is empty"
     if _parse_ip_literal(host) is not None:
         return None
-    if len(host) > _MAX_HOSTNAME_LENGTH or not _BARE_HOSTNAME.fullmatch(host):
+    if _matches_hostname_pattern(host):
+        return None
+
+    # An internationalized name is a hostname, and the pattern is ASCII, so judge its punycode
+    # form. A connection string does not slip through: the codec returns it unchanged, and the
+    # pattern rejects it either way.
+    try:
+        encoded = host.encode("idna").decode("ascii")
+    except ValueError:
+        return "Host must be a hostname or IP address"
+    if not _matches_hostname_pattern(encoded):
         return "Host must be a hostname or IP address"
     return None
 
@@ -227,8 +230,10 @@ def _url_shape_error(raw_url: str) -> str | None:
         parsed = urlparse.urlparse(raw_url)
     except Exception:
         return "Invalid URL"
-    if parsed.scheme not in {"http", "https"} or parsed.scheme in DISALLOWED_SCHEMES:
-        return f"Disallowed scheme: {parsed.scheme}"
+    # The scheme stays out of the message. It is caller-supplied text, and it is empty for
+    # anything urlparse does not read as a URL, which produced a reason ending in a colon.
+    if parsed.scheme not in {"http", "https"}:
+        return "URL must start with http:// or https://"
     if not parsed.netloc:
         return "Missing host"
     return None
