@@ -229,12 +229,10 @@ async def test_duplicate_start_preserves_original_block_type() -> None:
 
 
 async def test_glm_reasoning_never_reaches_a_visible_text_block() -> None:
-    # A GLM chunk can carry the next reasoning token alongside visible text. The bridge
-    # reads the block type from `content` but the delta type from `reasoning_content`, so
-    # it opens a text block and then streams the reasoning into it.
     chunks = [
         _chunk(reasoning_content="weigh the options"),
         _chunk(content="Here is the answer"),
+        # GLM can carry the next reasoning token alongside visible text.
         _chunk(content=" and more", reasoning_content="second thought"),
         _chunk(content=" done"),
         _chunk(finish_reason="stop"),
