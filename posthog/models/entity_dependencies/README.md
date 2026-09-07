@@ -39,9 +39,21 @@ register_source(HogFlowDependencySource())
 
 `role` is a source-defined label for where the reference sits. `path` locates the reference inside the source and is part of a row's identity, so two occurrences of the same target in the same role are both kept.
 
+## Backfilling a source
+
+Registration only covers saves from that point on. Populate rows for existing instances once, then verify:
+
+```sh
+python manage.py backfill_entity_dependencies --source-type hog_flow            # dry run: reports adds/removes
+python manage.py backfill_entity_dependencies --source-type hog_flow --live-run
+python manage.py backfill_entity_dependencies --source-type hog_flow            # must now report 0 added, 0 removed
+```
+
+The command walks `DependencySource.get_queryset()` (every instance across teams, `--team-id` to narrow) and runs the same diff as the save signal, so it is idempotent and doubles as the repair tool. It writes only dependency rows and never saves the source, so it fires no source signals. It is a management command rather than a `RunPython` migration on purpose, following `docs/published/handbook/engineering/safe-django-migrations.md`.
+
 ## Write paths that skip `save()`
 
-`.update()`, `bulk_update`, and raw SQL fire no signals. A write path that changes reference-bearing fields this way must call `sync_instance_dependencies(instance)` itself. Audit a source's write paths when you register it; a source with an unaudited bypass drifts silently.
+`.update()`, `bulk_update`, and raw SQL fire no signals. A write path that changes reference-bearing fields this way must call `sync_instance_dependencies(instance)` itself. Audit a source's write paths when you register it; a source with an unaudited bypass drifts silently until the next backfill run.
 
 A sync that fails inside a signal receiver is logged, reported to error tracking, and counted in `entity_dependency_sync_failures_total`, but it does not block the product write. In tests it raises, so an extraction bug fails the product's own test suite instead of hiding.
 

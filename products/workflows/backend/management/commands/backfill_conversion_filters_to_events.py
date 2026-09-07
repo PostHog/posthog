@@ -1,5 +1,7 @@
 from django.core.management.base import BaseCommand
 
+from posthog.models.entity_dependencies.registry import sync_instance_dependencies
+
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -52,8 +54,11 @@ class Command(BaseCommand):
                 f"team_id={flow.team_id} status={flow.status}"
             )
             if live_run:
-                # .update() avoids bumping updated_at / firing save signals for a backfill.
+                # .update() avoids bumping updated_at / firing save signals for a backfill, so the
+                # dependency rows that the save signal would have refreshed are synced explicitly.
                 HogFlow.objects.filter(pk=flow.pk).update(conversion=new_conversion)
+                flow.conversion = new_conversion
+                sync_instance_dependencies(flow)
             relocated += 1
 
         verb = "relocated" if live_run else "to relocate"

@@ -1,6 +1,8 @@
+import uuid
 from collections.abc import Iterable
 
 from django.db import connection, transaction
+from django.db.models import QuerySet
 
 from posthog.models.entity_dependencies.models import EntityDependency
 from posthog.models.entity_dependencies.types import Reference, SyncResult
@@ -21,7 +23,7 @@ def sync_dependencies(*, team_id: int, source_type: str, source_id: str, referen
     with transaction.atomic():
         _lock_source(source_type, source_id)
         scoped = EntityDependency.objects.for_team(team_id, canonical=True)
-        stored = {_to_reference(row): row.id for row in scoped.filter(source_type=source_type, source_id=source_id)}
+        stored = _stored_references(scoped, source_type, source_id)
 
         to_add = desired - stored.keys()
         to_remove = [row_id for reference, row_id in stored.items() if reference not in desired]
@@ -48,6 +50,15 @@ def sync_dependencies(*, team_id: int, source_type: str, source_id: str, referen
     return SyncResult(added=len(to_add), removed=len(to_remove))
 
 
+def plan_sync(*, team_id: int, source_type: str, source_id: str, references: Iterable[Reference]) -> SyncResult:
+    """Report what `sync_dependencies` would change for this input, without writing anything."""
+    team_id = resolve_effective_team_id(team_id)
+    desired = set(references)
+    scoped = EntityDependency.objects.for_team(team_id, canonical=True)
+    stored = _stored_references(scoped, source_type, source_id)
+    return SyncResult(added=len(desired - stored.keys()), removed=len(stored.keys() - desired))
+
+
 def remove_dependencies(*, team_id: int, source_type: str, source_id: str) -> int:
     with transaction.atomic():
         _lock_source(source_type, source_id)
@@ -63,6 +74,12 @@ def _lock_source(source_type: str, source_id: str) -> None:
     # above safe against a concurrent sync of the same source.
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"entity_dependency:{source_type}:{source_id}"])
+
+
+def _stored_references(
+    scoped: QuerySet[EntityDependency], source_type: str, source_id: str
+) -> dict[Reference, uuid.UUID]:
+    return {_to_reference(row): row.id for row in scoped.filter(source_type=source_type, source_id=source_id)}
 
 
 def _to_reference(row: EntityDependency) -> Reference:
