@@ -43,6 +43,7 @@ describe('secure HTTP/2 requests', () => {
     let http2SessionCount = 0
     const http2OriginProtocols: string[] = []
     const http1OriginProtocols: string[] = []
+    let http1ConnectionCount = 0
     const proxyAuthorities: string[] = []
     const openSockets = new Set<net.Socket>()
     const openHttp2Sessions = new Set<http2.ServerHttp2Session>()
@@ -90,6 +91,9 @@ describe('secure HTTP/2 requests', () => {
                 response.end(request.url)
             }
         )
+        http1Origin.on('connection', () => {
+            http1ConnectionCount += 1
+        })
         await listen(http1Origin)
 
         connectProxy = http.createServer()
@@ -129,7 +133,7 @@ describe('secure HTTP/2 requests', () => {
                 )) as typeof tls.connect)
         process.env.HTTPS_PROXY = `http://127.0.0.1:${serverPort(connectProxy)}`
         process.env.EXTERNAL_REQUEST_CONNECTIONS = '2'
-        process.env.EXTERNAL_REQUEST_H2_CONNECTIONS = '1'
+        process.env.EXTERNAL_REQUEST_H2_CONNECTIONS = '4'
         process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = String(keepAliveTimeoutMs)
         delete process.env.HTTP_PROXY
         delete process.env.https_proxy
@@ -140,6 +144,7 @@ describe('secure HTTP/2 requests', () => {
         http2SessionCount = 0
         http2OriginProtocols.length = 0
         http1OriginProtocols.length = 0
+        http1ConnectionCount = 0
         proxyAuthorities.length = 0
         jest.resetModules()
         requestModule = require('./request') as RequestModule
@@ -243,7 +248,48 @@ describe('secure HTTP/2 requests', () => {
         )
 
         expect(bodies).toEqual(paths)
+        // The pool cap is 4, so only the cold-start gate can hold six requests on one session.
         expect(http2SessionCount).toBe(1)
+    }, 10000)
+
+    it('still fans a burst out to an origin that negotiates HTTP/1.1', async () => {
+        const http1Url = `https://origin.test:${serverPort(http1Origin)}`
+        const paths = ['/h1-burst-a', '/h1-burst-b', '/h1-burst-c']
+
+        const bodies = await Promise.all(
+            paths.map(async (path) => {
+                const response = await requestModule.fetchStreamed(`${http1Url}${path}`, {
+                    allowH2: true,
+                    timeoutMs: 2000,
+                })
+                return (await response.read(100)).bytes.toString()
+            })
+        )
+
+        expect(bodies).toEqual(paths)
+        expect(http1OriginProtocols).toEqual(['1.1', '1.1', '1.1'])
+        // The probe finds HTTP/1.1, so the released requests open their own connections instead of queueing.
+        expect(http1ConnectionCount).toBeGreaterThanOrEqual(2)
+    }, 10000)
+
+    it('releases a held burst when the probe request fails', async () => {
+        const closedPort = await new Promise<number>((resolve) => {
+            const probe = net.createServer()
+            probe.listen(0, '127.0.0.1', () => {
+                const port = (probe.address() as AddressInfo).port
+                probe.close(() => resolve(port))
+            })
+        })
+        const deadUrl = `https://origin.test:${closedPort}`
+
+        const results = await Promise.allSettled(
+            ['/a', '/b', '/c'].map((path) =>
+                requestModule.fetchStreamed(`${deadUrl}${path}`, { allowH2: true, timeoutMs: 2000 })
+            )
+        )
+
+        // Held requests must not wait for their own timeout, which only starts once they are released.
+        expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected', 'rejected'])
     }, 10000)
 
     it('opens a new session after the origin sends GOAWAY', async () => {

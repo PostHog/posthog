@@ -215,11 +215,10 @@ export type CommonConfig = BaseServerConfig & {
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
-    // The number of connections the HTTP/2 dispatchers open per origin. One HTTP/2 session carries many requests, but
-    // undici treats a client as busy until its session negotiates. A burst to a cold origin therefore opens one
-    // session per request, up to this cap. Keep the cap above the largest per-origin concurrency a caller runs. The
-    // image fetch lane allows 6 per registrable domain. An origin that negotiates HTTP/1.1 gets one request per
-    // connection and queues the rest against the request timeout.
+    // The number of connections the HTTP/2 dispatchers open per origin. The request helper holds a burst to a cold
+    // origin behind one probe request, so this cap only bounds an origin that negotiates HTTP/1.1 and the spill past
+    // an HTTP/2 origin's stream limit. Keep it above the largest per-origin concurrency a caller runs. The image fetch
+    // lane allows 6 per registrable domain.
     EXTERNAL_REQUEST_H2_CONNECTIONS: number
 
     // PostHog analytics
