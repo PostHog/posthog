@@ -191,6 +191,13 @@ class HoglandSandbox(AgentServerLaunchMixin):
     _box: Hogbox
     _sandbox_url: str | None
 
+    # hogland boxes boot with the `bedrock` feature, which puts the Claude CLI in
+    # direct-Bedrock mode. Unset those vars at agent launch so the CLI routes
+    # through the PostHog LLM gateway instead — avoids AWS Bedrock Marketplace
+    # model-access and SigV4 header-signing issues, and keeps gateway-based AI
+    # observability attribution (matching the Modal backend).
+    disable_direct_bedrock = True
+
     def __init__(self, box: Hogbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = box.id
         self.config = config

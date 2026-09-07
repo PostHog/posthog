@@ -3,6 +3,8 @@ use std::time::Duration;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
+use crate::counters::CounterConfig;
+
 /// WarpStream's recommended librdkafka producer settings.
 /// <https://docs.warpstream.com/warpstream/kafka/configure-kafka-client/tuning-for-performance>
 const BATCH_SIZE: u32 = 16_000_000;
@@ -36,6 +38,17 @@ pub struct Config {
     pub kafka_producer_linger_ms: u32,
     #[envconfig(from = "USAGE_INGESTION_MAX_BATCH_SIZE", default = "500")]
     pub max_batch_size: usize,
+    /// Empty keeps the Redis projection disabled, which is the safe default for existing deployments.
+    #[envconfig(from = "USAGE_INGESTION_REDIS_URL", default = "")]
+    pub redis_url: String,
+    #[envconfig(from = "USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS", default = "15")]
+    pub redis_flush_interval_seconds: u64,
+    #[envconfig(from = "USAGE_INGESTION_REDIS_CONNECTIONS", default = "16")]
+    pub redis_connections: usize,
+    #[envconfig(from = "USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY", default = "16")]
+    pub redis_flush_concurrency: usize,
+    #[envconfig(from = "USAGE_INGESTION_REDIS_MAX_SERIES_PER_BUCKET", default = "16")]
+    pub redis_max_series_per_bucket: usize,
     // Overridable so a test environment can use the suffixed topic its Kafka engine table reads.
     #[envconfig(
         from = "USAGE_INGESTION_TOPIC",
@@ -56,6 +69,20 @@ impl Config {
         if self.max_batch_size == 0 || self.max_batch_size > 5_000 {
             return Err("USAGE_INGESTION_MAX_BATCH_SIZE must be between 1 and 5000".to_string());
         }
+        if self.redis_flush_interval_seconds == 0 {
+            return Err(
+                "USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS must be positive".to_string(),
+            );
+        }
+        if self.redis_connections == 0 {
+            return Err("USAGE_INGESTION_REDIS_CONNECTIONS must be positive".to_string());
+        }
+        if self.redis_flush_concurrency == 0 {
+            return Err("USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY must be positive".to_string());
+        }
+        if self.redis_max_series_per_bucket == 0 {
+            return Err("USAGE_INGESTION_REDIS_MAX_SERIES_PER_BUCKET must be positive".to_string());
+        }
         // A few seconds would make every producer spend its time reconnecting.
         if self.grpc_max_connection_age_secs > 0 && self.grpc_max_connection_age_secs < 10 {
             return Err(
@@ -63,6 +90,14 @@ impl Config {
             );
         }
         Ok(())
+    }
+
+    pub fn redis_counter_config(&self) -> CounterConfig {
+        CounterConfig {
+            connections: self.redis_connections,
+            flush_concurrency: self.redis_flush_concurrency,
+            max_series_per_bucket: self.redis_max_series_per_bucket,
+        }
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {
@@ -112,6 +147,11 @@ mod tests {
             kafka_compression_codec: "lz4".to_string(),
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
+            redis_url: String::new(),
+            redis_flush_interval_seconds: 15,
+            redis_connections: 16,
+            redis_flush_concurrency: 16,
+            redis_max_series_per_bucket: 16,
             topic: "clickhouse_billing_usage_records".to_string(),
             grpc_max_connection_age_secs: 60,
         }
@@ -155,5 +195,34 @@ mod tests {
 
         assert_eq!(kafka.kafka_compression_codec, "none");
         assert_eq!(kafka.kafka_producer_linger_ms, 5);
+    }
+
+    #[test]
+    fn redis_counter_configuration_requires_positive_values() {
+        for (config, expected) in [
+            (
+                Config {
+                    redis_connections: 0,
+                    ..config()
+                },
+                "USAGE_INGESTION_REDIS_CONNECTIONS must be positive",
+            ),
+            (
+                Config {
+                    redis_flush_concurrency: 0,
+                    ..config()
+                },
+                "USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY must be positive",
+            ),
+            (
+                Config {
+                    redis_max_series_per_bucket: 0,
+                    ..config()
+                },
+                "USAGE_INGESTION_REDIS_MAX_SERIES_PER_BUCKET must be positive",
+            ),
+        ] {
+            assert_eq!(config.validate(), Err(expected.to_string()));
+        }
     }
 }

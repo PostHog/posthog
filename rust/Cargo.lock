@@ -8999,7 +8999,6 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9035,7 +9034,6 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -13889,11 +13887,13 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "envconfig",
+ "futures",
  "health",
  "metrics",
  "metrics-exporter-prometheus",
  "moka",
  "rdkafka",
+ "redis",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

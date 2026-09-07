@@ -6652,10 +6652,21 @@ export class SessionService {
         existing?.taskRunId === taskRunId ? existing.adapter : persistedAdapter,
       );
       this.d.store.setSession(session);
-      // Optimistic seeding for the initial task description is deferred
-      // until `hydrateCloudTaskSessionFromLogs` confirms there's no prior
-      // conversation. Otherwise reopening a task with history would flash
-      // the description at top until hydration replaced it.
+      // Creation supplies the exact prompt before setup logs can arrive.
+      // Reopened tasks have no creation seed and must await transcript hydration.
+      const initialPrompt = this.initialCloudOptimisticPrompt.get(taskId);
+      if (
+        initialPrompt &&
+        !isTerminalStatus(runStatus) &&
+        !runState?.resume_from_run_id
+      ) {
+        this.d.store.appendOptimisticItem(taskRunId, {
+          type: "user_message",
+          content: initialPrompt,
+          timestamp: Date.now(),
+          pinToTop: true,
+        });
+      }
     } else {
       // Ensure cloud flag and configOptions are set on existing sessions
       const updates: Partial<AgentSession> = {};
