@@ -165,6 +165,7 @@ class TestMintScopedToken:
             "gpt-5.6-sol",
             "gpt-5.6-luna",
             "gpt-5.6-terra",
+            "gpt-6-astra",
         ]
 
     def test_review_hog_pin_covers_every_registry_arm_model(self):
