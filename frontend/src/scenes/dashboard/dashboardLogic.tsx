@@ -1529,6 +1529,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
                         breakpoint()
+                        if (action === DashboardLoadAction.BackgroundUpdate) {
+                            throw error
+                        }
                         if (error.status === 404) {
                             return null
                         }

@@ -93,6 +93,11 @@ function deferred<T>(): {
 const responseFor = (dashboard: DashboardType<QueryBasedInsightModel>): Response =>
     new Response(JSON.stringify(dashboard), { status: 200, headers: { 'Content-Type': 'application/json' } })
 
+const dashboardHttpError = (status: 403 | 404): ApiError =>
+    new ApiError(`Dashboard request failed with ${status}`, status, undefined, {
+        code: status === 403 ? 'permission_denied' : undefined,
+    })
+
 const dashboardToolEvent = (toolName: string, input: Record<string, unknown>, output: unknown): ToolStreamEvent => ({
     streamKey: 'dashboard-load-test',
     toolCallId: 'dashboard-load-test-call',
@@ -3031,7 +3036,55 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardFailedToLoad).toBe(false)
         })
 
-        it('preserves the committed dashboard when an AI background reload fails', async () => {
+        it.each([403, 404] as const)(
+            'preserves the committed dashboard when an AI background reload returns %i',
+            async (status) => {
+                logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                const committedDashboard = logic.values.dashboard
+                getResponseSpy.mockClear()
+                getResponseSpy.mockRejectedValueOnce(dashboardHttpError(status))
+                const dashboardNotFoundSpy = jest.spyOn(logic.actions, 'dashboardNotFound')
+                const observedStates: Array<{
+                    dashboard: DashboardType<QueryBasedInsightModel> | null
+                    accessDenied: boolean
+                    error404: boolean
+                    failed: boolean
+                }> = []
+                const unsubscribe = getContext().store.subscribe(() => {
+                    observedStates.push({
+                        dashboard: logic.values.dashboard,
+                        accessDenied: logic.values.accessDeniedToDashboard,
+                        error404: logic.values.error404,
+                        failed: logic.values.dashboardFailedToLoad,
+                    })
+                })
+
+                logic.actions.loadDashboard({ action: DashboardLoadAction.BackgroundUpdate })
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.dashboard).toBe(committedDashboard)
+                expect(logic.values.accessDeniedToDashboard).toBe(false)
+                expect(logic.values.error404).toBe(false)
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+                expect(dashboardNotFoundSpy).not.toHaveBeenCalled()
+                expect(observedStates).not.toHaveLength(0)
+                expect(
+                    observedStates.every(
+                        (state) =>
+                            state.dashboard === committedDashboard &&
+                            !state.accessDenied &&
+                            !state.error404 &&
+                            !state.failed
+                    )
+                ).toBe(true)
+                unsubscribe()
+                dashboardNotFoundSpy.mockRestore()
+            }
+        )
+
+        it('preserves the committed dashboard when an AI background reload fails without an HTTP status', async () => {
             logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -3057,43 +3110,72 @@ describe('dashboardLogic', () => {
             syncLogic.unmount()
         })
 
-        it('preserves the committed dashboard while a queued AI reload follows a failure', async () => {
-            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            const committedDashboard = logic.values.dashboard
-            getResponseSpy.mockClear()
-            const firstReload = deferred<Response>()
-            const successorReload = deferred<Response>()
-            getResponseSpy.mockReturnValueOnce(firstReload.promise).mockReturnValueOnce(successorReload.promise)
-            const syncLogic = dashboardAiSyncLogic({ dashboardId: 12 })
-            syncLogic.mount()
-            const failureStates: boolean[] = []
-            const unsubscribe = getContext().store.subscribe(() => {
-                failureStates.push(logic.values.dashboardFailedToLoad)
-            })
+        it.each([403, 404] as const)(
+            'preserves the committed dashboard while a queued AI reload follows a %i',
+            async (status) => {
+                logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                const committedDashboard = logic.values.dashboard
+                getResponseSpy.mockClear()
+                const firstReload = deferred<Response>()
+                const successorReload = deferred<Response>()
+                getResponseSpy.mockReturnValueOnce(firstReload.promise).mockReturnValueOnce(successorReload.promise)
+                const syncLogic = dashboardAiSyncLogic({ dashboardId: 12 })
+                syncLogic.mount()
+                const dashboardNotFoundSpy = jest.spyOn(logic.actions, 'dashboardNotFound')
+                const destructiveStates: Array<{
+                    dashboard: DashboardType<QueryBasedInsightModel> | null
+                    accessDenied: boolean
+                    error404: boolean
+                    failed: boolean
+                }> = []
+                const unsubscribe = getContext().store.subscribe(() => {
+                    destructiveStates.push({
+                        dashboard: logic.values.dashboard,
+                        accessDenied: logic.values.accessDeniedToDashboard,
+                        error404: logic.values.error404,
+                        failed: logic.values.dashboardFailedToLoad,
+                    })
+                })
 
-            syncLogic.actions.applyToolCompletion(dashboardToolEvent('dashboard-update', { id: 12 }, { id: 12 }), {
-                id: 12,
-            })
-            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(1))
-            syncLogic.actions.applyToolCompletion(dashboardToolEvent('dashboard-update', { id: 12 }, { id: 12 }), {
-                id: 12,
-            })
-            firstReload.reject(new Error('AI background reload failed'))
+                syncLogic.actions.applyToolCompletion(dashboardToolEvent('dashboard-update', { id: 12 }, { id: 12 }), {
+                    id: 12,
+                })
+                await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(1))
+                syncLogic.actions.applyToolCompletion(dashboardToolEvent('dashboard-update', { id: 12 }, { id: 12 }), {
+                    id: 12,
+                })
+                firstReload.reject(dashboardHttpError(status))
 
-            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(2))
-            expect(logic.values.dashboard).toBe(committedDashboard)
-            expect(logic.values.dashboardFailedToLoad).toBe(false)
+                await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(2))
+                expect(logic.values.dashboard).toBe(committedDashboard)
+                expect(logic.values.accessDeniedToDashboard).toBe(false)
+                expect(logic.values.error404).toBe(false)
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+                expect(dashboardNotFoundSpy).not.toHaveBeenCalled()
+                expect(destructiveStates).not.toHaveLength(0)
+                expect(
+                    destructiveStates.every(
+                        (state) =>
+                            state.dashboard === committedDashboard &&
+                            !state.accessDenied &&
+                            !state.error404 &&
+                            !state.failed
+                    )
+                ).toBe(true)
 
-            successorReload.resolve(responseFor({ ...dashboards[12], name: 'successor' }))
-            await waitFor(() => expect(syncLogic.values.activeBatch).toBeNull())
-            expect(logic.values.dashboard?.name).toBe('successor')
-            expect(logic.values.dashboardFailedToLoad).toBe(false)
-            expect(failureStates).not.toContain(true)
-            unsubscribe()
-            syncLogic.unmount()
-        })
+                successorReload.resolve(responseFor({ ...dashboards[12], name: 'successor' }))
+                await waitFor(() => expect(syncLogic.values.activeBatch).toBeNull())
+                expect(logic.values.dashboard?.name).toBe('successor')
+                expect(logic.values.accessDeniedToDashboard).toBe(false)
+                expect(logic.values.error404).toBe(false)
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+                unsubscribe()
+                dashboardNotFoundSpy.mockRestore()
+                syncLogic.unmount()
+            }
+        )
 
         it('still surfaces a failed ordinary update over a committed dashboard', async () => {
             logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
@@ -3109,6 +3191,29 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard).toBe(committedDashboard)
             expect(logic.values.dashboardFailedToLoad).toBe(true)
         })
+
+        it.each([
+            { status: 403 as const, accessDenied: true, error404: false, failed: true, clearsDashboard: true },
+            { status: 404 as const, accessDenied: false, error404: true, failed: false, clearsDashboard: true },
+        ])(
+            'preserves ordinary Update handling for $status responses',
+            async ({ status, accessDenied, error404, failed, clearsDashboard }) => {
+                logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                const committedDashboard = logic.values.dashboard
+                getResponseSpy.mockClear()
+                getResponseSpy.mockRejectedValueOnce(dashboardHttpError(status))
+
+                logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.dashboard).toBe(clearsDashboard ? null : committedDashboard)
+                expect(logic.values.accessDeniedToDashboard).toBe(accessDenied)
+                expect(logic.values.error404).toBe(error404)
+                expect(logic.values.dashboardFailedToLoad).toBe(failed)
+            }
+        )
     })
 
     describe('text tiles', () => {
