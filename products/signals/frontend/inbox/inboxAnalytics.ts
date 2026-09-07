@@ -26,6 +26,7 @@ export const INBOX_EVENTS = {
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
+    INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -48,6 +49,13 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    // The pre-computed "Suggested for this project" strip. Cloud-only for now — desktop has no
+    // suggestions surface — so these carry `inbox_client: 'cloud'` on every row.
+    SCOUT_SUGGESTIONS_SHOWN: 'Scout suggestions shown',
+    SCOUT_SUGGESTION_CLICKED: 'Scout suggestion clicked',
+    SCOUT_SUGGESTION_CREATED: 'Scout suggestion created',
+    SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
+    SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     RUN_OPENED: 'Inbox run opened',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
@@ -173,6 +181,7 @@ export type ScoutActionType =
     | 'copy_finding_link'
     | 'open_task_run'
     | 'open_linked_report'
+    | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
@@ -283,6 +292,15 @@ export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcome
  */
 export function captureInboxWelcomeManualSetupClicked(): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
+}
+
+/**
+ * The self-driving intro modal rendered (opened from the Code badge next to PostHog AI). The
+ * click-through to the inbox is recoverable as this event followed by an inbox view in the same
+ * session, so the modal only needs its own top-of-funnel marker.
+ */
+export function captureSelfDrivingIntroModalViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.INTRO_MODAL_VIEWED, {})
 }
 
 /**
@@ -788,4 +806,88 @@ export function captureScoutChatStarted(params: {
         surface: params.surface,
         skill_name: params.skillName ?? null,
     })
+}
+
+/** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
+export type ScoutSuggestionSurface = 'strip' | 'empty_state'
+
+/** Which offer a suggestion card makes. Mirrors the API's `kind`. */
+export type ScoutSuggestionKind = 'canonical' | 'custom'
+
+/** What the person did with a suggestion card, beyond creating or dismissing it. */
+export type ScoutSuggestionClickTarget = 'expand' | 'collapse' | 'turn_on' | 'create' | 'refine_with_ai'
+
+/** How a suggestion became a scout: the create API in place, or a chat the person drove. */
+export type ScoutSuggestionCreatedVia = 'api' | 'chat'
+
+/** How a refresh request ended, from the endpoint's answer. */
+export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed'
+
+/**
+ * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is
+ * indistinguishable from one nobody was shown, which is exactly the gap that left the producer
+ * running unread.
+ */
+export function captureScoutSuggestionsShown(params: {
+    count: number
+    status: string
+    ageHours: number | null
+    collapsed: boolean
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_SHOWN, {
+        suggestion_count: params.count,
+        batch_status: params.status,
+        batch_age_hours: params.ageHours,
+        collapsed: params.collapsed,
+        surface: params.surface,
+    })
+}
+
+/** A suggestion card was expanded, collapsed, or had one of its actions pressed. */
+export function captureScoutSuggestionClicked(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    target: ScoutSuggestionClickTarget
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        click_target: params.target,
+        surface: params.surface,
+    })
+}
+
+/** A suggestion turned into a running scout. `via` separates the one-click paths from the chat. */
+export function captureScoutSuggestionCreated(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    via: ScoutSuggestionCreatedVia
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CREATED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        via: params.via,
+        surface: params.surface,
+    })
+}
+
+/** A suggestion was hidden. Dismissals are remembered by skill name, so this is the rejection signal. */
+export function captureScoutSuggestionDismissed(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_DISMISSED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        surface: params.surface,
+    })
+}
+
+/** A refresh was asked for, and what the endpoint said. Refreshes cost a scan, so the cap matters. */
+export function captureScoutSuggestionsRefreshed(params: { outcome: ScoutSuggestionsRefreshOutcome }): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_REFRESHED, { outcome: params.outcome })
 }

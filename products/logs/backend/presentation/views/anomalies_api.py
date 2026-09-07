@@ -23,6 +23,8 @@ from posthog.rate_limit import (
 from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
 from products.logs.backend.series_bands import (
     BASELINE_WEEKS,
+    INTERVAL_LADDER_MINUTES,
+    MAX_BUCKETS_PER_SERIES,
     MAX_WINDOW_DAYS,
     MAX_WINDOW_START_AGE_DAYS,
     MIN_BASELINE_WEEKS_FOR_BAND,
@@ -239,9 +241,13 @@ class LogsSeriesBandsRequestSerializer(serializers.Serializer):
         ),
     )
     intervalMinutes = serializers.ChoiceField(
-        choices=[60],
+        choices=list(INTERVAL_LADDER_MINUTES),
         default=60,
-        help_text="Display grain in minutes for buckets and bands. Only hourly is supported today.",
+        help_text=(
+            f"Display grain in minutes for buckets and bands. One of {', '.join(map(str, INTERVAL_LADDER_MINUTES))}. "
+            f"The window may hold at most {MAX_BUCKETS_PER_SERIES} buckets per series at the chosen grain, "
+            f"so a finer grain needs a shorter window."
+        ),
     )
 
 
