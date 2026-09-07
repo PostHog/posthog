@@ -9,7 +9,9 @@
 // this script, so the owning team can adjust mappings without changing (and
 // re-approving) the workflow or this script. The config is read from the master
 // checkout, never the PR, so a fork PR can't inject its own mappings, and the
-// PR title only ever selects from a fixed, pre-approved set of labels.
+// PR title only ever selects from a fixed, pre-approved set of labels. That
+// checkout is sparse and holds only this script and the config, so a new file
+// read here needs its path added to the workflow's sparse-checkout.
 
 const fs = require('fs')
 const path = require('path')
