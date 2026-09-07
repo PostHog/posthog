@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     metrics_consts::{
-        ISSUE_FAILED, V2_BATCH_ROWS_DROPPED_FK, V2_EVENT_DEFS_BATCH_ATTEMPT,
+        ISSUE_FAILED, V2_BATCH_REORDERED, V2_BATCH_ROWS_DROPPED_FK, V2_EVENT_DEFS_BATCH_ATTEMPT,
         V2_EVENT_DEFS_BATCH_CACHE_TIME, V2_EVENT_DEFS_BATCH_ROWS_AFFECTED,
         V2_EVENT_DEFS_BATCH_SIZE, V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED,
         V2_EVENT_PROPS_BATCH_ATTEMPT, V2_EVENT_PROPS_BATCH_CACHE_TIME,
@@ -106,6 +106,45 @@ impl EventPropertiesBatch {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    // Orders the rows by the unique key of the target table, so the read-before-write probe
+    // and the INSERT that follows walk the index in order. `update_consumer_loop` already sorts
+    // the whole update batch, but on `(team_id, project_id, event, property)`, which matches the
+    // index expression (COALESCE(project_id, team_id), event, property) only while a project has
+    // one environment. Extra environments of one project hold unrelated team ids, so their rows
+    // land far apart in that order while they share one stretch of the index. An ordered batch
+    // returns before it touches anything, which is the common case, so the reorder costs its
+    // allocations only where the two orders differ.
+    //
+    // `team_id` closes the key. Rows that agree on the index key are one table row, and
+    // ON CONFLICT DO NOTHING keeps the copy in the first array position, so the tiebreaker holds
+    // the lowest team id there. That is the environment the upstream sort already put first.
+    // `retain_rows` and `remove_rows_for_fk` hold the order, so one sort serves every retry.
+    pub fn sort_for_write(&mut self) {
+        let key = |i: usize| {
+            (
+                self.project_ids[i],
+                self.event_names[i].as_str(),
+                self.property_names[i].as_str(),
+                self.team_ids[i],
+            )
+        };
+        if (1..self.len()).all(|i| key(i - 1) <= key(i)) {
+            return;
+        }
+        metrics::counter!(V2_BATCH_REORDERED, &[("table", "eventprops")]).increment(1);
+
+        let mut order: Vec<usize> = (0..self.len()).collect();
+        order.sort_unstable_by(|&a, &b| key(a).cmp(&key(b)));
+        self.team_ids = order.iter().map(|&i| self.team_ids[i]).collect();
+        self.project_ids = order.iter().map(|&i| self.project_ids[i]).collect();
+        self.event_names = order.iter().map(|&i| self.event_names[i].clone()).collect();
+        self.property_names = order
+            .iter()
+            .map(|&i| self.property_names[i].clone())
+            .collect();
+        self.cached = order.iter().map(|&i| self.cached[i].clone()).collect();
     }
 
     pub fn uncache_batch(&self, cache: &Arc<Cache>) {
@@ -442,22 +481,18 @@ pub async fn process_batch(
                 if event_props.should_flush_batch() {
                     let pool = pool.clone();
                     let cache = cache.clone();
-                    let mut outbound = event_props;
+                    let outbound = event_props;
                     event_props = EventPropertiesBatch::new(config.write_batch_size);
                     let read_pool = read_pool.clone();
                     handles.push(tokio::spawn(async move {
-                        if let Some(rp) = &read_pool {
-                            crate::read_filter::filter_event_properties(
-                                rp,
-                                &mut outbound,
-                                read_budget,
-                            )
-                            .await;
-                        }
-                        if outbound.is_empty() {
-                            return Ok(());
-                        }
-                        write_event_properties_batch(cache, outbound, &pool).await
+                        filter_and_write_event_properties(
+                            cache,
+                            outbound,
+                            &pool,
+                            read_pool.as_ref(),
+                            read_budget,
+                        )
+                        .await
                     }));
                 }
             }
@@ -523,15 +558,14 @@ pub async fn process_batch(
         let cache = cache.clone();
         let read_pool = read_pool.clone();
         handles.push(tokio::spawn(async move {
-            let mut event_props = event_props;
-            if let Some(rp) = &read_pool {
-                crate::read_filter::filter_event_properties(rp, &mut event_props, read_budget)
-                    .await;
-            }
-            if event_props.is_empty() {
-                return Ok(());
-            }
-            write_event_properties_batch(cache, event_props, &pool).await
+            filter_and_write_event_properties(
+                cache,
+                event_props,
+                &pool,
+                read_pool.as_ref(),
+                read_budget,
+            )
+            .await
         }));
     }
 
@@ -562,6 +596,24 @@ pub async fn process_batch(
             }
         }
     }
+}
+
+async fn filter_and_write_event_properties(
+    cache: Arc<Cache>,
+    mut batch: EventPropertiesBatch,
+    pool: &PgPool,
+    read_pool: Option<&PgPool>,
+    read_budget: Duration,
+) -> Result<(), sqlx::Error> {
+    // One order for both database calls: the reader probe below and the INSERT it feeds.
+    batch.sort_for_write();
+    if let Some(rp) = read_pool {
+        crate::read_filter::filter_event_properties(rp, &mut batch, read_budget).await;
+    }
+    if batch.is_empty() {
+        return Ok(());
+    }
+    write_event_properties_batch(cache, batch, pool).await
 }
 
 async fn write_event_properties_batch(
@@ -1040,6 +1092,72 @@ mod tests {
             event: "$pageview".to_string(),
             property: prop.to_string(),
         }
+    }
+
+    // The probe and the INSERT read the parallel vecs positionally through UNNEST, so the sort
+    // must hold every vec (including `cached`) aligned. The two teams of one project also pin the
+    // tiebreaker: they are one table row, and ON CONFLICT DO NOTHING keeps the first of them, so
+    // a sort that left their order open would store an arbitrary environment's team_id.
+    #[test]
+    fn sort_for_write_orders_by_unique_key_and_keeps_vecs_aligned() {
+        let mut batch = EventPropertiesBatch::new(100);
+        let out_of_order = [
+            EventProperty {
+                team_id: 20,
+                project_id: 20,
+                event: "click".to_string(),
+                property: "b".to_string(),
+            },
+            EventProperty {
+                team_id: 77,
+                project_id: 10,
+                event: "$pageview".to_string(),
+                property: "a".to_string(),
+            },
+            EventProperty {
+                team_id: 10,
+                project_id: 10,
+                event: "$pageview".to_string(),
+                property: "z".to_string(),
+            },
+            EventProperty {
+                team_id: 10,
+                project_id: 10,
+                event: "$pageview".to_string(),
+                property: "a".to_string(),
+            },
+        ];
+        for ep in out_of_order {
+            batch.append(ep);
+        }
+
+        batch.sort_for_write();
+
+        assert_eq!(batch.project_ids, vec![10, 10, 10, 20]);
+        assert_eq!(
+            batch.event_names,
+            vec!["$pageview", "$pageview", "$pageview", "click"]
+        );
+        assert_eq!(batch.property_names, vec!["a", "a", "z", "b"]);
+        assert_eq!(batch.team_ids, vec![10, 77, 10, 20]);
+
+        let cached_rows: Vec<(i32, String)> = batch
+            .cached
+            .iter()
+            .map(|u| match u {
+                Update::EventProperty(ep) => (ep.team_id, ep.property.clone()),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(
+            cached_rows,
+            vec![
+                (10, "a".to_string()),
+                (77, "a".to_string()),
+                (10, "z".to_string()),
+                (20, "b".to_string()),
+            ]
+        );
     }
 
     // UNNEST pads mismatched input arrays with NULLs instead of erroring, so a desync

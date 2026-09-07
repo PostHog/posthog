@@ -85,6 +85,12 @@ pub const V2_PROP_DEFS_DROPPED_UNCACHED: &str = "propdefs_v2_propdefs_dropped_un
 // tenant's events stop re-issuing the same failing write.
 pub const V2_BATCH_ROWS_DROPPED_FK: &str = "propdefs_v2_batch_rows_dropped_fk";
 
+// Write batches that reached the write path out of unique-key order, and had to be reordered
+// before the reader probe and the INSERT. The upstream batch sort covers a project with one
+// environment, so this counts how often extra environments make the two orders differ.
+// Labeled by target table.
+pub const V2_BATCH_REORDERED: &str = "propdefs_v2_batch_reordered";
+
 // Read-before-write: batches are checked against a Postgres reader before the
 // upsert, and rows the database already covers are dropped from the write.
 pub const READ_FILTER_ATTEMPT: &str = "propdefs_v2_read_filter_attempt";
