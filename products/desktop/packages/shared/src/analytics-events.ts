@@ -499,7 +499,7 @@ export type AiQualityRating = "good" | "bad";
 
 export interface AiFeedbackContextProperties {
   $ai_session_id: string | null;
-  $ai_trace_id: null;
+  $ai_trace_id: string | null;
   ai_product: AiFeedbackProduct;
   task_id: string | null;
   task_run_id?: string;
@@ -692,6 +692,7 @@ export type InboxReportActionType =
   | "snooze"
   | "delete"
   | "reingest"
+  | "implement"
   | "create_pr"
   | "open_pr"
   | "open_task"
@@ -948,7 +949,15 @@ type ScoutActionType =
   | "close_settings"
   | "open_findings"
   | "filter_findings"
-  | "sort_findings";
+  | "sort_findings"
+  | "run_now"
+  | "open_new_agent"
+  | "accept_suggestion"
+  | "draft_suggestion"
+  | "dismiss_suggestion"
+  | "filter_origin"
+  | "search_agents"
+  | "switch_detail_tab";
 
 /**
  * How the fleet materialization that preceded this view ended. Without it an

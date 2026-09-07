@@ -155,6 +155,7 @@ describe('buildToolDomainsBlock', () => {
         const trailingActions = [
             'archive',
             'calculate',
+            'claim',
             'complete',
             'copy',
             'disable',

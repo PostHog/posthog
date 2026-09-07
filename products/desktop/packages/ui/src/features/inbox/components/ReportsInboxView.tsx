@@ -14,13 +14,14 @@ import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/compone
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import { useSelfDrivingSetupStatus } from "@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
   DEFAULT_INBOX_REPORT_STATE_FILTER,
   hasActiveInboxFilters,
   useInboxSignalsFilterStore,
 } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { navigateToAgents } from "@posthog/ui/router/navigationBridge";
+import { navigateToSettings } from "@posthog/ui/router/navigationBridge";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -90,6 +91,7 @@ export function ReportsInboxView(): React.JSX.Element {
     sortDirection,
   } = reviewAndMergeQuery;
   const triageFocusEnabled = useTriageFocusEnabled();
+  const setupStatus = useSelfDrivingSetupStatus();
   const triageOrigin = useInboxTriageOrigin();
   const navigate = useNavigate();
   const [focusMode, setFocusMode] = useState(() => triageOrigin !== null);
@@ -290,24 +292,32 @@ export function ReportsInboxView(): React.JSX.Element {
   }
 
   const isEmpty = isSuccess && reportCount === 0;
+  const isAgentConfigurationLoading =
+    isEmpty && !hasActiveFilters && setupStatus.isLoading;
+  const showConfigureAgentsEmptyState =
+    isEmpty &&
+    !hasActiveFilters &&
+    !setupStatus.isLoading &&
+    !setupStatus.isConfigured;
 
   return (
     <ReportsInboxViewPresentation
       reports={visibleReports}
       triageReportCount={needsPrCount}
-      isLoading={isLoading}
+      isLoading={isLoading || isAgentConfigurationLoading}
       isFetchingNextPage={isFetchingNextPage}
       hasNextPage={hasNextPage}
       isError={isError}
       isEmpty={isEmpty}
       hasActiveFilters={hasActiveFilters}
+      showConfigureAgentsEmptyState={showConfigureAgentsEmptyState}
       triageEnabled={triageFocusEnabled}
       filterControl={<InboxReportFilters />}
       scopeControl={<InboxScopeSelect />}
       renderReport={(report) => (
         <InboxReportRow key={report.id} report={report} />
       )}
-      onConfigureAgents={navigateToAgents}
+      onConfigureAgents={() => navigateToSettings("agents")}
       onEnterTriage={() => setFocusMode(true)}
       onClearFilters={resetFilters}
       onLoadMore={loadMore}

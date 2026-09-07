@@ -6,6 +6,8 @@ from unittest import mock
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks.tasks import (
@@ -72,8 +74,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         )
         return endpoint, version
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_deactivates_endpoint_not_executed_in_30_days(self, mock_delete_schedule):
+    def test_deactivates_endpoint_not_executed_in_30_days(self):
         now = timezone.now()
         # Materialization enabled 45 days ago, last executed 45 days ago
         endpoint, version = self._create_materialized_endpoint(
@@ -92,8 +93,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert saved_query.deleted is True
         assert saved_query.is_materialized is False
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_keeps_endpoint_executed_recently(self, mock_delete_schedule):
+    def test_keeps_endpoint_executed_recently(self):
         now = timezone.now()
         # Materialization enabled 45 days ago, but executed 5 days ago
         endpoint, version = self._create_materialized_endpoint(
@@ -109,8 +109,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert version.saved_query is not None
         assert version.saved_query.is_materialized is True
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_keeps_newly_materialized_endpoint(self, mock_delete_schedule):
+    def test_keeps_newly_materialized_endpoint(self):
         now = timezone.now()
         # Materialization enabled today, never executed
         endpoint, version = self._create_materialized_endpoint(
@@ -126,8 +125,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_keeps_endpoint_with_old_execution_but_new_materialization(self, mock_delete_schedule):
+    def test_keeps_endpoint_with_old_execution_but_new_materialization(self):
         now = timezone.now()
         # Endpoint was executed 45 days ago, but materialization enabled today
         endpoint, version = self._create_materialized_endpoint(
@@ -143,8 +141,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_keeps_old_materialization_that_was_never_executed(self, mock_delete_schedule):
+    def test_keeps_old_materialization_that_was_never_executed(self):
         now = timezone.now()
         # Materialization enabled 45 days ago but never executed via API key
         endpoint, version = self._create_materialized_endpoint(
@@ -160,8 +157,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_skips_endpoints_not_materialized_recently(self, mock_delete_schedule):
+    def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
         # Materialization ran 2 days ago (not within 24h)
         endpoint, version = self._create_materialized_endpoint(
@@ -177,8 +173,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_handles_multiple_endpoints(self, mock_delete_schedule):
+    def test_handles_multiple_endpoints(self):
         now = timezone.now()
 
         # Stale endpoint (materialized and last executed 45 days ago)
@@ -211,8 +206,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             deactivate_stale_materializations()
             mock_logger.info.assert_called_with("deactivate_stale_materializations_no_candidates")
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_handles_endpoint_exactly_at_threshold(self, mock_delete_schedule):
+    def test_handles_endpoint_exactly_at_threshold(self):
         now = timezone.now()
         # Materialization enabled and last executed exactly 30 days ago
         endpoint, version = self._create_materialized_endpoint(
@@ -249,15 +243,17 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         mock_deactivate.assert_called_once()
         assert mock_deactivate.call_args[0][0].id == version.id
 
+    @parameterized.expand([("executed_long_ago", timedelta(days=45)), ("never_executed", None)])
     @mock.patch("products.endpoints.backend.tasks.tasks._deactivate_version_materialization")
-    def test_deactivates_superseded_version_of_an_active_endpoint(self, mock_deactivate):
+    def test_deactivates_superseded_version_of_an_active_endpoint(self, _name, old_version_age, mock_deactivate):
         now = timezone.now()
         endpoint, old_version = self._create_materialized_endpoint(
             name="active_endpoint",
             last_executed_at=now - timedelta(days=5),
             materialization_created_at=now - timedelta(days=45),
         )
-        EndpointVersion.objects.filter(id=old_version.id).update(last_executed_at=now - timedelta(days=45))
+        old_stamp = now - old_version_age if old_version_age else None
+        EndpointVersion.objects.filter(id=old_version.id).update(last_executed_at=old_stamp)
 
         current_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -300,8 +296,7 @@ class TestDeactivateEndpointMaterialization(BaseTest):
             "query": "SELECT event FROM events LIMIT 100",
         }
 
-    @mock.patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule")
-    def test_deactivates_materialization_and_soft_deletes_saved_query(self, mock_delete_schedule):
+    def test_deactivates_materialization_and_soft_deletes_saved_query(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="to_deactivate",

@@ -172,11 +172,28 @@ export interface StaffWarmRunCancelResponseApi {
     cancel_requested: boolean
 }
 
+/**
+ * * `1` - Legacy
+ * * `2` - Explicit
+ */
+export type PropertyMatchingVersionEnumApi =
+    (typeof PropertyMatchingVersionEnumApi)[keyof typeof PropertyMatchingVersionEnumApi]
+
+export const PropertyMatchingVersionEnumApi = {
+    Number1: 1,
+    Number2: 2,
+} as const
+
 export interface StaffTeamConfigApi {
     /** Team id. */
     team_id: number
     /** Whether this team's SDKs receive the slim $feature_flag_called event shape (omitting fields only needed for experiments) instead of the full legacy shape. */
     minimal_flag_called_events: boolean
+    /** Property matching semantics used by /flags, local evaluation, and cohort generation.
+     *
+     * * `1` - Legacy
+     * * `2` - Explicit */
+    property_matching_version: PropertyMatchingVersionEnumApi
     /**
      * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
      * @nullable
@@ -198,6 +215,11 @@ export interface StaffTeamConfigMutationApi {
     team_id: number
     /** New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
     minimal_flag_called_events?: boolean
+    /** New property matching version for the team. Version 1 preserves legacy behavior. Version 2 uses explicit scalar and array equality. Only set version 2 after confirming that the team's local-evaluation SDK versions support it. Omit to leave it unchanged.
+     *
+     * * `1` - Legacy
+     * * `2` - Explicit */
+    property_matching_version?: PropertyMatchingVersionEnumApi
     /**
      * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
      * @minimum 1

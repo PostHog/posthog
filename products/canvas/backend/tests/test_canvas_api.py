@@ -221,7 +221,9 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This sandbox can file canvases only in its task's space."
+        assert response.json()["detail"] == (
+            f"This sandbox can file canvases only in its task's space. Use the task's channel \"{self.channel.id}\"."
+        )
         assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
