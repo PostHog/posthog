@@ -79,10 +79,10 @@ tools:
             and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
             adding to the log.
         agent_note: >
-            Before changing code for this report, find the newest applicable note that starts with `## Steps to verify fix`.
-            Check that it matches the report's current findings. Treat the note as a plan, not evidence of the issue's
-            current state. Run its `Before changing code` check against current data now. Reserve `After deployment`
-            checks for after rollout.
+            Before changing code for this report, find the newest applicable note that starts with `## Steps to verify
+            fix`. Check that it matches the report's current findings. Treat the note as a plan, not evidence of the
+            issue's current state. Run its `Before changing code` check against current data now. Reserve `After
+            deployment` checks for after rollout.
 
             Missing, failed, or inconclusive checks are not proof of resolution. If current evidence shows the issue is
             gone, do not implement the stale fix. Record the result in the report log and reassess the report. If no
@@ -244,9 +244,9 @@ tools:
             identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can
             replace the current owner.
 
-            Before changing code, fetch the work log with inbox-report-artefacts-list. Find the newest applicable
-            `Steps to verify fix` note. Run its `Before changing code` check now, not its `After deployment` check.
-            Use the verification guidance returned with the work log.
+            Before changing code, fetch the work log with inbox-report-artefacts-list. Find the newest applicable `Steps
+            to verify fix` note. Run its `Before changing code` check now, not its `After deployment` check. Use the
+            verification guidance returned with the work log.
 
             If you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to
             attach it. Release the claim if you stop work without completing the report. If the report should be
