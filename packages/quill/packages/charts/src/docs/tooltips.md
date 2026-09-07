@@ -1,7 +1,8 @@
 # Tooltips
 
-Every chart renders the built-in `DefaultTooltip` unless a `tooltip` render prop is passed.
-Configure it before replacing it.
+Prefer each chart's built-in tooltip before supplying a `tooltip` render prop.
+This guide covers the shared `DefaultTooltip` used by line, bar, and combo charts.
+Other charts, such as scatter and pie, provide specialized tooltips; check their props and [chart-type docs](./chart-types.md) for supported options.
 
 ## Behavior: `config.tooltip`
 
