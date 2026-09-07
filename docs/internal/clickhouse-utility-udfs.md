@@ -8,7 +8,8 @@ Flag values and person-property ordering follow the existing cleanup rules.
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
 
 The event, person, and temporary cleaners reuse parser nodes across rows.
-Recycled nodes clear references across their backing arrays, including entries removed during cleanup, so borrowed property keys do not retain previously processed input rows.
+Recycled nodes keep small backing arrays for reuse and release larger arrays whose capacity exceeds twice their used length, so a wide row does not make later small rows repeatedly clear oversized arrays.
+They clear references across the remaining backing arrays, including entries removed during cleanup, so borrowed property keys do not retain previously processed input rows.
 
 ### `JSONCleanPostHogTemporaryProperties(json)`
 

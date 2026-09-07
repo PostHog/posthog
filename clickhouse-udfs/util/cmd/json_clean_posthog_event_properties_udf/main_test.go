@@ -278,6 +278,54 @@ func TestProcessLineReleasesPreviousInput(t *testing.T) {
 	}
 }
 
+func TestProcessLineReleasesOversizedContainers(t *testing.T) {
+	var object strings.Builder
+	object.WriteByte('{')
+	for i := range 64 {
+		if i > 0 {
+			object.WriteByte(',')
+		}
+		fmt.Fprintf(&object, `"key%d":1`, i)
+	}
+	object.WriteByte('}')
+	for name, input := range map[string]string{
+		"object": object.String(),
+		"array":  "[" + strings.Repeat("1,", 63) + "1]",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var proc processor
+			var output bytes.Buffer
+			if err := proc.processLine([]byte(input), &output); err != nil {
+				t.Fatal(err)
+			}
+			var entries weak.Pointer[entry]
+			var values weak.Pointer[*value]
+			for _, v := range proc.free {
+				if cap(v.entries) >= 64 {
+					entries = weak.Make(&v.entries[:cap(v.entries)][0])
+				}
+				if cap(v.values) >= 64 {
+					values = weak.Make(&v.values[:cap(v.values)][0])
+				}
+			}
+			if entries.Value() == nil && values.Value() == nil {
+				t.Fatal("wide row did not retain a reusable container")
+			}
+			if err := proc.processLine([]byte(`{}`), &output); err != nil {
+				t.Fatal(err)
+			}
+			if output.String() != "{}" {
+				t.Fatalf("unexpected output: %s", output.String())
+			}
+			runtime.GC()
+			if entries.Value() != nil || values.Value() != nil {
+				t.Error("small row retains an oversized container after garbage collection")
+			}
+			runtime.KeepAlive(&proc)
+		})
+	}
+}
+
 func TestShouldStringifyNumber(t *testing.T) {
 	tests := map[string]bool{
 		"18446744073709551615":  false,
