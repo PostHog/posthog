@@ -802,7 +802,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
     session.task = Mock(id="research-task-id")
     session.end = AsyncMock()
 
-    responses = [
+    responses: list[ActionabilityAssessment | PriorityAssessment | ReportPresentationOutput | FixVerificationOutput] = [
         ActionabilityAssessment(
             explanation="The research found a concrete code path and measured impact.",
             actionability=actionability,
