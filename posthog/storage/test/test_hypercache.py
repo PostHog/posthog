@@ -755,7 +755,6 @@ class TestHyperCacheSecondaryCache(BaseTest):
         }
     )
     def test_delete_removes_entry_from_both_caches(self):
-        """delete_cache_entry mirrors the delete so the secondary never keeps a dropped entry."""
         from django.core.cache import caches
 
         caches["default"].clear()
