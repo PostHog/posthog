@@ -172,9 +172,10 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
                     // The backend rejects an "All events" goal (an event goal with no event set), so
                     // offering it here only ever paints the table as an error.
                     .filter((goal) => goal.kind !== NodeKind.EventsNode || !!goal.event)
+                    // Settings accepts a goal renamed to nothing, which would otherwise be a blank row.
                     .map((goal) => ({
                         value: goal.conversion_goal_id,
-                        label: goal.conversion_goal_name,
+                        label: goal.conversion_goal_name || 'Unnamed goal',
                     })),
             ],
         ],
