@@ -41,7 +41,7 @@ EXCLUDED_PATHS = re.compile(
     r"(^\.github/|generated|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)",
     re.IGNORECASE,
 )
-DIFF_SKIP_PREFIXES = ("+++", "---", "@@", "index ", "new file", "deleted file", "similarity", "rename ", "Binary")
+DIFF_SKIP_PREFIXES = ("+++", "---", "index ", "new file", "deleted file", "similarity", "rename ", "Binary")
 
 
 @dataclass(frozen=False)
@@ -126,10 +126,10 @@ def analyze(diff_text: str) -> Report:
             if lang in CODE_LANGS and not EXCLUDED_PATHS.search(path):
                 stats = report.files.setdefault(path, FileStats(path))
             continue
-        if stats is None or raw.startswith(DIFF_SKIP_PREFIXES):
-            continue
         if raw.startswith("@@"):
             inside = False
+            continue
+        if stats is None or raw.startswith(DIFF_SKIP_PREFIXES):
             continue
         # Context lines are part of the new file too, so they move the state;
         # removed lines are not and are skipped entirely.

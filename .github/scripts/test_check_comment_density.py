@@ -131,3 +131,19 @@ def test_render_body_keeps_hostile_file_paths_inert() -> None:
     body = check_comment_density.render_body(check_comment_density.analyze(diff))
     assert "| `posthog/x@usery.py` | 2 | 3 |" in body
     assert "`|" not in body
+
+
+def test_block_comment_state_does_not_carry_across_hunks() -> None:
+    diff = (
+        "diff --git a/frontend/src/lib/thing.ts b/frontend/src/lib/thing.ts\n"
+        "--- a/frontend/src/lib/thing.ts\n"
+        "+++ b/frontend/src/lib/thing.ts\n"
+        "@@ -1 +1 @@\n"
+        "-/** old summary\n"
+        "+/** new summary\n"
+        "@@ -40,0 +40,2 @@\n"
+        "+export const a = 1\n"
+        "+export const b = 2\n"
+    )
+    report = check_comment_density.analyze(diff)
+    assert (report.added, report.comments) == (3, 1)
