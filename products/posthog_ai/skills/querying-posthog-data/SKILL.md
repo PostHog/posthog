@@ -90,6 +90,7 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 
 ## HogQL References
 
+- [Stitching anonymous and identified events](./references/identity-stitching.md). Read before you group or count users on the `events` table. `person_id` is the stable identifier for a user, and `distinct_id` changes when a user identifies.
 - [Person property modes (event-time vs query-time)](./references/person-property-modes.md). Read when working with `person.properties.*` to understand if values are historical or current.
 - [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and more](./references/hogql-extensions.md)
 - [SQL variables](./references/models-variables.md).

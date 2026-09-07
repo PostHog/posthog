@@ -84,7 +84,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
-from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events import EVENTS_PERSON_DESCRIPTION, EVENTS_PERSON_ID_DESCRIPTION, EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
@@ -1855,11 +1855,17 @@ class Database(BaseModel):
 
                 if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
                     # no change
-                    events_table.fields["person"] = FieldTraverser(chain=["pdi", "person"])
-                    events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
+                    events_table.fields["person"] = FieldTraverser(
+                        chain=["pdi", "person"], description=EVENTS_PERSON_DESCRIPTION
+                    )
+                    events_table.fields["person_id"] = FieldTraverser(
+                        chain=["pdi", "person_id"], description=EVENTS_PERSON_ID_DESCRIPTION
+                    )
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-                    events_table.fields["person_id"] = UUIDDatabaseField(name="person_id")
+                    events_table.fields["person_id"] = UUIDDatabaseField(
+                        name="person_id", description=EVENTS_PERSON_ID_DESCRIPTION
+                    )
                     _use_person_properties_from_events(database)
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
@@ -1873,6 +1879,7 @@ class Database(BaseModel):
                         from_field=["person_id"],
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
+                        description=EVENTS_PERSON_DESCRIPTION,
                     )
 
                 _add_error_tracking_fields(database)
@@ -2489,7 +2496,7 @@ def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name:
 
 
 def _use_person_properties_from_events(database: Database) -> None:
-    database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"])
+    database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"], description=EVENTS_PERSON_DESCRIPTION)
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
@@ -2501,6 +2508,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     )
     table.fields["person_id"] = ExpressionField(
         name="person_id",
+        description=EVENTS_PERSON_ID_DESCRIPTION,
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
             "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
