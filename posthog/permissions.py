@@ -27,16 +27,21 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
     is_mcp_request,
-    is_user_delegated_token_request,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.organization_access import organization_access_revocation, organization_access_revocation_message
+from posthog.organization_access import (
+    REACHABLE_METHODS,
+    RevokedOrganizationAccess,
+    organization_access_revocation,
+    organization_access_revocation_message,
+)
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
@@ -923,30 +928,27 @@ class MCPAccessPermission(ScopeBasePermission):
 
 
 class ActiveOrganizationPermission(BasePermission):
-    """Denies token-authenticated requests to an organization whose access was revoked.
+    """Denies API requests to an organization whose access was revoked.
 
     A revocation is either `is_active = False`, which an operator sets for an unpaid balance, a
     compliance review, or a terms-of-service violation, or `is_pending_deletion = True`, which the
     organization's own delete flow sets. `ActiveOrganizationMiddleware` locks both out of the app,
-    but that middleware ignores `/api`, so a personal API key, an OAuth token, or the MCP server
-    kept full read and write access after the revocation. This class closes that pathway.
+    but that middleware ignores `/api`, so a personal API key, an OAuth token, the MCP server and a
+    login session all kept full read and write access after the revocation. This class closes them.
 
     It reads the revoked state through `organization_access_revocation`, the one function every gate
     shares, so this pathway cannot disagree with the middleware or the billing and compute gates
     about whether an organization still has access.
 
-    Session auth stays with the middleware, which keeps the revocation screens and the billing flow
-    that reactivates an organization usable. Ingestion is a different decision, made by the billing
-    quota limiter.
+    It binds every authenticated pathway, a login session included. A session keeps the app's
+    revocation screens usable through `ActiveOrganizationMiddleware`, but it must not carry the
+    organization's data out of `/api` either. Only the surfaces those screens and the payment flow
+    need declare `reachable_when_organization_access_revoked`, and a viewset that declares nothing
+    is closed. Ingestion is a different decision, made by the billing quota limiter.
     """
 
-    # `user` is the caller's own profile, not organization data, and `/api/users/@me/` is what a
-    # client reads to find out about the revocation. `billing` must stay reachable so a revoked
-    # organization can still read what it owes and pay it.
-    EXEMPT_SCOPE_OBJECTS = frozenset({"user", "billing"})
-
     def has_permission(self, request, view) -> bool:
-        if not is_user_delegated_token_request(request) or self._is_exempt(view):
+        if self._is_exempt(request, view):
             return True
 
         # Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and
@@ -971,7 +973,7 @@ class ActiveOrganizationPermission(BasePermission):
         return self._admits(request, organization)
 
     def has_object_permission(self, request, view, object) -> bool:
-        if not is_user_delegated_token_request(request) or self._is_exempt(view):
+        if self._is_exempt(request, view):
             return True
         if isinstance(object, Organization):
             return self._admits(request, object)
@@ -980,8 +982,24 @@ class ActiveOrganizationPermission(BasePermission):
             return self._admits(request, organization)
         return True
 
-    def _is_exempt(self, view) -> bool:
-        return getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS
+    def _is_exempt(self, request, view) -> bool:
+        # An anonymous request is `IsAuthenticated`'s to deny, and it has no membership to read.
+        if not request.user or not request.user.is_authenticated:
+            return True
+
+        # Staff impersonation stays open. An operator who investigates a revocation needs the
+        # organization's data, and starting an impersonation session already needs staff access.
+        if is_impersonated(request):
+            return True
+
+        reachable: Optional[RevokedOrganizationAccess] = getattr(
+            view, "reachable_when_organization_access_revoked", None
+        )
+        if reachable is None:
+            return False
+        if reachable is RevokedOrganizationAccess.ALL:
+            return True
+        return request.method in REACHABLE_METHODS[reachable]
 
     def _admits(self, request, organization: Organization) -> bool:
         revocation = organization_access_revocation(organization)

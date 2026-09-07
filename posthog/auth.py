@@ -1542,23 +1542,15 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
 MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
 
-def is_user_delegated_token_request(request: Union[HttpRequest, Request]) -> bool:
-    """Returns True when the request authenticated with a token the user issued or consented to,
-    instead of a login session. This is the programmatic pathway a person drives: the MCP server,
-    the CLI, and their own scripts.
-
-    It covers every user-delegated scoped-token type the MCP server can authenticate with. ID-JAG
-    (XAA) tokens are served from the same OAuth token endpoint and carry scopes, so a write on that
-    pathway must be classified like a personal key or an OAuth token.
-    """
-    return isinstance(
-        getattr(request, "successful_authenticator", None),
-        PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
-    )
-
-
 def is_mcp_request(request: Union[HttpRequest, Request]) -> bool:
     """Returns True when a token-authenticated request comes through the MCP server."""
-    if not is_user_delegated_token_request(request):
-        return False
-    return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
+    authenticator = getattr(request, "successful_authenticator", None)
+    # Every user-delegated scoped-token type the MCP server can authenticate with. ID-JAG
+    # (XAA) tokens are served from the same OAuth token endpoint and carry scopes, so a
+    # write on that pathway must be classified as MCP like a personal key or OAuth token.
+    if isinstance(
+        authenticator,
+        PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
+    ):
+        return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
+    return False

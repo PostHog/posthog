@@ -1327,9 +1327,9 @@ class SocialAuthExceptionMiddleware:
 class ActiveOrganizationMiddleware:
     """
     Middleware to send a session whose organization lost its access to that organization's
-    revocation screen. `/api` is excluded because token requests are gated by
-    `ActiveOrganizationPermission` instead, which lets this middleware keep the revocation screens
-    and the billing flow that reactivates an organization usable.
+    revocation screen. `/api` is excluded because `ActiveOrganizationPermission` gates it, which
+    denies the same session per view and exempts only the reads the revocation screens and the
+    payment flow need.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")

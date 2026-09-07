@@ -19,7 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
-from posthog.organization_access import organization_access_revocation
+from posthog.organization_access import RevokedOrganizationAccess, organization_access_revocation
 
 from ee.billing.quota_limiting import INFORMATIONAL_USAGE_RESOURCES, QuotaResource, get_fresh_team_limited_resources
 
@@ -90,6 +90,9 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Read-only view of a team's quota-limit state."""
 
     scope_object = "project"
+    # This endpoint is how the LLM gateway learns that an organization's access was revoked, so
+    # closing it would leave the gateway unable to gate the spend the revocation is meant to stop.
+    reachable_when_organization_access_revoked = RevokedOrganizationAccess.READS
     required_scopes = ["project:read"]
     http_method_names = ["get", "head", "options"]
 

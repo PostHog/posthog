@@ -41,6 +41,7 @@ from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.organization_access import RevokedOrganizationAccess
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
@@ -472,6 +473,9 @@ class OrganizationDataFreshnessSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
+    # The app's revocation screen reads the organization to show the operator's reason. Reads
+    # only: a revoked organization must not rename itself or change its settings.
+    reachable_when_organization_access_revoked = RevokedOrganizationAccess.READS_AND_DELETE
     serializer_class = OrganizationSerializer
     permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()

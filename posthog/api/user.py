@@ -119,6 +119,7 @@ from posthog.models.user import (
     ShortcutPosition,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.organization_access import RevokedOrganizationAccess
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -1092,6 +1093,10 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
+    # A client reads this endpoint to learn that its organization's access was revoked, and
+    # patches `set_current_organization` here to move to another organization, so it stays
+    # reachable in both directions. Nothing here is organization data.
+    reachable_when_organization_access_revoked = RevokedOrganizationAccess.ALL
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
     # Custom @action GETs that should map to user:read for OAuth / personal API keys

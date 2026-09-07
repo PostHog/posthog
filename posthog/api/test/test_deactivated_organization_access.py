@@ -1,5 +1,8 @@
 from posthog.test.base import APIBaseTest
 
+from loginas import settings as la_settings
+from parameterized import parameterized
+
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -100,9 +103,52 @@ class TestDeactivatedOrganizationAPIAccess(APIBaseTest):
         assert response.status_code == 403
         assert "deactivated" in response.json()["detail"]
 
-    def test_session_auth_is_left_to_the_middleware(self) -> None:
+    def test_session_auth_is_denied_too(self) -> None:
         self._deactivate()
         self.client.force_login(self.user)
+
+        response = self.client.get(self._flags_path())
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == f"Your organization has been deactivated. {UNPAID}"
+
+    @parameterized.expand(
+        [
+            ("the caller's own profile", "/api/users/@me/"),
+            ("the organization behind the revocation screen", "/api/organizations/@current/"),
+            ("billing, so the balance can be paid", "/api/billing/period/"),
+        ]
+    )
+    def test_the_reactivation_path_stays_reachable_on_a_session(self, _name, path) -> None:
+        # The app's revocation screens and its payment flow run on a session, so these three reads
+        # are the boundary's whole exemption. A regression here locks a paying customer out of the
+        # flow that lifts the deactivation.
+        self._deactivate()
+        self.client.force_login(self.user)
+
+        assert self.client.get(path).status_code == 200
+
+    def test_a_revoked_organization_cannot_write_to_itself(self) -> None:
+        # The organization is exempt for reads only, so the screen can name the reason while a
+        # revoked organization still cannot change its own settings.
+        self._deactivate()
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            "/api/organizations/@current/", {"name": "renamed"}, content_type="application/json"
+        )
+
+        assert response.status_code == 403
+        assert "deactivated" in response.json()["detail"]
+
+    def test_staff_impersonation_still_reaches_a_revoked_organization(self) -> None:
+        # Support has to investigate the organizations that were revoked, and starting an
+        # impersonation session already needs staff access.
+        self._deactivate()
+        self.client.force_login(self.user)
+        session = self.client.session
+        session[la_settings.USER_SESSION_FLAG] = str(self.user.pk)
+        session.save()
 
         assert self.client.get(self._flags_path()).status_code == 200
 

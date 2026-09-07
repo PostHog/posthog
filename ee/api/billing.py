@@ -23,6 +23,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.organization_access import RevokedOrganizationAccess
 from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
@@ -404,6 +405,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     param_derived_from_user_current_team = "team_id"
 
     scope_object = "billing"
+    # A revoked organization has to read what it owes and pay it, which is how a deactivation
+    # for an unpaid balance gets lifted, so writes stay reachable too.
+    reachable_when_organization_access_revoked = RevokedOrganizationAccess.ALL
     scope_object_read_actions = ["list", "usage", "spend"]
     scope_object_write_actions: list[str] = []
     # OpenAPI skips root-router viewsets that derive their team from the current user.

@@ -5,8 +5,10 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.organization_access import (
+    REACHABLE_METHODS,
     REVOCATION_MESSAGES,
     OrganizationAccessRevocation,
+    RevokedOrganizationAccess,
     organization_access_revocation,
     organization_access_revocation_by_id,
     organization_access_revocation_for_team,
@@ -38,6 +40,11 @@ class TestOrganizationAccessRevocation(SimpleTestCase):
         organization = Organization(is_active=is_active, is_pending_deletion=is_pending_deletion)
 
         assert organization_access_revocation(organization) == expected
+
+    def test_every_reachability_level_declares_its_methods(self) -> None:
+        # A level added without an entry silently reaches nothing, so a viewset that declares it
+        # would be closed instead of exempt.
+        assert set(REACHABLE_METHODS) | {RevokedOrganizationAccess.ALL} == set(RevokedOrganizationAccess)
 
     def test_every_revocation_state_has_a_message(self) -> None:
         # A state added without a message raises a KeyError inside a denial, so every gate that

@@ -6,6 +6,8 @@ from uuid import UUID
 
 from django.apps import apps
 
+from rest_framework.permissions import SAFE_METHODS
+
 from posthog.organization_caching import get_cached_organization
 
 if TYPE_CHECKING:
@@ -22,6 +24,21 @@ class OrganizationAccessRevocation(StrEnum):
 
     PENDING_DELETION = "pending_deletion"
     DEACTIVATED = "deactivated"
+
+
+class RevokedOrganizationAccess(StrEnum):
+    """How much of a viewset stays reachable after an organization's access is revoked.
+
+    A viewset that declares nothing is closed, which is what the boundary needs by default. Only
+    the surfaces a revoked organization has to reach, to read why it was revoked and to pay its
+    balance, declare a value here.
+    """
+
+    READS = "reads"
+    # A revoked organization may read its own record and delete itself, which is how a customer
+    # walks away from one, but it may not change the organization's settings while revoked.
+    READS_AND_DELETE = "reads_and_delete"
+    ALL = "all"
 
 
 REVOCATION_MESSAGES: dict[OrganizationAccessRevocation, str] = {
@@ -92,3 +109,10 @@ def organization_access_revocation_for_team(team_id: int) -> Optional[Organizati
     if organization_id is None:
         return None
     return organization_access_revocation_by_id(organization_id)
+
+
+# `ALL` is absent on purpose: it admits every method, so it needs no list of them.
+REACHABLE_METHODS: dict[RevokedOrganizationAccess, frozenset[str]] = {
+    RevokedOrganizationAccess.READS: frozenset(SAFE_METHODS),
+    RevokedOrganizationAccess.READS_AND_DELETE: frozenset(SAFE_METHODS) | {"DELETE"},
+}
