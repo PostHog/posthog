@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+#
+# Inputs for the opt-in devenv environment. See devenv.nix for the package list.
+#
+# `devenv inputs add` rewrites this file alphabetically and drops comments, so
+# edit it by hand.
+inputs:
+    nixpkgs:
+        url: github:cachix/devenv-nixpkgs/rolling
+    # Exact package versions the single rolling nixpkgs cannot serve. The flake
+    # maps a version to the nixpkgs revision that carried it, so the lock records
+    # one input instead of one pinned nixpkgs per package.
+    nixpkgs-multiverse:
+        url: github:fzakaria/nixpkgs-multiverse
+    # Required by languages.rust.channel. devenv does not add it on its own.
+    rust-overlay:
+        url: github:oxalica/rust-overlay
+        inputs:
+            nixpkgs:
+                follows: nixpkgs
+    # Required for an exact Go toolchain. languages.go.version is unusable here
+    # because it rebuilds gopls, delve and go-tools against the pinned Go, and
+    # those need a newer Go than the one we pin.
+    go-overlay:
+        url: github:purpleclay/go-overlay
+        inputs:
+            nixpkgs:
+                follows: nixpkgs
+nixpkgs:
+    # trunk-io is unfree and devenv refuses unfree packages by default. Flox has
+    # no such gate, so this keeps the two environments at the same package set.
+    permitted_unfree_packages:
+        - trunk-io
