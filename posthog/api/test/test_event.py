@@ -1016,7 +1016,28 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000")
         assert len(response.json()["results"]) == 2
+        assert response.json()["next"] is not None
         assert "limit was reduced to the maximum of 2" in response.headers["X-PostHog-Warn"]
+        assert "Follow the `next` link" in response.headers["X-PostHog-Warn"]
+
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 2)
+    def test_capped_limit_warning_omits_the_next_link_when_there_is_none(self):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        timestamp = timezone.now() - relativedelta(minutes=5)
+        _create_event(event="$pageview", team=self.team, distinct_id="1", timestamp=timestamp)
+
+        params = urlencode(
+            {
+                "limit": 50000,
+                "after": (timestamp - relativedelta(seconds=10)).isoformat(),
+                "before": (timestamp + relativedelta(seconds=10)).isoformat(),
+            }
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?{params}")
+
+        assert response.json()["next"] is None
+        assert "limit was reduced to the maximum of 2" in response.headers["X-PostHog-Warn"]
+        assert "`next`" not in response.headers["X-PostHog-Warn"]
 
     @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 2)
     def test_limit_within_the_cap_is_not_warned_about(self):

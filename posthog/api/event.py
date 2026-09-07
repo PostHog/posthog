@@ -328,10 +328,10 @@ class EventViewSet(
                 next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by)
             warn_messages: list[str] = []
             if requested_limit > EVENT_LIST_MAX_LIMIT:
+                rest_of_the_rows = "Follow the `next` link for the rest, or export" if next_url else "Export"
                 warn_messages.append(
                     f"limit was reduced to the maximum of {EVENT_LIST_MAX_LIMIT}. "
-                    "Follow the `next` link for the rest, or export in bulk with batch exports: "
-                    "https://posthog.com/docs/cdp/batch-exports"
+                    f"{rest_of_the_rows} in bulk with batch exports: https://posthog.com/docs/cdp/batch-exports"
                 )
             if is_csv_request and has_more:
                 warn_messages.append(
