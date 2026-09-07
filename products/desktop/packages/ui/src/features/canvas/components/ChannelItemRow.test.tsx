@@ -150,11 +150,25 @@ describe("ChannelItemRow", () => {
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
     [
+      "a new run starting with a stale permission prompt",
+      { needsPermission: true, isAgentSessionStarting: true },
+      "Loading",
+    ],
+    [
       "an agent session being created",
       { isAgentSessionStarting: true },
       "Loading",
     ],
     ["a streaming agent", { isGenerating: true }, "Working"],
+    [
+      "a streaming agent with stale queued status",
+      {
+        isGenerating: true,
+        taskRunStatus: "queued" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Working",
+    ],
     [
       // Persisted run status can outlive the work. Without a live stream it
       // must not look like unread attention that opening the session can clear.
@@ -211,12 +225,22 @@ describe("ChannelItemRow", () => {
       "Loading",
     ],
     [
-      "a broken run with unseen output",
+      "a new run starting after a failed run",
       {
         taskRunStatus: "failed" as const,
         isAgentSessionStarting: true,
         isUnread: true,
       },
+      "Loading",
+    ],
+    [
+      "a working run with stale failed metadata",
+      { taskRunStatus: "failed" as const, isGenerating: true },
+      "Working",
+    ],
+    [
+      "a broken run with unseen output",
+      { taskRunStatus: "failed" as const, isUnread: true },
       "Failed",
     ],
     ["a suspended task", { isSuspended: true }, "Suspended — parked"],

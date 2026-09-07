@@ -1,7 +1,6 @@
-import type { AcpMessage, AgentSession, StoredLogEntry } from "@posthog/shared";
+import type { AgentSession } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { convertStoredEntriesToEvents } from "./sessionEvents";
 import { deriveSessionViewState } from "./sessionViewState";
 
 function makeTask(runStatus: TaskRunStatus, runId = "run-1"): Task {
@@ -46,21 +45,6 @@ function makeSession(
   };
 }
 
-function storedRunEvents(
-  taskRunId: string,
-  events: AcpMessage[],
-): AcpMessage[] {
-  const entries: StoredLogEntry[] = events.map((event) => ({
-    type: "notification",
-    timestamp: new Date(event.ts).toISOString(),
-    notification: event.message,
-  }));
-  return convertStoredEntriesToEvents(entries, undefined, {
-    taskRunId,
-    startEntryIndex: 0,
-  });
-}
-
 describe("deriveSessionViewState", () => {
   it("keeps the loading view through optimistic prompts and setup events", () => {
     const session = makeSession("in_progress");
@@ -73,7 +57,7 @@ describe("deriveSessionViewState", () => {
         pinToTop: true,
       },
     ];
-    session.events = storedRunEvents(session.taskRunId, [
+    session.events = [
       {
         type: "acp_message",
         ts: 2,
@@ -83,7 +67,7 @@ describe("deriveSessionViewState", () => {
           params: {},
         },
       },
-    ]);
+    ];
 
     expect(
       deriveSessionViewState(session, makeTask("in_progress"), null, true)
@@ -93,18 +77,7 @@ describe("deriveSessionViewState", () => {
 
   it("opens the live cloud chat after the active run sends its prompt", () => {
     const session = makeSession("in_progress");
-    session.events = storedRunEvents(session.taskRunId, [
-      {
-        type: "acp_message",
-        ts: 2,
-        message: {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "session/prompt",
-          params: {},
-        },
-      },
-    ]);
+    session.firstPromptForRunId = session.taskRunId;
 
     expect(
       deriveSessionViewState(session, makeTask("in_progress"), null, true)
@@ -141,36 +114,115 @@ describe("deriveSessionViewState", () => {
   });
 
   it("uses the task status when the session belongs to an older run", () => {
+    const oldSession = makeSession("completed", "old-run");
+    oldSession.status = "error";
+    oldSession.firstPromptForRunId = "old-run";
+
     const state = deriveSessionViewState(
-      makeSession("completed", "old-run"),
+      oldSession,
+      makeTask("in_progress", "new-run"),
+      null,
+      true,
+      true,
+    );
+
+    expect(state.cloudStatus).toBe("in_progress");
+    expect(state.isCloudRunNotTerminal).toBe(true);
+    expect(state.hasError).toBe(false);
+    expect(state.isInitializing).toBe(true);
+  });
+
+  it("uses a started session while task metadata still names the old run", () => {
+    const session = makeSession("in_progress", "new-run");
+    session.firstPromptForRunId = "new-run";
+    session.resumeAncestorRunIds = ["older-run", "old-run"];
+
+    const state = deriveSessionViewState(
+      session,
+      makeTask("failed", "old-run"),
+      null,
+      true,
+    );
+
+    expect(state.cloudStatus).toBe("in_progress");
+    expect(state.isCloudRunTerminal).toBe(false);
+    expect(state.isInitializing).toBe(false);
+  });
+
+  it("uses newer task metadata over an unrelated old session", () => {
+    const session = makeSession("completed", "old-run");
+    session.firstPromptForRunId = "old-run";
+
+    const state = deriveSessionViewState(
+      session,
       makeTask("in_progress", "new-run"),
       null,
       true,
     );
 
     expect(state.cloudStatus).toBe("in_progress");
-    expect(state.isCloudRunNotTerminal).toBe(true);
+    expect(state.isInitializing).toBe(true);
   });
 
-  it.each([
-    { isHydratingTranscript: true, expected: true },
-    { isHydratingTranscript: undefined, expected: false },
-  ])(
-    "shows an empty terminal thread as initializing only while its transcript hydrates (hydrating: $isHydratingTranscript)",
-    ({ isHydratingTranscript, expected }) => {
-      const session = makeSession("completed");
-      session.isHydratingTranscript = isHydratingTranscript;
+  it("shows loading immediately when a new run starts from a terminal task", () => {
+    const session = makeSession("failed");
+    session.status = "error";
 
-      const state = deriveSessionViewState(
-        session,
-        makeTask("completed"),
-        null,
-        true,
-      );
+    const state = deriveSessionViewState(
+      session,
+      makeTask("failed"),
+      null,
+      true,
+      true,
+    );
 
-      expect(state.isInitializing).toBe(expected);
-    },
-  );
+    expect(state.isInitializing).toBe(true);
+  });
+
+  it("does not restore startup loading while a terminal transcript hydrates", () => {
+    const session = makeSession("completed");
+    session.isHydratingTranscript = true;
+
+    const state = deriveSessionViewState(
+      session,
+      makeTask("completed"),
+      null,
+      true,
+    );
+
+    expect(state.isInitializing).toBe(false);
+  });
+
+  it("shows loading while a local session reconnects after reload", () => {
+    const task = makeTask("in_progress");
+    if (task.latest_run) {
+      task.latest_run.environment = "local";
+    }
+
+    expect(
+      deriveSessionViewState(undefined, task, null, false).isInitializing,
+    ).toBe(true);
+  });
+
+  it("keeps a local session loading until its first prompt", () => {
+    const task = makeTask("in_progress");
+    if (task.latest_run) {
+      task.latest_run.environment = "local";
+    }
+    const session = makeSession("in_progress");
+    session.isCloud = false;
+    session.status = "connecting";
+
+    expect(
+      deriveSessionViewState(session, task, null, false).isInitializing,
+    ).toBe(true);
+
+    session.status = "connected";
+    session.firstPromptForRunId = session.taskRunId;
+    expect(
+      deriveSessionViewState(session, task, null, false).isInitializing,
+    ).toBe(false);
+  });
 
   it("treats not_started as a non-terminal cloud state", () => {
     const state = deriveSessionViewState(

@@ -109,6 +109,22 @@ export interface TaskDot {
  * that story; only a visibly loading or streaming run lights the dot.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
+  // Cloud `queued` is a sandbox being claimed, and the backend leaves that
+  // state by itself. A local run can remain `queued` after the agent finishes.
+  const isLoadingCloudRun =
+    props.taskRunStatus === "queued" &&
+    props.workspaceMode === "cloud" &&
+    !props.isGenerating;
+  const isLoading = props.isAgentSessionStarting || isLoadingCloudRun;
+  if (isLoading) {
+    return {
+      tone: "yellow",
+      style: "solid",
+      pulse: false,
+      spinner: true,
+      label: "Loading",
+    };
+  }
   if (props.needsPermission) {
     // Not flashing. Blue already reads as the one thing in the list that is
     // yours to answer, and a blink on top of that argues with every quiet row
@@ -124,12 +140,7 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: "Needs your input",
     };
   }
-  // Cloud `queued` is a sandbox being claimed, and the backend leaves that
-  // state by itself. A local run can remain `queued` after the agent finishes.
-  const isLoadingCloudRun =
-    props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
-  const isLoading = props.isAgentSessionStarting || isLoadingCloudRun;
-  if (props.taskRunStatus === "failed") {
+  if (props.taskRunStatus === "failed" && !props.isGenerating) {
     return {
       tone: "red",
       style: "solid",
@@ -137,13 +148,13 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: "Failed",
     };
   }
-  if (props.isGenerating || isLoading) {
+  if (props.isGenerating) {
     return {
       tone: "yellow",
       style: "solid",
       pulse: false,
       spinner: true,
-      label: isLoading ? "Loading" : "Working",
+      label: "Working",
     };
   }
   if (props.isUnread) {

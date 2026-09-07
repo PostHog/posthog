@@ -2,11 +2,7 @@ import type {
   AvailableCommand,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import {
-  extractAvailableCommandsFromEvents,
-  hasSessionPromptEventForTaskRun,
-} from "@posthog/core/sessions/sessionEvents";
-import { isTerminalStatus } from "@posthog/shared/domain-types";
+import { extractAvailableCommandsFromEvents } from "@posthog/core/sessions/sessionEvents";
 import type { PermissionRequest } from "@posthog/ui/features/sessions/sessionLogTypes";
 import { shallow } from "zustand/shallow";
 import {
@@ -163,27 +159,5 @@ export const useSessionIsCloud = (taskId: string | undefined): boolean => {
     const taskRunId = s.taskIdIndex[taskId];
     if (!taskRunId) return false;
     return s.sessions[taskRunId]?.isCloud ?? false;
-  });
-};
-
-export const useTaskSessionStarting = (taskId: string | undefined): boolean => {
-  return useSessionStore((s) => {
-    if (!taskId) return false;
-    const markedStarting = s.startingTaskIds[taskId] === true;
-    const taskRunId = s.taskIdIndex[taskId];
-    const session = taskRunId ? s.sessions[taskRunId] : undefined;
-    if (!session) return markedStarting;
-    if (
-      session.status === "error" ||
-      isTerminalStatus(session.cloudStatus) ||
-      session.agentIdleForRunId === session.taskRunId
-    ) {
-      return false;
-    }
-    return (
-      markedStarting ||
-      (session.isCloud === true &&
-        !hasSessionPromptEventForTaskRun(session.events, session.taskRunId))
-    );
   });
 };

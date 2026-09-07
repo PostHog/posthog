@@ -690,16 +690,10 @@ export function SessionView({
                   }
                   attachments={pendingTaskPrompt.attachments}
                 />
-              ) : isCloud ? (
-                <SessionInitializingView executionTarget="cloud" />
               ) : (
-                <Flex
-                  align="center"
-                  justify="center"
-                  className="absolute inset-0 bg-background"
-                >
-                  <Spinner size={32} className="text-gray-9" />
-                </Flex>
+                <SessionInitializingView
+                  executionTarget={isCloud ? "cloud" : "local"}
+                />
               )
             ) : (
               <>
