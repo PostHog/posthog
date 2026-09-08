@@ -28,6 +28,8 @@ export interface AcpNotification {
  */
 export interface StoredLogEntry {
     type: 'notification'
+    /** Client-side ownership; the shared backend log payload stays unchanged. */
+    source_run_id?: string
     timestamp?: string
     notification: AcpNotification
 }
