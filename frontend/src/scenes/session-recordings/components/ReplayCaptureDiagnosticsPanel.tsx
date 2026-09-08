@@ -16,7 +16,7 @@ type ReplayCaptureDiagnosticsPanelProps =
 const TRIGGER_STATUS_EXPLANATIONS: Record<string, string> = {
     trigger_disabled: 'No trigger of this type is configured.',
     trigger_pending: 'A trigger is configured but has not yet matched on this session.',
-    trigger_matched: 'The trigger fired — recording was allowed to start.',
+    trigger_matched: 'The trigger fired, so recording was allowed to start.',
 }
 
 const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
@@ -27,8 +27,9 @@ const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
     sampled: 'This session was included by the configured replay sample rate, so recording started.',
     paused: 'Recording is temporarily paused for this session.',
     lazy_loading: 'The SDK is still loading the recorder script before it can produce snapshots.',
-    pending_config: 'The SDK is waiting for recording settings from PostHog before it can start.',
-    rrweb_error: 'The recorder hit an error and could not produce snapshots.',
+    awaiting_config: 'The SDK is waiting for recording settings from PostHog before it can start.',
+    missing_config: 'The SDK could not load recording settings and stopped trying. Reload the page to start recording.',
+    rrweb_error: 'The recorder failed to start, so no snapshots were produced. Check the browser console for errors.',
 }
 
 const START_REASON_EXPLANATIONS: Record<string, string> = {
@@ -49,7 +50,7 @@ const explainValue = (key: string, value: unknown): string | null => {
         case '$sdk_debug_replay_linked_flag_trigger_status':
             return typeof value === 'string' ? (TRIGGER_STATUS_EXPLANATIONS[value] ?? null) : null
         case '$sdk_debug_recording_script_not_loaded':
-            return 'The SDK reported the recorder script was not loaded on the page — often caused by ad blockers.'
+            return 'The SDK reported the recorder script was not loaded on the page, often caused by ad blockers.'
         case '$sdk_debug_rrweb_start_attempted':
             if (value === true) {
                 return 'The SDK attempted to start the recorder.'

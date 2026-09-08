@@ -174,7 +174,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             headline: `Recording was gated on a trigger that never fired`,
             reasons: [
                 `The following trigger(s) were pending and never matched: ${pending.map((p) => p.key).join(', ')}.`,
-                'Recording only starts once a configured trigger is satisfied — until then, no snapshots are captured.',
+                'Recording only starts once a configured trigger is satisfied. Until then, no snapshots are captured.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
@@ -187,7 +187,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             headline: 'This session was excluded by sampling',
             reasons: [
                 'The SDK selected this session to be dropped based on the configured replay sample rate.',
-                'Sampling is random per-session — increase the sample rate in project settings to capture more sessions.',
+                'Sampling is random per-session. Increase the sample rate in project settings to capture more sessions.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
