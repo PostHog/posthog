@@ -381,7 +381,7 @@ function getCommonPrefixLength(leftText: string, rightText: string): number {
 }
 
 function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
-    return markdown
+    const normalizedMarkdown = markdown
         .replace(
             /(^|\n)<insight>\s*([A-Za-z0-9_-]+)\s*<\/insight>(?=\n|$)/gi,
             (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
@@ -390,6 +390,36 @@ function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
             /(^|\n)<Insight\s+(?:id|shortId)=["']([A-Za-z0-9_-]+)["']\s*\/>(?=\n|$)/g,
             (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
         )
+
+    if (!normalizedMarkdown.includes('```')) {
+        return normalizedMarkdown
+    }
+
+    const document = parseMarkdownNotebook(normalizedMarkdown)
+    let unwrappedWidget = false
+    const nodes = document.nodes.flatMap((node): NotebookBlockNode[] => {
+        if (node.type !== 'code' || !['', 'md', 'markdown'].includes(node.language ?? '') || node.refs?.length) {
+            return [node]
+        }
+
+        const widgetDocument = parseMarkdownNotebook(node.text)
+        if (
+            widgetDocument.errors.length ||
+            !widgetDocument.nodes.length ||
+            widgetDocument.nodes.some(
+                (candidate) =>
+                    candidate.type !== 'component' || candidate.tagName !== 'Widget' || candidate.errors?.length
+            )
+        ) {
+            return [node]
+        }
+
+        unwrappedWidget = true
+        widgetDocument.nodes[0] = { ...widgetDocument.nodes[0], startsGroup: node.startsGroup }
+        return widgetDocument.nodes
+    })
+
+    return unwrappedWidget ? serializeMarkdownNotebook({ ...document, nodes }) : normalizedMarkdown
 }
 
 function getSavedInsightQueryMarkdown(shortId: string): string {
