@@ -350,6 +350,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
         "is_ai_data_processing_approved": "third-party AI services",
+        "uses_most_specific_access_resolution": "most-specific access resolution",
     },
     "BatchExport": {
         "paused": "enabled",
