@@ -616,8 +616,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
 
     @staticmethod
     def validate_events(value: object) -> object:
-        # The model setter checks the same schema, but raises a Django ValidationError that DRF does
-        # not translate, so the caller gets a 500 with no field name.
+        # Without this, the model setter raises a Django ValidationError, which DRF turns into a 500.
         try:
             revenue_analytics_events_adapter.validate_python(value)
         except PydanticValidationError as error:

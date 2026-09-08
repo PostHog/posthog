@@ -997,8 +997,7 @@ def team_api_test_factory():
             }
 
         def test_revenue_analytics_config_rejects_unknown_event_keys_with_a_400(self) -> None:
-            # Wiring guard: the endpoint checks the event items itself, instead of letting the model
-            # setter raise a 500. The per-shape matrix lives in TestTeamSerializerValidationNoDB.
+            # Wiring guard for the matrix in TestTeamSerializerValidationNoDB.
             valid = self.client.patch(
                 "/api/environments/@current/",
                 {"revenue_analytics_config": {"events": [{"eventName": "purchase", "revenueProperty": "amount"}]}},
@@ -3613,8 +3612,7 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
         assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
 
-    # Every one of these shapes returned a 500 before the events field was validated in the
-    # serializer, because the model setter raises a Django ValidationError that DRF passes through.
+    # Every one of these shapes used to reach the model setter and return a 500.
     @parameterized.expand(
         [
             [
