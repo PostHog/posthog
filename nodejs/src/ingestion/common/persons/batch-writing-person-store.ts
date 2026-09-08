@@ -25,6 +25,7 @@ import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/per
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
+    PersonDistinctIdMapping,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
@@ -1274,6 +1275,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             }
             throw error
         })
+    }
+
+    /**
+     * Uncached authoritative read of committed mapping rows, for re-emitting them to
+     * ClickHouse. The batch caches are bypassed on purpose: a healing emission must
+     * carry the committed version, not an optimistic in-batch state.
+     */
+    fetchPersonDistinctIdMappings(teamId: Team['id'], distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
+        return this.personRepository.fetchPersonDistinctIdMappings(teamId, distinctIds)
     }
 
     async fetchForUpdate(teamId: Team['id'], distinctId: string, batchId: number): Promise<InternalPerson | null> {
