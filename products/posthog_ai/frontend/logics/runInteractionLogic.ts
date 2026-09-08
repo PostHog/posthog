@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -32,6 +33,7 @@ import {
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
@@ -712,7 +714,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, cache }) => {
         const noteTerminalDraft = (): void => {
             // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
             // the task's repository snapshot, so typing must not start one before the organization
@@ -876,6 +878,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 const streamKey = props.streamKey ?? props.runId
                 let claimedStreamKey = streamKey
                 const pendingContext = values.pendingContextItems
+                const disposables = cache.disposables
+                const projectId = String(values.currentProjectId)
                 actions.claimApplyBackTargets(streamKey)
                 try {
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
@@ -893,7 +897,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         }
                     )
                     actions.consumeWarm()
-                    const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
+                    const result = await submitWithWarmRunRetry(
+                        (options) => tasksRunCreate(projectId, props.taskId, createRequest, options),
+                        disposables
+                    )
                     actions.resetComposerForm()
                     markPendingContextSent(pendingContext)
                     const latestRunId = result.latest_run?.id
@@ -904,11 +911,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     } else {
                         actions.releaseApplyBackTargets(streamKey)
                     }
-                } catch {
+                } catch (error) {
+                    if (disposables.isDisposed) {
+                        return
+                    }
                     actions.releaseApplyBackTargets(claimedStreamKey)
-                    lemonToast.error('Failed to start a new run. Please try again.')
+                    lemonToast.error(
+                        error instanceof ApiError && error.code === 'warm_run_activation_unavailable'
+                            ? "Couldn't start this run yet. Please try again."
+                            : 'Failed to start a new run. Please try again.'
+                    )
                 } finally {
-                    actions.setStartingRun(false)
+                    if (!disposables.isDisposed) {
+                        actions.setStartingRun(false)
+                    }
                 }
             },
 

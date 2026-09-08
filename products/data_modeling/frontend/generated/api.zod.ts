@@ -14,7 +14,12 @@ export const dataModelingDagsCreateBodyNameMax = 2048
 export const DataModelingDagsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingDagsCreateBodyNameMax).describe('Human-readable name for this DAG'),
     description: zod.string().optional().describe("Optional description of the DAG's purpose"),
-    sync_frequency: zod.string().nullish().describe("Sync frequency string (e.g. '24hour', '7day')"),
+    sync_frequency: zod
+        .string()
+        .nullish()
+        .describe(
+            "Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected."
+        ),
 })
 
 export const dataModelingDagsPartialUpdateBodyNameMax = 2048
@@ -26,7 +31,12 @@ export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Human-readable name for this DAG'),
     description: zod.string().optional().describe("Optional description of the DAG's purpose"),
-    sync_frequency: zod.string().nullish().describe("Sync frequency string (e.g. '24hour', '7day')"),
+    sync_frequency: zod
+        .string()
+        .nullish()
+        .describe(
+            "Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected."
+        ),
 })
 
 export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
