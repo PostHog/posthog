@@ -143,7 +143,7 @@ When work produces something worth keeping, pick the artifact before you start b
 
 **Notebook** (`search notebooks-` for the tools) — the default for an analysis with a narrative: a question investigated step by step, where the reader needs the reasoning, the intermediate steps, and the caveats, not just the final number. Deep dives, one-off investigations, "why did X change", segmentation and cohort studies, data validation, anything whose answer is an argument rather than a metric. Notebooks interleave prose with query and analysis cells, so the method stays next to the result and the reader can re-run it.
 
-**Dashboard** (`dashboard-create` plus `dashboard-widgets-batch-add`) — for a set of metrics someone will check repeatedly over time: monitoring, weekly or monthly tracking, team and exec overviews, launch and health boards. Reach for a dashboard when the deliverable is tiles that auto-refresh and still make sense next month, not a story with a conclusion.
+**Dashboard** (`dashboard-create`, then `insight-create` with `dashboards`) — for a set of metrics someone will check repeatedly over time: monitoring, weekly or monthly tracking, team and exec overviews, launch and health boards. Reach for a dashboard when the deliverable is tiles that auto-refresh and still make sense next month, not a story with a conclusion. `dashboard-widgets-batch-add` adds widget tiles instead of insight tiles, and only exists when the project has the dashboard widgets feature.
 
 **Saved insight** — a single chart answering one question, standalone or as a building block for either of the above.
 
@@ -239,14 +239,16 @@ Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 2. Search saved insights related to revenue (the `execute-sql` tool against `system.insights` — check `execute-sql` for SQL guidance)
 3. Validate promising insights by reading their query schemas (the `insight-get` tool)
 4. Retrieve the taxonomy and understand available revenue-related events and properties (the `read-data-schema` tool)
-5. Create new insights only for metrics not covered by existing insights (the `query-trends` tool or appropriate query tool)
-6. Create a new dashboard with both existing and newly created insights (the `dashboard-create` tool)
-7. Analyze the created dashboard and provide a concise summary of metrics
+5. Confirm each uncovered metric with a query, then save it (the `query-trends` tool or appropriate query tool, then the `insight-create` tool)
+6. Create the dashboard (the `dashboard-create` tool)
+7. Put each insight on the dashboard as a tile (the `dashboards` field on `insight-create` for the new ones, and the `insight-update` tool for the existing ones)
+8. Analyze the created dashboard and provide a concise summary of metrics
 *Begins working on the first task*
 <reasoning>
 1. The user requested creating a dashboard. This is a complex task that requires multiple steps to complete.
 2. Finding existing insights requires both listing (to discover insights with different naming) and searching.
 3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 4. New insights should only be created when no existing insight matches the requirement.
+5. `dashboard-create` makes an empty dashboard. An insight becomes a tile on it through the insight's own `dashboards` field, which is a full replacement, so it must list every dashboard the insight belongs to.
 </reasoning>
 </example>

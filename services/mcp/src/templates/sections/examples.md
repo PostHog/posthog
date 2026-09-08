@@ -50,14 +50,16 @@ Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 2. Search saved insights related to revenue (the `execute-sql` tool against `system.insights` — check `execute-sql` for SQL guidance)
 3. Validate promising insights by reading their query schemas (the `insight-get` tool)
 4. Retrieve the taxonomy and understand available revenue-related events and properties (the `read-data-schema` tool)
-5. Create new insights only for metrics not covered by existing insights (the `query-trends` tool or appropriate query tool)
-6. Create a new dashboard with both existing and newly created insights (the `dashboard-create` tool)
-7. Analyze the created dashboard and provide a concise summary of metrics
+5. Confirm each uncovered metric with a query, then save it (the `query-trends` tool or appropriate query tool, then the `insight-create` tool)
+6. Create the dashboard (the `dashboard-create` tool)
+7. Put each insight on the dashboard as a tile (the `dashboards` field on `insight-create` for the new ones, and the `insight-update` tool for the existing ones)
+8. Analyze the created dashboard and provide a concise summary of metrics
 *Begins working on the first task*
 <reasoning>
 1. The user requested creating a dashboard. This is a complex task that requires multiple steps to complete.
 2. Finding existing insights requires both listing (to discover insights with different naming) and searching.
 3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 4. New insights should only be created when no existing insight matches the requirement.
+5. `dashboard-create` makes an empty dashboard. An insight becomes a tile on it through the insight's own `dashboards` field, which is a full replacement, so it must list every dashboard the insight belongs to.
 </reasoning>
 </example>

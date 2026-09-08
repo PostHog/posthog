@@ -23,8 +23,11 @@ tools:
         description: >
             Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
             from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context
-            — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation,
-            see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.
+            — use dashboard-insights-run to fetch the actual data for each insight. This tool does not take insights: to
+            put a saved insight on the new dashboard, pass the new dashboard's id in the insight's `dashboards` field
+            with insight-create or insight-update. To add widget tiles instead, see dashboard-widget-catalog-list for
+            available widget types and dashboard-widgets-batch-add to add them; both only exist when the project has the
+            dashboard widgets feature.
 
             A dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring,
             weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive:
@@ -114,7 +117,9 @@ tools:
             `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the dashboard places the tile at the
             bottom with the default size. Use dashboard-reorder-tiles for precise placement. An image tile body must
             contain exactly one Markdown image, such as `![Accessible description](https://example.com/image.png)`. The
-            image URL must be reachable by dashboard viewers. Use `layouts` to control the tile size.
+            image URL must be reachable by dashboard viewers. Use `layouts` to control the tile size. This tool does not
+            make insight tiles: attach a saved insight through its own `dashboards` field with insight-create or
+            insight-update.
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true

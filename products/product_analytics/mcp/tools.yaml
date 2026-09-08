@@ -87,7 +87,9 @@ tools:
 
             Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if
 
-            you want to see the computed results.
+            you want to see the computed results. To put the insight on a dashboard as a tile, list the dashboard ids in
+
+            `dashboards`.
 
 
             Put the insight definition in `query.source`:
