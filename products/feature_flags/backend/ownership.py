@@ -39,8 +39,7 @@ def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     """Return the product that owns this flag, or None when nothing owns it.
 
     Ownership decides which approval policy family governs a write, so a flag must have at most one
-    owner. Production already satisfies that: of the owned flags in US, all but three have exactly
-    one owner. `assert_flag_available_for` keeps it that way.
+    owner. `assert_flag_available_for` keeps it that way.
     """
     for accessor, kind, manager in _OWNING_ACCESSORS:
         related = getattr(flag, accessor)
