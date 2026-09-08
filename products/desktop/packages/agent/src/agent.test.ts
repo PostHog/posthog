@@ -128,6 +128,8 @@ describe("Agent", () => {
         anthropicAuthToken: "token",
       }),
     );
+    // Without this the `/usage` command falls through to the model.
+    expect(config.usageCommand?.loadUsageMessage).toBeInstanceOf(Function);
   });
 
   it("stops before starting Codex without authentication", async () => {

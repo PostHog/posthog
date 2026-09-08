@@ -89,6 +89,12 @@ import {
   resolveTaskId,
 } from "../session-meta";
 import {
+  handleUsageCommand,
+  isUsageCommand,
+  type UsageCommandConfig,
+  withUsageCommand,
+} from "../usage-command";
+import {
   buildBreakdown,
   emptyBaseline,
   estimateMcpTokens,
@@ -374,6 +380,7 @@ export interface ClaudeAcpAgentOptions {
   machineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
+  usageCommand?: UsageCommandConfig;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
@@ -401,7 +408,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private sideQuestionAbort: AbortController | null = null;
 
   constructor(client: AgentSideConnection, options?: ClaudeAcpAgentOptions) {
-    super(client);
+    super(client, options?.usageCommand);
     this.options = options;
     this.toolUseCache = {};
     this.emittedToolCalls = new Set();
@@ -606,6 +613,22 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return this.clearConversation(params);
     }
 
+    const hasInFlightTurns =
+      this.session.activeTurn !== null || this.session.turnQueue.length > 0;
+    if (
+      this.usageCommandConfig &&
+      !hasInFlightTurns &&
+      !isSteerMeta(params._meta) &&
+      isUsageCommand(params)
+    ) {
+      return handleUsageCommand({
+        client: this.client,
+        sessionId: this.sessionId,
+        params,
+        config: this.usageCommandConfig,
+      });
+    }
+
     const userMessage = promptToClaude(params);
     const promptUuid = randomUUID();
     userMessage.uuid = promptUuid;
@@ -628,9 +651,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (this.session.queryClosed) {
       throw RequestError.internalError(undefined, SESSION_ENDED_MESSAGE);
     }
-
-    const hasInFlightTurns =
-      this.session.activeTurn !== null || this.session.turnQueue.length > 0;
 
     const isSteer = isSteerMeta(params._meta);
     if (hasInFlightTurns && isSteer && !this.session.compacting) {
@@ -1132,7 +1152,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               session.knownSlashCommands = collectKnownSlashCommands(
                 message.commands,
               );
-              const available = getAvailableSlashCommands(message.commands);
+              const available = withUsageCommand(
+                getAvailableSlashCommands(message.commands),
+                this.usageCommandConfig,
+              );
               await this.client.sessionUpdate({
                 sessionId,
                 update: {
@@ -3495,7 +3518,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private async sendAvailableCommandsUpdate(): Promise<void> {
     const commands = await this.session.query.supportedCommands();
     this.session.knownSlashCommands = collectKnownSlashCommands(commands);
-    const available = getAvailableSlashCommands(commands);
+    const available = withUsageCommand(
+      getAvailableSlashCommands(commands),
+      this.usageCommandConfig,
+    );
     await this.client.sessionUpdate({
       sessionId: this.sessionId,
       update: {

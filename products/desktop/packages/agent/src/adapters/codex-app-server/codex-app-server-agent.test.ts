@@ -3773,6 +3773,36 @@ describe("CodexAppServerAgent", () => {
     ).toBe("turn_2");
   });
 
+  it("advertises /usage only when the session can answer it", async () => {
+    // A command menu built from this list must offer only what the adapter can honor.
+    const withUsage = async (usageCommand?: {
+      loadUsageMessage: () => Promise<string>;
+    }) => {
+      const stub = makeStubRpc({
+        "thread/start": { thread: { id: "t" } },
+        "skills/list": { data: [] },
+      });
+      const { client, sessionUpdates } = makeFakeClient();
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+        usageCommand,
+      });
+      await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+      const cmds = (
+        sessionUpdates.find(
+          (u: any) => u.update?.sessionUpdate === "available_commands_update",
+        ) as any
+      )?.update?.availableCommands;
+      return (cmds ?? []).map((c: { name: string }) => c.name);
+    };
+
+    expect(
+      await withUsage({ loadUsageMessage: () => Promise.resolve("report") }),
+    ).toContain("usage");
+    expect(await withUsage(undefined)).not.toContain("usage");
+  });
+
   it("omits disabled skills from available_commands_update", async () => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "t" } },
