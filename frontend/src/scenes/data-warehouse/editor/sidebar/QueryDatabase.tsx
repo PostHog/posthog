@@ -1004,27 +1004,6 @@ export const QueryDatabase = ({
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            {addJoinSourceTableName ? (
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (addJoinAccessDisabledReason) {
-                                            return
-                                        }
-                                        openNewExpressionModal(addJoinSourceTableName)
-                                    }}
-                                >
-                                    <ButtonPrimitive
-                                        menuItem
-                                        disabledReasons={
-                                            addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
-                                        }
-                                    >
-                                        Add expression
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            ) : null}
                             {item.record.type === 'view' ? (
                                 <DropdownMenuItem
                                     asChild

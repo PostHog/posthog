@@ -21,6 +21,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseExpression
 
 # Same simple-identifier shape as `escape_hogql_identifier`. A whitelist rather than a
@@ -96,6 +97,15 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
         # under an advisory lock inside create()/update().
         if self._becomes_active(attrs) and (instance is None or instance.deleted):
             self._enforce_expression_cap(team_id, instance)
+
+        if DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=table_name).exclude(deleted=True).exists():
+            raise serializers.ValidationError(
+                {
+                    "table_name": [
+                        f'"{table_name}" is a view. Expressions can only be added to tables. To add a field to a view, edit its query.'
+                    ]
+                }
+            )
 
         try:
             source, database = resolve_database_for_connection(
