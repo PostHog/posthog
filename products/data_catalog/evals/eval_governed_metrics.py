@@ -463,6 +463,17 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     "metric_name": MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
                     "outcome": "succeeded",
                 },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Found the approved metric '{MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME}' before any schema or "
+                        "raw-data discovery, ran it through data-catalog-metric-run for the daily failure-rate "
+                        "headline, and only then answered which tools drive the failures with supplemental SQL "
+                        "over $mcp_tool_call grouped by tool, clearly labeled noncanonical or clearly distinguished "
+                        "from the canonical headline. Skipping the canonical run because an MCP analytics skill "
+                        "offers a ready query, re-deriving the headline rate by hand, omitting the requested "
+                        "per-tool breakdown, or presenting that breakdown as canonical is a failure."
+                    )
+                },
             },
             setup=seed_mcp_tool_call_fail_pct_metric,
         ),

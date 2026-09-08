@@ -174,7 +174,7 @@ OPERATIONAL_METRIC_DEFINITION: dict = {
 
 DAILY_ACTIVE_ORGS_METRIC_NAME = "daily_active_orgs"
 DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME = "Daily active organizations"
-DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION = "Daily count of active Hedgebox organizations, using the account group attached to any event in the trailing 30 days."
+DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION = "Daily count of Hedgebox organizations with at least one event on that day, over the trailing 30 days, using the account group attached to the event."
 DAILY_ACTIVE_ORGS_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",
     "query": (
@@ -192,7 +192,8 @@ DAILY_ACTIVE_ORGS_METRIC_DEFINITION: dict = {
 MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME = "mcp_tool_call_fail_pct"
 MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME = "MCP tool-call failure rate"
 MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION = (
-    "Daily percentage of hosted MCP tool calls that failed, measured from canonical $mcp_tool_call events."
+    "Daily percentage of PostHog's hosted MCP tool calls that failed, measured from canonical $mcp_tool_call events "
+    "whose $mcp_server_name is PostHog, so calls to separately instrumented MCP servers are excluded."
 )
 MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",
@@ -202,6 +203,7 @@ MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION: dict = {
         "    round(100 * countIf(toBool(properties.$mcp_is_error)) / nullIf(count(), 0), 2) AS failure_rate_pct\n"
         "FROM events\n"
         "WHERE event = '$mcp_tool_call'\n"
+        "  AND toString(properties.$mcp_server_name) = 'PostHog'\n"
         "  AND timestamp >= now() - INTERVAL 30 DAY\n"
         "GROUP BY day\n"
         "ORDER BY day DESC"
