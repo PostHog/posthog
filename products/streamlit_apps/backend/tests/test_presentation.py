@@ -743,6 +743,20 @@ class TestCreateVersionFromSource(_StreamlitAppsFlagMixin, APIBaseTest):
             assert zf.read("utils.py").decode() == "def helper():\n    return 1\n"
             assert zf.read("data/events.parquet") == parquet_bytes
 
+    @patch("posthog.storage.object_storage.write")
+    @patch("products.streamlit_apps.backend.facade.api.MAX_ZIP_SIZE", 64)
+    def test_create_version_from_source_oversized_archive_413(self, mock_storage_write):
+        # The serializer's budget counts raw bytes, so an archive that only goes over once
+        # zip overhead is added reaches the facade and must not surface as a 500.
+        app = self._create_app()
+        response = self.client.post(
+            self._url(app.short_id, "create_version_from_source/"),
+            data={"source": "import streamlit as st\n" * 20},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        mock_storage_write.assert_not_called()
+
 
 class TestCreateVersionFromSourceInputSerializer(SimpleTestCase):
     @parameterized.expand(
