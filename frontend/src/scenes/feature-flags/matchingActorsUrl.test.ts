@@ -35,6 +35,25 @@ describe('matchingActorsUrl', () => {
         expect(JSON.parse(parsed.searchParams.properties_1)).toEqual([personProperty])
     })
 
+    it('strips the group names the flag API injects for display', () => {
+        // Every model in `ActorsQuery.properties` forbids a key it does not declare, so leaving
+        // `group_key_names` on a person filter fails validation with a 400.
+        const labeled: AnyPropertyFilter = {
+            key: 'organization_id',
+            value: ['org-abc-123'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Person,
+            group_key_names: { 'org-abc-123': 'Fjellride AB' },
+        }
+        const { group_key_names: _names, ...unlabeled } = labeled
+
+        const persons = combineUrl(matchingActorsUrl([labeled], null))
+        expect(persons.hashParams.q.source.properties).toEqual([unlabeled])
+
+        const groups = combineUrl(matchingActorsUrl([labeled], 0))
+        expect(JSON.parse(groups.searchParams.properties_0)).toEqual([unlabeled])
+    })
+
     it('strips flag-dependency filters the actor lists cannot evaluate', () => {
         const persons = combineUrl(matchingActorsUrl([personProperty, flagDependency], null))
         expect(persons.hashParams.q.source.properties).toEqual([personProperty])

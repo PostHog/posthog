@@ -7,10 +7,20 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter, AnyPropertyFilter } from '~/types'
 
+// The flag API injects `group_key_names` for display, and every model in `ActorsQuery.properties`
+// forbids a key it does not declare, so leaving it on fails validation.
+function withoutGroupKeyNames(property: AnyPropertyFilter): AnyPropertyFilter {
+    if (!('group_key_names' in property)) {
+        return property
+    }
+    const { group_key_names: _displayOnly, ...rest } = property
+    return rest as AnyPropertyFilter
+}
+
 // Flag-dependency filters (type: 'flag') aren't property filters the persons/groups lists can
 // evaluate, so drop them before linking, matching how the backend blast radius skips them.
 function toActorFilters(properties: AnyPropertyFilter[] | undefined): AnyPropertyFilter[] {
-    return (properties ?? []).filter((property) => !isFlagPropertyFilter(property))
+    return (properties ?? []).filter((property) => !isFlagPropertyFilter(property)).map(withoutGroupKeyNames)
 }
 
 /**
