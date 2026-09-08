@@ -181,6 +181,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                       label: (
                           <div className="flex gap-1 items-center">
                               <IconAndroid /> Firebase Cloud Messaging
+                              <LemonTag type="completion">Beta</LemonTag>
                           </div>
                       ),
                       onClick: () => openSetupModal(undefined, 'firebase'),
@@ -189,6 +190,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                       label: (
                           <div className="flex gap-1 items-center">
                               <IconApple /> Apple Push Notifications
+                              <LemonTag type="completion">Beta</LemonTag>
                           </div>
                       ),
                       onClick: () => openSetupModal(undefined, 'apns'),

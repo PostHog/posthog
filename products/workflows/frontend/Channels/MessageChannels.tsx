@@ -6,9 +6,11 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
 
@@ -21,6 +23,7 @@ export function MessageChannels(): JSX.Element {
     const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =
         useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const allWorkflowIntegrations =
         integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
@@ -52,7 +55,11 @@ export function MessageChannels(): JSX.Element {
                     <ProductIntroduction
                         productName="Workflows channel"
                         thingName="channel integration"
-                        description="Set up messaging channels to automatically send emails, SMS, or Slack notifications triggered by user actions and events."
+                        description={
+                            featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
+                                ? 'Set up messaging channels to automatically send emails, SMS, Slack, or push notifications triggered by user actions and events. Push notifications are in beta.'
+                                : 'Set up messaging channels to automatically send emails, SMS, or Slack notifications triggered by user actions and events.'
+                        }
                         docsURL="https://posthog.com/docs/workflows/configure-channels"
                         action={() => openSetupModal(undefined, 'email')}
                         customHog={HedgehogReporter}
