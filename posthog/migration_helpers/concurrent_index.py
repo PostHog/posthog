@@ -341,10 +341,20 @@ class SafeAddIndexConcurrently(AddIndexConcurrently):
         schema_editor.add_index(model, self.index, concurrently=True)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        self._ensure_not_in_transaction(schema_editor)
         model = from_state.apps.get_model(app_label, self.model_name)
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
+        if schema_editor.connection.in_atomic_block:
+            # Only a test reaches this branch. A TestMigrations case rolls its app back inside
+            # the transaction the TestCase wraps setUp in, and since the 2026-09-07 squash the
+            # squash leaves depend on every app, so that rollback now unapplies every newer
+            # migration in the repo — this op among them. CONCURRENTLY cannot run inside a
+            # transaction, so drop the index the ordinary way instead of refusing to unapply.
+            # The brief ACCESS EXCLUSIVE lock costs nothing on a test table, and a real
+            # rollback runs the migration with atomic = False and never gets here.
+            schema_editor.execute(f"DROP INDEX IF EXISTS {schema_editor.quote_name(self.index.name)}")
+            return
+        self._ensure_not_in_transaction(schema_editor)
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index.name) is None:
             return  # already dropped; a bin/migrate retry is a no-op
