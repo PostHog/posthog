@@ -19,6 +19,7 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { customerTasksLogic } from '../CustomerTasks/customerTasksLogic'
 import { accountBillingLogic } from './accountBillingLogic'
@@ -29,6 +30,7 @@ import { accountLinksLogic } from './accountLinksLogic'
 import { accountMeetingsLogic } from './accountMeetingsLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
+import { canViewAccountRelatedUsers } from './accountRelatedUsersAccess'
 import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
@@ -138,6 +140,11 @@ function CustomerTasksMount({ accountId }: { accountId: string }): null {
     return null
 }
 
+function AccountRelatedUsersMount({ externalId }: { externalId: string }): null {
+    useMountedLogic(accountRelatedUsersLogic({ externalId }))
+    return null
+}
+
 export function AccountNotebooksExpansion({
     accountId,
     externalId,
@@ -147,7 +154,6 @@ export function AccountNotebooksExpansion({
 }): JSX.Element {
     // AccountDetailTabs only renders the active tab, so these mounts keep expanded-row data cached between tab switches.
     useMountedLogic(accountNotebooksLogic({ accountId }))
-    useMountedLogic(accountRelatedUsersLogic({ externalId }))
     useMountedLogic(accountRelationshipsLogic({ accountId }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
@@ -157,6 +163,7 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountEmailThreadsLogic({ accountId }))
     useMountedLogic(accountMeetingsLogic({ accountId }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const activeTab = activeTabFor(accountId)
@@ -169,6 +176,7 @@ export function AccountNotebooksExpansion({
             {!!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS] && (
                 <CustomerTasksMount accountId={accountId} />
             )}
+            {canViewAccountRelatedUsers(user) && <AccountRelatedUsersMount externalId={externalId} />}
             <div className="flex gap-4">
                 <div className="w-fit shrink-0 flex flex-col gap-4">
                     <UsefulLinks accountId={accountId} />

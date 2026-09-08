@@ -16,6 +16,7 @@ jest.mock('kea', () => ({
 
 jest.mock('lib/logic/featureFlagLogic', () => ({ featureFlagLogic: { kind: 'featureFlags' } }))
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
+jest.mock('scenes/userLogic', () => ({ userLogic: { kind: 'user' } }))
 jest.mock('scenes/notebooks/NotebookPanel/notebookPanelLogic', () => ({
     notebookPanelLogic: { kind: 'notebookPanel' },
 }))
@@ -48,6 +49,7 @@ jest.mock('./EditAccountLinksButton', () => ({ EditAccountLinksButton: () => nul
 
 describe('AccountNotebooksExpansion', () => {
     let customerTasksEnabled = false
+    let isStaff = true
 
     beforeEach(() => {
         ;(useMountedLogic as jest.Mock).mockImplementation(() => undefined)
@@ -62,6 +64,8 @@ describe('AccountNotebooksExpansion', () => {
             switch (logic.kind) {
                 case 'featureFlags':
                     return { featureFlags: { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: customerTasksEnabled } }
+                case 'user':
+                    return { user: { is_staff: isStaff, is_impersonated: false } }
                 case 'expansion':
                     return { activeTabFor: () => 'notes' }
                 case 'links':
@@ -86,6 +90,26 @@ describe('AccountNotebooksExpansion', () => {
     afterEach(() => {
         cleanup()
         jest.clearAllMocks()
+        isStaff = true
+    })
+
+    test.each([
+        [true, true],
+        [false, false],
+    ])('shows the Users tab only when the viewer has staff access: %s', (staff, visible) => {
+        isStaff = staff
+        render(<AccountNotebooksExpansion accountId="account-1" externalId="external-1" />)
+
+        if (visible) {
+            expect(screen.getByText('Users')).toBeInTheDocument()
+        } else {
+            expect(screen.queryByText('Users')).not.toBeInTheDocument()
+        }
+        // The members endpoint is staff-only, so an expanded row must not mount the logic that reads it.
+        const mountedUsersLogic = (useMountedLogic as jest.Mock).mock.calls.some(
+            ([logic]: [{ kind?: string }]) => logic?.kind === 'users'
+        )
+        expect(mountedUsersLogic).toBe(visible)
     })
 
     test.each([

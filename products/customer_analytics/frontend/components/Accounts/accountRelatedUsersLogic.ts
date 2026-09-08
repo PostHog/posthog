@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -189,7 +190,8 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                         }
                         return { ...response, results: [] }
                     } catch (error) {
-                        if (!isBreakpoint(error as Error)) {
+                        // A denial is the staff-only endpoint's answer for a non-staff viewer, not a bug.
+                        if (!isBreakpoint(error as Error) && !isAccessDeniedError(error as ApiError)) {
                             posthog.captureException(error as Error, {
                                 scope: 'accountRelatedUsersLogic.loadMembers',
                             })

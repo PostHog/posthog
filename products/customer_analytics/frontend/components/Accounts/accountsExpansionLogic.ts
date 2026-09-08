@@ -35,20 +35,27 @@ export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
 
 export const DEFAULT_ACCOUNT_TAB: AccountExpansionTab = 'notes'
 
+// Every tab a viewer can lose. A tab with no entry is always available.
+const ACCOUNT_EXPANSION_TAB_GATES: Partial<
+    Record<AccountExpansionTab, (featureFlags: FeatureFlagsSet, canViewUsers: boolean) => boolean>
+> = {
+    tasks: (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+    users: (_, canViewUsers) => canViewUsers,
+    feature_requests: (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS],
+    meetings: (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP],
+    event_stream: (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP],
+}
+
 export function getVisibleAccountExpansionTab(
     tab: string | undefined,
-    featureFlags: FeatureFlagsSet
+    featureFlags: FeatureFlagsSet,
+    canViewUsers: boolean
 ): AccountExpansionTab {
     if (!ACCOUNT_EXPANSION_TABS.includes(tab as AccountExpansionTab)) {
         return DEFAULT_ACCOUNT_TAB
     }
-    if (tab === 'feature_requests' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]) {
-        return DEFAULT_ACCOUNT_TAB
-    }
-    if (tab === 'tasks' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
-        return DEFAULT_ACCOUNT_TAB
-    }
-    if ((tab === 'meetings' || tab === 'event_stream') && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+    const isAvailable = ACCOUNT_EXPANSION_TAB_GATES[tab as AccountExpansionTab]
+    if (isAvailable && !isAvailable(featureFlags, canViewUsers)) {
         return DEFAULT_ACCOUNT_TAB
     }
     return tab as AccountExpansionTab

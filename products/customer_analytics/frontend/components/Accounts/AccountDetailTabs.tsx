@@ -6,6 +6,7 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -17,6 +18,7 @@ import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansi
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { AccountNotesExpansion } from './AccountNotesExpansion'
 import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
+import { canViewAccountRelatedUsers } from './accountRelatedUsersAccess'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { AccountExpansionTab, getVisibleAccountExpansionTab } from './accountsExpansionLogic'
@@ -39,7 +41,9 @@ export function AccountDetailTabs({
     embedded = true,
 }: AccountDetailTabsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const visibleActiveTab = getVisibleAccountExpansionTab(activeTab, featureFlags)
+    const { user } = useValues(userLogic)
+    const canViewUsers = canViewAccountRelatedUsers(user)
+    const visibleActiveTab = getVisibleAccountExpansionTab(activeTab, featureFlags, canViewUsers)
     const canCreateTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)
     const canViewAllTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Viewer)
 
@@ -67,8 +71,8 @@ export function AccountDetailTabs({
                         />
                     ),
                 },
-                {
-                    key: 'users',
+                canViewUsers && {
+                    key: 'users' as const,
                     label: 'Users',
                     content: <AccountRelatedUsersExpansion externalId={externalId} embedded={embedded} />,
                 },
