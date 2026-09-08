@@ -68,7 +68,7 @@ export class ImageScrubConsumerMetrics {
      */
     private static readonly scrubWaits = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrub_waits_total',
-        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status). Retried rather than dropped, so this is backpressure and not loss',
+        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "refused" (nothing listening on the sidecar port, so the sidecar is down or restarting), "reset" (a connection the sidecar accepted and then dropped before replying, which its shutdown does to idle sockets), "transport" (any other socket failure, so a sustained rate outside a rollout is a fault), "rejected" (a 5xx other than 503, a 408, a 429, or an empty 200). Retried rather than dropped, so this is backpressure and not loss. The unreachable alert selects "refused" and "transport"',
         labelNames: ['reason'],
     })
     /**

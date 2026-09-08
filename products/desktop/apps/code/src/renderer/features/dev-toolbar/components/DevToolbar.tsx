@@ -47,6 +47,7 @@ import {
   LayoutGrid,
   MemoryStick,
   Moon,
+  MousePointerClick,
   Power,
   Radar,
   RefreshCw,
@@ -92,6 +93,10 @@ export function DevToolbar() {
   const setReactScanEnabledState = useDevFlagsStore(
     (s) => s.setReactScanEnabled,
   );
+  const reactGrabEnabled = useDevFlagsStore((s) => s.reactGrabEnabled);
+  const setReactGrabEnabledState = useDevFlagsStore(
+    (s) => s.setReactGrabEnabled,
+  );
 
   const [openPanel, setOpenPanel] = useState<DetailPanel>(null);
   const [panelHeight, setPanelHeight] = useState(480);
@@ -130,6 +135,10 @@ export function DevToolbar() {
             reactScanEnabled={reactScanEnabled}
             onToggleReactScan={() =>
               setReactScanEnabledState(!reactScanEnabled)
+            }
+            reactGrabEnabled={reactGrabEnabled}
+            onToggleReactGrab={() =>
+              setReactGrabEnabledState(!reactGrabEnabled)
             }
             onToggleRouterDevtools={toggleRouterDevtools}
           />
@@ -447,12 +456,16 @@ function UserMenu() {
 interface DevGadgetsProps {
   reactScanEnabled: boolean;
   onToggleReactScan: () => void;
+  reactGrabEnabled: boolean;
+  onToggleReactGrab: () => void;
   onToggleRouterDevtools: () => void;
 }
 
 function DevGadgets({
   reactScanEnabled,
   onToggleReactScan,
+  reactGrabEnabled,
+  onToggleReactGrab,
   onToggleRouterDevtools,
 }: DevGadgetsProps) {
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
@@ -473,6 +486,13 @@ function DevGadgets({
         active={reactScanEnabled}
       >
         <Radar size={14} />
+      </GadgetButton>
+      <GadgetButton
+        label={reactGrabEnabled ? "Disable react-grab" : "Enable react-grab"}
+        onClick={onToggleReactGrab}
+        active={reactGrabEnabled}
+      >
+        <MousePointerClick size={14} />
       </GadgetButton>
       {/* Router devtools are DEV-only — the overlay's code is stripped from
           prod builds, so the trigger must be too. */}

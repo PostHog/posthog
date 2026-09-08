@@ -483,6 +483,48 @@ fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config) {
     }
 }
 
+/// Every v1 sink whose `message_max_bytes` sits at or below the AI ceiling,
+/// sorted by sink name so the result is stable to assert on.
+fn v1_sinks_below_ai_ceiling(
+    config: &Config,
+    sinks_cfg: &crate::v1::sinks::Sinks,
+) -> Vec<(crate::v1::sinks::SinkName, u32)> {
+    let ceiling = config.ai_max_event_bytes;
+    // `0` disables the ceiling, so there is no ordering to be wrong about.
+    if ceiling == 0 {
+        return Vec::new();
+    }
+    let mut offenders: Vec<(crate::v1::sinks::SinkName, u32)> = sinks_cfg
+        .configs
+        .iter()
+        .filter(|(_, cfg)| ceiling >= cfg.kafka.message_max_bytes as u64)
+        .map(|(name, cfg)| (*name, cfg.kafka.message_max_bytes))
+        .collect();
+    offenders.sort_by_key(|(name, _)| name.as_str());
+    offenders
+}
+
+/// The v1-sink counterpart to [`warn_if_ai_ceiling_exceeds_producer_cap`].
+///
+/// That check reads `KAFKA_PRODUCER_MESSAGE_MAX_BYTES`, which governs only the
+/// v0 producer. Every v1 sink carries its own `message_max_bytes`
+/// (`CAPTURE_V1_SINK_<NAME>_KAFKA_MESSAGE_MAX_BYTES`, default 1MB), so a
+/// deployment whose AI traffic runs on a v1 sink can pass the v0 check with a
+/// correctly-raised cap on a producer it never uses, and still have every event
+/// between the sink cap and the ceiling refused by the broker.
+fn warn_if_ai_ceiling_exceeds_v1_sink_caps(config: &Config, sinks_cfg: &crate::v1::sinks::Sinks) {
+    for (name, message_max_bytes) in v1_sinks_below_ai_ceiling(config, sinks_cfg) {
+        warn!(
+            sink = name.as_str(),
+            ai_max_event_bytes = config.ai_max_event_bytes,
+            message_max_bytes,
+            "AI_MAX_EVENT_BYTES is at or above this v1 sink's MESSAGE_MAX_BYTES; \
+             events between the sink cap and the ceiling are built and then \
+             refused by the producer"
+        );
+    }
+}
+
 /// Warns when a token sending full-size AI events would be limited on nearly
 /// every one of them, because the window budget cannot fit even a single event
 /// at the deployment's ceiling. Both sides come from config, so the check stays
@@ -529,6 +571,8 @@ fn create_v1_sink_router(
             .capture_analytics_ai_events_overflow_topic
             .clone();
     }
+
+    warn_if_ai_ceiling_exceeds_v1_sink_caps(config, &sinks_cfg);
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
         HashMap::new();
@@ -1294,6 +1338,60 @@ mod tests {
         config.kafka.kafka_producer_message_max_bytes = producer_cap;
 
         assert_eq!(ai_ceiling_exceeds_producer_cap(&config), expected);
+    }
+
+    /// The v0 check above reads `KAFKA_PRODUCER_MESSAGE_MAX_BYTES`, which a
+    /// v1-sink-only deployment never produces through. capture-ai is exactly
+    /// that shape, so without this the AI ceiling is checked against a producer
+    /// the deployment does not use while the sink that does the producing keeps
+    /// its 1MB default.
+    #[rstest::rstest]
+    #[case::sink_at_default_is_flagged(8_388_608, 1_000_000, true)]
+    #[case::sink_raised_above_ceiling_is_clear(8_388_608, 10_485_760, false)]
+    #[case::equal_still_flags(1_000_000, 1_000_000, true)]
+    #[case::disabled_ceiling_never_flags(0, 1_000_000, false)]
+    fn ai_ceiling_is_checked_against_each_v1_sink_cap(
+        #[case] ceiling: u64,
+        #[case] sink_cap: u32,
+        #[case] expected_flagged: bool,
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion_ai"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.ai_max_event_bytes = ceiling;
+        // Raised well above the ceiling, so a v0-only check would say "clear"
+        // and any flag below must have come from the v1 sink.
+        config.kafka.kafka_producer_message_max_bytes = 20_971_520;
+
+        let mut sink_cfg = crate::v1::sinks::Config {
+            produce_timeout: std::time::Duration::from_secs(30),
+            kafka: crate::v1::test_utils::test_kafka_config(),
+        };
+        sink_cfg.kafka.message_max_bytes = sink_cap;
+        let sinks_cfg = crate::v1::sinks::Sinks {
+            default: crate::v1::sinks::SinkName::Ws,
+            configs: [(crate::v1::sinks::SinkName::Ws, sink_cfg)]
+                .into_iter()
+                .collect(),
+        };
+
+        assert!(
+            !ai_ceiling_exceeds_producer_cap(&config),
+            "v0 producer is raised, so only the v1 sink can be the offender"
+        );
+        let offenders = v1_sinks_below_ai_ceiling(&config, &sinks_cfg);
+        assert_eq!(offenders.is_empty(), !expected_flagged);
+        if expected_flagged {
+            assert_eq!(offenders[0].1, sink_cap);
+        }
     }
 
     /// Import deployments never build the AI byte limiter, however the knob is

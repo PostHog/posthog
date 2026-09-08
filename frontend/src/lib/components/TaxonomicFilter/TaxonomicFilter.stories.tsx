@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
+import { delay } from 'msw'
 import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
@@ -162,6 +163,39 @@ export const Properties: Story = {
         docs: {
             description: {
                 story: 'TaxonomicFilter showing Event Properties and Person Properties tabs.',
+            },
+        },
+    },
+}
+
+export const SlowExpansionCount: Story = {
+    render: Properties.render,
+    args: {
+        taxonomicFilterLogicKey: 'slow-expansion-count',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+        eventNames: ['page_opened'],
+        initialSearchQuery: 'name',
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/property_definitions': async ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const scoped = params.has('filter_by_event_names')
+                    const results = [{ id: 'page_name', name: 'page_name' }].filter((item) =>
+                        item.name.includes(params.get('search') ?? '')
+                    )
+                    await delay(scoped ? 100 : 8000)
+                    return { results, count: scoped ? results.length : 9 }
+                },
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="prop-filter-event_properties-0"]' },
+        docs: {
+            description: {
+                story: 'Scoped results appear while the full count is still loading. The expansion option arrives below them after eight seconds.',
             },
         },
     },

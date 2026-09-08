@@ -177,18 +177,28 @@ describe("InboxReportContextMenu", () => {
   });
 
   it("applies resolve and dismiss reasons directly", async () => {
+    const user = userEvent.setup();
     openMenu(makeReport());
 
-    fireEvent.click(screen.getByText("Resolve"));
+    await user.hover(screen.getByText("Resolve"));
     fireEvent.click(await screen.findByText("PR was merged"));
     expect(mocks.resolveWithReason).toHaveBeenCalledWith("pr_merged");
 
     fireEvent.contextMenu(screen.getByText("Report one"));
-    fireEvent.click(screen.getByText("Dismiss"));
+    await user.hover(screen.getByText("Dismiss"));
     fireEvent.click(
       await screen.findByText("Won't fix - intentional behavior"),
     );
     expect(mocks.dismissWithReason).toHaveBeenCalledWith("wontfix_intentional");
+  });
+
+  it("opens the reviewer picker on hover", async () => {
+    const user = userEvent.setup();
+    openMenu(makeReport());
+
+    await user.hover(screen.getByText("Reviewers"));
+
+    expect(await screen.findByText("Reviewer picker")).toBeVisible();
   });
 
   it("starts PR work from an eligible report", async () => {
@@ -242,7 +252,7 @@ describe("InboxReportContextMenu", () => {
     expect(mocks.openDismissDialog).toHaveBeenCalledWith("already_fixed");
   });
 
-  it("wires restore and copy link actions", async () => {
+  it("wires the restore action", async () => {
     const user = userEvent.setup();
     const report = makeReport({ status: "suppressed" });
     openMenu(report);
@@ -252,10 +262,20 @@ describe("InboxReportContextMenu", () => {
     // the row and unmounts this menu, so a mutation callback could be skipped.
     expect(mocks.trackAction).toHaveBeenCalledWith("restore");
     expect(mocks.restore).toHaveBeenCalledWith(report.id);
+  });
 
-    fireEvent.contextMenu(screen.getByText("Report one"));
-    await user.click(screen.getByText("Copy link"));
-    expect(mocks.copyLink).toHaveBeenCalledWith(report);
+  it.each(["web", "desktop"] as const)("copies the %s link", async (target) => {
+    const user = userEvent.setup();
+    const report = makeReport({ status: "suppressed" });
+    openMenu(report);
+
+    await user.hover(screen.getByText("Copy link"));
+    fireEvent.click(
+      await screen.findByText(
+        target === "web" ? "Copy web link" : "Copy desktop link",
+      ),
+    );
+    expect(mocks.copyLink).toHaveBeenCalledWith(report, target);
     expect(mocks.trackAction).toHaveBeenCalledWith("copy_link");
   });
 });

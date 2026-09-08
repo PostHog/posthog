@@ -10,8 +10,8 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - A new widget uses “Create an interactive visualization of the data in this notebook” when its instruction field is left empty.
 - Running a widget re-runs only its connected SQL and Python data cells in dependency order. It reloads the existing preview without generating a new version.
 - A fast model reviews the exact generated source before Canvas publishes it. A review failure stops publication.
-- Every preview stops at a gate that shows the automated review result and links to the source. The viewer must choose to run the exact build.
-- Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. “Run widget” records consent for that exact hash. A later build with different artifact contents requires a new decision. A build whose manifest is byte-identical, such as an identical rebuild, reuses the earlier consent.
+- A preview runs immediately only when its automated review found no potential issues and its immutable version exposes no notebook dataframes. Every dataframe-bearing, flagged, or legacy unreviewed version stops at a gate that shows the result and links to the source.
+- Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. Choosing “Run widget” at a gate records consent for that exact hash. A later gated build with different artifact contents requires a new decision. A build with identical contents reuses the earlier consent.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
 - Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
@@ -32,12 +32,14 @@ The generated-code trust flow works as follows:
 2. A fast model reviews the validated source as untrusted input. It looks for concrete exfiltration, deception, dynamic execution, browser access, side effects, and resource-abuse risks that static checks cannot reliably identify.
 3. The immutable widget version stores the highest severity, summary, findings, review model, review-instruction version, and review time. Restoring a version carries forward the review of that exact source.
 4. Canvas publishes the source only after the review returns a valid result. A missing, malformed, or failed review fails the generation job closed.
-5. Every reviewed build stops before execution and shows the result. The viewer can inspect the source before choosing to run that exact build.
-6. A review with findings changes the gate warning and requires the viewer to run the widget anyway.
-7. Legacy versions without a persisted review also stop before execution.
+5. A build whose review found no potential issues runs immediately only when its immutable dataframe allow-list is empty. The review result stays visible above the preview.
+6. Every build with notebook dataframe access stops before execution and requires exact-build consent, even when its review is green.
+7. Reviews with findings and legacy versions without a persisted review also stop before execution.
 8. Canvas records a SHA-256 over the complete frozen artifact manifest. The hash covers artifact contents only, with no build or version id, so a build with different contents has a different hash and requires a new execution decision when gated. A build with identical contents keeps the same hash and reuses the earlier decision.
 
 Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
+
+The automatic path requires an empty dataframe allow-list, exposes no PostHog capability, and grants no network origin. The Canvas CSP keeps `connect-src 'none'`. A green automated verdict never substitutes for viewer consent when generated code can access notebook data.
 
 There is intentionally no “trust widgets by this author” option. An author is not the sole authority over a collaborative notebook node: another editor can change its instructions, regenerate it, restore a version, or otherwise replace the artifact after the original author created it. Binding trust to an immutable build is stable; binding it to a mutable ownership label is not.
 

@@ -63,7 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .credential import DataWarehouseCredential
-from .external_table_definitions import external_tables, get_hogql_column_name_mapping
+from .external_table_definitions import external_tables, get_hogql_column_name_mapping, resolve_external_table_fields
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -346,6 +346,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+        indexes = [
+            # The HogQL database build reads a team's live tables ordered by created_at DESC on
+            # every query. ~Q(deleted=True) compiles to the same SQL as .exclude(deleted=True),
+            # so the planner matches the partial predicate without proving implication.
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwtable_team_live_created",
+                condition=~models.Q(deleted=True),
+            )
+        ]
 
     def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
         if not internally_computed_url_pattern:
@@ -974,7 +984,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         # Replace fields with any redefined fields if they exist
-        external_table_fields = external_tables.get(self.table_name_without_prefix())
+        external_table_fields = resolve_external_table_fields(self.table_name_without_prefix(), columns.keys())
         default_fields = external_tables.get("*", {})
         if external_table_fields is not None:
             fields = {**external_table_fields, **default_fields}

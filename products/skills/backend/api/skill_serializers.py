@@ -632,8 +632,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             return attrs
 
         if name is not None and self.instance.name != name:
+            # Renaming moves every version row and the owner rows together, which this path can't
+            # do — the dedicated rename endpoint owns it.
             raise serializers.ValidationError(
-                {"name": "Skill name cannot be changed after creation."},
+                {"name": "Use the rename endpoint to change a skill's name."},
                 code="immutable",
             )
 
@@ -749,6 +751,17 @@ class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
         help_text="Name for the duplicated skill. Must be unique.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_skill_name_value(value)
+
+
+class LLMSkillRenameSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=MAX_SKILL_NAME_LENGTH,
+        help_text="New name for the skill. Must be unique in the project, and must not start with "
+        "'signals-scout-' or 'review-hog-'.",
     )
 
     def validate_new_name(self, value: str) -> str:

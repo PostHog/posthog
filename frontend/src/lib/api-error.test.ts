@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import { ApiError, NetworkError, isTransientServerError, shouldReportApiFailure } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -100,6 +100,25 @@ describe('api-error', () => {
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
             ['a 404', { status: 404 }, true],
+            // A request the browser never sent. Nothing of ours failed, and grouping is stack-based,
+            // so reporting these opens one issue per loader that met the same connectivity blip.
+            ['a Chromium fetch failure', new TypeError('Failed to fetch'), false],
+            ['a WebKit fetch failure', new TypeError('Load failed'), false],
+            ['a Gecko fetch failure', new TypeError('NetworkError when attempting to fetch resource.'), false],
+            // `handleFetch` stringifies the original error into the message of its fallback ApiError.
+            ['a fetch failure wrapped by ApiError', new ApiError('TypeError: Failed to fetch'), false],
+            // A stale chunk after a deploy words itself the same way and is a defect we can fix.
+            [
+                'a missing chunk after a deploy',
+                new TypeError('Failed to fetch dynamically imported module: /static/Max-A2SGX7J3.js'),
+                true,
+            ],
+            ['a module script that would not load', new TypeError('Importing a module script failed.'), true],
+            // Narrowing on the class instead of the message here would bury real crashes.
+            ['an application TypeError', new TypeError('u.filter is not a function'), true],
+            // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
+            // stays reportable rather than being folded into the suppression above.
+            ['a classified NetworkError', new NetworkError('network'), true],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],

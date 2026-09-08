@@ -1080,6 +1080,72 @@ describe("CloudTaskEngine", () => {
     await waitFor(() => getWatcherEmittedEntryCount() === 0);
   });
 
+  it("does not replay a snapshot for a subscriber that joins while the watcher is still bootstrapping", async () => {
+    const updates: unknown[] = [];
+    service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+
+    const historicalEntry = {
+      type: "notification",
+      timestamp: "2026-01-01T00:00:00Z",
+      notification: {
+        jsonrpc: "2.0",
+        method: "_posthog/console",
+        params: { sessionId: "run-1", level: "info", message: "history" },
+      },
+    };
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: "build",
+          output: null,
+          error_message: null,
+          branch: "main",
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse([historicalEntry], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValueOnce(createOpenSseResponse(""));
+
+    const input = {
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    };
+    service.watch(input);
+    service.watch(input);
+
+    await waitFor(() =>
+      updates.some(
+        (update) => (update as { kind?: string }).kind === "snapshot",
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const snapshots = updates.filter(
+      (update) => (update as { kind?: string }).kind === "snapshot",
+    );
+    expect(snapshots).toHaveLength(1);
+    // One history page for the bootstrap: the second watch fetched nothing.
+    const historyFetches = mockNetFetch.mock.calls.filter(([input]) =>
+      String(input instanceof Request ? input.url : input).includes(
+        "/session_logs/",
+      ),
+    );
+    expect(historyFetches).toHaveLength(1);
+
+    // The second subscriber still counts, so one unwatch keeps the watcher up.
+    service.unwatch("task-1", "run-1");
+    const watchers = (service as unknown as { watchers: Map<string, unknown> })
+      .watchers;
+    expect(watchers.has("task-1:run-1")).toBe(true);
+  });
+
   it("ignores keepalive SSE events while keeping the stream open", async () => {
     const updates: unknown[] = [];
     service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));

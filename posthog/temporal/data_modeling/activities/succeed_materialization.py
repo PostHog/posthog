@@ -14,6 +14,7 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
     DataModelingJobStatus,
+    DataWarehouseSavedQuery,
     Node,
 )
 
@@ -121,6 +122,7 @@ def _succeed_node_and_data_modeling_job(
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.error = None
     job.save()
+    _clear_modified_marker(job)
 
     return SucceedNodeAndJobOutcome(
         node=node,
@@ -128,6 +130,19 @@ def _succeed_node_and_data_modeling_job(
         enrichment_needed=enrichment_needed,
         enrichment_saved_query_id=enrichment_saved_query_id,
     )
+
+
+def _clear_modified_marker(job: DataModelingJob) -> None:
+    # The API stamps `Modified` on a query edit. A serving run that started after the last save has
+    # consumed that edit, so the marker must go. `updated_at` moves on every save, which is why the
+    # comparison happens here, at run time, and not when the view is read.
+    if job.engine == DataModelingJobEngine.DUCKGRES or job.saved_query_id is None:
+        return
+    DataWarehouseSavedQuery.objects.filter(
+        id=job.saved_query_id,
+        status=DataWarehouseSavedQuery.Status.MODIFIED,
+        updated_at__lte=job.created_at,
+    ).update(status=None)
 
 
 @activity.defn

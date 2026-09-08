@@ -253,6 +253,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_platform",
         "members_can_invite",
         "members_can_create_projects",
+        "uses_most_specific_access_resolution",
         "is_ai_data_processing_approved",
         "is_ai_training_opted_in",
         "is_ai_training_locked",

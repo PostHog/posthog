@@ -997,7 +997,8 @@
                                     "maximum": 9007199254740991
                                 }
                             },
-                            "required": ["kind"]
+                            "required": ["kind"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1011,7 +1012,8 @@
                                     "description": "The name of the event that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "event_name"]
+                            "required": ["kind", "event_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1025,7 +1027,8 @@
                                     "description": "The type of the entity that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "entity"]
+                            "required": ["kind", "entity"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1041,7 +1044,8 @@
                                     "description": "The ID of the action that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "action_id"]
+                            "required": ["kind", "action_id"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1059,7 +1063,8 @@
                                     "description": "Verified property name of an entity."
                                 }
                             },
-                            "required": ["kind", "entity", "property_name"]
+                            "required": ["kind", "entity", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1077,7 +1082,8 @@
                                     "description": "Verified property name of an event."
                                 }
                             },
-                            "required": ["kind", "event_name", "property_name"]
+                            "required": ["kind", "event_name", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1097,7 +1103,8 @@
                                     "description": "Verified property name of an action."
                                 }
                             },
-                            "required": ["kind", "action_id", "property_name"]
+                            "required": ["kind", "action_id", "property_name"],
+                            "additionalProperties": false
                         }
                     ],
                     "description": "The data schema query to execute."
