@@ -15,13 +15,11 @@ from dataclasses import dataclass
 
 from django.conf import settings
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import async_connect
 
-from products.tasks.backend.feature_flags import is_native_steering_signals_enabled
 from products.tasks.backend.temporal.constants import STEERING_PROTOCOL_QUERY, STEERING_PROTOCOL_QUERY_TIMEOUT
 from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ExecuteSandboxInput
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -62,11 +60,6 @@ async def ensure_execute_sandbox_started(input: EnsureExecuteSandboxStartedInput
             # restart. Recovery from those failures lives at the orchestrator
             # level via the ACK-retry / re-bootstrap path.
         )
-        native_steering_signals_enabled = await sync_to_async(
-            is_native_steering_signals_enabled, thread_sensitive=False
-        )()
-        if not native_steering_signals_enabled:
-            return 0
         try:
             protocol_version = await handle.query(
                 STEERING_PROTOCOL_QUERY,
