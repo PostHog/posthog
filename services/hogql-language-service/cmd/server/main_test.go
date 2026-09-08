@@ -41,6 +41,12 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("autocomplete returned %d: %s", response.Code, response.Body.String())
 		}
+		if contentType := response.Header().Get("Content-Type"); contentType != "application/json; charset=utf-8" {
+			t.Fatalf("unexpected Content-Type: %q", contentType)
+		}
+		if response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatal("response is missing X-Content-Type-Options: nosniff")
+		}
 		var result completionResponse
 		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 			t.Fatal(err)
@@ -72,6 +78,9 @@ func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
 		s.handler().ServeHTTP(response, request)
 		if response.Code != test.status {
 			t.Fatalf("expected %d, got %d: %s", test.status, response.Code, response.Body.String())
+		}
+		if response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatal("error response is missing X-Content-Type-Options: nosniff")
 		}
 	}
 }
