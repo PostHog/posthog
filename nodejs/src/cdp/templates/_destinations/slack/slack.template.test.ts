@@ -124,8 +124,6 @@ describe('slack template', () => {
         expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty(key)
     })
 
-    // The code is the only part of a refusal a reader can act on, and each code must reach its own
-    // remedy: a mistyped key drops the advice silently.
     it.each([
         [
             'channel_not_found',
@@ -147,19 +145,16 @@ describe('slack template', () => {
             { status: 200, body: { ok: false, error: 'invalid_auth' } },
             'Slack rejected the message: invalid_auth. Reconnect Slack in your project settings.',
         ],
-        // A code with no remedy still leads with the code, and must not render the missing remedy.
         [
             'a code with no remedy',
             { status: 200, body: { ok: false, error: 'invalid_blocks' } },
             'Slack rejected the message: invalid_blocks.',
         ],
-        // A non-200 carries a code too, and the code still beats the status.
         [
             'a non-200 status with a code',
             { status: 429, body: { ok: false, error: 'ratelimited' } },
             'Slack rejected the message: ratelimited.',
         ],
-        // An outage page or gateway error has no code, so the raw response is all there is to report.
         [
             'a non-200 status with no code',
             { status: 503, body: 'service unavailable' },
