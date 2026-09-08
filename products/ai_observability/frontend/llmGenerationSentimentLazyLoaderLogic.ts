@@ -238,6 +238,9 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                 // Drop the probe too, so a project that just got its first sentiment evaluation
                 // starts looking sentiment up again.
                 cache.sentimentEvaluationsProbe = undefined
+                // Clearing the cells alone still lets the query cache answer the next lookup with
+                // the stale result, so the first batch after this recalculates.
+                cache.forceSentimentRefresh = true
             },
             ensureGenerationSentimentLoaded: ({ lookup }) => {
                 if (values.sentimentByGenerationKey[lookup.key] !== undefined) {
@@ -274,13 +277,15 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                             }
 
                             const chunks = chunk(allLookups, BATCH_MAX_SIZE)
+                            const forceRefresh = cache.forceSentimentRefresh === true
+                            cache.forceSentimentRefresh = false
 
                             await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
                                 const requestedKeys = batch.map((lookup) => lookup.key)
 
                                 try {
                                     const results = await withTimeout(
-                                        (signal) => fetchStoredGenerationSentiments(batch, signal),
+                                        (signal) => fetchStoredGenerationSentiments(batch, signal, forceRefresh),
                                         REQUEST_DEADLINE_MS
                                     )
                                     actions.loadGenerationSentimentBatchSuccess(results, requestedKeys)

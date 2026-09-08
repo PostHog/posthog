@@ -201,7 +201,8 @@ function hasUsableInput(value: unknown): boolean {
 async function queryStoredGenerationSentiments(
     normalizedLookups: GenerationSentimentLookup[],
     source: SentimentQuerySource,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    refresh?: RefreshType
 ): Promise<Map<string, GenerationSentiment>> {
     const traceIds = uniqueNonEmpty(normalizedLookups.map((lookup) => lookup.traceId))
     const generationIds = uniqueNonEmpty(normalizedLookups.flatMap((lookup) => lookup.generationIds))
@@ -245,7 +246,7 @@ async function queryStoredGenerationSentiments(
             LIMIT ${Math.max(generationIds.length, 1)}
         `,
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_generation_sentiment_lookup' },
-        { requestOptions: { signal } }
+        { requestOptions: { signal }, refresh }
     )
 
     const columnIndexes = buildQueryColumnIndexes(response.columns, STORED_SENTIMENT_COLUMNS)
@@ -277,9 +278,15 @@ function getUnresolvedLookups(
     )
 }
 
+/**
+ * A repeat lookup for the same page reuses whatever the query cache holds, so a generation scored
+ * in the last few minutes keeps reading as no sentiment. Pass `forceRefresh` to recompute — that's
+ * the Refresh button.
+ */
 export async function fetchStoredGenerationSentiments(
     lookups: GenerationSentimentLookup[],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    forceRefresh: boolean = false
 ): Promise<Record<string, GenerationSentiment | null>> {
     const normalizedLookups = lookups
         .map((lookup) => ({
@@ -302,11 +309,17 @@ export async function fetchStoredGenerationSentiments(
         return results
     }
 
-    const sentimentByTargetId = await queryStoredGenerationSentiments(normalizedLookups, AI_EVENTS_SOURCE, signal)
+    const refresh: RefreshType | undefined = forceRefresh ? 'force_blocking' : undefined
+    const sentimentByTargetId = await queryStoredGenerationSentiments(
+        normalizedLookups,
+        AI_EVENTS_SOURCE,
+        signal,
+        refresh
+    )
     const fallbackLookups = getUnresolvedLookups(normalizedLookups, sentimentByTargetId)
 
     if (fallbackLookups.length > 0) {
-        const fallbackResults = await queryStoredGenerationSentiments(fallbackLookups, EVENTS_SOURCE, signal)
+        const fallbackResults = await queryStoredGenerationSentiments(fallbackLookups, EVENTS_SOURCE, signal, refresh)
         for (const [generationId, sentiment] of fallbackResults) {
             sentimentByTargetId.set(generationId, sentiment)
         }

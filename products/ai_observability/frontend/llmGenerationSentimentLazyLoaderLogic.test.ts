@@ -3,7 +3,21 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
+import { fetchHasSentimentEvaluations, fetchStoredGenerationSentiments } from './sentimentQueries'
 import type { GenerationSentiment } from './sentimentResults'
+
+jest.mock('./sentimentQueries', () => ({
+    ...jest.requireActual('./sentimentQueries'),
+    fetchHasSentimentEvaluations: jest.fn(),
+    fetchStoredGenerationSentiments: jest.fn(),
+}))
+
+const mockFetchHasSentimentEvaluations = fetchHasSentimentEvaluations as jest.MockedFunction<
+    typeof fetchHasSentimentEvaluations
+>
+const mockFetchStoredGenerationSentiments = fetchStoredGenerationSentiments as jest.MockedFunction<
+    typeof fetchStoredGenerationSentiments
+>
 
 describe('llmGenerationSentimentLazyLoaderLogic', () => {
     let logic: ReturnType<typeof llmGenerationSentimentLazyLoaderLogic.build>
@@ -18,12 +32,15 @@ describe('llmGenerationSentimentLazyLoaderLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        mockFetchHasSentimentEvaluations.mockReset().mockResolvedValue(true)
+        mockFetchStoredGenerationSentiments.mockReset().mockResolvedValue({})
         logic = llmGenerationSentimentLazyLoaderLogic()
         logic.mount()
     })
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
     })
 
     it('starts with an empty cache and loading set', () => {
@@ -103,6 +120,51 @@ describe('llmGenerationSentimentLazyLoaderLogic', () => {
             sentimentByGenerationKey: {},
             loadingGenerationKeys: new Set(),
         })
+    })
+
+    // Clearing the cells is not enough on its own: the lookup can still be answered from the query
+    // cache, which left a freshly scored generation reading as no sentiment after a refresh.
+    it('recalculates the first lookup after a reset, then reuses the cache again', async () => {
+        jest.useFakeTimers()
+
+        logic.actions.ensureGenerationSentimentLoaded({
+            key: 'event-uuid-1',
+            traceId: 'trace-1',
+            generationIds: ['event-uuid-1'],
+            timestamp: '2026-06-23T10:00:00Z',
+        })
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(mockFetchStoredGenerationSentiments).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.anything(),
+            false
+        )
+
+        logic.actions.resetGenerationSentiments()
+        logic.actions.ensureGenerationSentimentLoaded({
+            key: 'event-uuid-1',
+            traceId: 'trace-1',
+            generationIds: ['event-uuid-1'],
+            timestamp: '2026-06-23T10:00:00Z',
+        })
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(mockFetchStoredGenerationSentiments).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), true)
+
+        logic.actions.ensureGenerationSentimentLoaded({
+            key: 'event-uuid-2',
+            traceId: 'trace-2',
+            generationIds: ['event-uuid-2'],
+            timestamp: '2026-06-23T10:00:00Z',
+        })
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(mockFetchStoredGenerationSentiments).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.anything(),
+            false
+        )
     })
 
     it('returns cached sentiment through the selector', () => {

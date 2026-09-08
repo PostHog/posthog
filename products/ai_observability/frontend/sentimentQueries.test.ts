@@ -195,6 +195,32 @@ describe('sentimentQueries', () => {
         expect(mockApi.queryHogQL).not.toHaveBeenCalled()
     })
 
+    it.each<[string, boolean, string | undefined]>([
+        ['reuses the cache by default', false, undefined],
+        ['recalculates after a refresh, so a freshly scored generation cannot read as none', true, 'force_blocking'],
+    ])('%s', async (_, forceRefresh, expectedRefresh) => {
+        mockApi.queryHogQL
+            .mockResolvedValueOnce({ columns: storedSentimentColumns, results: [] })
+            .mockResolvedValueOnce({ columns: storedSentimentColumns, results: [] })
+
+        await fetchStoredGenerationSentiments(
+            [
+                {
+                    key: 'generation-uuid',
+                    traceId: 'trace-1',
+                    generationIds: ['generation-uuid'],
+                    timestamp: GENERATION_TIMESTAMP,
+                },
+            ],
+            undefined,
+            forceRefresh
+        )
+
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
+        expect(mockApi.queryHogQL.mock.calls[0][2]?.refresh).toBe(expectedRefresh)
+        expect(mockApi.queryHogQL.mock.calls[1][2]?.refresh).toBe(expectedRefresh)
+    })
+
     it.each<[string, number, boolean]>([
         ['a sentiment evaluation exists', 1, true],
         ['the project has none', 0, false],
