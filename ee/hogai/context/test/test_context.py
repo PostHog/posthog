@@ -388,6 +388,8 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("Full-notebook replacement content must omit", result)
         self.assertIn("single ph-markdown-notebook node", result)
         self.assertIn("render a `title` prop in their block header", result)
+        self.assertIn("Notebook content is MDX", result)
+        self.assertIn("outside triple-backtick code fences", result)
         mock_from_short_id.assert_not_called()
 
     @parameterized.expand(

@@ -10,6 +10,7 @@ import {
     listeners,
     path,
     props,
+    propsChanged,
     reducers,
     selectors,
 } from 'kea'
@@ -32,6 +33,7 @@ import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
 import {
+    notebooksWidgetAttach,
     notebooksWidgetCancel,
     notebooksWidgetFrame,
     notebooksWidgetFork,
@@ -84,6 +86,9 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     isEditable: boolean
     persistNotebook: () => Promise<void>
     getContent: () => JSONContent | null
+    reusableWidgetId?: string
+    reusableVersionId?: string
+    inputBindings?: Record<string, { source: string; hog?: string }>
 }
 
 export interface notebookNodeGeneratedWidgetLogicValues {
@@ -1289,6 +1294,24 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             await props.persistNotebook()
                             loadedStatus = await requestStatus()
                         }
+                        if (
+                            !loadedStatus.instance_id &&
+                            props.isEditable &&
+                            props.reusableWidgetId &&
+                            props.inputBindings
+                        ) {
+                            await props.persistNotebook()
+                            loadedStatus = await notebooksWidgetAttach(
+                                String(props.projectId),
+                                props.notebookShortId,
+                                props.nodeId,
+                                {
+                                    widget_id: props.reusableWidgetId,
+                                    version_id: props.reusableVersionId ?? null,
+                                    input_bindings: props.inputBindings,
+                                }
+                            )
+                        }
                         if (isCurrentStatusRequest(requestId)) {
                             actions.statusReceived(loadedStatus)
                         }
@@ -1534,6 +1557,15 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.dataRefreshFinished()
                     actions.refreshData()
                 },
+            }
+        }),
+        propsChanged(({ actions, values, props }, oldProps) => {
+            if (
+                !values.status?.instance_id &&
+                (oldProps.reusableWidgetId !== props.reusableWidgetId ||
+                    JSON.stringify(oldProps.inputBindings) !== JSON.stringify(props.inputBindings))
+            ) {
+                actions.loadStatus()
             }
         }),
         afterMount(({ actions, cache }) => {

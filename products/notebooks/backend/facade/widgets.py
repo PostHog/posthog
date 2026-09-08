@@ -8,6 +8,7 @@ from products.notebooks.backend.reusable_widgets import (
     publish_reusable_widget,
     read_reusable_widget_demo_frame,
     read_reusable_widget_source,
+    reusable_widget_catalog_context,
     save_reusable_widget_version,
     start_reusable_widget_generation,
 )
@@ -64,6 +65,7 @@ __all__ = [
     "publish_reusable_widget",
     "read_reusable_widget_demo_frame",
     "read_reusable_widget_source",
+    "reusable_widget_catalog_context",
     "save_reusable_widget_version",
     "start_reusable_widget_generation",
 ]

@@ -40,6 +40,9 @@ export function NotebookNodeGeneratedWidgetSettings({
         projectId: currentTeamId,
         notebookShortId: notebookLogic.props.shortId,
         nodeId: attributes.nodeId,
+        reusableWidgetId: typeof attributes.id === 'string' ? attributes.id : undefined,
+        reusableVersionId: typeof attributes.version === 'string' ? attributes.version : undefined,
+        inputBindings: attributes.inputs,
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_WIDGET_MODEL,
         isEditable,
@@ -100,6 +103,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         notebookShortId: notebookLogic.props.shortId,
         nodeId: attributes.nodeId,
         getContent: () => notebookLogic.values.content ?? null,
+        persistNotebook: logicProps.persistNotebook,
         onAttached: (widget, attachedStatus, bindings) => {
             updateAttributes({
                 id: widget.id,

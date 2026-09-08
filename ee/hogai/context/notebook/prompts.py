@@ -11,7 +11,13 @@ LEGACY_CELL_GUIDANCE = """- Component tags such as `<Query … />` render a `tit
 
 
 def cell_guidance_prompt(*, sql_v2_enabled: bool) -> str:
-    return SQL_V2_CELL_GUIDANCE if sql_v2_enabled else LEGACY_CELL_GUIDANCE
+    guidance = SQL_V2_CELL_GUIDANCE if sql_v2_enabled else LEGACY_CELL_GUIDANCE
+    return (
+        "- Notebook content is MDX: Markdown with live component tags. Write component tags directly in the document, "
+        "outside triple-backtick code fences and without backslash-escaping the opening <. A fenced tag is displayed "
+        "as source text and does not create a notebook cell. Only fence code when the user asks to see a code example.\n"
+        + guidance
+    )
 
 
 NOTEBOOK_CONTEXT_TEMPLATE = """

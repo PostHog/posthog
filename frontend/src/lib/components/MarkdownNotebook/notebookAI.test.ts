@@ -16,6 +16,19 @@ function replaceMarkdown(
 }
 
 describe('notebookAI', () => {
+    it.each(['', 'mdx', 'jsx'])('inserts a fenced %s component as a live notebook cell', (language) => {
+        const tag = '<PythonV2 title="Revenue table" code="sales.head()" returnVariable="summary_df" />'
+        expect(replaceMarkdown('Thinking...', 0, `\`\`\`${language}\n${tag}\n\`\`\``)).toBe(tag)
+    })
+
+    it.each([
+        '```python\nprint(42)\n```',
+        '```html\n<PythonV2 code="print(42)" />\n```',
+        '```\n<CustomExample />\n```',
+        '```\n<PythonV2 code="unterminated />\n```',
+    ])('preserves source examples and incomplete tags: %s', (example) => {
+        expect(replaceMarkdown('Thinking...', 0, example)).toBe(example)
+    })
     it('replaces the AI response row with assistant markdown', () => {
         const markdown = '# Notebook\n\nThinking...'
 

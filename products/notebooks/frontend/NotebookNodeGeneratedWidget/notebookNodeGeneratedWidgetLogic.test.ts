@@ -10,6 +10,7 @@ import { NotebookNodeType } from 'scenes/notebooks/types'
 import { initKeaTests } from '~/test/init'
 
 import {
+    notebooksWidgetAttach,
     notebooksWidgetCancel,
     notebooksWidgetGenerate,
     notebooksWidgetRevert,
@@ -33,6 +34,7 @@ import {
 import { DEFAULT_WIDGET_PROMPT } from './widgetModels'
 
 jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksWidgetAttach: jest.fn(),
     notebooksWidgetCancel: jest.fn(),
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
@@ -81,6 +83,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.mocked(notebooksWidgetCancel).mockReset()
+        jest.mocked(notebooksWidgetAttach).mockReset()
         jest.mocked(notebooksWidgetGenerate).mockReset()
         jest.mocked(notebooksWidgetRevert).mockReset()
         jest.mocked(notebooksWidgetSource).mockReset()
@@ -109,6 +112,36 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         )
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
     })
+
+    it.each([true, false])(
+        'attaches a saved widget written as MDX only for an editor (editable=%s)',
+        async (isEditable) => {
+            const widgetId = '00000000-0000-4000-8000-000000000042'
+            const attached = status({ instance_id: 'instance-42', widget_id: widgetId, is_reusable: true })
+            jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+            jest.mocked(notebooksWidgetAttach).mockResolvedValue(attached)
+            logic = notebookNodeGeneratedWidgetLogic({
+                ...props,
+                isEditable,
+                reusableWidgetId: widgetId,
+                inputBindings: { revenue: { source: 'sales_df' } },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.status?.widget_id).toBe(isEditable ? widgetId : null)
+            if (isEditable) {
+                expect(notebooksWidgetAttach).toHaveBeenCalledWith(
+                    String(MOCK_TEAM_ID),
+                    props.notebookShortId,
+                    props.nodeId,
+                    { widget_id: widgetId, version_id: null, input_bindings: { revenue: { source: 'sales_df' } } }
+                )
+            } else {
+                expect(notebooksWidgetAttach).not.toHaveBeenCalled()
+            }
+            expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+        }
+    )
 
     it('persists a newly inserted widget before retrying its initial status', async () => {
         jest.mocked(notebooksWidgetStatus)

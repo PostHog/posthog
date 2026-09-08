@@ -31,6 +31,7 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from products.notebooks.backend.facade import api as notebooks_facade
+from products.notebooks.backend.facade.widgets import reusable_widget_catalog_context
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
@@ -381,6 +382,13 @@ class AssistantContextManager(AssistantContextMixin):
                 else False
             )
             notebook_texts = []
+            reusable_catalog = (
+                await database_sync_to_async(reusable_widget_catalog_context)(team_id=self._team.id, user=self._user)
+                if sql_v2_enabled
+                else ""
+            )
+            if reusable_catalog:
+                notebook_texts.append(reusable_catalog)
             for nb in ui_context.notebooks:
                 if nb.markdown_with_insertion_placeholder:
                     notebook_texts.append(self._format_markdown_notebook_context(nb, sql_v2_enabled=sql_v2_enabled))

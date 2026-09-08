@@ -26,6 +26,7 @@ from products.notebooks.backend.models import (
 from products.notebooks.backend.reusable_widgets import (
     list_reusable_widgets,
     read_reusable_widget_demo_frame,
+    reusable_widget_catalog_context,
     start_reusable_widget_generation,
 )
 from products.notebooks.backend.widget_generation import (
@@ -236,6 +237,7 @@ class TestReusableWidgets(APIBaseTest):
 
     def test_catalog_lists_only_published_widgets_for_the_team(self) -> None:
         assert list_reusable_widgets(team_id=self.team.id).count == 0
+        assert reusable_widget_catalog_context(team_id=self.team.id, user=self.user) == ""
         self._publish()
 
         response = self.client.get(f"/api/projects/{self.team.id}/notebook_widgets/?search=revenue")
@@ -246,6 +248,15 @@ class TestReusableWidgets(APIBaseTest):
         assert response.json()["results"][0]["instance_count"] == 1
         other_team = Team.objects.create(organization=self.organization)
         assert list_reusable_widgets(team_id=other_team.id).count == 0
+        assert reusable_widget_catalog_context(team_id=other_team.id, user=self.user) == ""
+        context = reusable_widget_catalog_context(team_id=self.team.id, user=self.user)
+        entries = json.loads(context.split("\n", 1)[1])
+        assert entries[0]["id"] == str(self.widget.id)
+        assert entries[0]["inputs"][0]["slot"] == self.input_name
+        assert "demo_data" not in entries[0]
+        assert "MDX" in context
+        with patch("products.notebooks.backend.reusable_widgets.is_notebook_widget_enabled", return_value=False):
+            assert reusable_widget_catalog_context(team_id=self.team.id, user=self.user) == ""
 
     def test_catalog_detail_and_demo_frame_use_the_saved_snapshot(self) -> None:
         self._publish()

@@ -9244,7 +9244,7 @@
         "feature_flag": "notebook-generated-widgets"
     },
     "reusable-widgets-retrieve": {
-        "description": "Get a reusable widget's current version and input contract before adding it to a notebook. The contract lists logical slots and required output columns. Use notebooks-widget-attach to bind those slots to local notebook dataframes; add a Hog mapping when names, argument order, or shape differ.",
+        "description": "Get a reusable widget's current version and input contract before adding it to a notebook. The contract lists logical slots and required output columns. Use notebooks-widget-attach to bind those slots to local notebook dataframes. Different dataframe names need only a source binding, not Hog. Add a Hog mapping only when column names, column types, order, or shape differ. Ask the user when units or meaning are ambiguous.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get reusable notebook widget",

@@ -381,7 +381,28 @@ function getCommonPrefixLength(leftText: string, rightText: string): number {
 }
 
 function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
-    return markdown
+    const document = parseMarkdownNotebook(markdown)
+    let unwrapped = false
+    const nodes = document.nodes.flatMap((node): NotebookBlockNode[] => {
+        if (node.type !== 'code' || !['', 'mdx', 'jsx'].includes(node.language ?? '')) {
+            return [node]
+        }
+        const components = parseMarkdownNotebook(node.text).nodes
+        if (
+            !components.length ||
+            !components.every(
+                (component) =>
+                    component.type === 'component' &&
+                    !component.errors?.length &&
+                    ['SQLV2', 'PythonV2', 'Widget', 'Query'].includes(component.tagName)
+            )
+        ) {
+            return [node]
+        }
+        unwrapped = true
+        return components
+    })
+    return (unwrapped ? serializeMarkdownNotebook({ ...document, nodes }) : markdown)
         .replace(
             /(^|\n)<insight>\s*([A-Za-z0-9_-]+)\s*<\/insight>(?=\n|$)/gi,
             (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`

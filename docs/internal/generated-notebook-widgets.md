@@ -40,6 +40,17 @@ An input binding can also include a pure Hog transform. It receives `rows` as a 
 
 The notebook MCP surface exposes catalog list, detail, and attach operations. Agents should search saved widgets before generating a new visualization, inspect the candidate's contract, and provide explicit `{ source, hog? }` bindings when attaching it.
 
+The input picker connects matching schemas by selecting a dataframe, even when its name differs from the widget's logical input.
+For mismatched schemas, it lists missing columns and type differences and offers source-column selectors, **Match with AI**, or **Advanced mapping**.
+Column selectors produce a quoted Hog projection; conversions and calculations use AI or the advanced editor, which includes variable descriptions and an example.
+**Match with AI** opens the AI side panel with the current selection for the user to send. The agent inspects the notebook and saved contract and attaches the selected widget to the existing node.
+Changing the selected dataframe clears its previous mapping.
+
+Notebook AI treats the document as MDX and writes live component tags outside code fences.
+Inline AI receives a bounded, project-scoped catalog of saved widget metadata and input schemas, without saved demo rows or generated source.
+A new `<Widget id="…" inputs={{…}} />` in an editable notebook attaches that catalog widget after saving the notebook.
+The server remains authoritative for existing placements. The inline response handler also unwraps complete known component tags accidentally fenced as unlabeled, MDX, or JSX code; other code examples stay fenced.
+
 Reusable widgets remain behind the `notebook-generated-widgets` feature flag and preserve the generated-code trust gate described below. Publishing demo data copies project data into another team-scoped model, so the publishing dialog makes that behavior explicit.
 
 ## Generated-code trust model

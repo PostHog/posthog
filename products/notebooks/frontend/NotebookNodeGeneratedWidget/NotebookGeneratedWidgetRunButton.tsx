@@ -8,6 +8,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { resolveToolCall, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
+
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookWidgetPublishModal } from './NotebookWidgetPublishModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
@@ -46,6 +48,9 @@ function EditableNotebookGeneratedWidgetRunButton({
         projectId: currentTeamId,
         notebookShortId: mountedNotebookLogic.props.shortId,
         nodeId,
+        reusableWidgetId: typeof node.props.id === 'string' ? node.props.id : undefined,
+        reusableVersionId: typeof node.props.version === 'string' ? node.props.version : undefined,
+        inputBindings: node.props.inputs as Record<string, { source: string; hog?: string }> | undefined,
         prompt: typeof node.props.prompt === 'string' ? node.props.prompt : '',
         model,
         isEditable: canEditNotebook,
@@ -59,7 +64,20 @@ function EditableNotebookGeneratedWidgetRunButton({
     }
     const logic = notebookNodeGeneratedWidgetLogic(logicProps)
     const { dataRefreshInFlight, runDataDependenciesDisabledReason, status } = useValues(logic)
-    const { runDataDependencies } = useActions(logic)
+    const { runDataDependencies, loadStatus } = useActions(logic)
+    useToolStreamListener({
+        tools: ['notebooks-widget-attach'],
+        onEvent: (event) => {
+            const input = resolveToolCall(event.invocation).innerInput
+            if (
+                event.phase === 'completed' &&
+                input?.short_id === mountedNotebookLogic.props.shortId &&
+                input?.node_id === nodeId
+            ) {
+                loadStatus()
+            }
+        },
+    })
 
     useEffect(() => {
         if (!canEditNotebook || !status?.instance_id || !status.has_versions) {
