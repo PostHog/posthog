@@ -10,11 +10,10 @@ import {
     type ZodObjectAny,
 } from '@/tools/types'
 
-// LLM trace query kinds return every event with its full properties (entire
-// prompts, completions, tool payloads, plus the caller's auth and identity
-// context). Their results are redacted down to the AI namespace and then bounded
-// before being returned, so a single huge trace can't blow the caller's context
-// window and no credential travels with it.
+// LLM trace query kinds return every event with its full properties: entire
+// prompts and tool payloads, plus the caller's auth and identity context. Their
+// results are redacted to the AI namespace and then bounded, so no credential
+// travels out and a single huge trace can't blow the caller's context window.
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {

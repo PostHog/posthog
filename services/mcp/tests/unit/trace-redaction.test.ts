@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { redactTraceResults } from '@/lib/trace-redaction'
 
 describe('trace redaction', () => {
-    // Values are invented for this test. Each one stands for a class of field the
-    // report named: authentication state, a credential, identity, permissions,
-    // location, and internal budget context.
+    // Invented values. Each key stands for one class of withheld field.
     const SECRETS: Record<string, string> = {
         $mcp_auth_method: 'personal_api_key',
         api_key: 'invented-key-value',
