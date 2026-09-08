@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from django.apps import apps
-
 from posthog.clickhouse.client import sync_execute
 
 from products.posthog_ai.eval_harness.data_setup import (
@@ -12,7 +10,7 @@ from products.posthog_ai.eval_harness.data_setup import (
     create_core_memory,
     ensure_master_demo_team,
 )
-from products.tasks.backend.facade.agents import ENV_DISABLE_BUNDLED_SKILLS, CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_skill_isolation_environment
 
 from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
@@ -58,16 +56,12 @@ class SandboxedDemoData:
         if disable_bundled_skills:
             # The sandbox reads this env var and clears its native skill directories
             # before the agent launches, so only MCP-delivered skills can satisfy the case.
-            SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
             with self._django_db_blocker.unblock():
-                sandbox_environment = SandboxEnvironment.objects.create(
-                    team=team,
-                    created_by=user,
+                sandbox_environment_id = create_skill_isolation_environment(
+                    team_id=team.id,
+                    user_id=user.id,
                     name=f"Eval skill isolation: {case_label}",
-                    environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
-                    internal=True,
                 )
-            sandbox_environment_id = str(sandbox_environment.id)
         logger.info("Case %r assigned team_id=%d user_id=%d", case_label, team.id, user.id)
         return CustomPromptSandboxContext(
             team_id=team.id,

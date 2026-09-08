@@ -12,7 +12,7 @@ from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
 
 
-@dataclass
+@dataclass(frozen=False)
 class EvalContext:
     """Everything a suite function needs, assembled once per harness run.
 

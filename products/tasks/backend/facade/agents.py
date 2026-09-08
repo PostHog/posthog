@@ -27,6 +27,20 @@ from products.tasks.backend.logic.services.local_skills import (
     ENV_LOCAL_SKILLS_HOST_PATH,
     LocalSkillsCache,
 )
+from products.tasks.backend.models import SandboxEnvironment
+
+
+def create_skill_isolation_environment(*, team_id: int, user_id: int, name: str) -> str:
+    """Create an internal environment that disables native bundled skills for an agent run."""
+    environment = SandboxEnvironment.objects.create(
+        team_id=team_id,
+        created_by_id=user_id,
+        name=name,
+        environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
+        internal=True,
+    )
+    return str(environment.id)
+
 
 __all__ = [
     "ENV_DISABLE_BUNDLED_SKILLS",
@@ -42,6 +56,7 @@ __all__ = [
     "TurnPollResult",
     "TurnPollTimeout",
     "create_task_and_trigger",
+    "create_skill_isolation_environment",
     "extract_json_from_text",
     "poll_for_turn",
     "resolve_sandbox_context_for_local_dev",

@@ -8,6 +8,8 @@ from typing import cast
 from braintrust import Score
 from braintrust_core.score import Scorer
 
+from posthog.dataclasses import frozen
+
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, normalize_tool_name
 
@@ -26,6 +28,19 @@ class _SkillLoad:
     call_id: str
     matched_via: str
     skill: str
+
+
+@frozen
+class _ExecCommand:
+    verb: str
+    arguments: str
+
+
+@frozen
+class _SkillExpectation:
+    skills: list[str]
+    delivery: SkillDelivery
+    source: str
 
 
 def skill_distribution_expectations(
@@ -75,14 +90,14 @@ def _parser(output: dict[str, object] | None) -> LogParser | None:
     return LogParser.cached(raw_log, initial_prompt=prompt if isinstance(prompt, str) else "")
 
 
-def _exec_command(call: ToolCall) -> tuple[str, str]:
+def _exec_command(call: ToolCall) -> _ExecCommand:
     if call.is_exec_unwrapped or normalize_tool_name(call.raw_name) != EXEC_TOOL_NAME:
-        return ("", "")
+        return _ExecCommand(verb="", arguments="")
     command = call.input.get("command")
     if not isinstance(command, str):
-        return ("", "")
+        return _ExecCommand(verb="", arguments="")
     verb, _, rest = command.strip().partition(" ")
-    return (verb.lower(), rest.strip())
+    return _ExecCommand(verb=verb.lower(), arguments=rest.strip())
 
 
 def _successful_exec_calls(parser: LogParser) -> list[ToolCall]:
@@ -94,8 +109,8 @@ def _successful_exec_calls(parser: LogParser) -> list[ToolCall]:
 
 
 def _is_skill_search(call: ToolCall) -> bool:
-    verb, rest = _exec_command(call)
-    return verb == "learn" and (rest == "-s" or rest.startswith("-s "))
+    command = _exec_command(call)
+    return command.verb == "learn" and (command.arguments == "-s" or command.arguments.startswith("-s "))
 
 
 def _skill_search_calls(parser: LogParser) -> list[ToolCall]:
@@ -117,12 +132,12 @@ def _is_qualified_skill_token(token: str) -> bool:
 def _exec_skill_load_calls(parser: LogParser, qualified_skill: str) -> list[ToolCall]:
     loads: list[ToolCall] = []
     for call in _successful_exec_calls(parser):
-        verb, rest = _exec_command(call)
-        if verb != "learn" or not rest:
+        command = _exec_command(call)
+        if command.verb != "learn" or not command.arguments:
             continue
         # A batch read (`learn posthog:a posthog:b`) is all qualified names; a `<skill> <path>`
         # read (`learn posthog:a SKILL.md`) is not, so it is not counted as a load.
-        tokens = rest.split()
+        tokens = command.arguments.split()
         if all(_is_qualified_skill_token(token) for token in tokens) and qualified_skill in tokens:
             loads.append(call)
     return loads
@@ -184,7 +199,7 @@ def _expected_skills(spec: dict[str, object]) -> list[str] | None:
     return [skill, *alternates]
 
 
-def _skill_and_delivery(spec: dict[str, object]) -> tuple[list[str], SkillDelivery, str] | None:
+def _skill_and_delivery(spec: dict[str, object]) -> _SkillExpectation | None:
     skills = _expected_skills(spec)
     delivery = spec.get("delivery")
     source = spec.get("source", "posthog")
@@ -192,12 +207,13 @@ def _skill_and_delivery(spec: dict[str, object]) -> tuple[list[str], SkillDelive
         return None
     if source not in ("posthog", "project"):
         return None
-    return skills, cast(SkillDelivery, delivery), cast(str, source)
+    return _SkillExpectation(skills=skills, delivery=cast(SkillDelivery, delivery), source=cast(str, source))
 
 
 def _is_exec_skill_command(call: ToolCall) -> bool:
-    verb, rest = _exec_command(call)
-    return verb == "learn" and (
+    command = _exec_command(call)
+    rest = command.arguments
+    return command.verb == "learn" and (
         rest == "skills"
         or rest == "-s"
         or rest.startswith("-s ")
@@ -232,7 +248,7 @@ class SkillSearchFirst(Scorer):
         earlier_non_learning = [
             call
             for call in _successful_exec_calls(parser)
-            if _exec_command(call)[0] != "learn" and call.position <= first_search.position
+            if _exec_command(call).verb != "learn" and call.position <= first_search.position
         ]
         if earlier_non_learning:
             first = earlier_non_learning[0]
@@ -304,33 +320,36 @@ class ExpectedSkillLoaded(Scorer):
         skill_spec = _skill_and_delivery(spec)
         if skill_spec is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Invalid scorer expectation"})
-        skills, delivery, source = skill_spec
-        skill = skills[0]
+        skill = skill_spec.skills[0]
         parser = _parser(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
 
-        loads = _any_skill_loads(parser, skills, delivery, source)
-        if delivery == "bundled" and loads:
+        loads = _any_skill_loads(parser, skill_spec.skills, skill_spec.delivery, skill_spec.source)
+        if skill_spec.delivery == "bundled" and loads:
             load = loads[0]
             return Score(
                 name=self._name(),
                 score=1.0,
                 metadata={
                     "skill": load.skill,
-                    "delivery": delivery,
+                    "delivery": skill_spec.delivery,
                     "call_id": load.call_id,
                     "matched_via": load.matched_via,
                 },
             )
 
-        matching_searches = _matching_searches(parser, skills, source)
+        matching_searches = _matching_searches(parser, skill_spec.skills, skill_spec.source)
         if any(search.position < load.position for search in matching_searches for load in loads):
             load = next(load for load in loads if any(search.position < load.position for search in matching_searches))
             return Score(
                 name=self._name(),
                 score=1.0,
-                metadata={"skill": _qualified_skill(load.skill, source), "delivery": delivery, "call_id": load.call_id},
+                metadata={
+                    "skill": _qualified_skill(load.skill, skill_spec.source),
+                    "delivery": skill_spec.delivery,
+                    "call_id": load.call_id,
+                },
             )
         return Score(
             name=self._name(),
@@ -338,11 +357,11 @@ class ExpectedSkillLoaded(Scorer):
             metadata={
                 "reason": (
                     "Expected bundled skill was not loaded"
-                    if delivery == "bundled"
+                    if skill_spec.delivery == "bundled"
                     else "Expected skill was not loaded by exact qualified name after discovery"
                 ),
                 "skill": skill,
-                "delivery": delivery,
+                "delivery": skill_spec.delivery,
             },
         )
 
@@ -364,13 +383,12 @@ class SkillLoadedBeforeTool(Scorer):
         tools = spec.get("tools")
         if skill_spec is None or not isinstance(tools, list) or not all(isinstance(tool, str) for tool in tools):
             return Score(name=self._name(), score=0.0, metadata={"reason": "Invalid scorer expectation"})
-        skills, delivery, source = skill_spec
-        skill = skills[0]
+        skill = skill_spec.skills[0]
         parser = _parser(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
 
-        loads = _any_skill_loads(parser, skills, delivery, source)
+        loads = _any_skill_loads(parser, skill_spec.skills, skill_spec.delivery, skill_spec.source)
         downstream_calls = [call for call in parser.get_tool_calls() if not call.is_error and call.name in tools]
         for load in loads:
             for downstream in downstream_calls:
@@ -380,7 +398,7 @@ class SkillLoadedBeforeTool(Scorer):
                         score=1.0,
                         metadata={
                             "skill": load.skill,
-                            "delivery": delivery,
+                            "delivery": skill_spec.delivery,
                             "tool": downstream.name,
                             "call_id": downstream.call_id,
                             "matched_via": load.matched_via,
@@ -392,7 +410,7 @@ class SkillLoadedBeforeTool(Scorer):
             metadata={
                 "reason": "No expected downstream tool ran after the skill was loaded",
                 "skill": skill,
-                "delivery": delivery,
+                "delivery": skill_spec.delivery,
                 "tools": tools,
             },
         )
@@ -459,14 +477,14 @@ class NoExecSkillBypass(Scorer):
 
         bypasses = [call for call in _successful_exec_calls(parser) if _is_exec_skill_command(call)]
         if bypasses:
-            verb, rest = _exec_command(bypasses[0])
+            command = _exec_command(bypasses[0])
             return Score(
                 name=self._name(),
                 score=0.0,
                 metadata={
                     "reason": "An exec skill command bypassed bundled delivery",
                     "call_id": bypasses[0].call_id,
-                    "command": f"{verb} {rest}".strip(),
+                    "command": f"{command.verb} {command.arguments}".strip(),
                 },
             )
         return Score(name=self._name(), score=1.0)
