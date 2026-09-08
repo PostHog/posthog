@@ -583,6 +583,37 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         assert predicate.quickfix.text == "'120'"
         assert query[predicate.quickfix.start : predicate.quickfix.end] == "120"
 
+    def test_an_in_list_quickfix_covers_the_whole_bracketed_list(self) -> None:
+        # The replacement text stands in for everything the range covers. If a Tuple's span ever
+        # stopped including its parentheses, the edit would write `in (('120', '121'))`, which is
+        # valid SQL that matches nothing.
+        query = "select count() from events where properties.$browser_version in (120, 121)"
+        report = self._report(
+            query,
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.quickfix is not None
+        assert query[predicate.quickfix.start : predicate.quickfix.end] == "(120, 121)"
+        assert predicate.quickfix.text == "('120', '121')"
+
+    def test_an_ordering_comparison_through_the_planner_offers_no_rewrite(self) -> None:
+        # The operator table and the copy are unit tested on a constructed plan, so this covers the
+        # seam: that a real ordering comparison on a text column still reaches that state.
+        report = self._report(
+            "select count() from events where properties.$browser_version > 120",
+            columns={"events": {("$browser_version", "properties"): _materialized("$browser_version", minmax=True)}},
+            property_types={"$browser_version": {"type": PropertyType.String.value}},
+        )
+
+        [predicate] = report.predicates
+        assert predicate.verdict == PredicateIndexVerdict.BLOCKED
+        assert predicate.quickfix is None
+        assert predicate.editor_actionable is False
+        assert predicate.fix_action == PredicateFixAction.EDIT_PROPERTY_TYPE
+
 
 class TestIndexEligibilityAnalysis(BaseTest):
     def _report(self, query: str) -> IndexEligibilityReport:
@@ -654,6 +685,16 @@ class TestIndexEligibilityAnalysis(BaseTest):
         assert query[warning.start : warning.end] == "120"
         [predicate] = response.index_usage or []
         assert predicate.quickfix is not None and predicate.quickfix.text == "'120'"
+
+    def test_a_failed_analysis_leaves_the_query_valid(self) -> None:
+        # The caller turns any exception from here into an invalid query, so a report that blows up
+        # while it is being written into the response would tell the editor a working query is broken.
+        with patch("posthog.hogql.metadata._record_index_usage", side_effect=ValueError("boom")):
+            response = self._metadata("select count() from events where properties.duration > 100")
+
+        assert response.isValid is True
+        assert response.errors == []
+        assert not response.index_usage
 
     def test_metadata_reports_no_index_usage_without_property_filters(self) -> None:
         response = self._metadata("select count() from events where event = '$pageview'")

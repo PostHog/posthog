@@ -1834,6 +1834,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // analyzed statement before adding its offset, which the editor already measures
                 // in Monaco's units.
                 const analyzed = values.activeQueryText ?? (values.suggestedQueryInput || values.queryInput) ?? ''
+                // The model is the authority on what is being edited, and it is not always the text
+                // the report describes: with a suggestion open, `props.editor` is the diff's modified
+                // editor holding the suggested query while the offsets index the text behind it.
+                // Splicing there would corrupt the suggestion, so confirm the analyzed text is still
+                // sitting where the offsets say before writing anything.
+                if (
+                    model.getValue().slice(values.activeQueryOffset, values.activeQueryOffset + analyzed.length) !==
+                    analyzed
+                ) {
+                    lemonToast.info('Still checking the latest version of this query. Try again in a moment.')
+                    return
+                }
                 const start = model.getPositionAt(
                     characterOffsetToUtf16(analyzed, quickfix.start) + values.activeQueryOffset
                 )

@@ -1,3 +1,5 @@
+const SURROGATE = /[\uD800-\uDBFF]/
+
 /**
  * The HogQL parser counts characters, Monaco counts UTF-16 code units.
  *
@@ -9,6 +11,12 @@
  * analyzed rather than the whole editor, then add that statement's own offset.
  */
 export function characterOffsetToUtf16(text: string, characterOffset: number): number {
+    // Without a surrogate pair the two counts agree, which is every SQL query that holds no emoji.
+    // Skipping the scan keeps this off the hot path, since it runs twice per marker on every
+    // metadata response.
+    if (!SURROGATE.test(text)) {
+        return Math.min(characterOffset, text.length)
+    }
     let utf16Offset = 0
     let characters = 0
     while (characters < characterOffset && utf16Offset < text.length) {

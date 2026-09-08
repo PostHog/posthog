@@ -13,6 +13,9 @@ import {
     PredicateScope,
 } from '~/queries/schema/schema-general'
 
+// Longer than this and the label stops being readable at a glance, so it names the action instead.
+const MAX_LITERAL_IN_LABEL = 24
+
 // The definitions list filters by `type`; group properties would also need a group type index the
 // report does not carry, so they get no link.
 const DEFINITION_LIST_TYPES: Partial<Record<PredicateScope, string>> = {
@@ -39,19 +42,25 @@ export function QueryIndexUsageFixActions({
     const { user } = useValues(userLogic)
 
     if (predicate.fix_action === PredicateFixAction.EditQuery) {
-        const staleReason = stale ? 'Checking the latest version of the query' : undefined
+        const staleReason = stale
+            ? 'Still checking the latest version of this query. Try again in a moment.'
+            : undefined
         if (predicate.quickfix && onApplyQuickfix) {
             const quickfix = predicate.quickfix
+            // An IN list produces a replacement as long as the list, which would widen the row and
+            // push the table into sideways scroll in a narrow pane. The tooltip keeps the full text.
+            const showsLiteral = quickfix.text.length <= MAX_LITERAL_IN_LABEL
             return (
                 <div className="flex">
                     <LemonButton
                         size="xsmall"
                         type="secondary"
                         disabledReason={staleReason}
+                        tooltip={showsLiteral ? undefined : quickfix.text}
                         onClick={() => onApplyQuickfix(quickfix)}
                         data-attr="sql-editor-index-usage-apply-quickfix"
                     >
-                        Replace with {quickfix.text}
+                        {showsLiteral ? `Replace with ${quickfix.text}` : 'Write the values as text'}
                     </LemonButton>
                 </div>
             )

@@ -342,6 +342,13 @@ def _type_blocker(plan: PropertyComparisonPlan) -> PropertyMinmaxBlocker | None:
     return None
 
 
+def _write_as_text_fix(quickfix: PredicateQuickfix) -> str:
+    """Advice naming the replacement, in the plural when the comparison is against a set."""
+    if quickfix.text.startswith(("(", "[")):
+        return f"Write the values as text: {quickfix.text}."
+    return f"Write the value as text: {quickfix.text}."
+
+
 def _string_literal_quickfix(plan: PropertyComparisonPlan, value_expr: ast.Expr | None) -> PredicateQuickfix | None:
     """Quote a whole-number literal so a text column is compared as text and keeps its index.
 
@@ -512,10 +519,10 @@ def _copy_for(
                 action=PredicateFixAction.EDIT_PROPERTY_TYPE,
             )
         return _PredicateCopy(
-            message=f"{label} '{name}' is compared against a value of another type, so every row has to be "
-            f"converted and the index on '{name}' goes unused.",
+            message=f"{label} '{name}' is compared against a value of another type, so the index on "
+            f"'{name}' cannot be used.",
             fix=(
-                f"Write the value as text: {quickfix.text}."
+                _write_as_text_fix(quickfix)
                 if quickfix is not None
                 else f"Compare '{name}' against {_plain_type(physical_type)}."
             ),

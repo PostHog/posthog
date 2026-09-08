@@ -28,7 +28,7 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_dir
 from posthog.hogql.direct_sql import get_adapter
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.index_eligibility import build_index_eligibility_report
+from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.observability import (
@@ -220,17 +220,26 @@ def _attach_index_usage(
     stored is not something the editor can change, so marking either would bury the predicates where
     a type mismatch is wasting an index that already exists.
     """
-    with INDEX_ELIGIBILITY_DURATION_SECONDS.time():
-        try:
+    try:
+        with INDEX_ELIGIBILITY_DURATION_SECONDS.time():
             report = build_index_eligibility_report(hogql_ast, context)
-        except Exception:
-            # Index eligibility is advisory. A query that compiles must not be reported as invalid
-            # because the analysis over it failed. The counter is the only user-visible trace of that:
-            # the response just comes back without a report.
-            INDEX_ELIGIBILITY_TOTAL.labels(result="failed").inc()
-            logger.exception("hogql_index_eligibility_failed", team_id=context.team_id)
-            return
+        _record_index_usage(response, report, context)
+    except Exception:
+        # Index eligibility is advisory. A query that compiles must not be reported as invalid
+        # because the analysis over it failed, so the whole of it is swallowed rather than only the
+        # analysis: converting a verdict to its schema enum raises if the two ever drift, and the
+        # caller turns any exception here into an invalid query. The counter is the only
+        # user-visible trace: the response just comes back without a report.
+        INDEX_ELIGIBILITY_TOTAL.labels(result="failed").inc()
+        logger.exception("hogql_index_eligibility_failed", team_id=context.team_id)
 
+
+def _record_index_usage(
+    response: HogQLMetadataResponse,
+    report: IndexEligibilityReport,
+    context: HogQLContext,
+) -> None:
+    """Turn a finished report into the response fields and the editor's warnings."""
     INDEX_ELIGIBILITY_TOTAL.labels(result="ok").inc()
     for predicate in report.predicates:
         INDEX_ELIGIBILITY_VERDICT_TOTAL.labels(

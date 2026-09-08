@@ -308,43 +308,163 @@ describe('sqlEditorLogic', () => {
         databaseLogic?.unmount()
     })
 
+    describe('index quickfix', () => {
+        // A Monaco model and editor that apply an edit to real text, so a test asserts the resulting
+        // SQL rather than the range that produced it. Offsets are UTF-16, as Monaco's are.
+        const createQuickfixEditor = (initial: string): any => {
+            let value = initial
+            const offsetAt = (position: { lineNumber: number; column: number }): number => {
+                const lines = value.split('\n')
+                let offset = 0
+                for (let line = 0; line < position.lineNumber - 1; line++) {
+                    offset += lines[line].length + 1
+                }
+                return offset + position.column - 1
+            }
+            const model = {
+                getValue: () => value,
+                getPositionAt: (offset: number) => {
+                    const lines = value.slice(0, offset).split('\n')
+                    return { lineNumber: lines.length, column: lines[lines.length - 1].length + 1 }
+                },
+            }
+            return {
+                getModel: () => model,
+                getSelection: () => null,
+                getPosition: () => null,
+                setModel: jest.fn(),
+                focus: jest.fn(),
+                getValue: () => value,
+                // Diff mode swaps the model under the editor for one holding the suggested query.
+                setValue: (next: string) => {
+                    value = next
+                },
+                executeEdits: jest.fn((_source: string, edits: any[]) => {
+                    const { range, text } = edits[0]
+                    const start = offsetAt({ lineNumber: range.startLineNumber, column: range.startColumn })
+                    const end = offsetAt({ lineNumber: range.endLineNumber, column: range.endColumn })
+                    value = value.slice(0, start) + text + value.slice(end)
+                }),
+            }
+        }
+
+        // The offsets the backend sends count characters, which is what Python measures.
+        const characterOffsetsOf = (statement: string, literal: string): { start: number; end: number } => {
+            const characters = Array.from(statement)
+            const start = Array.from(statement.slice(0, statement.indexOf(literal))).length
+            return {
+                start,
+                end: start + Array.from(literal).length,
+                characters: characters.length,
+            } as any
+        }
+
+        const mountWithReport = (fullText: string, statement: string, statementOffset: number): any => {
+            const editor = createQuickfixEditor(fullText)
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor })
+            logic.mount()
+            logic.actions.setQueryInput(fullText)
+            logic.actions.setActiveQueryText(statement, statementOffset)
+            logic.actions.setMetadataLoading(false)
+            logic.actions.setMetadata({ query: statement } as HogQLMetadataResponse)
+            return editor
+        }
+
+        it('replaces the literal the offsets point at', () => {
+            const query = 'select 1 from events where properties.$browser_version = 120'
+            const editor = mountWithReport(query, query, 0)
+
+            logic.actions.applyIndexQuickfix({ ...characterOffsetsOf(query, '120'), text: "'120'" })
+
+            expect(editor.getValue()).toBe("select 1 from events where properties.$browser_version = '120'")
+        })
+
+        it('replaces the right literal when an emoji shifts the character count', () => {
+            // The parser counts the emoji as one character and Monaco as two, so applying the raw
+            // offset selects ' 12' and writes ='120'0.
+            const query = "select '😀' from events where properties.$browser_version = 120"
+            const editor = mountWithReport(query, query, 0)
+
+            logic.actions.applyIndexQuickfix({ ...characterOffsetsOf(query, '120'), text: "'120'" })
+
+            expect(editor.getValue()).toBe("select '😀' from events where properties.$browser_version = '120'")
+        })
+
+        it('replaces inside the statement the report describes, not the first one', () => {
+            const first = 'select 1 from events;\n'
+            const statement = 'select 2 from events where properties.$browser_version = 120'
+            const editor = mountWithReport(first + statement, statement, first.length)
+
+            logic.actions.applyIndexQuickfix({ ...characterOffsetsOf(statement, '120'), text: "'120'" })
+
+            expect(editor.getValue()).toBe(first + "select 2 from events where properties.$browser_version = '120'")
+        })
+
+        it('does not edit when the report describes text the editor no longer holds', () => {
+            const query = 'select 1 from events where properties.$browser_version = 120'
+            const editor = mountWithReport(query, query, 0)
+            logic.actions.setMetadata({
+                query: 'select 1 from events where properties.other = 120',
+            } as HogQLMetadataResponse)
+
+            logic.actions.applyIndexQuickfix({ ...characterOffsetsOf(query, '120'), text: "'120'" })
+
+            expect(editor.executeEdits).not.toHaveBeenCalled()
+            expect(editor.getValue()).toBe(query)
+        })
+
+        it('does not edit the suggested query while a suggestion diff is open', () => {
+            // In diff mode the editor holds the suggestion, while the offsets index the text behind
+            // it, so an edit here would splice into the wrong string.
+            const query = 'select 1 from events where properties.$browser_version = 120'
+            const suggestion = 'select 42 from events where properties.other = 1'
+            const editor = mountWithReport(query, query, 0)
+            logic.actions.setSuggestedQueryInput(suggestion, 'max_ai')
+            editor.setValue(suggestion)
+
+            logic.actions.applyIndexQuickfix({ ...characterOffsetsOf(query, '120'), text: "'120'" })
+
+            expect(editor.getValue()).toBe(suggestion)
+        })
+    })
+
     describe('indexReportStale', () => {
         const mountLogic = (): void => {
             logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
-            logic.actions.setMetadataLoading(false)
         }
 
-        it('is false when the report describes the whole editor text and there is no active statement', () => {
-            // `codeEditorLogic` analyzes the whole text when there is no active statement, so comparing
-            // against the active statement alone would report stale forever and disable every quickfix.
-            mountLogic()
-            logic.actions.setQueryInput('select 1')
-            logic.actions.setActiveQueryText(null, 0)
+        it.each([
+            [
+                'the report describes the whole editor text and there is no active statement',
+                'select 1',
+                null,
+                'select 1',
+                false,
+                false,
+            ],
+            ['the report describes the active statement', 'select 1;\nselect 2', 'select 2', 'select 2', false, false],
+            ['the editor text has moved on from the report', 'select 2', null, 'select 1', false, true],
+            ['a refresh is in flight', 'select 1', null, 'select 1', true, true],
+        ])(
+            'is %s',
+            (
+                _name: string,
+                queryInput: string,
+                activeQueryText: string | null,
+                analyzed: string,
+                metadataLoading: boolean,
+                expected: boolean
+            ) => {
+                mountLogic()
+                logic.actions.setQueryInput(queryInput)
+                logic.actions.setActiveQueryText(activeQueryText, 0)
+                logic.actions.setMetadata({ query: analyzed } as HogQLMetadataResponse)
+                logic.actions.setMetadataLoading(metadataLoading)
 
-            logic.actions.setMetadata({ query: 'select 1' } as HogQLMetadataResponse)
-
-            expect(logic.values.indexReportStale).toBe(false)
-        })
-
-        it('is false when the report describes the active statement', () => {
-            mountLogic()
-            logic.actions.setQueryInput('select 1;\nselect 2')
-            logic.actions.setActiveQueryText('select 2', 10)
-
-            logic.actions.setMetadata({ query: 'select 2' } as HogQLMetadataResponse)
-
-            expect(logic.values.indexReportStale).toBe(false)
-        })
-
-        it('is true once the editor text moves on from what the report describes', () => {
-            mountLogic()
-            logic.actions.setActiveQueryText(null, 0)
-            logic.actions.setMetadata({ query: 'select 1' } as HogQLMetadataResponse)
-            logic.actions.setQueryInput('select 2')
-
-            expect(logic.values.indexReportStale).toBe(true)
-        })
+                expect(logic.values.indexReportStale).toBe(expected)
+            }
+        )
     })
 
     it('keeps configured filters when the filters placeholder is removed from the query text', () => {
