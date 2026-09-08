@@ -38,6 +38,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYL
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import FLAG_OWNER_EARLY_ACCESS, assert_flag_available_for, flag_owner_kind
 
 from .models import EarlyAccessFeature
 
@@ -434,6 +435,10 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     f"Linked feature flag {feature_flag.key} already has a feature attached to it."
                 )
 
+            # The check above keeps one feature per flag; this one keeps the flag out of a
+            # second product.
+            assert_flag_available_for(feature_flag, product=FLAG_OWNER_EARLY_ACCESS)
+
             if feature_flag.aggregation_group_type_index is not None:
                 raise serializers.ValidationError(
                     "Group-based feature flags are not supported for Early Access Features."
@@ -461,10 +466,10 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             ).first()
             if existing_flag is not None:
                 # Linking is only advice worth giving when the flag is actually linkable; the check
-                # above rejects a flag that already has a feature attached.
+                # above rejects a flag another product already owns.
                 remedy = (
                     "Rename this feature."
-                    if existing_flag.features.exists()
+                    if flag_owner_kind(existing_flag) is not None
                     else "Rename this feature, or link the existing flag instead."
                 )
                 raise serializers.ValidationError(

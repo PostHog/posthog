@@ -75,6 +75,7 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
@@ -1715,6 +1716,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
+            assert_flag_available_for(
+                FeatureFlag.objects.get(
+                    pk=validated_data["targeting_flag_id"], team__project_id=self.context["project_id"]
+                ),
+                product=FLAG_OWNER_SURVEY,
+            )
         if validated_data.get("targeting_flag_filters"):
             assert_feature_flag_write_scope(
                 self.context["request"],
@@ -1766,6 +1773,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
+            if validated_data["targeting_flag_id"] != instance.targeting_flag_id:
+                assert_flag_available_for(
+                    FeatureFlag.objects.get(
+                        pk=validated_data["targeting_flag_id"], team__project_id=self.context["project_id"]
+                    ),
+                    product=FLAG_OWNER_SURVEY,
+                )
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
