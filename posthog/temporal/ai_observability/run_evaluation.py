@@ -265,11 +265,17 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
         start_time = temporalio.workflow.now()
 
-        # A backfill dispatcher ships only a reference, because event bodies would blow the
-        # Temporal payload limit at backfill fan-out. Live starts always carry the properties,
-        # so old histories never take this branch and it needs no patch marker.
+        # A backfill dispatcher ships only a reference, because capture accepts an AI event up to
+        # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
+        # this boundary at all. Each activity that needs the body now reads it itself.
         event_data = inputs.event_data
-        if "properties" not in event_data:
+        if "properties" not in event_data and not temporalio.workflow.patched("backfill-hydrate-in-activity"):
+            # A backfill child started before this patch recorded the fetch as its first command,
+            # and an llm_judge child can stay in flight for minutes, which is longer than a rolling
+            # worker deploy. Once no such history can replay, swap this call for
+            # `deprecate_patch("backfill-hydrate-in-activity")` for one release, as the
+            # "remove-trial-evals" call above does, then delete the branch,
+            # `fetch_generation_event_activity` and its registration.
             event_data = await temporalio.workflow.execute_activity(
                 fetch_generation_event_activity,
                 FetchGenerationEventInputs(
@@ -384,7 +390,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         start_time=start_time,
                         backfill_id=inputs.backfill_id,
                     ),
-                    schedule_to_close_timeout=timedelta(seconds=30),
+                    # The activity reads the generation itself when it was handed a reference, and
+                    # that event can run to several MiB, so it gets the same budget as the local
+                    # evaluation activity rather than the 30s a capture call alone would need.
+                    start_to_close_timeout=timedelta(seconds=120),
+                    schedule_to_close_timeout=timedelta(minutes=8),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:

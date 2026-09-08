@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db.models import F
@@ -23,8 +24,9 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
-from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs, as_utc_datetime
+from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -164,16 +166,19 @@ def child_workflow_name_and_id(
     return name, workflow_id
 
 
-def _cancel_backfill(inputs: EvaluationBackfillInputs) -> None:
-    EvaluationBackfill.objects.for_team(inputs.team_id).filter(
-        pk=inputs.backfill_id, status=EvaluationBackfillStatus.RUNNING
-    ).update(status=EvaluationBackfillStatus.CANCELLED, finished_at=timezone.now())
+def cancel_backfill(team_id: int, backfill_id: str | UUID) -> int:
+    """Move a RUNNING backfill to CANCELLED, returning how many rows changed."""
+    return (
+        EvaluationBackfill.objects.for_team(team_id)
+        .filter(pk=backfill_id, status=EvaluationBackfillStatus.RUNNING)
+        .update(status=EvaluationBackfillStatus.CANCELLED, finished_at=timezone.now())
+    )
 
 
 @temporalio.activity.defn
 async def fail_evaluation_backfill_activity(inputs: EvaluationBackfillInputs) -> None:
     """Stop a backfill whose ticks keep failing, so the row does not stay RUNNING forever."""
-    await database_sync_to_async(_cancel_backfill, thread_sensitive=False)(inputs)
+    await database_sync_to_async(cancel_backfill, thread_sensitive=False)(inputs.team_id, inputs.backfill_id)
 
 
 def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutput:
@@ -193,7 +198,7 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
     # backfill too, because no event would tell the loop the evaluation came back, so holding the
     # cursor would leave the row RUNNING and the workflow ticking forever.
     if evaluation.deleted or not evaluation.enabled or evaluation.evaluation_type not in EVALUATION_WORKFLOW_PREFIXES:
-        _cancel_backfill(inputs)
+        cancel_backfill(inputs.team_id, inputs.backfill_id)
         return PrepareTickOutput(action=TickAction.FINISHED)
 
     return PrepareTickOutput(

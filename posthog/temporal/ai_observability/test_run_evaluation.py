@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -41,7 +41,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS
+from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS, _execute_llm_judge_activity
 from .evaluation_workflow_activities import LocalEvaluationOutcome, backfill_verdict_timestamp
 from .run_evaluation import (
     BooleanEvalResult,
@@ -795,8 +795,15 @@ class TestRunEvaluationWorkflow:
 
         event = await fetch_generation_event_activity(inputs)
 
-        assert str(event["uuid"]) == event_uuid
+        assert event["uuid"] == event_uuid
         assert event["event"] == "$ai_generation"
+        # An activity that hydrates the reference itself has no Temporal converter in front of it,
+        # so the ClickHouse row's native UUID and datetime must already be JSON-safe.
+        assert isinstance(event["uuid"], str)
+        assert isinstance(event["timestamp"], str)
+        assert datetime.fromisoformat(event["timestamp"]).tzinfo is not None
+        assert isinstance(event["properties"], dict)
+        json.dumps(event)
 
     @pytest.mark.asyncio
     async def test_fetch_generation_event_activity_raises_non_retryable_on_a_miss(self):
@@ -812,22 +819,14 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "event_data,expected_calls",
+        "event_data,expects_thin_reference",
         [
-            pytest.param(
-                {"uuid": "g1", "team_id": 1},
-                ["fetch_event", "local"],
-                id="thin_reference_is_hydrated_first",
-            ),
-            pytest.param(
-                create_mock_event_data(team_id=1, uuid="g1"),
-                ["local"],
-                id="full_event_is_used_as_is",
-            ),
+            pytest.param({"uuid": "g1", "team_id": 1}, True, id="thin_reference_reaches_the_activity"),
+            pytest.param(create_mock_event_data(team_id=1, uuid="g1"), False, id="full_event_is_used_as_is"),
         ],
     )
-    async def test_thin_event_reference_is_fetched_before_evaluating(
-        self, event_data: dict[str, Any], expected_calls: list[str]
+    async def test_the_event_never_travels_through_the_workflow(
+        self, event_data: dict[str, Any], expects_thin_reference: bool
     ):
         calls: list[str] = []
         seen_inputs: list[RunLocalEvaluationInputs] = []
@@ -871,9 +870,116 @@ class TestRunEvaluationWorkflow:
                     task_queue=task_queue,
                 )
 
-        assert calls == expected_calls
+        assert calls == ["local"]
         assert [inputs.backfill_id for inputs in seen_inputs] == ["bf-1"]
-        assert all("properties" in inputs.event_data for inputs in seen_inputs)
+        assert [("properties" not in inputs.event_data) for inputs in seen_inputs] == [expects_thin_reference]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "evaluation_type",
+        [pytest.param("hog", id="hog"), pytest.param("sentiment", id="sentiment")],
+    )
+    async def test_run_local_evaluation_activity_hydrates_a_thin_reference(self, evaluation_type: str):
+        full_event = create_mock_event_data(team_id=1, uuid="g1")
+        evaluation = {
+            "id": "eval-1",
+            "name": "Local eval",
+            "evaluation_type": evaluation_type,
+            "evaluation_config": {"source": "return true"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+        graded: list[dict[str, Any]] = []
+
+        async def fake_run(_evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
+            graded.append(event_data)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+        with (
+            patch(f"{module}.fetch_evaluation", return_value=evaluation),
+            patch(
+                "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event",
+                return_value=full_event,
+            ) as mock_fetch,
+            patch(f"{module}.run_hog_eval_for_event", side_effect=fake_run),
+            patch(f"{module}.run_sentiment_eval", side_effect=fake_run),
+            patch(f"{module}.emit_generation_evaluation_event", new_callable=AsyncMock) as mock_emit,
+        ):
+            outcome = await run_local_evaluation_activity(
+                RunLocalEvaluationInputs(
+                    evaluation_id="eval-1",
+                    event_data={"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00"},
+                    start_time=datetime.now(UTC),
+                )
+            )
+
+        assert mock_fetch.call_count == 1
+        assert graded == [full_event]
+        assert outcome.emitted is True
+        mock_emit.assert_awaited_once()
+        assert mock_emit.await_args_list[0].args[0].event_data == full_event
+
+    @pytest.mark.asyncio
+    async def test_the_generation_emit_activity_hydrates_a_thin_reference(self):
+        full_event = create_mock_event_data(team_id=1, uuid="g1")
+        with (
+            patch(
+                "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event",
+                return_value=full_event,
+            ) as mock_fetch,
+            patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
+            ) as mock_capture,
+        ):
+            await emit_evaluation_event_activity(
+                EmitEvaluationEventInputs(
+                    evaluation={
+                        "id": "eval-1",
+                        "name": "Judge",
+                        "evaluation_type": "llm_judge",
+                        "output_type": "boolean",
+                        "output_config": {},
+                        "team_id": 1,
+                    },
+                    event_data={"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00"},
+                    result={"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False},
+                    start_time=datetime.now(UTC),
+                )
+            )
+
+        assert mock_fetch.call_count == 1
+        assert mock_capture.call_args.kwargs["properties"]["$ai_target_event_id"] == full_event["uuid"]
+
+    def test_the_llm_judge_activity_hydrates_a_thin_reference(self):
+        full_event = create_mock_event_data(team_id=1, uuid="g1")
+        with (
+            patch(
+                "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event",
+                return_value=full_event,
+            ) as mock_fetch,
+            patch(
+                "posthog.temporal.ai_observability.evaluation_llm_judge.extract_event_io",
+                side_effect=AssertionError("stop after hydration"),
+            ),
+        ):
+            with pytest.raises(AssertionError, match="stop after hydration"):
+                _execute_llm_judge_activity(
+                    ExecuteLLMJudgeInputs(
+                        evaluation={
+                            "id": "eval-1",
+                            "evaluation_type": "llm_judge",
+                            "evaluation_config": {"prompt": "grade it"},
+                            "output_type": "boolean",
+                            "output_config": {},
+                            "team_id": 1,
+                        },
+                        event_data={"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00"},
+                    )
+                )
+
+        assert mock_fetch.call_count == 1
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

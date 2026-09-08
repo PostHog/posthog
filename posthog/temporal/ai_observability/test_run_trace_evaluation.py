@@ -319,12 +319,27 @@ class TestFetchTraceForEvaluation:
     def test_events_after_the_window_end_are_not_graded(self, setup_data):
         team = setup_data["team"]
         window_end = FROZEN_NOW + timedelta(minutes=30)
-        inside = create_trace_event(**{"$ai_input": "q", "$ai_output": "a"})
+        inside_properties: dict[str, Any] = {
+            "$ai_input": "q",
+            "$ai_output": "a",
+            "$ai_total_cost_usd": 0.02,
+            "$ai_latency": 1.5,
+            "$ai_input_tokens": 10,
+            "$ai_output_tokens": 4,
+        }
+        inside = create_trace_event(**inside_properties)
         # TraceQueryRunner reads ai_events without a timestamp bound, so it hands back the whole
-        # trace no matter what dateRange says.
-        outside = create_trace_event(**{"$ai_input": "later"})
+        # trace no matter what dateRange says, totals included.
+        outside_properties: dict[str, Any] = {
+            "$ai_input": "later",
+            "$ai_total_cost_usd": 0.05,
+            "$ai_latency": 3.0,
+            "$ai_input_tokens": 7,
+            "$ai_output_tokens": 2,
+        }
+        outside = create_trace_event(**outside_properties)
         outside.createdAt = (window_end + timedelta(hours=2)).isoformat()
-        trace = create_trace([inside, outside])
+        trace = create_trace([inside, outside], totalCost=0.07, totalLatency=4.5, inputTokens=17, outputTokens=6)
 
         with (
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
@@ -335,6 +350,39 @@ class TestFetchTraceForEvaluation:
 
         assert outcome.trace is not None
         assert [event.id for event in outcome.trace.events] == [inside.id]
+        assert outcome.trace.totalCost == 0.02
+        assert outcome.trace.totalLatency == 1.5
+        assert outcome.trace.inputTokens == 10
+        assert outcome.trace.outputTokens == 4
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_span_and_its_child_generation_do_not_double_count_latency(self, setup_data):
+        team = setup_data["team"]
+        span_properties: dict[str, Any] = {"$ai_latency": 5.0, "$ai_total_cost_usd": 99.0, "$ai_input_tokens": 99}
+        span = create_trace_event("$ai_span", **span_properties)
+        child_properties: dict[str, Any] = {
+            "$ai_parent_id": "span-1",
+            "$ai_latency": 3.0,
+            "$ai_total_cost_usd": 0.04,
+            "$ai_input_tokens": 12,
+        }
+        child = create_trace_event(**child_properties)
+        trace = create_trace([span, child], totalLatency=8.0, totalCost=99.04, inputTokens=111)
+
+        with (
+            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
+        ):
+            mock_runner.return_value.calculate.return_value = MagicMock(results=[trace])
+            outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW)
+
+        assert outcome.trace is not None
+        # The span is a direct child of the trace and the generation hangs off the span, so only
+        # the span's 5.0 counts. Summing both would report 8.0 for 5 seconds of work.
+        assert outcome.trace.totalLatency == 5.0
+        # A span reports neither tokens nor cost, so its values must not reach the totals.
+        assert outcome.trace.totalCost == 0.04
+        assert outcome.trace.inputTokens == 12
 
     @pytest.mark.django_db(transaction=True)
     def test_a_trace_left_with_no_events_in_the_window_is_skipped(self, setup_data):

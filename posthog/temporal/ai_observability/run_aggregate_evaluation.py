@@ -33,11 +33,11 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RETRY_POLICY
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
-    as_utc_datetime,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.clickhouse.client import query_with_columns
@@ -39,6 +39,16 @@ def _query_ai_event(team_id: int, where_clauses: list[str], params: dict[str, ob
     # Merge heavy columns back into properties for the evaluation workflow.
     heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
     event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
+    # ClickHouse hands back native UUID and datetime values, which no JSON payload can hold. A
+    # caller that starts a workflow with this dict used to get them stringified by Temporal's
+    # converter; an activity that reads the event itself does not. Normalizing here gives every
+    # consumer the same shape the live path receives from ingestion.
+    event_data["uuid"] = str(event_data["uuid"])
+    if event_data.get("person_id") is not None:
+        event_data["person_id"] = str(event_data["person_id"])
+    timestamp = event_data["timestamp"]
+    if isinstance(timestamp, datetime):
+        event_data["timestamp"] = (timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=UTC)).isoformat()
     return event_data
 
 

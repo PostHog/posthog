@@ -2,7 +2,7 @@ import json
 import uuid
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, hydrate_event_reference
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
@@ -34,13 +35,6 @@ logger = structlog.get_logger(__name__)
 SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
 
 EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE = "EmitEvaluationEventFailed"
-
-
-def as_utc_datetime(value: str | datetime) -> datetime:
-    """Read a ClickHouse event timestamp, which reaches us as a naive datetime on a direct call
-    and as an ISO string once Temporal has serialized it through a payload."""
-    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def backfill_verdict_timestamp(
@@ -363,7 +357,10 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
     (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried emit
     collapse into the original."""
     evaluation = inputs.evaluation
-    event_data = inputs.event_data
+    # The judge path reads the same generation twice, once here and once in the judge activity.
+    # Both are point lookups on the ai_events sort key, which is cheaper than pushing an event
+    # that capture accepts up to 8 MiB through a Temporal payload capped near 2 MiB.
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
@@ -519,12 +516,15 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
     evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
     evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-    if evaluation_type == "hog":
-        result = await run_hog_eval_for_event(evaluation, inputs.event_data)
-    elif evaluation_type == "sentiment":
-        result = await run_sentiment_eval(evaluation, inputs.event_data)
-    else:
+    if evaluation_type not in ("hog", "sentiment"):
+        # An llm_judge returns before the read: its own activity hydrates what it grades.
         return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    if evaluation_type == "hog":
+        result = await run_hog_eval_for_event(evaluation, event_data)
+    else:
+        result = await run_sentiment_eval(evaluation, event_data)
 
     emitted = False
     if not is_terminal_user_error_result(result):
@@ -532,7 +532,7 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
             await emit_generation_evaluation_event(
                 EmitEvaluationEventInputs(
                     evaluation=evaluation,
-                    event_data=inputs.event_data,
+                    event_data=event_data,
                     result=result,
                     start_time=inputs.start_time,
                     backfill_id=inputs.backfill_id,

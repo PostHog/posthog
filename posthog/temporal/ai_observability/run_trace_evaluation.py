@@ -24,7 +24,7 @@ import posthoganalytics
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
+from posthog.schema import DateRange, LLMTrace, LLMTraceEvent, QueryLogTags, TraceQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -35,7 +35,7 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import (
     build_hog_event_global,
     execute_hog_eval_bytecode,
@@ -56,7 +56,6 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
-    as_utc_datetime,
     backfill_verdict_timestamp,
     build_evaluation_event_properties,
     emit_internal_telemetry_activity,
@@ -214,6 +213,56 @@ def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, dat
     return int(result.results[0][0] or 0)
 
 
+# Only these report tokens and cost, so the SQL aggregates restrict their sums to them and so do
+# the mirrors below.
+_METERED_EVENTS = ("$ai_generation", "$ai_embedding")
+
+
+def _event_number(event: LLMTraceEvent, key: str) -> float | None:
+    value = event.properties.get(key)
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def _summed_over_metered_events(events: list[LLMTraceEvent], key: str) -> float | None:
+    values = [
+        value for event in events if event.event in _METERED_EVENTS and (value := _event_number(event, key)) is not None
+    ]
+    # None means no event reported the field. A zero would read as a reported zero.
+    return sum(values) if values else None
+
+
+def _recomputed_latency(trace: LLMTrace) -> float | None:
+    """Mirror the total_latency aggregate in TraceQueryRunner over the events left after the bound.
+
+    A span reports the latency of everything under it, so summing every event counts the same time
+    more than once. Both branches key on a positive latency, like the SQL: a reported zero adds
+    nothing and must not decide which branch runs.
+    """
+    reported = [
+        (event, value)
+        for event in trace.events
+        if (value := _event_number(event, "$ai_latency")) is not None and value > 0
+    ]
+    if not reported:
+        return None
+    if all(event.event == "$ai_generation" for event, _ in reported):
+        return round(sum(value for _, value in reported), 2)
+    # The `$ai_trace` root row never reaches `trace.events`, so a direct child here is an event
+    # with no parent or one whose parent is the trace itself.
+    return round(
+        sum(value for event, value in reported if event.properties.get("$ai_parent_id") in (None, trace.id)), 2
+    )
+
+
+def _recompute_trace_totals(trace: LLMTrace) -> None:
+    total_cost = _summed_over_metered_events(trace.events, "$ai_total_cost_usd")
+    # Ten decimals, like the SQL: a per-token cost is small enough that fewer would round it away.
+    trace.totalCost = round(total_cost, 10) if total_cost is not None else None
+    trace.inputTokens = _summed_over_metered_events(trace.events, "$ai_input_tokens")
+    trace.outputTokens = _summed_over_metered_events(trace.events, "$ai_output_tokens")
+    trace.totalLatency = _recomputed_latency(trace)
+
+
 def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
     """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
     preflight so degenerate traces are skipped before pulling their payload."""
@@ -249,9 +298,11 @@ def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: dateti
     # bounds only the shared-events fallback, and even there it adds a 7 day forward buffer. The
     # upper bound is applied here instead. The lower bound is deliberately not applied, because
     # the runner returns the whole trace and cutting off early events would change what live runs
-    # grade. Only the event list is bounded: `total_cost`, `total_latency` and the token counts
-    # are aggregates the runner computed in ClickHouse, so they still cover the whole trace.
+    # grade.
     trace.events = [event for event in trace.events if as_utc_datetime(event.createdAt) <= date_to]
+    # The runner aggregated the totals in ClickHouse over the whole trace, so they would report
+    # cost and latency the judge never sees for the events left after the bound.
+    _recompute_trace_totals(trace)
     if not trace.events:
         # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
         # non-zero count does not promise a transcript. An empty one must skip rather than let the
