@@ -275,4 +275,29 @@ describe('Error Display', () => {
     ])('reads the instruction address from %s', (_name, junk_drawer, expected) => {
         expect(getInstructionAddress({ junk_drawer } as ErrorTrackingStackFrame)).toEqual(expected)
     })
+
+    it.each<[string, unknown[], unknown[]]>([
+        ['every frame replaced by a truncation marker', ['[TRUNCATED]', '[TRUNCATED]'], []],
+        ['a raw stack trace line', ['at handleRequest (file:///srv/app/server.js:42:9)'], []],
+        ['a null frame', [null], []],
+        ['a valid frame next to a string', [{ raw_id: 'abc' }, '[TRUNCATED]'], [{ raw_id: 'abc/0' }]],
+    ])('drops stack frames that are not objects, given %s', (_name, frames, expected) => {
+        const properties = {
+            $exception_list: [{ type: 'Error', value: 'boom', stacktrace: { frames } }],
+        } as unknown as ErrorEventProperties
+
+        expect(getExceptionList(properties)[0].stacktrace?.frames).toEqual(expected)
+    })
+
+    it('leaves the event properties it reads unchanged', () => {
+        const frame = { raw_id: 'abc' }
+        const properties = {
+            $exception_list: [{ type: 'Error', value: 'boom', stacktrace: { frames: [frame] } }],
+        } as unknown as ErrorEventProperties
+
+        const result = getExceptionList(properties)
+
+        expect(result[0].stacktrace?.frames[0].raw_id).toEqual('abc/0')
+        expect(frame.raw_id).toEqual('abc')
+    })
 })

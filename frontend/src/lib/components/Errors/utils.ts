@@ -176,17 +176,21 @@ function processExceptionList(exceptionList: ErrorTrackingException[] = []): Err
 }
 
 function ensureFrameIdFormat(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
-    exceptionList = exceptionList.map((exception) => {
-        if (!exception.stacktrace || !exception.stacktrace.frames || !Array.isArray(exception.stacktrace.frames)) {
+    return exceptionList.map((exception) => {
+        const stacktrace = exception.stacktrace
+        if (!stacktrace || !Array.isArray(stacktrace.frames)) {
             return exception
         }
-        exception.stacktrace.frames = exception.stacktrace.frames.map((frame) => {
-            frame.raw_id = frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id
-            return frame
-        })
-        return exception
+        const frames = stacktrace.frames.filter(isFrameObject).map((frame) => ({
+            ...frame,
+            raw_id: frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id,
+        }))
+        return { ...exception, stacktrace: { ...stacktrace, frames } }
     })
-    return exceptionList
+}
+
+function isFrameObject(frame: unknown): frame is ErrorTrackingStackFrame {
+    return !!frame && typeof frame === 'object' && !Array.isArray(frame)
 }
 
 function coerceLegacyRawId(rawId: string): string {
