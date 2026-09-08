@@ -443,6 +443,7 @@ def test_train_head_returns_none_without_both_classes():
 class _FakeClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.client_kwargs: dict[str, Any] = {}
         self.shutdowns = 0
 
     def capture(self, **kwargs: Any) -> None:
@@ -454,7 +455,12 @@ class _FakeClient:
 
 def _patch_capture(monkeypatch, *, cloud: bool, debug: bool) -> _FakeClient:
     client = _FakeClient()
-    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.get_client", lambda region: client)
+
+    def build(region: str, **kwargs: Any) -> _FakeClient:
+        client.client_kwargs = kwargs
+        return client
+
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.get_client", build)
     monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.is_cloud", lambda: cloud)
     monkeypatch.setattr(settings, "DEBUG", debug)
     monkeypatch.setattr(settings, "CLOUD_DEPLOYMENT", "US" if cloud else None)
@@ -592,6 +598,19 @@ def test_training_events_capture_gate_and_local_marking(
     (call,) = client.calls
     assert call["distinct_id"] == expected_distinct_id
     assert call["properties"]["environment"] == expected_environment
+
+
+def test_capture_sizes_the_client_queue_to_the_batch(monkeypatch):
+    # The SDK drops an event that meets a full queue and reports it only on its own logger. A
+    # grading run enqueues one event per report, model and horizon, so a queue left at the
+    # 10,000-slot default would lose the tail of the per-report events with nothing in the log.
+    client = _patch_capture(monkeypatch, cloud=True, debug=False)
+    events = [
+        TrainingEvent(event="inbox_ranking_unseen_report_graded", properties={"report_id": str(index)})
+        for index in range(10_001)
+    ]
+    capture_training_events(dagster.build_asset_context(), "2026-08-25", events)
+    assert client.client_kwargs["max_queue_size"] >= len(events)
 
 
 def test_training_events_carry_the_dashboard_contract(monkeypatch):

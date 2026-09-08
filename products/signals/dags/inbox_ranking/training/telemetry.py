@@ -189,8 +189,10 @@ def capture_training_events(
     base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
     # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds
     # one: the step process exits right after the asset, before a shared client's background
-    # thread would deliver.
-    client = get_client("US")
+    # thread would deliver. Its queue holds the whole batch, because the SDK drops an event that
+    # meets a full queue and reports it only on its own logger: the grading asset enqueues one row
+    # per report, model and horizon, which is more than the default 10,000 slots.
+    client = get_client("US", max_queue_size=max(len(events), 1))
     if client is None:
         return
     try:
