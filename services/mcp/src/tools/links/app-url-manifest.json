@@ -1754,11 +1754,6 @@
         "params": [],
         "scope": "project"
     },
-    "wizard": {
-        "template": "/wizard",
-        "params": [],
-        "scope": "project"
-    },
     "workflow": {
         "template": "/workflows/{id}/{tab}",
         "params": ["id", "tab"],
