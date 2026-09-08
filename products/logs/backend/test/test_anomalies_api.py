@@ -84,7 +84,7 @@ def _bands_result(**overrides) -> SeriesBandsResult:
                 band_ready_at=None,
                 interval_minutes=60,
                 coarsened_reason="sparse",
-                buckets=[BandBucket(time=T0 - dt.timedelta(hours=1), observed=25, lower=9.0, upper=57.0, verdict=None)],
+                buckets=[BandBucket(time=T0 - dt.timedelta(hours=1), observed=25, lower=9.0, upper=57.0)],
             )
         ],
     }

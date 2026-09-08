@@ -19,11 +19,14 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import type { DateRange } from '~/queries/schema/schema-general'
 
 import { selectedDateRange } from 'products/logs/frontend/components/LogsViewer/LogsViewerSparkline/bucketRanges'
-import type { LogsSeriesBandBucketApi } from 'products/logs/frontend/generated/api.schemas'
+import type {
+    LogsSeriesBandBucketApi,
+    LogsSeriesBandVerdictEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 const OBSERVED_KEY = 'observed'
 
-export type OutOfBand = NonNullable<LogsSeriesBandBucketApi['verdict']>
+export type OutOfBand = LogsSeriesBandVerdictEnumApi
 
 export interface BandChartData {
     labels: string[]

@@ -26,7 +26,7 @@ function buildBuckets(): LogsSeriesBandBucketApi[] {
             observed,
             lower: banded ? Math.round(typical * 0.6) : null,
             upper: banded ? Math.round(typical * 1.4) : null,
-            verdict: banded ? outOfBand : null,
+            verdict: outOfBand,
         }
     })
 }

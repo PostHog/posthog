@@ -94,7 +94,16 @@ class BandBucket:
     observed: int
     lower: float | None
     upper: float | None
-    verdict: BandVerdict | None
+
+    @property
+    def verdict(self) -> BandVerdict | None:
+        if self.lower is None or self.upper is None:
+            return None
+        if self.observed > self.upper:
+            return "above"
+        if self.observed < self.lower:
+            return "below"
+        return None
 
 
 @frozen
@@ -371,7 +380,6 @@ def _build_series(
         total_count += observed
         lower: float | None = None
         upper: float | None = None
-        verdict: BandVerdict | None = None
         if banded:
             # Every slot sits at or after window_start, so a banded series has at
             # least MIN_BASELINE_WEEKS_FOR_BAND samples to expect at every slot.
@@ -383,11 +391,7 @@ def _build_series(
             high = row.baseline_max if row else 0
             lower = low * (1 - BAND_WIDEN_FRACTION)
             upper = high * (1 + BAND_WIDEN_FRACTION) + floor
-            if observed > upper:
-                verdict = "above"
-            elif observed < lower:
-                verdict = "below"
-        buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper, verdict=verdict))
+        buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper))
         slot += step
 
     return BandSeries(
