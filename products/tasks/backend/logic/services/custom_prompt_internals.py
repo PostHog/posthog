@@ -267,7 +267,13 @@ def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> s
 
 
 async def _relay_activity_is_stale(task_run: TaskRun, stale_seconds: int) -> bool:
-    use_dedicated = run_uses_dedicated_stream(getattr(task_run, "state", None))
+    state = getattr(task_run, "state", None)
+    # Sequenced ingest has no transport keepalive while a provider waits for its first token. Its
+    # prompt marker can become stale during a healthy request, so this transport keeps the normal
+    # poll budget until it exposes a definitive liveness signal.
+    if isinstance(state, dict) and state.get("sandbox_event_ingest_enabled") is True:
+        return False
+    use_dedicated = run_uses_dedicated_stream(state)
     streams = [TaskRunRedisStream(get_task_run_stream_key(str(task_run.id)), use_dedicated)]
     if use_dedicated:
         streams.append(TaskRunRedisStream(get_task_run_stream_key(str(task_run.id))))

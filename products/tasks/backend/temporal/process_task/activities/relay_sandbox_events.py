@@ -681,14 +681,14 @@ async def _record_relay_activity_best_effort(
 
 async def _iter_sse_data(event_source: Any) -> AsyncIterator[tuple[str, bool]]:
     """Yield SSE data and expose comment keepalives that httpx-sse normally discards."""
-    line_iterator = getattr(event_source.response, "aiter_lines", None)
-    if not callable(line_iterator):
+    text_iterator = getattr(event_source.response, "aiter_text", None)
+    if not callable(text_iterator):
         async for sse_event in event_source.aiter_sse():
             yield sse_event.data, False
         return
 
     data_lines: list[str] = []
-    async for line in line_iterator():
+    async for line in _iter_sse_lines(text_iterator()):
         if line.startswith(":"):
             if line[1:].strip() == "keepalive":
                 yield "", True
@@ -703,6 +703,28 @@ async def _iter_sse_data(event_source: Any) -> AsyncIterator[tuple[str, bool]]:
             data_lines.append(value[1:] if value.startswith(" ") else value)
     if data_lines:
         yield "\n".join(data_lines), False
+
+
+async def _iter_sse_lines(text_chunks: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Split SSE text only on CR, LF, or CRLF. Unicode separators stay inside event data."""
+    buffer = ""
+    async for chunk in text_chunks:
+        buffer += chunk
+        while True:
+            cr = buffer.find("\r")
+            lf = buffer.find("\n")
+            boundaries = [index for index in (cr, lf) if index >= 0]
+            if not boundaries:
+                break
+            boundary = min(boundaries)
+            if buffer[boundary] == "\r" and boundary == len(buffer) - 1:
+                break
+            line = buffer[:boundary]
+            separator_size = 2 if buffer[boundary : boundary + 2] == "\r\n" else 1
+            buffer = buffer[boundary + separator_size :]
+            yield line
+    if buffer:
+        yield buffer[:-1] if buffer.endswith("\r") else buffer
 
 
 def _is_session_update(event_data: dict) -> bool:

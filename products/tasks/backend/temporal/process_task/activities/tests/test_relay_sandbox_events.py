@@ -600,11 +600,10 @@ class TestRelaySandboxEventsErrorHandling:
                     return None
 
                 @staticmethod
-                async def aiter_lines():
-                    yield ": keepalive"
-                    yield ""
-                    yield f"data: {json.dumps(terminal_event)}"
-                    yield ""
+                async def aiter_text():
+                    terminal_json = json.dumps(terminal_event | {"text": "before\u2028after"}, ensure_ascii=False)
+                    yield ": keepalive\r\n\r\ndata: "
+                    yield f"{terminal_json}\n\n"
 
             response = Response()
 
@@ -632,7 +631,7 @@ class TestRelaySandboxEventsErrorHandling:
             task_id="task-id",
         )
 
-        redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        redis_stream.write_event.assert_awaited_once_with(terminal_event | {"text": "before\u2028after"})
         redis_stream.record_relay_activity.assert_awaited_once_with(force=False)
         assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
