@@ -1,7 +1,5 @@
 from django.utils import timezone
 
-from posthog.models import Team
-
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStatus
 from products.wizard.backend.facade.errors import (
     ActiveWizardRunError,
@@ -18,8 +16,6 @@ from products.wizard.backend.models import WizardRun
 
 
 def enforce_cloud_run_creation_policy(team_id: int, created_by_id: int, idempotency_key: str | None = None) -> None:
-    Team.objects.select_for_update().only("id").get(id=team_id)
-
     runs = WizardRun.objects.for_team(team_id).filter(
         created_by_id=created_by_id,
         environment=WizardRunEnvironment.CLOUD.value,
