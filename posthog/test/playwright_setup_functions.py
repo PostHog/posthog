@@ -75,7 +75,6 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
     no_demo_data: bool | None = None
-    additional_teams: int | None = None
     staff: bool | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
@@ -146,18 +145,6 @@ def create_organization_with_team(
             organization=organization,
             has_completed_onboarding_for={"product_analytics": True},
         )
-        # Created directly: the API refuses a second project on the free plan.
-        for index in range(data.additional_teams or 0):
-            extra_project = Project.objects.create(
-                id=Team.objects.increment_id_sequence(), organization=organization, name=f"Project {index + 2}"
-            )
-            Team.objects.create(
-                id=extra_project.id,
-                project=extra_project,
-                organization=organization,
-                name=extra_project.name,
-                has_completed_onboarding_for={"product_analytics": True},
-            )
         # The user creates the organization, so they own it. Without owner-level access,
         # admin-only areas (e.g. billing) render a "restricted to organization admins" page.
         user = User.objects.create_and_join(

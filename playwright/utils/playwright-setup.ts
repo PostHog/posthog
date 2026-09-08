@@ -66,8 +66,6 @@ export interface PlaywrightWorkspaceSetupData {
     use_current_time?: boolean
     skip_onboarding?: boolean
     no_demo_data?: boolean
-    /** Extra projects created directly, since the API refuses them on the free plan */
-    additional_teams?: number
     staff?: boolean
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]

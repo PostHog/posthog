@@ -249,6 +249,7 @@ export const defaultMocks: Mocks = {
             previous: null,
             results: [],
         },
+        '/api/organizations/:organization_id/billing/projects/': { count: 0, next: null, previous: null, results: [] },
         [`${STATUS_PAGE_BASE}/api/v1/summary`]: statusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,

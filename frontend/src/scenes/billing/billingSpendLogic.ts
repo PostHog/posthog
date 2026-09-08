@@ -19,10 +19,12 @@ import { urls } from 'scenes/urls'
 import { DateMappingOption, OrganizationType } from '~/types'
 
 import {
+    billingProjectList,
     getBillingSpendExportDownloadUrl,
     getBillingSpendTimeseriesRetrieveUrl,
 } from 'products/billing/frontend/generated/api'
 import type {
+    BillingProjectApi,
     BillingSpendExportDownloadParams,
     BillingSpendTimeseriesRetrieveParams,
 } from 'products/billing/frontend/generated/api.schemas'
@@ -132,6 +134,8 @@ export interface billingSpendLogicValues {
     showSeries: boolean
     spendChartExportUrl: string
     spendExportUrl: string
+    reportedProjects: BillingProjectApi[]
+    reportedProjectsLoading: boolean
     teamOptions: {
         key: string
         label: string
@@ -158,6 +162,21 @@ export interface billingSpendLogicActions {
     ) => {
         billingSpendResponse: BillingSpendResponse | null
         payload?: void
+    }
+    loadReportedProjects: () => any
+    loadReportedProjectsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportedProjectsSuccess: (
+        reportedProjects: BillingProjectApi[],
+        payload?: any
+    ) => {
+        reportedProjects: BillingProjectApi[]
+        payload?: any
     }
     resetFilters: () => {
         value: true
@@ -312,7 +331,10 @@ export interface billingSpendLogicMeta {
             usage_types?: string[] | undefined
         }) => string
         headingTooltip: (dateTo: string | null) => string | null
-        teamOptions: (currentOrganization: OrganizationType | null) => {
+        teamOptions: (
+            currentOrganization: OrganizationType | null,
+            reportedProjects: BillingProjectApi[]
+        ) => {
             key: string
             label: string
         }[]
@@ -384,6 +406,21 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         resetFilters: true,
     }),
     loaders(({ values, actions }) => ({
+        reportedProjects: [
+            [] as BillingProjectApi[],
+            {
+                // The project filter's options beyond the live projects, loaded once and apart from
+                // the chart, so a chart that fails or has not answered leaves the filter as it was.
+                // The read lists every project with usage, including projects deleted since.
+                loadReportedProjects: async (): Promise<BillingProjectApi[]> => {
+                    try {
+                        return (await billingProjectList('@current')).results
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
         billingSpendResponse: [
             null as BillingSpendResponse | null,
             {
@@ -667,12 +704,21 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         teamOptions: [
-            (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null) =>
-                sortBy(
-                    (currentOrganization?.teams || []).map((team) => ({ key: String(team.id), label: team.name })),
+            (s) => [s.currentOrganization, s.reportedProjects],
+            (currentOrganization: OrganizationType | null, reportedProjects: BillingProjectApi[]) => {
+                const liveTeams = currentOrganization?.teams || []
+                const liveTeamIds = new Set(liveTeams.map((team) => team.id))
+                const liveOptions = sortBy(
+                    liveTeams.map((team) => ({ key: String(team.id), label: team.name })),
                     'label'
-                ),
+                )
+                // A project deleted since its usage was reported still has that usage, so it stays selectable.
+                const deletedOptions = sortBy(
+                    reportedProjects.filter((project) => project.deleted && !liveTeamIds.has(project.id)),
+                    'id'
+                ).map((project) => ({ key: String(project.id), label: `ID: ${project.id} (deleted)` }))
+                return [...liveOptions, ...deletedOptions]
+            },
         ],
     }),
 
@@ -861,6 +907,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
     })),
     afterMount((logic: billingSpendLogicType) => {
+        logic.actions.loadReportedProjects()
         logic.actions.loadBillingSpend()
     }),
 ])

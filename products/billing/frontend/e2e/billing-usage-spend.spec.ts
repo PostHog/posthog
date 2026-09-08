@@ -8,7 +8,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
  *
  * CI has no billing behind the dev stack, so every billing route the pages read is fulfilled
  * here. What this covers is the pages' side of the contract with billing: the one request a page
- * makes and the filters it carries, which export the menu
+ * makes and the filters it carries, the project filter while its list loads, which export the menu
  * names, the sentence shown when billing refuses a read, and the date presets on offer.
  *
  * Run against a local PostHog:
@@ -42,6 +42,7 @@ type Kind = 'usage' | 'spend'
 
 const EVENTS = 'event_count_in_period'
 const RECORDINGS = 'recording_count_in_period'
+const DELETED_TEAM_ID = 424242
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /** A week of days ending yesterday, which is the last day billing reports on. */
@@ -123,7 +124,7 @@ function answerByBreakdown(workspace: PlaywrightWorkspaceSetupResult): Answering
 async function mockBilling(
     page: Page,
     workspace: PlaywrightWorkspaceSetupResult,
-    answers: { usage?: Answering; spend?: Answering } = {}
+    answers: { usage?: Answering; spend?: Answering; projectsDelayMs?: number } = {}
 ): Promise<BillingReads> {
     const reads: BillingReads = { usage: [], spend: [] }
     const answering: Record<Kind, Answering> = {
@@ -133,6 +134,23 @@ async function mockBilling(
 
     await page.route(/\/api\/billing\/?(\?.*)?$/, (route) => route.fulfill({ json: billingJson }))
     await page.route(/\/api\/billing\/credits\/overview/, (route) => route.fulfill({ json: CREDIT_OVERVIEW }))
+    // The projects with usage: the live one and one deleted since its usage was reported.
+    await page.route(/\/api\/organizations\/[^/]+\/billing\/projects\//, async (route) => {
+        if (answers.projectsDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, answers.projectsDelayMs))
+        }
+        await route.fulfill({
+            json: {
+                count: 2,
+                next: null,
+                previous: null,
+                results: [
+                    { id: Number(workspace.team_id), name: workspace.team_name, deleted: false },
+                    { id: DELETED_TEAM_ID, name: null, deleted: true },
+                ],
+            },
+        })
+    })
     for (const kind of ['usage', 'spend'] as Kind[]) {
         await page.route(new RegExp(`/api/organizations/[^/]+/billing/${kind}/timeseries/(\\?.*)?$`), (route) => {
             const params = new URL(route.request().url()).searchParams
@@ -157,6 +175,7 @@ async function mockBilling(
 async function openProjects(page: Page, kind: Kind): Promise<Locator> {
     await page.getByTestId(`billing-${kind}-projects`).click()
     const options = page.locator('.Popover').last()
+    await expect(options.getByText(`ID: ${DELETED_TEAM_ID} (deleted)`)).toBeVisible()
     return options
 }
 
@@ -177,12 +196,7 @@ test.describe('Billing usage and spend', () => {
     let workspace: PlaywrightWorkspaceSetupResult
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        // Two projects, so a project selection can be partial. The filter lists the organization's projects.
-        workspace = await playwrightSetup.createWorkspace({
-            skip_onboarding: true,
-            no_demo_data: true,
-            additional_teams: 1,
-        })
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -207,9 +221,14 @@ test.describe('Billing usage and spend', () => {
             expect(params.get('top_projects')).toBeNull()
         })
 
-        test("offers the organization's projects in the filter", async ({ page }) => {
-            await mockBilling(page, workspace)
+        test('holds the project filter while its list loads, then offers every project with usage', async ({
+            page,
+        }) => {
+            await mockBilling(page, workspace, { projectsDelayMs: 1500 })
             await openPage(page, 'usage')
+
+            await expect(page.getByPlaceholder('Loading projects…')).toBeDisabled()
+            await expect(page.getByTestId('billing-usage-projects')).toBeVisible({ timeout: 10000 })
 
             const options = await openProjects(page, 'usage')
             await expect(options.getByText(workspace.team_name, { exact: true })).toBeVisible()

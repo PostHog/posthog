@@ -268,6 +268,7 @@ describe('maxBillingContextLogic', () => {
                 '/api/billing/': mockBilling,
                 '/api/organizations/@current/billing/usage/timeseries/': mockBillingUsageResponse,
                 '/api/organizations/@current/billing/spend/timeseries/': mockBillingSpendResponse,
+                '/api/organizations/@current/billing/projects/': { count: 0, next: null, previous: null, results: [] },
                 '/api/billing/usage_limit_alerts/': [],
                 '/api/billing/compute_spend': {},
                 '/api/organizations/@current/': {

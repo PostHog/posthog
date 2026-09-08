@@ -102,6 +102,43 @@ describe('billingUsageLogic loader', () => {
     let logic: ReturnType<typeof billingUsageLogic.build>
     let toastErrorSpy: jest.SpyInstance
 
+    it('lists the projects with usage beside the live ones, apart from the chart', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [200, billingJson],
+                '/api/organizations/@current/billing/usage/timeseries/': () => [
+                    200,
+                    { count: 0, next: null, previous: null, results: [] },
+                ],
+                '/api/organizations/@current/billing/projects/': () => [
+                    200,
+                    {
+                        count: 2,
+                        next: null,
+                        previous: null,
+                        results: [
+                            { id: 3, name: null, deleted: true },
+                            { id: 17, name: null, deleted: true },
+                        ],
+                    },
+                ],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        logic = billingUsageLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadReportedProjects', 'loadReportedProjectsSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.reportedProjectsLoading).toBe(false)
+        expect(logic.values.teamOptions.slice(-2)).toEqual([
+            { key: '3', label: 'ID: 3 (deleted)' },
+            { key: '17', label: 'ID: 17 (deleted)' },
+        ])
+    })
+
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {
         const endDates: string[] = []
         useMocks({

@@ -19,10 +19,12 @@ import { urls } from 'scenes/urls'
 import { DateMappingOption, OrganizationType } from '~/types'
 
 import {
+    billingProjectList,
     getBillingUsageExportDownloadUrl,
     getBillingUsageTimeseriesRetrieveUrl,
 } from 'products/billing/frontend/generated/api'
 import type {
+    BillingProjectApi,
     BillingUsageExportDownloadParams,
     BillingUsageTimeseriesRetrieveParams,
 } from 'products/billing/frontend/generated/api.schemas'
@@ -198,6 +200,8 @@ export interface billingUsageLogicValues {
     }[]
     showEmptyState: boolean
     showSeries: boolean
+    reportedProjects: BillingProjectApi[]
+    reportedProjectsLoading: boolean
     teamOptions: {
         key: string
         label: string
@@ -226,6 +230,21 @@ export interface billingUsageLogicActions {
     ) => {
         billingUsageResponse: BillingUsageResponse | null
         payload?: void
+    }
+    loadReportedProjects: () => any
+    loadReportedProjectsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportedProjectsSuccess: (
+        reportedProjects: BillingProjectApi[],
+        payload?: any
+    ) => {
+        reportedProjects: BillingProjectApi[]
+        payload?: any
     }
     resetFilters: () => {
         value: true
@@ -385,7 +404,10 @@ export interface billingUsageLogicMeta {
                 label: string
             }[]
         ) => number[] | undefined
-        teamOptions: (currentOrganization: OrganizationType | null) => {
+        teamOptions: (
+            currentOrganization: OrganizationType | null,
+            reportedProjects: BillingProjectApi[]
+        ) => {
             key: string
             label: string
         }[]
@@ -457,6 +479,21 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         setBillingUsageError: (error: BillingUsageError | null) => ({ error }),
     }),
     loaders(({ values, actions }) => ({
+        reportedProjects: [
+            [] as BillingProjectApi[],
+            {
+                // The project filter's options beyond the live projects, loaded once and apart from
+                // the chart, so a chart that fails or has not answered leaves the filter as it was.
+                // The read lists every project with usage, including projects deleted since.
+                loadReportedProjects: async (): Promise<BillingProjectApi[]> => {
+                    try {
+                        return (await billingProjectList('@current')).results
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
         billingUsageResponse: [
             null as BillingUsageResponse | null,
             {
@@ -747,12 +784,21 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 selectionCoversEveryProject(filters.team_ids, teamOptions) ? undefined : filters.team_ids,
         ],
         teamOptions: [
-            (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null) =>
-                sortBy(
-                    (currentOrganization?.teams || []).map((team) => ({ key: String(team.id), label: team.name })),
+            (s) => [s.currentOrganization, s.reportedProjects],
+            (currentOrganization: OrganizationType | null, reportedProjects: BillingProjectApi[]) => {
+                const liveTeams = currentOrganization?.teams || []
+                const liveTeamIds = new Set(liveTeams.map((team) => team.id))
+                const liveOptions = sortBy(
+                    liveTeams.map((team) => ({ key: String(team.id), label: team.name })),
                     'label'
-                ),
+                )
+                // A project deleted since its usage was reported still has that usage, so it stays selectable.
+                const deletedOptions = sortBy(
+                    reportedProjects.filter((project) => project.deleted && !liveTeamIds.has(project.id)),
+                    'id'
+                ).map((project) => ({ key: String(project.id), label: `ID: ${project.id} (deleted)` }))
+                return [...liveOptions, ...deletedOptions]
+            },
         ],
     }),
 
@@ -938,6 +984,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         },
     })),
     afterMount(({ actions }: billingUsageLogicType) => {
+        actions.loadReportedProjects()
         actions.loadBillingUsage()
     }),
 ])

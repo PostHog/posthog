@@ -45,6 +45,40 @@ describe('billingSpendLogic chart type', () => {
         logic?.unmount()
     })
 
+    it('lists the projects with usage beside the live ones, apart from the chart', async () => {
+        const base = mocks()
+        useMocks({
+            ...base,
+            get: {
+                ...base.get,
+                '/api/organizations/@current/billing/projects/': () => [
+                    200,
+                    {
+                        count: 2,
+                        next: null,
+                        previous: null,
+                        results: [
+                            { id: 3, name: null, deleted: true },
+                            { id: 17, name: null, deleted: true },
+                        ],
+                    },
+                ],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        logic = billingSpendLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadReportedProjects', 'loadReportedProjectsSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.teamOptions.slice(-2)).toEqual([
+            { key: '3', label: 'ID: 3 (deleted)' },
+            { key: '17', label: 'ID: 17 (deleted)' },
+        ])
+    })
+
     it('always allows stacking, because spend is dollars in every breakdown', async () => {
         useMocks(mocks())
         await mount()
