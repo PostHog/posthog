@@ -189,8 +189,10 @@ class TestForecastReach:
     @parameterized.expand(
         [
             ("daily", IntervalType.DAY, datetime.date(2026, 3, 31), 30),
-            ("weekly", IntervalType.WEEK, datetime.date(2026, 3, 31), 5),
-            ("monthly", IntervalType.MONTH, datetime.date(2026, 6, 1), 4),
+            ("weekly stops before a midweek target", IntervalType.WEEK, datetime.date(2026, 3, 31), 4),
+            ("weekly reaches a target on a bucket start", IntervalType.WEEK, datetime.date(2026, 4, 5), 5),
+            ("monthly counts calendar months", IntervalType.MONTH, datetime.date(2026, 6, 1), 3),
+            ("monthly stops before a mid-month target", IntervalType.MONTH, datetime.date(2026, 5, 20), 2),
             ("hourly", IntervalType.HOUR, datetime.date(2026, 3, 3), 48),
             ("none_defaults_to_daily", None, datetime.date(2026, 3, 31), 30),
         ]

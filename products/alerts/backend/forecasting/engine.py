@@ -69,8 +69,16 @@ def horizon_for_target_date(target_date: date, interval: IntervalType | None, to
 
 
 def intervals_between(start: date, end: date, interval: IntervalType | None) -> int:
+    """Count forecast buckets from ``start`` to the last one at or before ``end``.
+
+    Steps the way the engine steps: a fixed width for hour, day, and week, and calendar month
+    starts for month. Rounding up would ask for a bucket past the target. The target evaluation
+    ignores that bucket, but the history the alert must hold still grows with it.
+    """
+    if interval == IntervalType.MONTH:
+        return max(1, (end.year - start.year) * 12 + (end.month - start.month))
     days = (end - start).days
-    return max(1, ceil(days / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)))
+    return max(1, floor(days / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)))
 
 
 def max_evaluable_horizon(interval: IntervalType | None) -> int:

@@ -26,6 +26,7 @@ from products.alerts.backend.evaluation.contract import (
 from products.alerts.backend.evaluation.dispatcher import check_forecast_alert
 from products.alerts.backend.evaluation.forecast import (
     TrendsForecastExtractor,
+    _forecast_extraction_contract,
     _index_for_target_date,
     _target_projection,
     evaluate_with_forecast,
@@ -297,6 +298,39 @@ class TestTargetDateIndex:
         ).root
         with pytest.raises(ValueError, match="completed forecast bucket"):
             _target_projection(_forecast(["2026-04-06"], [90.0]), config)
+
+
+class TestTargetHorizonContract:
+    @parameterized.expand(
+        [
+            ("daily", IntervalType.DAY, "2026-10-07", datetime.date(2026, 9, 6), 31),
+            ("weekly stops before a midweek target", IntervalType.WEEK, "2026-11-04", datetime.date(2026, 8, 31), 9),
+            (
+                "weekly reaches a target on a bucket start",
+                IntervalType.WEEK,
+                "2026-11-09",
+                datetime.date(2026, 8, 31),
+                10,
+            ),
+            ("monthly counts calendar months", IntervalType.MONTH, "2026-11-04", datetime.date(2026, 8, 1), 3),
+        ]
+    )
+    def test_the_horizon_stops_at_the_last_bucket_on_or_before_the_target(
+        self, _name: str, interval: IntervalType, target_date: str, anchor: datetime.date, expected: int
+    ) -> None:
+        config = {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "target_by_date",
+            "target": 100,
+            "target_direction": "at_least",
+            "target_date": target_date,
+        }
+        now = datetime.datetime(2026, 9, 7, 12, 0, tzinfo=datetime.UTC)
+
+        horizon, reference_date = _forecast_extraction_contract(config, interval, now, week_start_day=1)
+
+        assert (horizon, reference_date) == (expected, anchor)
 
 
 class TestHistoryRequirements:
