@@ -88,13 +88,61 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
 ### Goals, vitals, external clicks
 
-| Runner                      | Tier 1                        | Fallback                                 | Notes                                                         |
-| --------------------------- | ----------------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| WebGoalsQuery               | Lazy (`web_goals_lazy_query`) | Live (`web_goals_query`)                 | Needs actions configured; no fast-path shapes exist           |
-| WebVitalsPathBreakdownQuery | Lazy                          | Live (`web_vitals_path_breakdown_query`) | Requires day-aligned range; exempt from integer-timezone gate |
-| WebExternalClicksTableQuery | —                             | Live (`external_clicks_query`)           | Live-only; no precompute family                               |
+| Runner                      | Tier 1                              | Fallback                                 | Notes                                                                          |
+| --------------------------- | ----------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| WebGoalsQuery               | Lazy (`web_goals_lazy_query`)       | Live (`web_goals_query`)                 | Needs actions configured; no fast-path shapes exist                            |
+| WebVitalsPathBreakdownQuery | Lazy                                | Live (`web_vitals_path_breakdown_query`) | Requires day-aligned range; exempt from integer-timezone gate                  |
+| WebExternalClicksTableQuery | —                                   | Live (`external_clicks_query`)           | Live-only; no precompute family                                                |
+| WebBotsTableQuery           | Lazy (`web_bots_lazy_query`)        | Live (`web_bots_query`)                  | Crawlers and Most crawled paths; see [Bot analytics](#bot-analytics)           |
+| Bot request trend chart     | Lazy (`web_bots_trends_lazy_query`) | Live trends                              | A `TrendsQuery` on `WebTrendsQueryRunner`; see [Bot analytics](#bot-analytics) |
 
 ## Lazy precompute freshness (summary)
+
+### Bot analytics
+
+Every tile on the AI/Search bots view reads `posthog.web_bots_preaggregated`.
+The table stores, for each UTC hour, the request count and the most recent request time per crawler, category, host, and path.
+One job set therefore serves the Crawlers table, the Most crawled paths table, and all four tabs of the request trend chart.
+Counts cover `$pageview`, `$screen`, and `$http_log`.
+
+Reads combine stored hours with live events for everything the stored hours do not cover.
+That is the two partial-hour boundaries of the requested range, and any hour after the job ran.
+A job for a window that has not elapsed yet holds no rows past its own `computed_at`, so a read that trusted the whole window would report those hours as zero.
+Exact date filters, request times, and the recent end of a chart are all preserved this way.
+
+The job identity includes the compiled bot classification: the built-in definitions, the bot IP ranges, and the project's custom bot rules.
+A change to any of them mints new jobs, so stored rows never outlive the classification that produced them.
+User filters and test-account filters are part of the job identity too.
+
+#### Tables
+
+`WebBotsTableQuery` serves the Crawlers and Most crawled paths tables.
+The shared precompute enrollment and the per-query "Allow precompute" opt-out both apply.
+Comparison ranges stay on the live query.
+Query types: `web_bots_lazy_insert`, `web_bots_lazy_query`, `web_bots_query`.
+
+#### Request trend chart
+
+The chart is a `TrendsQuery` that the bots tab tags with `productKey: web_analytics`, so it dispatches to `WebTrendsQueryRunner`.
+That runner tries the bot buckets before the overview buckets, because the overview buckets carry none of the four breakdown dimensions.
+Read rows go through the live trends runner's own `build_series_response`, so labels, the "Other" bucket, series order, and the response contract come from the live path rather than a second implementation of it.
+Ranking mirrors the live outer query: rank on (ordering, total descending, value ascending), keep the top 25, and fold the rest into one "Other" row.
+
+Enrollment is the `web-analytics-trends-precompute` flag at dispatch plus the shared precompute enrollment inside the gate; both are folded into the runner's cache key, so turning either off is an immediate kill switch.
+`TrendsQuery` carries no `useWebAnalyticsPrecompute` field, so the per-query opt-out cannot reach a trend tile.
+
+Only the bots tab's own chart shape is admitted.
+These stay on the live path: any other breakdown property, multiple breakdowns, a breakdown limit, URL normalization or path cleaning, a comparison range, a series that is not the three bot events OR-ed into one total, formulas, a non-line display, an interval other than hour, day, week, or month, an explicit date range, and an hour-interval range that crosses a DST transition.
+Query type: `web_bots_trends_lazy_query`.
+
+#### Out of scope
+
+Agent journey analytics and citation tracking keep their existing paths.
+
+#### Rollout
+
+Land the ClickHouse table migration in its own migration-only pull request and deploy it before the application changes.
+Then check result parity, precompute use, query duration, and the `web_bots_trends_lazy_precompute_fallback` reasons before expanding enrollment.
 
 Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.md); the operative numbers:
 
@@ -148,6 +196,7 @@ Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_la
 | Goals           | `web_goals_lazy_query/insert`                                                                              | `web_goals_query`                                                                                                                                                                                                                            |
 | Vitals          | `web_vitals_paths_lazy_query/insert`                                                                       | `web_vitals_path_breakdown_query`                                                                                                                                                                                                            |
 | External clicks | —                                                                                                          | `external_clicks_query`                                                                                                                                                                                                                      |
+| Bot analytics   | `web_bots_lazy_query/insert`, `web_bots_trends_lazy_query`                                                 | `web_bots_query`, the live trends tags                                                                                                                                                                                                       |
 
 ## Reading a slow tile
 

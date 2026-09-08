@@ -24578,6 +24578,7 @@ class WebBotsTableQuery(BaseModel):
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
