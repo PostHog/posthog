@@ -201,6 +201,41 @@ describe("getPostHogExecDisplay", () => {
   });
 });
 
+describe("mcp proxy shape (Pi harness)", () => {
+  it("reads exec arguments from the proxy tool shape", () => {
+    expect(
+      getPostHogExecDisplay({
+        tool: "exec",
+        args: '{"command":"call query-trends --from=-7d"}',
+      }),
+    ).toEqual({
+      label: "query-trends",
+      input: "--from=-7d",
+    });
+  });
+
+  it("keeps an explicit input field from the wrapped arguments", () => {
+    expect(
+      getPostHogExecDisplay({
+        tool: "exec",
+        args: '{"command":"search","input":"funnel"}',
+      }),
+    ).toEqual({ label: "Search tools", input: "funnel" });
+  });
+
+  it("returns null when the wrapped args are not valid JSON", () => {
+    expect(
+      getPostHogExecDisplay({ tool: "exec", args: "not-json" }),
+    ).toBeNull();
+  });
+
+  it("returns null for other tools routed through the proxy", () => {
+    expect(
+      getPostHogExecDisplay({ tool: "query-trends", args: "{}" }),
+    ).toBeNull();
+  });
+});
+
 describe("formatPosthogExecBody", () => {
   it("returns undefined for empty input", () => {
     expect(formatPosthogExecBody(undefined)).toBeUndefined();

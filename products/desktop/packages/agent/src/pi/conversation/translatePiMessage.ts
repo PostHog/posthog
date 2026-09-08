@@ -51,6 +51,34 @@ const mcpToolDetailsSchema = z.object({
   }),
 });
 
+const mcpResultMetaSchema = z.object({
+  structuredContent: z.record(z.string(), z.unknown()).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+/**
+ * Structured `tools/call` fields the pi harness routes around the model
+ * (they land on the tool result's `details`). The desktop MCP Apps host reads
+ * them off `rawOutput` to render a UI app, so they must not go through the
+ * classification schema above, which strips unknown keys.
+ */
+function readMcpResultMeta(details: unknown):
+  | {
+      structuredContent?: Record<string, unknown>;
+      _meta?: Record<string, unknown>;
+    }
+  | undefined {
+  if (!details || typeof details !== "object") return undefined;
+  const mcp = (details as { posthog?: { mcp?: { result?: unknown } } }).posthog
+    ?.mcp;
+  const parsed = mcpResultMetaSchema.safeParse(mcp?.result);
+  if (!parsed.success) return undefined;
+  return parsed.data.structuredContent !== undefined ||
+    parsed.data._meta !== undefined
+    ? parsed.data
+    : undefined;
+}
+
 function toGenericToolContent(
   resultContent: ToolResultMessage["content"],
 ): AgentToolCallContent[] | undefined {
@@ -247,6 +275,11 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     if (mcpDetails.success) {
       const mcp = mcpDetails.data.posthog.mcp;
       toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
+
+      const resultMeta = readMcpResultMeta(result.details);
+      if (resultMeta) {
+        toolCall.rawOutput = { content: result.content, ...resultMeta };
+      }
     }
 
     const translator = isPiToolName(toolName)
