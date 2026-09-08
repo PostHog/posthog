@@ -11,6 +11,7 @@ _ACP_GENERATION_UPDATES = frozenset(
         "tool_call_update",
     }
 )
+_ACP_TURN_ACTIVITY_UPDATES = _ACP_GENERATION_UPDATES | {"plan", "user_message", "user_message_chunk"}
 
 _PI_GENERATION_EVENTS = frozenset(
     {
@@ -20,6 +21,7 @@ _PI_GENERATION_EVENTS = frozenset(
         "tool_call_updated",
     }
 )
+_PI_TURN_ACTIVITY_EVENTS = _PI_GENERATION_EVENTS | {"user_message"}
 
 
 def is_agent_command_dispatched(event: dict[str, Any]) -> bool:
@@ -46,3 +48,20 @@ def is_agent_generation_event(event: dict[str, Any]) -> bool:
         return False
     update = params.get("update")
     return isinstance(update, dict) and update.get("sessionUpdate") in _ACP_GENERATION_UPDATES
+
+
+def is_agent_turn_activity_event(event: dict[str, Any]) -> bool:
+    if event.get("type") == "pi_event":
+        pi_event = event.get("event")
+        return isinstance(pi_event, dict) and pi_event.get("type") in _PI_TURN_ACTIVITY_EVENTS
+
+    notification = event.get("notification")
+    if event.get("type") != "notification" or not isinstance(notification, dict):
+        return False
+    if notification.get("method") != "session/update":
+        return False
+    params = notification.get("params")
+    if not isinstance(params, dict):
+        return False
+    update = params.get("update")
+    return isinstance(update, dict) and update.get("sessionUpdate") in _ACP_TURN_ACTIVITY_UPDATES

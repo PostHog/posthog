@@ -26,7 +26,11 @@ from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
-from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
+from products.tasks.backend.logic.stream.agent_events import (
+    is_agent_command_dispatched,
+    is_agent_generation_event,
+    is_agent_turn_activity_event,
+)
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -457,7 +461,7 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
-                            if is_agent_generation_event(event_data):
+                            if is_agent_turn_activity_event(event_data):
                                 await _record_relay_activity_best_effort(redis_stream, run_id)
                             if workflow_handle is not None:
                                 if (

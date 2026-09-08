@@ -259,7 +259,7 @@ def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> s
 async def _relay_activity_is_stale(task_run: TaskRun, stale_seconds: int) -> bool:
     stream = TaskRunRedisStream(
         get_task_run_stream_key(str(task_run.id)),
-        run_uses_dedicated_stream(task_run.state),
+        run_uses_dedicated_stream(getattr(task_run, "state", None)),
     )
     try:
         activity_at = await stream.get_relay_activity_at()
