@@ -109,6 +109,7 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(config.properties["pinned_properties"], pinned_properties)
         self.assertEqual(config.pinned_custom_property_definition_ids, [first_custom.id, second_custom.id])
 
+        payload: dict[str, object] | None
         for payload in ({}, None):
             with self.subTest(payload=payload):
                 unchanged = self.client.patch(self.endpoint, payload, format="json")
