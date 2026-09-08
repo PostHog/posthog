@@ -28,7 +28,10 @@ non-staff credential 403s on any UUID but `@me`, and an impersonated session 403
 because `/api/users/` is in `IMPERSONATION_BLOCKED_PATHS`. Log out of impersonation first.
 
 `--reason` is required for a write, and appears in the plan, the confirmation prompt, the closing summary, and the
-`--output` JSON with the operator's email and a UTC timestamp. Keep that file, because it is the only record:
+`--output` JSON with the operator's email and a UTC timestamp. That file is written twice: as `state: planned` before
+the confirmation prompt, so an interrupted run still leaves a record, then again with the terminal state
+(`dry_run`, `aborted`, `completed`, `partial` or `failed`), a completion timestamp, and the HTTP status for each user.
+A file that still says `planned` means the run did not reach its end. Keep that file, because it is the only record:
 `partial_notification_settings` is in `field_exclusions` for the User activity-log scope, so `changes_between` returns
 nothing and `log_activity` drops the "updated" entry, and the `user updated` analytics event is attributed to the
 target user rather than to the operator.
@@ -127,6 +130,16 @@ PLAN_SAMPLE_LIMIT = 100
 # to the PostHog default), because "on/off" says nothing useful about a threshold.
 KIND_BOOLEAN = "boolean"
 KIND_NUMBER = "number"
+
+# Run states for the --output record. The file is written twice: once as PLANNED before the
+# confirmation prompt, so a crash or a kill still leaves a record, then again with the outcome.
+# A file that still says PLANNED means the run did not reach its end.
+RUN_PLANNED = "planned"
+RUN_DRY_RUN = "dry_run"
+RUN_ABORTED = "aborted"
+RUN_COMPLETED = "completed"
+RUN_PARTIAL = "partial"
+RUN_FAILED = "failed"
 
 
 # Plain stdlib dataclass rather than posthog.dataclasses.frozen: these scripts run standalone
@@ -344,6 +357,28 @@ class PlannedChange:
         # `current` is None when unset, which is never equal to the desired bool, so an
         # unconfigured setting is always written rather than assumed to match a default.
         return bool(self.current == self.desired)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ChangeResult:
+    """What the PATCH for one planned change returned. `status` is None when no response arrived."""
+
+    email: str
+    uuid: str
+    status: Optional[int]
+    error: Optional[str]
+
+    @property
+    def applied(self) -> bool:
+        return self.status is not None and 200 <= self.status < 300
+
+    @property
+    def status_key(self) -> str:
+        return "error" if self.status is None else str(self.status)
+
+    def describe_failure(self) -> str:
+        detail = f"HTTP {self.status} {self.error}" if self.status is not None else str(self.error)
+        return f"{self.email} ({self.uuid}): {detail}"
 
 
 def format_current(value: Any) -> str:
@@ -586,14 +621,12 @@ def apply_changes(
     changes: list[PlannedChange],
     payload: dict[str, Any],
     batch_size: int,
-) -> tuple[Counter[str], list[str]]:
+) -> list[ChangeResult]:
     """PATCH each user in turn; there is no bulk endpoint.
 
-    Returns (status_counts, failures), keyed by HTTP status as a string plus an "error" bucket for
-    requests that never got a response. Only 2xx counts as applied.
+    Returns one result per change, in the order attempted. Only 2xx counts as applied.
     """
-    status_counts: Counter[str] = Counter()
-    failures: list[str] = []
+    results: list[ChangeResult] = []
     total = len(changes)
     batch_counts: Counter[str] = Counter()
     batch_start = 1
@@ -602,20 +635,45 @@ def apply_changes(
         try:
             response = request_with_retries(session, "PATCH", url, json=payload)
         except PostHogScriptError as err:
-            status_counts["error"] += 1
-            batch_counts["error"] += 1
-            failures.append(f"{change.email} ({change.uuid}): {err}")
+            result = ChangeResult(email=change.email, uuid=change.uuid, status=None, error=str(err))
         else:
             code = response.status_code
-            status_counts[str(code)] += 1
-            batch_counts[str(code)] += 1
-            if not 200 <= code < 300:
-                failures.append(f"{change.email} ({change.uuid}): HTTP {code} {response.text[:200]}")
+            detail = None if 200 <= code < 300 else response.text[:200]
+            result = ChangeResult(email=change.email, uuid=change.uuid, status=code, error=detail)
+        results.append(result)
+        batch_counts[result.status_key] += 1
         if index % batch_size == 0 or index == total:
             log(f"  updates {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
             batch_counts = Counter()
             batch_start = index + 1
-    return status_counts, failures
+    return results
+
+
+def write_record(path: str, base: dict[str, Any], *, state: str, results: list[ChangeResult]) -> None:
+    """Write the audit record for the run, replacing any earlier one at the same path.
+
+    The write goes to a temporary file first, so an interrupted write cannot leave a truncated
+    record where a complete earlier one was.
+    """
+    record = {
+        **base,
+        "state": state,
+        "finished_at": None if state == RUN_PLANNED else datetime.datetime.now(datetime.UTC).isoformat(),
+        "results": [
+            {
+                "email": result.email,
+                "uuid": result.uuid,
+                "status": result.status,
+                "applied": result.applied,
+                "error": result.error,
+            }
+            for result in results
+        ],
+    }
+    temporary = f"{path}.tmp"
+    with open(temporary, "w") as f:
+        json.dump(record, f, indent=2)
+    os.replace(temporary, path)
 
 
 def validate_scope(parser: argparse.ArgumentParser, setting: NotificationSetting, scope: Optional[str]) -> None:
@@ -695,7 +753,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size", type=int, default=25, help="How many updates to group per reported status-code batch"
     )
-    parser.add_argument("--output", help="Write the planned changes to this JSON file")
+    parser.add_argument(
+        "--output",
+        help="Write the run record to this JSON file: the plan first, then the outcome with a per-user result",
+    )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
@@ -828,45 +889,46 @@ def main() -> int:
             "don't name here stay excluded."
         )
 
+    record = {
+        "host": args.host,
+        "reason": args.reason or None,
+        "operator": acting_email,
+        "started_at": started_at,
+        "setting": setting.key,
+        "scope": args.scope,
+        "intent": intent,
+        "desired": desired,
+        "payload": payload,
+        "changes": [
+            {
+                "email": change.email,
+                "uuid": change.uuid,
+                "current": change.current,
+                "desired": change.desired,
+                "is_noop": change.is_noop,
+            }
+            for change in planned
+        ],
+        "unresolved": unresolved,
+    }
     if args.output:
-        with open(args.output, "w") as f:
-            json.dump(
-                {
-                    "host": args.host,
-                    "reason": args.reason or None,
-                    "operator": acting_email,
-                    "started_at": started_at,
-                    "dry_run": bool(args.dry_run),
-                    "setting": setting.key,
-                    "scope": args.scope,
-                    "intent": intent,
-                    "desired": desired,
-                    "payload": payload,
-                    "changes": [
-                        {
-                            "email": change.email,
-                            "uuid": change.uuid,
-                            "current": change.current,
-                            "desired": change.desired,
-                            "is_noop": change.is_noop,
-                        }
-                        for change in planned
-                    ],
-                    "unresolved": unresolved,
-                },
-                f,
-                indent=2,
-            )
-        log(f"Wrote plan to {args.output}")
+        write_record(args.output, record, state=RUN_PLANNED, results=[])
+        log(f"Wrote plan to {args.output} (state: {RUN_PLANNED}, rewritten with the outcome at the end of the run)")
 
     if not to_change:
         log("")
         log("Nothing to change.")
+        if args.output:
+            # Every resolved user already holds the requested value, so the end state is the
+            # requested one even though no request was sent.
+            write_record(args.output, record, state=RUN_DRY_RUN if args.dry_run else RUN_COMPLETED, results=[])
         return 1 if unresolved else 0
 
     if args.dry_run:
         log("")
         log("DRY RUN: no changes made.")
+        if args.output:
+            write_record(args.output, record, state=RUN_DRY_RUN, results=[])
         # Still non-zero on unresolved emails, so a scripted dry run fails on a bad list
         # instead of looking like a clean plan.
         return 1 if unresolved else 0
@@ -883,10 +945,14 @@ def main() -> int:
             eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs.",
         ):
             log("Aborted.")
+            if args.output:
+                write_record(args.output, record, state=RUN_ABORTED, results=[])
             return 1
 
-    status_counts, failures = apply_changes(session, args.host, to_change, payload, args.batch_size)
-    updated = sum(n for code, n in status_counts.items() if code.isdigit() and 200 <= int(code) < 300)
+    results = apply_changes(session, args.host, to_change, payload, args.batch_size)
+    status_counts: Counter[str] = Counter(result.status_key for result in results)
+    failures = [result for result in results if not result.applied]
+    updated = len(results) - len(failures)
     log("")
     log(f"Done: {updated}/{len(to_change)} updated. Status breakdown: {format_status_counts(status_counts)}")
     forbidden = status_counts.get("403", 0)
@@ -896,9 +962,19 @@ def main() -> int:
             "user lost staff access mid-run."
         )
     for failure in failures[:20]:
-        log(f"  FAILED: {printable(failure)}")
+        log(f"  FAILED: {printable(failure.describe_failure())}")
     if len(failures) > 20:
         log(f"  ... and {len(failures) - 20} more failures")
+
+    if args.output:
+        if not failures:
+            state = RUN_COMPLETED
+        elif updated:
+            state = RUN_PARTIAL
+        else:
+            state = RUN_FAILED
+        write_record(args.output, record, state=state, results=results)
+        log(f"  record: {args.output} (state: {state})")
 
     # Repeat the record at the end so the terminal transcript is pasteable into the ticket even
     # when --output wasn't used. Nothing server-side ties this change to the operator.
