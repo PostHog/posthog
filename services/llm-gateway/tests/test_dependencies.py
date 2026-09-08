@@ -27,7 +27,7 @@ from llm_gateway.dependencies import (
     get_request_json,
     resolve_quota,
 )
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID
+from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID, WIZARD_US_APP_ID
 from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 from llm_gateway.services.desktop_access_resolver import (
@@ -562,7 +562,10 @@ class TestServerCredentialRequirementWiring:
             with pytest.raises(HTTPException) as exc_info:
                 await enforce_product_access(request=request, user=self._oauth_user(["*"]))
             assert exc_info.value.status_code == 403
-            assert "server-minted" in exc_info.value.detail
+            error = exc_info.value.detail["error"]
+            assert "server-minted" in error["message"]
+            assert error["code"] == "product_access_denied"
+            assert "reason" not in error
         finally:
             get_settings.cache_clear()
 
@@ -720,7 +723,7 @@ class TestDesktopAccessGate:
     async def test_other_products_untouched(self) -> None:
         get_settings.cache_clear()
         try:
-            request = self._request(False, path="/wizard/v1/messages")
+            request = self._request(False, path="/django/v1/messages")
             user = AuthenticatedUser(
                 user_id=7,
                 team_id=1,
@@ -816,3 +819,44 @@ class TestSandboxTaskIdPlumbing:
         assert bool(cache_key) is expect_ceiling
         if expect_ceiling:
             assert cache_key == f"cost:task:{expected_id}"
+
+
+class TestRetiredProduct:
+    """The legacy wizard route refuses every credential with the upgrade path."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user",
+        [
+            AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="personal_api_key",
+                distinct_id="test-distinct-id-7",
+                scopes=["llm_gateway:read"],
+            ),
+            AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="oauth_access_token",
+                distinct_id="test-distinct-id-7",
+                scopes=["llm_gateway:read"],
+                application_id=WIZARD_US_APP_ID,
+            ),
+        ],
+        ids=["personal_api_key", "wizard_oauth_app"],
+    )
+    async def test_wizard_is_refused_with_the_upgrade_path(self, user: AuthenticatedUser) -> None:
+        get_settings.cache_clear()
+        try:
+            request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/wizard/v1/messages")
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=request, user=user)
+            assert exc_info.value.status_code == 403
+            error = exc_info.value.detail["error"]
+            assert error["type"] == "permission_error"
+            assert error["code"] == "product_access_denied"
+            assert error["reason"] == "product_retired"
+            assert "npx @posthog/wizard@latest" in error["message"]
+        finally:
+            get_settings.cache_clear()

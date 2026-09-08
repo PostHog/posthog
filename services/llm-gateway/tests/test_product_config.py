@@ -117,11 +117,11 @@ class TestCheckProductAccess:
                 True,
                 None,
             ),
-            # wizard allows API keys and OAuth with valid app ID
-            ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
-            ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
-            ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
-            ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
+            # wizard is retired here: every auth method, including its own apps, gets the upgrade path
+            ("wizard", "personal_api_key", None, "claude-3-opus", False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", "invalid-app-id", None, False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, False, "npx @posthog/wizard@latest"),
             # django allows API keys with any model; OAuth rejected (no app IDs configured)
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
@@ -805,3 +805,13 @@ class TestSignalsApplicationIsolation:
         # of which it could reach while Signals shared the Desktop app.
         allowed, _ = check_product_access(product, "oauth_access_token", SIGNALS_DEV_APP_ID, None)
         assert allowed is expected_allowed
+
+
+class TestRetiredProduct:
+    @patch("llm_gateway.products.config.get_settings", return_value=MagicMock(debug=True))
+    def test_a_retired_product_is_refused_in_debug_mode_too(self, _settings):
+        # Debug skips the application-id check, which must not reopen a retired product.
+        allowed, error = check_product_access("wizard", "oauth_access_token", WIZARD_US_APP_ID, None)
+        assert allowed is False
+        assert error is not None
+        assert "npx @posthog/wizard@latest" in error
