@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useContext, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 
 import { useComponentPanelState } from './componentPanelContext'
 import { usePublishNotebookComponentRunHandler } from './componentRunHandlers'
@@ -30,6 +31,8 @@ type RunnableCellOptions = {
      * not land in. 'textarea' mirrors an older build, where the textarea is the real input. */
     withEditor?: false | 'native' | 'textarea'
     runnable?: boolean
+    /** Renders the block's content through a portal, the way a modal or menu does. */
+    portalContent?: boolean
 }
 
 function renderCell({
@@ -39,6 +42,7 @@ function renderCell({
     insertParagraphAfterNode = jest.fn(),
     withEditor = false,
     runnable = true,
+    portalContent = false,
 }: RunnableCellOptions = {}): HTMLElement {
     const registry = createMarkdownNotebookRegistry([
         {
@@ -46,7 +50,9 @@ function renderCell({
             label: 'Cell',
             category: 'Test',
             ViewComponent: () =>
-                withEditor === 'native' ? (
+                portalContent ? (
+                    createPortal(<div data-attr="cell-portal">Portaled</div>, document.body)
+                ) : withEditor === 'native' ? (
                     <div className="monaco-editor">
                         <div className="native-edit-context" tabIndex={0} data-attr="cell-editor" />
                         <textarea className="ime-text-area" data-attr="cell-ime" />
@@ -780,6 +786,18 @@ describe('NotebookComponentShell', () => {
 
         fireEvent.keyDown(shell, { key: 'Enter' })
         expect(document.activeElement).toBe(editor)
+    })
+
+    it("ignores run shortcuts from a block's portaled modal or menu", () => {
+        // React bubbles a portal's events through the component tree, so they reach this shell even
+        // though the portal's DOM sits outside it. A source editor in a modal must keep its own keys.
+        const run = jest.fn()
+        renderCell({ run, portalContent: true })
+
+        fireEvent.keyDown(screen.getByTestId('cell-portal'), { key: 'Enter', shiftKey: true })
+        fireEvent.keyDown(screen.getByTestId('cell-portal'), { key: 'Enter', metaKey: true })
+
+        expect(run).not.toHaveBeenCalled()
     })
 
     it('keeps Enter adding a paragraph below a block that cannot run', () => {

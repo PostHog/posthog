@@ -363,6 +363,13 @@ export function NotebookComponentShell({
             return
         }
 
+        // A modal or menu a block renders portals its DOM out of the shell, yet React still bubbles
+        // its events here through the component tree. Without this the source editor inside a
+        // widget's modal would run the cell on Shift+Enter instead of taking the newline.
+        if (event.target instanceof Node && !event.currentTarget.contains(event.target)) {
+            return
+        }
+
         // Deliberately overrides Monaco's Shift+Enter, which inserts a plain newline that Enter
         // already gives you.
         if (event.key === 'Enter' && !event.altKey && (event.metaKey || event.ctrlKey || event.shiftKey)) {
