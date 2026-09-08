@@ -233,16 +233,32 @@ describe('a target alert whose date has passed', () => {
         expect(errors).toEqual({})
     })
 
-    // Regrouping the insight to a finer bucket can push a saved date past the point limit, which the
-    // server still checks, so the form has to name it instead of letting the save fail.
+    // Regrouping the insight to a finer bucket can push a saved date out of reach, which the server
+    // still checks, so the form has to name it instead of letting the save fail.
     it('blocks an unchanged date that no longer fits the insight interval', () => {
-        const targetDate = dayjs().add(60, 'day').format('YYYY-MM-DD')
+        const targetDate = dayjs().add(100, 'day').format('YYYY-MM-DD')
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, forecast_config: { ...savedForecastConfig, target_date: targetDate } },
+            { savedTargetDate: targetDate, insightInterval: 'day' }
+        )
+        expect(errors.forecast_config).toBe(
+            'A forecast target must be within 92 days. Move the date closer, or use quarterly milestones.'
+        )
+    })
+
+    // Regrouping to hourly leaves no date that works, so the interval is the setting to name, even
+    // when the date is also out of reach. The server rejects the interval first too.
+    it.each([
+        ['a near date', 5],
+        ['a date the interval cannot reach', 60],
+    ] as const)('blocks a target on an hourly insight with %s', (_name, daysAhead) => {
+        const targetDate = dayjs().add(daysAhead, 'day').format('YYYY-MM-DD')
         const errors = getAlertFormValidationErrors(
             { ...finishedAlert, forecast_config: { ...savedForecastConfig, target_date: targetDate } },
             { savedTargetDate: targetDate, insightInterval: 'hour' }
         )
         expect(errors.forecast_config).toBe(
-            'This interval needs more than 250 forecast points. Use a coarser insight interval.'
+            'Target-by-date forecasts need a daily, weekly, or monthly insight interval.'
         )
     })
 

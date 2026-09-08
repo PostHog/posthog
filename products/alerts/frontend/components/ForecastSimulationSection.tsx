@@ -14,6 +14,7 @@ import {
 import { getSimulationRangeOptions } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import {
     forecastTargetDateError,
+    forecastTargetIntervalError,
     forecastTargetValueError,
     resolveForecastSimulationRange,
     usableSimulationRanges,
@@ -65,8 +66,17 @@ export function ForecastSimulationSection({
         forecastConfig?.condition === ForecastConditionType.FUTURE_BREACH
             ? breachThresholdError(alertForm.threshold?.configuration?.bounds)
             : null
+    const targetIntervalError =
+        forecastConfig?.condition === ForecastConditionType.TARGET_BY_DATE
+            ? forecastTargetIntervalError(insightInterval)
+            : null
     const disabledReason =
-        forecastEditingDisabledReason ?? targetValueError ?? targetDateError ?? thresholdError ?? undefined
+        forecastEditingDisabledReason ??
+        targetIntervalError ??
+        targetValueError ??
+        targetDateError ??
+        thresholdError ??
+        undefined
     const rangeOptions = usableSimulationRanges(
         getSimulationRangeOptions(alertForm.calculation_interval),
         insightInterval

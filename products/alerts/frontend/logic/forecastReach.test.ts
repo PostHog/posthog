@@ -9,6 +9,7 @@ import {
     defaultHorizonForInterval,
     displaySupportsForecast,
     forecastTargetDateError,
+    forecastTargetIntervalError,
     intervalSupportsForecast,
     maxHorizonForInterval,
     minForecastPoints,
@@ -160,6 +161,17 @@ describe('targetByDateSupportsForecast', () => {
         ['month', true],
     ] as const)('supports %s: %s', (interval, expected) => {
         expect(targetByDateSupportsForecast(interval)).toBe(expected)
+    })
+
+    // The save and simulate paths both refuse an hourly target, so the editor has to say why.
+    it.each([
+        ['hour', 'Target-by-date forecasts need a daily, weekly, or monthly insight interval.'],
+        ['day', null],
+        ['week', null],
+        ['month', null],
+        [null, null],
+    ] as const)('reports %s as %s', (interval, expected) => {
+        expect(forecastTargetIntervalError(interval)).toBe(expected)
     })
 })
 

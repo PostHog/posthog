@@ -50,6 +50,14 @@ export function targetByDateSupportsForecast(interval: IntervalType | null | und
     return interval !== 'hour'
 }
 
+/** Why a target path cannot run on this insight, or null when it can. Mirrors the hourly guard the
+ * save and simulate paths share, so the reason lands in the editor instead of a failed request. */
+export function forecastTargetIntervalError(interval: IntervalType | null | undefined): string | null {
+    return targetByDateSupportsForecast(interval)
+        ? null
+        : 'Target-by-date forecasts need a daily, weekly, or monthly insight interval.'
+}
+
 /** Days per interval as the backend counts them, from `_INTERVAL_DAYS` in
  * products/alerts/backend/forecasting/engine.py. A month is 30.4 days there, so the cap has to use
  * the same lengths and round down, or the backend refuses the horizon this editor offers. */

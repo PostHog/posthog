@@ -9,7 +9,12 @@ import { IntervalType } from '~/types'
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { cadenceFinerThanInsightInterval } from './alertIntervalHelpers'
-import { forecastTargetDateError, forecastTargetReachError, forecastTargetValueError } from './forecastReach'
+import {
+    forecastTargetDateError,
+    forecastTargetIntervalError,
+    forecastTargetReachError,
+    forecastTargetValueError,
+} from './forecastReach'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
@@ -144,8 +149,11 @@ export function getAlertFormValidationErrors(
             forecast.target_date === context.savedTargetDate && !turningBackOn
                 ? forecastTargetReachError(forecast.target_date, today, context.insightInterval)
                 : forecastTargetDateError(forecast.target_date, today, context.insightInterval)
-        if (dateError) {
-            errors.forecast_config = dateError
+        // The interval comes first, the way the server validates it: on an hourly insight no date
+        // works, so naming the date would send the reader after the wrong setting.
+        const forecastError = forecastTargetIntervalError(context.insightInterval) ?? dateError
+        if (forecastError) {
+            errors.forecast_config = forecastError
         }
     }
 
