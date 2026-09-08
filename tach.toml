@@ -135,6 +135,7 @@ depends_on = [
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
+    "products.visual_review",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",

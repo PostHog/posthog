@@ -35,7 +35,6 @@ from temporalio.common import RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
@@ -78,27 +77,9 @@ from products.data_modeling.backend.schedule import (
 )
 
 if TYPE_CHECKING:
-    from posthog.models.team import Team
-
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
-
-TIERED_SCHEDULES_FLAG = "data-modeling-tiered-schedules"
-
-
-def tiered_schedules_enabled(team: "Team") -> bool:
-    """Whether per-node cadence tiers may drive this team's DAG schedules."""
-    return feature_enabled_or_false(
-        TIERED_SCHEDULES_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-        send_feature_flag_events=False,
-    )
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
