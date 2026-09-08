@@ -4,6 +4,10 @@
         "id": {
             "description": "A UUID string identifying this data warehouse saved query.",
             "type": "string"
+        },
+        "include_materialization": {
+            "description": "Also return `sync_frequency_bounds` and `suspended`. These cost a DAG walk per view, so they are omitted unless the caller renders the materialization panel.",
+            "type": "boolean"
         }
     },
     "required": ["id"],
