@@ -535,6 +535,10 @@ export function applyVisualizationType(
         chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
     }
 
+    if (visualizationType === ChartDisplayType.Metric) {
+        yAxis = yAxis.slice(0, 1)
+    }
+
     if (
         [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
         shouldUseFirstNumericColumnAsContinuousChartXAxis(columns, numericalColumns, selectedXAxis, selectedYAxis)
@@ -847,7 +851,8 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansQueryResponse
                 | null,
             columns: Column[],
-            chartSettings: ChartSettings
+            chartSettings: ChartSettings,
+            effectiveVisualizationType: ChartDisplayType
         ) => AxisSeries<number | null>[]
         xData: (
             selectedXAxis: string | null,
@@ -1450,7 +1455,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (query: DataVisualizationNode): boolean => query.tableSettings?.transpose ?? false,
         ],
         yData: [
-            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings],
+            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType],
             (
                 ySeries: (SelectedYAxis | null)[] | null,
                 response:
@@ -1469,7 +1474,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
                 columns: Column[],
-                chartSettings: ChartSettings
+                chartSettings: ChartSettings,
+                visualizationType: ChartDisplayType
             ): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
@@ -1483,7 +1489,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           ? response.result
                           : []
 
-                return ySeries
+                const seriesData = ySeries
                     .map((series): AxisSeries<number | null> | null => {
                         if (!series) {
                             return EmptyYAxisSeries
@@ -1528,6 +1534,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         }
                     })
                     .filter((series): series is AxisSeries<number | null> => Boolean(series))
+
+                return visualizationType === ChartDisplayType.Metric ? seriesData.slice(0, 1) : seriesData
             },
         ],
         xData: [

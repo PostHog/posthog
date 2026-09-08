@@ -65,14 +65,19 @@ describe('dashboard SQL visualization support', () => {
             const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
             const numericalColumns = columns.filter((column) => column.type.isNumerical)
 
-            const options = getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, (displayType) =>
-                sqlVisualizationDisabledReason(
-                    displayType,
-                    baseQuery,
-                    columns,
-                    response.result.length,
-                    autoVisualizationType
-                )
+            const options = getTableDisplayOptions(
+                columns,
+                numericalColumns,
+                autoVisualizationType,
+                (displayType) =>
+                    sqlVisualizationDisabledReason(
+                        displayType,
+                        baseQuery,
+                        columns,
+                        response.result.length,
+                        autoVisualizationType
+                    ),
+                true
             )
 
             const enabled = options
@@ -87,13 +92,18 @@ describe('dashboard SQL visualization support', () => {
                 const resolved =
                     displayType === ChartDisplayType.Auto ? autoVisualizationType : (displayType as ChartDisplayType)
 
-                const needsAxes = ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
-                if (!needsAxes) {
+                const needsYAxis = ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
+                if (!needsYAxis) {
                     continue
                 }
 
-                expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
+                if (resolved !== ChartDisplayType.Metric) {
+                    expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
+                }
                 expect(saved.chartSettings?.yAxis?.length ?? 0).toBeGreaterThan(0)
+                if (resolved === ChartDisplayType.Metric) {
+                    expect(saved.chartSettings?.yAxis).toHaveLength(1)
+                }
             }
         }
     )

@@ -4,6 +4,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -31,19 +34,29 @@ describe('TableDisplay', () => {
         cleanup()
     })
 
-    it('offers box plots and saves the selected display', async () => {
+    it.each([
+        ['Box plot', ChartDisplayType.BoxPlot, false],
+        ['Metric', ChartDisplayType.Metric, true],
+    ])('offers %s and saves the selected display', async (label, display, metricInsightEnabled) => {
         initKeaTests()
+
+        if (metricInsightEnabled) {
+            const flags = featureFlagLogic()
+            flags.mount()
+            flags.actions.setFeatureFlags([FEATURE_FLAGS.METRIC_INSIGHT], { [FEATURE_FLAGS.METRIC_INSIGHT]: true })
+        }
 
         let query: DataVisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: { kind: NodeKind.HogQLQuery, query: 'select * from summaries' },
             display: ChartDisplayType.ActionsTable,
         }
+        const key = `table-display-${display}`
         const props: DataVisualizationLogicProps = {
-            key: 'table-display-box-plot',
+            key,
             query,
             cachedResults,
-            dataNodeCollectionId: 'table-display-box-plot',
+            dataNodeCollectionId: key,
             setQuery: (setter) => {
                 query = setter(query)
             },
@@ -65,8 +78,11 @@ describe('TableDisplay', () => {
 
         const user = userEvent.setup()
         await user.click(screen.getByTestId('chart-filter'))
-        await user.click(await screen.findByText('Box plot'))
+        await user.click(await screen.findByText(label))
 
-        await waitFor(() => expect(query.display).toBe(ChartDisplayType.BoxPlot))
+        await waitFor(() => expect(query.display).toBe(display))
+        if (display === ChartDisplayType.Metric) {
+            expect(query.chartSettings?.yAxis).toHaveLength(1)
+        }
     })
 })
