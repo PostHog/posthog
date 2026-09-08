@@ -6324,6 +6324,34 @@ snapshots:
         hash: v1.k794b7964.31ffca7eb6c59cf545dd8f16e7a532149448b95c65444aa14d5e776a0875dafd.lULK4-DoenY3SeZK1Sfr50doCkqdIbyl9U35M4ah00g
     scenes-app-customer-analytics-account-detail--narrow--light:
         hash: v1.k794b7964.5a6763d49a273274f686f1517da9d2ba4af64b5be6897a9886addc04f429c209.JZ6O0iGKO-5AKZyg0XnVZ8JoOZ2-Jg4i9E746aSUm2I
+    scenes-app-customer-analytics-account-detail-property-sidebar--custom-property-editors--dark:
+        hash: v1.k794b7964.66592dcf1b3fd0392d3fb40b6137fe122b85b735099f7b073568caa1b7556210.EcnIneYAPaWxcrA3krEwqQ3-1VM66r-alaQvyVFbRxc
+    scenes-app-customer-analytics-account-detail-property-sidebar--custom-property-editors--light:
+        hash: v1.k794b7964.03e50dbd07b401ac7c838fc66a46e21d5e570f9250a60ef0a7eafa80b6c366be.yq0aD06ESQqYG8filudQGPguWppxOS74yM0broHj3zM
+    scenes-app-customer-analytics-account-detail-property-sidebar--date-and-datetime-editors--dark:
+        hash: v1.k794b7964.15ba9785e2a6635181b7354b217d53d4ae05cc2db587671341defcba11f73def.4H1fw_nmfXD5eT4m5j-b05td3b9G5C6v9gUZbaMCRDU
+    scenes-app-customer-analytics-account-detail-property-sidebar--date-and-datetime-editors--light:
+        hash: v1.k794b7964.34b994fa9a3b92bb93f70bbcd7f95c6410187da93539e4ff5c9834ffaa6618e7.Fvdistl0g6mQAeJ9qgXVqZWJmMSUopy5YEBZTr7VAW4
+    scenes-app-customer-analytics-account-detail-property-sidebar--empty--dark:
+        hash: v1.k794b7964.c4a38e5e46e71a34d9afdfedf083087e5387710d526fdc6066a0a6b4eea4f720.m3rWBzL-w_OU7qA7inUpJpnKHBY76Fet3r_ho2z1kU4
+    scenes-app-customer-analytics-account-detail-property-sidebar--empty--light:
+        hash: v1.k794b7964.0fedccb0aed3ba24d39e42f7700b77096ca9f7ae3fffb2df4aa573ea4e6d764b.cCX43P0wrfkD6GYGsquNyoq5I2lPwdwAtTrpPmO6H1Y
+    scenes-app-customer-analytics-account-detail-property-sidebar--filled-and-scrollable--dark:
+        hash: v1.k794b7964.75d86eaa79d518fdce67a3d91053dcbdff1ee6efae7e533c31533cdd57ee6700.9jA6_-_9pS7ApCzy-uJitof965VYwovXPMrLIPgXMxI
+    scenes-app-customer-analytics-account-detail-property-sidebar--filled-and-scrollable--light:
+        hash: v1.k794b7964.6697caf7d48ede16cf590979eda41cf45991adc22a6c479fdb93db46913fd800.JTcXD-8tNV94GfJgIjp9WObCJShaCxQCn_ichggYrZs
+    scenes-app-customer-analytics-account-detail-property-sidebar--pin-and-reorder--dark:
+        hash: v1.k794b7964.ae32ab54e49606fc28e9a68b1274acc5193d58e55a144e66a36de73ed5352687.lFgL26WepIZ4NNnjQP38vqOEAleJXw1HwqLgjJqSvi4
+    scenes-app-customer-analytics-account-detail-property-sidebar--pin-and-reorder--light:
+        hash: v1.k794b7964.8420fad14d255f759ccd21afaa0be6ca96d766137a82c5728cec9db20c15b8b8._y_uXtoiOe7swPzh20jiT73CvO_OObD00tAvNDGLcnM
+    scenes-app-customer-analytics-account-detail-property-sidebar--pin-limit-reached--dark:
+        hash: v1.k794b7964.d3afd5646da096155f6b42a780861e21b42b566068d627c3eee9676a45264521.3F6N7XjfPwHz6SuKLjzojj5uuXE75a5X1JPG1PFBVJk
+    scenes-app-customer-analytics-account-detail-property-sidebar--pin-limit-reached--light:
+        hash: v1.k794b7964.81d64cf5202b63aad63a21e1f49fd7d1a16dbdc643678482ffb88b283b718d3d.59FqoIvlL2QE-juvVuI1KNGT_iFCHvAyttZYBDXWpb8
+    scenes-app-customer-analytics-account-detail-property-sidebar--relationship-editors--dark:
+        hash: v1.k794b7964.1eb38510939dfa28bcf6cafc8a809d5038528955c71bfe4016173727a3a248d4.IfHF45YAUohDOAmlUVS7euQgkjeEwYHEU_fQ-SWivQ4
+    scenes-app-customer-analytics-account-detail-property-sidebar--relationship-editors--light:
+        hash: v1.k794b7964.8ae8988856cff9280a8c90da459c409ef2dfd83cb87745192a8aa5f6b49e6256.pmCK41cTE3iu_ERpqFCXqGCyM7CxnAtoAoClocqBFBc
     scenes-app-customer-analytics-accounts--default--dark:
         hash: v1.k794b7964.97f0ca87971b15063d49547b9dcd6ac408805eeeba4818861c79efe4a00546bb.Beg7zqqVXErdSTxwwKNImW-swYpMUtoQYSdy1HMF6vw
     scenes-app-customer-analytics-accounts--default--light:
