@@ -66,27 +66,3 @@ export function getCapabilityLadder(
     ? CODEX_CAPABILITY_LADDER
     : CLAUDE_CAPABILITY_LADDER;
 }
-
-const MODELS_WITH_1M_CONTEXT = new Set([
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "claude-opus-5",
-  "claude-sonnet-4-6",
-  "claude-sonnet-5",
-  "claude-fable-5",
-  "claude-fable-5-1",
-]);
-
-export function supports1MContext(modelId: string): boolean {
-  return MODELS_WITH_1M_CONTEXT.has(modelId);
-}
-
-const MODELS_WITH_FAST_MODE = new Set([
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "claude-opus-5",
-]);
-
-export function supportsFastMode(modelId: string): boolean {
-  return MODELS_WITH_FAST_MODE.has(modelId);
-}

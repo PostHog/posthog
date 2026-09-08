@@ -272,8 +272,6 @@ export {
   getReasoningEffortOptions,
   isSupportedReasoningEffort,
   type SupportedReasoningEffort,
-  supports1MContext,
-  supportsFastMode,
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {

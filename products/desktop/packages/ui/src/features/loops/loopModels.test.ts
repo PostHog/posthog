@@ -119,9 +119,9 @@ describe("loopModelOptions", () => {
     expect(
       loopModelOptions("claude", claudeOptions, {
         glmEnabled: true,
-        pinnedModel: "claude-opus-4-6",
+        pinnedModel: "claude-opus-4-1",
       }),
-    ).toContainEqual({ value: "claude-opus-4-6", label: "claude-opus-4-6" });
+    ).toContainEqual({ value: "claude-opus-4-1", label: "Claude Opus 4.1" });
   });
 
   it.each([

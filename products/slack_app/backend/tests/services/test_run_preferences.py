@@ -238,9 +238,11 @@ class TestAvailableModelChoices:
     def test_reads_the_catalog_rather_than_the_gateway(self):
         """Slack asks only what the catalog answers, so a gateway outage must not leave a
         mention with nothing to match its model against."""
+        # Fails the call rather than emptying it: returning `()` would pass whether or not
+        # Slack still reaches the gateway, which is the whole claim under test.
         with patch(
             "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=(),
+            side_effect=AssertionError("Slack must not reach the gateway for its model list"),
         ):
             choices = available_model_choices()
 

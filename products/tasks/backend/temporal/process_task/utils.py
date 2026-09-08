@@ -256,16 +256,8 @@ def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
     deriving it is what lets callers reject a `(runtime_adapter, model)` pair that
     disagrees with itself. `None` when no adapter claims the model.
     """
-    if not model:
-        return None
-
-    # The catalog's own normalization, so a provider-qualified id resolves the same way
-    # here as it does in `reasoning_efforts_for`.
-    normalized = model_catalog.normalize_model_id(model)
-    for adapter in RuntimeAdapter:
-        if normalized in get_models_for_runtime_adapter(adapter):
-            return adapter
-    return None
+    adapter = model_catalog.runtime_adapter_for_model(model)
+    return RuntimeAdapter(adapter) if adapter else None
 
 
 def validate_model_selection(
