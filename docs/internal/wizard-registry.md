@@ -66,6 +66,9 @@ Its command is empty, which keeps the Wizard package's default command.
 
 ## Cloud execution
 
+Wizard analytics events use the process-lifetime background capture client without a Celery hop.
+Delivery is best-effort; an abrupt process exit can lose buffered events.
+
 Wizard execution returns only the last 64 KiB of stdout and stderr from the sandbox, preserving the command's exit code.
 Log streams are drained through bounded tails without storing unbounded log files.
 Repository publishing bounds sandbox reads and rejects staged contents that exceed the cumulative 35 MiB commit payload budget, including base64 expansion.

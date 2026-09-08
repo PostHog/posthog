@@ -7,9 +7,9 @@ import pytest
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.db import DatabaseError
 from django.test import override_settings
 
-from kombu.exceptions import OperationalError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -69,19 +69,19 @@ class TestWizardObservability(TestCase):
 
         with (
             patch.object(metrics.WIZARD_RUN_DISPATCH_ATTEMPTS_TOTAL, "labels") as counter,
-            patch("products.wizard.backend.observability.events.celery_app.signature") as signature,
+            patch.object(events, "ph_background_capture") as background_capture,
+            patch.object(events.User.objects, "filter") as users,
             self.assertLogs("products.wizard.backend.observability.service", level=logging.INFO) as logs,
         ):
             counter.return_value.inc.side_effect = ValueError("Metric unavailable") if metric_fails else None
-            signature.return_value.apply_async.side_effect = (
-                OperationalError("Queue unavailable") if event_fails else None
-            )
+            users.return_value.values_list.return_value.first.return_value = "example-user"
+            background_capture.return_value.side_effect = ValueError("Capture unavailable") if event_fails else None
 
             WizardObservability().dispatch_finished(run, WizardRunDispatchOutcome.SUCCEEDED)
 
         counter.return_value.inc.assert_called_once_with()
-        signature.return_value.apply_async.assert_called_once_with()
-        self.assertEqual(signature.call_args.kwargs["args"][3], "wizard run dispatch finished")
+        background_capture.return_value.assert_called_once()
+        self.assertEqual(background_capture.return_value.call_args.kwargs["event"], "wizard run dispatch finished")
         messages = [record.getMessage() for record in logs.records]
         self.assertEqual("wizard_run_dispatch_metric_failed" in messages, metric_fails)
         self.assertEqual("wizard_run_dispatch_event_failed" in messages, event_fails)
@@ -198,7 +198,7 @@ def test_observability_failures_do_not_escape() -> None:
 
     with (
         patch.object(service.metrics, "report_run_created", side_effect=ValueError("metric failed")),
-        patch.object(service.events, "enqueue_run_created", side_effect=OperationalError("event failed")),
+        patch.object(service.events, "enqueue_run_created", side_effect=DatabaseError("event failed")),
     ):
         observability.run_created(run)
 
@@ -222,7 +222,7 @@ def test_cloud_creation_records_created_and_initial_stage_metrics() -> None:
     created_before = _sample("posthog_wizard_runs_created_total", created_labels)
     stage_before = _sample("posthog_wizard_run_stage_entered_total", stage_labels)
 
-    with patch.object(events.celery_app, "signature"):
+    with patch.object(events, "ph_background_capture"), patch.object(events.User.objects, "filter"):
         WizardObservability().run_created(run)
 
     assert _sample("posthog_wizard_runs_created_total", created_labels) == created_before + 1
@@ -445,18 +445,26 @@ def test_reliability_metrics_record_artifacts_cleanup_and_deadlines() -> None:
     assert _sample("posthog_wizard_runs_past_deadline_total", deadline_labels) == deadline_before + 1
 
 
-def test_stage_event_has_deterministic_identity_and_run_properties() -> None:
+@pytest.mark.parametrize("user_distinct_id", ["example-user", None])
+def test_stage_event_has_deterministic_identity_and_run_properties(user_distinct_id: str | None) -> None:
     run = replace(_cloud_run(), stage=WizardRunStage.PROVISIONING)
 
-    with patch.object(events.celery_app, "signature") as signature:
+    with (
+        patch.object(events, "ph_background_capture") as background_capture,
+        patch.object(events.User.objects, "filter") as users,
+    ):
+        users.return_value.values_list.return_value.first.return_value = user_distinct_id
         events.enqueue_stage_entered(run, WizardRunStage.PROVISIONING)
         events.enqueue_stage_entered(run, WizardRunStage.PROVISIONING)
 
-    first_args = signature.call_args_list[0].kwargs["args"]
-    second_args = signature.call_args_list[1].kwargs["args"]
+    first_args = background_capture.return_value.call_args_list[0].kwargs
+    second_args = background_capture.return_value.call_args_list[1].kwargs
 
-    assert first_args[4] == second_args[4]
-    assert first_args[5] == {
+    assert first_args["uuid"] == second_args["uuid"]
+    assert first_args["distinct_id"] == (user_distinct_id or str(run.id))
+    assert first_args["properties"] == {
+        "team_id": run.team_id,
+        "wizard_run_id": str(run.id),
         "environment": "cloud",
         "workspace_type": "git_repository",
         "program_id": "posthog-integration",
