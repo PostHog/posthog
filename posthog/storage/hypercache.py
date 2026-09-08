@@ -413,7 +413,9 @@ class HyperCache:
             return True
         try:
             return self.secondary_cache_client.get(self.get_etag_key(key)) == etag
-        except Exception:
+        except _REDIS_READ_ERRORS as e:
+            HYPERCACHE_MIRROR_FAILURE_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+            capture_exception(e)
             return False
 
     def get_if_none_match(self, key: KeyType, client_etag: str | None) -> tuple[dict | None, str | None, bool]:

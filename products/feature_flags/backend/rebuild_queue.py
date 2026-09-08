@@ -89,11 +89,9 @@ def _parse_team_id(raw: bytes | str) -> int | None:
 
 
 def _redis() -> redis_lib.Redis:
-    # The Rust producer enqueues on the shared Redis (state.redis_client in
-    # rust/feature-flags/src/api/flag_definitions.rs), so the consumer must read the
-    # shared Redis too. The hypercache's redis_url follows cache_alias, which binds
-    # the dedicated cluster, so deriving from the hypercache would split the queue's
-    # producer and consumer across clusters. Move both sides together or not at all.
+    # Pinned to the shared Redis, matching the Rust producer. The hypercache's
+    # redis_url follows cache_alias, which binds the dedicated cluster, so the
+    # producer and consumer must move together or not at all.
     return get_client(settings.REDIS_URL)
 
 

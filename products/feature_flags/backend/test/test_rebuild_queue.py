@@ -204,6 +204,11 @@ def test_redis_client_pinned_to_the_shared_cluster():
     # The Rust producer enqueues on the shared Redis. Deriving the consumer's client
     # from the hypercache (whose cache_alias binds the dedicated cluster) splits the
     # queue: the drain reads an empty set while misses pile up unseen on the shared one.
-    with patch.object(rebuild_queue, "get_client") as get_client_mock:
+    # The hypercache URL is forced to differ because in test settings it equals
+    # settings.REDIS_URL, and equal URLs cannot detect a revert of the pin.
+    with (
+        patch.object(rebuild_queue.flag_definitions_hypercache, "redis_url", "redis://dedicated:6379/"),
+        patch.object(rebuild_queue, "get_client") as get_client_mock,
+    ):
         rebuild_queue._redis()
     get_client_mock.assert_called_once_with(settings.REDIS_URL)

@@ -730,6 +730,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
         broken.set.side_effect = RuntimeError("secondary down")
         broken.set_many.side_effect = RuntimeError("secondary down")
         broken.delete.side_effect = RuntimeError("secondary down")
+        broken.delete_many.side_effect = RuntimeError("secondary down")
         hc.secondary_cache_client = broken
 
         # Must not raise.
@@ -755,6 +756,12 @@ class TestHyperCacheSecondaryCache(BaseTest):
         )
         assert failures_after is not None and failures_after > failures_before
 
+        # The mirrored delete must also swallow the failure and still drop the primary entry.
+        hc.delete_cache_entry(team_id, kinds=["redis"])
+        broken.delete_many.assert_called()
+        assert caches["flags_dedicated"].get(cache_key) is None
+
+    @parameterized.expand([("etag", True), ("no_etag", False)])
     @override_settings(
         CACHES={
             "default": {
@@ -767,7 +774,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
             },
         }
     )
-    def test_primary_failure_does_not_block_mirror(self):
+    def test_primary_failure_does_not_block_mirror(self, _name, enable_etag):
         from django.core.cache import caches
 
         caches["default"].clear()
@@ -779,16 +786,18 @@ class TestHyperCacheSecondaryCache(BaseTest):
             load_fn=lambda team: self.sample_data,
             cache_alias="flags_dedicated",
             secondary_cache_alias="default",
+            enable_etag=enable_etag,
         )
 
         team_id = self.team.id
 
         # The mirror can be the tier the live reader serves from during a migration,
-        # so a primary outage must not stop the mirror write.
+        # so a primary outage must not stop the mirror write or the mirror delete.
         broken_primary = Mock()
         broken_primary.set.side_effect = RuntimeError("primary down")
         broken_primary.set_many.side_effect = RuntimeError("primary down")
         broken_primary.delete.side_effect = RuntimeError("primary down")
+        broken_primary.delete_many.side_effect = RuntimeError("primary down")
         hc.cache_client = broken_primary
 
         with pytest.raises(RuntimeError):
@@ -796,6 +805,11 @@ class TestHyperCacheSecondaryCache(BaseTest):
 
         cache_key = hc.get_cache_key(team_id)
         assert caches["default"].get(cache_key) == json.dumps(self.sample_data, sort_keys=True)
+
+        with pytest.raises(RuntimeError):
+            hc.delete_cache_entry(team_id, kinds=["redis"])
+        assert caches["default"].get(cache_key) is None
+        assert caches["default"].get(hc.get_etag_key(team_id)) is None
 
     @override_settings(
         CACHES={
@@ -1600,9 +1614,9 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
         with patch.object(hc, "_set_cache_value_s3"):
             hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
 
-            # Simulate a mirror write that failed: the secondary keeps the old payload
+            # Simulate a mirror write that failed: the secondary is missing the entry
             # while the primary ETag matches the rebuild. The primary comparison alone
-            # would skip here, and the secondary would stay stale until its TTL.
+            # would skip here, and the secondary would stay un-repaired until its TTL.
             caches["default"].delete(cache_key)
             caches["default"].delete(etag_key)
 
@@ -1614,6 +1628,15 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
             with patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write:
                 hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
             redis_write.assert_not_called()
+
+            # An unreadable secondary must also defeat the skip: a failed read reports
+            # False, so the rebuild writes instead of skipping past possible drift.
+            with (
+                patch.object(hc.secondary_cache_client, "get", side_effect=ConnectionError("secondary read down")),
+                patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write,
+            ):
+                hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            redis_write.assert_called_once()
 
     def test_changed_write_reuses_serialization_correctly(self):
         """When the content changed, the skip path's serialization is threaded into the Redis
