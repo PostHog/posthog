@@ -208,7 +208,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
         actions: [
             dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
+            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery', 'loadDataWarehouseSavedQueriesSuccess'],
             databaseTableListLogic,
             ['loadDatabase'],
         ],
