@@ -3,15 +3,12 @@ import { useEffect, useState } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { TZLabel, subscribeToTicker } from 'lib/components/TZLabel'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { nextRunAt } from '../../../utils/scoutGroups'
-
-/** setTimeout overflows a longer delay and fires at once, so a far-off run waits in stages. */
-const MAX_TIMEOUT_MS = 2 ** 31 - 1
 
 /**
  * When the scout next runs, resolved in the project timezone. A rolling scout whose interval has
@@ -21,34 +18,28 @@ const MAX_TIMEOUT_MS = 2 ** 31 - 1
 export function ScoutNextRunLabel({ config }: { config: SignalScoutConfig }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const [, refresh] = useState(0)
-    const now = new Date()
-    const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', now)
+    const now = Date.now()
+    const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date(now))
     const dueAt = next?.getTime() ?? null
+    const isDue = dueAt !== null && dueAt <= now
 
-    // The label reads the clock only when it renders, and a surface that does not poll can sit for
-    // hours without rendering again. Wake it as the run falls due, so a time that has passed stops
-    // reading as the future.
+    // A surface that does not poll never re-renders this label on its own, so it would keep showing
+    // a time that has passed as the next run. The shared ticker re-renders it as the run falls due.
     useEffect(() => {
-        if (dueAt === null || dueAt - Date.now() <= 0) {
+        if (dueAt === null || isDue) {
             return
         }
-        let timer: number | undefined
-        const waitForDue = (): void => {
-            const delay = dueAt - Date.now()
-            if (delay <= 0) {
+        return subscribeToTicker(() => {
+            if (dueAt <= Date.now()) {
                 refresh((count) => count + 1)
-                return
             }
-            timer = window.setTimeout(waitForDue, Math.min(delay, MAX_TIMEOUT_MS))
-        }
-        waitForDue()
-        return () => window.clearTimeout(timer)
-    }, [dueAt])
+        })
+    }, [dueAt, isDue])
 
     if (!next) {
         return <span className="text-muted">—</span>
     }
-    if (next.getTime() <= now.getTime()) {
+    if (isDue) {
         return (
             <Tooltip title="Past its scheduled time. The scheduler picks it up on its next pass, usually within half an hour.">
                 <span>Due now</span>
