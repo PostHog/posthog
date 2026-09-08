@@ -1,4 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+import type { MutableRefObject } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -12,6 +14,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SidePanelTab } from '~/types'
 
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'
+import { useMessageActionsMenuContext } from './MessageActionsMenuProvider'
 import { TranslatePopover } from './TranslatePopover'
 
 const MAX_EDITOR_RETRIES = 10
@@ -21,9 +24,18 @@ const MAX_QUOTE_LENGTH = 500
 export interface MessageActionsMenuProps {
     content: string
     traceId?: string | null
+    menuKey?: string
 }
 
-export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps): JSX.Element | null => {
+const ActiveMessageActionsMenu = ({
+    content,
+    traceId,
+    startVisible,
+    triggerRef,
+}: MessageActionsMenuProps & {
+    startVisible: boolean
+    triggerRef?: MutableRefObject<HTMLButtonElement | null>
+}): JSX.Element | null => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
@@ -35,10 +47,6 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
     const logic = messageActionsMenuLogic({ content })
     const { showConsentPopover, dataProcessingAccepted } = useValues(logic)
     const { setShowTranslatePopover, setShowConsentPopover } = useActions(logic)
-
-    if (!content || content.trim().length === 0) {
-        return null
-    }
 
     const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
         // The logic can be unmounted before this deferred callback runs (e.g. the user navigates
@@ -115,10 +123,19 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
         setShowTranslatePopover(true)
     }
 
+    // The popover anchors below are empty elements. Wrap them with the trigger so they do not become
+    // gap-separated items of the toolbar row, which would shift this button relative to inactive ones.
     return (
-        <>
-            <LemonMenu items={menuItems} placement="bottom-end">
-                <LemonButton size="small" noPadding icon={<IconEllipsis />} tooltip="More actions" />
+        <div className="flex">
+            <LemonMenu ref={triggerRef} items={menuItems} placement="bottom-end" startVisible={startVisible}>
+                <LemonButton
+                    size="small"
+                    noPadding
+                    icon={<IconEllipsis />}
+                    tooltip="More actions"
+                    data-attr="llma-message-actions-trigger"
+                    data-menu-mounted="true"
+                />
             </LemonMenu>
 
             {/* AI consent popover - shown first if user hasn't consented */}
@@ -133,6 +150,54 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
 
             {/* Translate popover - only shown after consent */}
             <TranslatePopover content={content} title="Translate message" />
-        </>
+        </div>
+    )
+}
+
+export function MessageActionsMenu({
+    content,
+    traceId,
+    menuKey = 'standalone',
+}: MessageActionsMenuProps): JSX.Element | null {
+    const sharedMenu = useMessageActionsMenuContext()
+    const triggerRef = useRef<HTMLButtonElement | null>(null)
+    const isActive = !sharedMenu || sharedMenu.activeMenuKey === menuKey
+    const shouldRestoreFocus = !!sharedMenu && isActive
+    // Only the active menu renders the translation UI, but its logic must outlive the menu, or a
+    // translation is lost and fetched again each time the shared menu moves to another message.
+    useMountedLogic(messageActionsMenuLogic({ content }))
+
+    useEffect(() => {
+        if (shouldRestoreFocus) {
+            triggerRef.current?.focus()
+        }
+    }, [shouldRestoreFocus])
+
+    if (!content || content.trim().length === 0) {
+        return null
+    }
+
+    if (!isActive) {
+        return (
+            <LemonButton
+                ref={triggerRef}
+                size="small"
+                noPadding
+                icon={<IconEllipsis />}
+                tooltip="More actions"
+                aria-haspopup="true"
+                data-attr="llma-message-actions-trigger"
+                onClick={() => sharedMenu?.setActiveMenuKey(menuKey)}
+            />
+        )
+    }
+
+    return (
+        <ActiveMessageActionsMenu
+            content={content}
+            traceId={traceId}
+            startVisible={!!sharedMenu}
+            triggerRef={triggerRef}
+        />
     )
 }

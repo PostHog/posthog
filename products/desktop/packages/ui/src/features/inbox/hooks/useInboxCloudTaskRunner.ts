@@ -117,7 +117,7 @@ export interface UseInboxCloudTaskRunnerOptions {
 
 export interface UseInboxCloudTaskRunnerReturn {
   /** Kick off the cloud-task flow. Resolves after the task is created (or failed). */
-  run: () => Promise<void>;
+  run: () => Promise<boolean>;
   /** True while a task is being created. */
   isRunning: boolean;
 }
@@ -151,7 +151,7 @@ export function useInboxCloudTaskRunner({
   const { isOnline } = useConnectivity();
 
   const run = useCallback(async () => {
-    if (isRunning) return;
+    if (isRunning) return false;
     const log = logger.scope(loggerScope);
     const startedAt = Date.now();
     const trackActionResult = (
@@ -177,13 +177,13 @@ export function useInboxCloudTaskRunner({
     if (!isOnline) {
       showOfflineToast();
       trackActionResult("failed", "offline");
-      return;
+      return false;
     }
 
     if (!cloudRepository && !allowMissingRepository) {
       toast.error(copy.errorTitle, { description: copy.missingRepository });
       trackActionResult("failed", "missing_repository");
-      return;
+      return false;
     }
 
     // A repo-less run has no GitHub identity; only resolve/require the user
@@ -194,13 +194,13 @@ export function useInboxCloudTaskRunner({
     if (cloudRepository && !githubUserIntegrationId) {
       toast.error(copy.errorTitle, { description: copy.missingIntegration });
       trackActionResult("failed", "missing_integration");
-      return;
+      return false;
     }
 
     if (!cloudRegion) {
       toast.error(copy.errorTitle, { description: copy.signedOut });
       trackActionResult("failed", "signed_out");
-      return;
+      return false;
     }
 
     setIsRunning(true);
@@ -231,7 +231,7 @@ export function useInboxCloudTaskRunner({
       toast.error(copy.errorTitle, { description: copy.missingModel });
       setIsRunning(false);
       trackActionResult("failed", "missing_model");
-      return;
+      return false;
     }
 
     // The persisted effort belongs to `lastUsedModel`; if the resolver swapped in
@@ -346,6 +346,7 @@ export function useInboxCloudTaskRunner({
           });
         }
       }
+      return result.success;
     } catch (error) {
       trackActionResult("failed", "unexpected_error");
       toast.dismiss(toastId);
@@ -354,6 +355,7 @@ export function useInboxCloudTaskRunner({
         error,
         reportId,
       });
+      return false;
     } finally {
       setIsRunning(false);
     }

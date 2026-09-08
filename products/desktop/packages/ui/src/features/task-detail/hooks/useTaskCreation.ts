@@ -1,4 +1,3 @@
-import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -9,6 +8,7 @@ import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
+import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
 import { useService } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
@@ -22,10 +22,7 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
-import {
-  getCurrentBrowserTabId,
-  navigateBrowserTab,
-} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -33,9 +30,8 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
-import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
+import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
-import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
@@ -53,7 +49,6 @@ import { assertCloudUsageAvailable } from "../../billing/preflightCloudUsage";
 import { useUsageLimitStore } from "../../billing/usageLimitStore";
 import { useLocalMcpCloudServers } from "../../local-mcp/useLocalMcpCloudServers";
 import {
-  contentToPlainText,
   contentToXml,
   type EditorContent,
   extractFilePaths,
@@ -128,10 +123,11 @@ interface UseTaskCreationOptions {
 
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
-  /** The task is on its way; the composer fades out before the chat replaces it. */
-  isExitingComposer: boolean;
   canSubmit: boolean;
-  handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
+  handleSubmit: (
+    contentOverride?: EditorContent,
+    promptContent?: EditorContent,
+  ) => Promise<boolean>;
   additionalDirectories: string[];
   setAdditionalDirectories: (next: string[]) => void;
 }
@@ -223,7 +219,6 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
   const codexSubscription = useAdapterSubscription("codex");
   const claudeSubscription = useAdapterSubscription("claude");
@@ -277,7 +272,15 @@ export function useTaskCreation({
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(
-    async (contentOverride?: EditorContent): Promise<boolean> => {
+    async (
+      contentOverride?: EditorContent,
+      /**
+       * The composer content the person typed, when a wrapper transformed it
+       * for the task request. The prompt record and history restore this, so
+       * generated request text never reaches the composer on recovery.
+       */
+      promptContent?: EditorContent,
+    ): Promise<boolean> => {
       const editor = editorRef.current;
       if (!editor) return false;
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
@@ -288,7 +291,10 @@ export function useTaskCreation({
       // the exact prompt and tab that the user submitted.
       const originTabId = getCurrentBrowserTabId();
       const content = contentOverride ?? editor.getContent();
-      const plainPromptText = contentToPlainText(content).trim();
+      const promptRecord = pendingPromptRecordFromContent(
+        promptContent ?? content,
+      );
+      const plainPromptText = promptRecord.promptText;
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
 
@@ -297,7 +303,6 @@ export function useTaskCreation({
       setIsCreatingTask(true);
 
       try {
-        // Block over-limit cloud creation before the pending view so it doesn't flash.
         if (workspaceMode === "cloud" && !(await assertCloudUsageAvailable())) {
           return false;
         }
@@ -313,9 +318,8 @@ export function useTaskCreation({
         }
 
         // Confirm a couple of worktree branch situations before starting the
-        // task. Done before the pending view so a dialog (and a cancel) don't
-        // leave a half-started task on screen. Reusing an existing worktree takes
-        // priority over checking out a remote branch.
+        // task. Reusing an existing worktree takes priority over checking out a
+        // remote branch.
         let allowRemoteBranchCheckout = false;
         let reuseExistingWorktree = false;
         if (workspaceMode === "worktree" && branch && selectedDirectory) {
@@ -360,40 +364,33 @@ export function useTaskCreation({
           }
         }
 
-        const shouldShowPendingView = !onTaskCreated && !!plainPromptText;
-        const pendingTaskKey = shouldShowPendingView
+        const shouldPersistPromptRecord = !onTaskCreated && !!plainPromptText;
+        const pendingTaskKey = shouldPersistPromptRecord
           ? generatePendingTaskKey()
           : null;
 
         if (pendingTaskKey) {
           pendingTaskPromptStoreApi.set(pendingTaskKey, {
-            promptText: plainPromptText,
-            attachments: (content.attachments ?? []).map((a) => ({
-              id: a.id,
-              label: a.label,
-            })),
+            promptText: promptRecord.promptText,
+            attachments: promptRecord.attachments,
             // The serialized content restores file chips and attachments on
             // recovery, so an interrupted prompt comes back whole, not as bare
             // text.
-            contentXml: serializedContent,
+            contentXml: promptRecord.contentXml,
             // Reopen recovery in the space the prompt was submitted in.
             channelId: channelId ?? undefined,
           });
-          // Fade the composer out before the chat fades in, so the phases
-          // hand over instead of cutting.
-          setIsExitingComposer(true);
-          await waitForComposerExit();
-          navigateBrowserTab(
-            originTabId,
-            {
-              href: `/tasks/pending/${pendingTaskKey}`,
-              title: "New task",
-            },
-            () => navigateToTaskPending(pendingTaskKey),
-          );
         }
 
         let createdTaskId: string | undefined;
+
+        const settlePromptRecord = () => {
+          settleFailedPromptRecord({
+            recordKey: pendingTaskKey,
+            createdTaskId,
+            originTabId,
+          });
+        };
 
         try {
           if (!contentOverride) {
@@ -550,7 +547,9 @@ export function useTaskCreation({
                 pendingTaskPromptStoreApi.clear(pendingTaskKey);
               }
               if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
+                // Cloud creation succeeds before the transcript arrives.
+                // SessionView clears the prompt when initialization ends.
+                pendingTaskPromptStoreApi.markSubmitted(createdTaskId);
               }
             }
             setAdditionalDirectoriesOverride(null);
@@ -603,34 +602,7 @@ export function useTaskCreation({
                 error: result.error,
               });
             }
-            if (pendingTaskKey) {
-              // Never drop the prompt on failure. Keep the record and flag it
-              // interrupted so the pending view offers to recover or discard it,
-              // instead of navigating back to a composer that may not have it.
-              const interruptedKey = createdTaskId ?? pendingTaskKey;
-              // Read connectivity live, not the value captured at submit: the
-              // submit guard forced isOnline true then, so a connection dropped
-              // during setup only shows in the store now.
-              pendingTaskPromptStoreApi.markInterrupted(
-                interruptedKey,
-                getIsOnline() ? "failed" : "offline",
-              );
-              // If onTaskReady already navigated the origin tab to
-              // /tasks/$taskId (the worktree path notifies ready before later
-              // steps), a rolled-back task leaves it on a dead detail view.
-              // Return it to the pending route for the moved record so the
-              // Recover/Discard actions actually show.
-              if (createdTaskId) {
-                navigateBrowserTab(
-                  originTabId,
-                  {
-                    href: `/tasks/pending/${interruptedKey}`,
-                    title: "New task",
-                  },
-                  () => navigateToTaskPending(interruptedKey),
-                );
-              }
-            }
+            settlePromptRecord();
           }
           return result.success;
         } catch (error) {
@@ -639,31 +611,11 @@ export function useTaskCreation({
           });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
-          if (pendingTaskKey) {
-            // Keep the prompt recoverable from the pending view.
-            const interruptedKey = createdTaskId ?? pendingTaskKey;
-            // Live connectivity, not the submit-time value, so a drop during
-            // setup is classified as offline (see the failed-result branch).
-            pendingTaskPromptStoreApi.markInterrupted(
-              interruptedKey,
-              getIsOnline() ? "failed" : "offline",
-            );
-            // A throw after onTaskReady leaves the origin tab on the
-            // rolled-back task's detail view; return it to the pending route so
-            // recovery stays reachable.
-            if (createdTaskId) {
-              navigateBrowserTab(
-                originTabId,
-                { href: `/tasks/pending/${interruptedKey}`, title: "New task" },
-                () => navigateToTaskPending(interruptedKey),
-              );
-            }
-          }
+          settlePromptRecord();
           return false;
         }
       } finally {
         setIsCreatingTask(false);
-        setIsExitingComposer(false);
       }
     },
     [
@@ -722,7 +674,6 @@ export function useTaskCreation({
 
   return {
     isCreatingTask,
-    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
