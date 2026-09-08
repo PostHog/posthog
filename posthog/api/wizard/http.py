@@ -117,6 +117,20 @@ def _organization_ids_for_query(team_ids: list[int]) -> list[str]:
     ]
 
 
+def _refuse_mint(
+    outcome: str,
+    exc: exceptions.APIException,
+    *,
+    program: object,
+    product_node: str | None,
+    user: User | None = None,
+    team: Team | None = None,
+) -> NoReturn:
+    """Count and raise one mint refusal, so no exit can skip the counter."""
+    WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome=outcome).inc()
+    raise exc
+
+
 class SetupWizardSerializer(serializers.Serializer):
     hash = serializers.CharField()
 
@@ -462,9 +476,16 @@ class SetupWizardViewSet(viewsets.ViewSet):
         a 404 as "stay on the legacy gateway", so rollout is controlled here rather
         than by a CLI release. Every other failure fails the run.
         """
+        # Resolved above the first gate so every refusal names the program.
+        program = request.data.get("program") if isinstance(request.data, dict) else None
+        product = wizard_product_node(program)
+
+        def refuse(outcome: str, exc: exceptions.APIException, *, user: User | None = None) -> NoReturn:
+            _refuse_mint(outcome, exc, program=program, product_node=product, user=user, team=team)
+
+        team: Team | None = None
         if not wizard_gateway_configured():
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unconfigured").inc()
-            raise exceptions.NotFound("Wizard gateway tokens are not available.")
+            refuse("unconfigured", exceptions.NotFound("Wizard gateway tokens are not available."))
 
         authenticator = OAuthAccessTokenAuthentication()
         # authenticate() raises its own AuthenticationFailed, so the count wraps the
@@ -476,9 +497,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             user, _ = result
             if not user:
                 raise AuthenticationFailed("Invalid access token.")
-        except AuthenticationFailed:
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="invalid_token").inc()
-            raise
+        except AuthenticationFailed as e:
+            refuse("invalid_token", e)
 
         access_token = authenticator.access_token
         # llm_gateway:read is on every sandbox and agent token, so the scope alone
@@ -486,30 +506,33 @@ class SetupWizardViewSet(viewsets.ViewSet):
         application = getattr(access_token, "application", None)
         client_id = getattr(application, "client_id", None)
         if not client_id or client_id not in settings.WIZARD_GATEWAY_CLIENT_IDS:
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_wizard_app").inc()
-            raise AuthenticationFailed("Access token was not issued to the wizard.")
+            refuse("not_wizard_app", AuthenticationFailed("Access token was not issued to the wizard."), user=user)
 
         # The token's own scope text: the `scopes` property filters through
         # OAUTH2_PROVIDER["SCOPES"], where a narrowing would silently drop the scope.
         if RequiredGatewayScope not in (access_token.scope or "").split():
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="scope_missing").inc()
-            raise AuthenticationFailed("Access token lacks the gateway scope.")
+            refuse("scope_missing", AuthenticationFailed("Access token lacks the gateway scope."), user=user)
 
         scoped_team_ids = access_token.scoped_teams or []
         if len(scoped_team_ids) != 1:
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_ambiguous").inc()
-            raise exceptions.ValidationError("Access token must be scoped to exactly one team.")
+            refuse(
+                "team_ambiguous",
+                exceptions.ValidationError("Access token must be scoped to exactly one team."),
+                user=user,
+            )
         team = Team.objects.select_related("organization").filter(id=scoped_team_ids[0]).first()
         if team is None:
             # Deliberately 403: a 404 would read as "not rolled out" and downgrade
             # the run to legacy, but a vanished team is an authorization failure.
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_missing").inc()
-            raise exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND)
+            refuse("team_missing", exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND), user=user)
 
         # scoped_teams is frozen at consent, so re-check what it cannot see.
         if not oauth_credential_authorized(access_token, team):
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unauthorized").inc()
-            raise exceptions.PermissionDenied("Access token is no longer authorized for this project.")
+            refuse(
+                "unauthorized",
+                exceptions.PermissionDenied("Access token is no longer authorized for this project."),
+                user=user,
+            )
 
         distinct_id = str(user.distinct_id)
         if wizard_identity_blocked(
@@ -522,8 +545,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         ):
             # 403 and not 404, ahead of the rollout gate: the CLI reads 404 as "stay
             # on legacy", moving a banned run onto the looser surface.
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="blocked").inc()
-            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+            refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
         if not posthoganalytics.feature_enabled(
             "wizard-gateway-v2",
@@ -533,16 +555,17 @@ class SetupWizardViewSet(viewsets.ViewSet):
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         ):
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_rolled_out").inc()
-            raise exceptions.NotFound("Wizard gateway tokens are not rolled out for this organization.")
+            refuse(
+                "not_rolled_out",
+                exceptions.NotFound("Wizard gateway tokens are not rolled out for this organization."),
+                user=user,
+            )
 
         # Refusing keeps every pinned node one that carries a budget.
-        product = wizard_product_node(request.data.get("program") if isinstance(request.data, dict) else None)
         if product is None:
             # 404 and not 400: the CLI falls back only on 404, so an unlisted
             # program keeps running on legacy instead of dying. It still cannot mint.
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
-            raise exceptions.NotFound("Unrecognized wizard program.")
+            refuse("program_unknown", exceptions.NotFound("Unrecognized wizard program."), user=user)
         override = wizard_limit_override(
             distinct_id=distinct_id,
             email=user.email,
@@ -551,11 +574,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
         )
         try:
             reserved = reserve_wizard_mint(request, self, limit=override.mints_per_day)
-        except exceptions.Throttled:
+        except exceptions.Throttled as e:
             # The reservation raises after check_throttles ran, so the throttled()
             # hook never sees it.
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
-            raise
+            refuse("throttled", e, user=user)
         try:
             minted = mint_wizard_gateway_token(
                 obo=str(team.organization_id), user=distinct_id, product=product, cap_usd=override.cap_usd
