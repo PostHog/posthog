@@ -150,6 +150,7 @@ class TestResumeWorkflowStepForRun(BaseTest):
                 )
             run.refresh_from_db()
             assert run.status == TaskRun.Status.COMPLETED
+            assert run.output is not None
             assert "final_message" not in run.output
             assert run.output["pr_url"] == "https://example.com/pr/1"
             with self.captureOnCommitCallbacks(execute=True):
