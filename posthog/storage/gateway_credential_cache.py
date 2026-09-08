@@ -30,7 +30,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.email_verification import email_verification_pending
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
@@ -225,6 +224,10 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
     here, since the gateway authenticates from the cached blob alone (and the hourly
     refresh re-checks). Returns False to fail closed.
     """
+    from posthog.api.email_verification import (  # noqa: PLC0415 - keeps the email task stack off django.setup()
+        email_verification_pending,
+    )
+
     user = credential.user
     if user is None or not user.is_active:
         return False
