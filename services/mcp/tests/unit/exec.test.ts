@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { STRUCTURED_CONTENT_ONLY_TEXT } from '@/lib/build-tool-result'
+import { STRUCTURED_CONTENT_ONLY_TEXT, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -311,8 +311,9 @@ describe('exec tool', () => {
                 __execBuiltPayload?: true
             }
 
-            // Text content points at structuredContent instead of repeating the result
-            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            // Text content points at structuredContent instead of repeating the result,
+            // and the render note tells the model the host already displays it.
+            expect(result.content[0]!.text).toBe(`${STRUCTURED_CONTENT_ONLY_TEXT}\n\n${UI_APP_RENDER_NOTE}`)
             // With no compact table to protect, the app payload stays in the standard
             // structuredContent field (with analytics) rather than being duplicated under
             // the non-standard `_meta` app-data key.
@@ -363,8 +364,9 @@ describe('exec tool', () => {
                     _meta: { ui: { resourceUri: string }; [key: string]: unknown }
                 }
 
-                // Model sees ONLY the compact table, not the raw results JSON.
-                expect(result.content[0]!.text).toBe('Date|count\n2026-05-07|6')
+                // Model sees ONLY the compact table, not the raw results JSON, followed
+                // by the render note so it does not duplicate the chart in its reply.
+                expect(result.content[0]!.text).toBe(`Date|count\n2026-05-07|6\n\n${UI_APP_RENDER_NOTE}`)
                 // Top-level structuredContent is dropped so coding agents don't surface it.
                 expect(result.structuredContent).toBeUndefined()
                 // The UI app's data (with analytics) rides on _meta instead.
@@ -396,7 +398,7 @@ describe('exec tool', () => {
             // With no compact table there is nothing smaller to put in the text channel, so
             // the payload stays in the standard structuredContent field and the text carries
             // a pointer — neither a second copy in text nor one under the `_meta` key.
-            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(result.content[0]!.text).toBe(`${STRUCTURED_CONTENT_ONLY_TEXT}\n\n${UI_APP_RENDER_NOTE}`)
             expect(result.content[0]!.text).not.toContain('_posthogUrl')
             const structured = result.structuredContent as { results: unknown }
             expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])

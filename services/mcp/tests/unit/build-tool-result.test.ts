@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
     EXEC_BUILT_PAYLOAD,
     STRUCTURED_CONTENT_ONLY_TEXT,
+    UI_APP_RENDER_NOTE,
     estimateResponseTokens,
     markExecPayload,
     buildToolResultPayload,
@@ -67,7 +68,9 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             distinctId: 'test-distinct-id',
         })
 
-        // The model should see the formatted table — not a JSON dump.
+        // The model should see the formatted table — not a JSON dump, and no
+        // render note: this caller is not a UI-app host, so nothing renders a
+        // chart and the model may re-present the data.
         expect(payload.content).toEqual([{ type: 'text', text: FORMATTED_TABLE }])
         // No structuredContent: Claude Code would otherwise prefer it over text,
         // defeating the purpose of the formatted_results override.
@@ -198,8 +201,9 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             distinctId: 'd',
         })
 
-        // Model reads the compact table, not the verbose JSON.
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        // Model reads the compact table, not the verbose JSON, plus the render
+        // note telling it not to repeat the data in its reply.
+        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n${UI_APP_RENDER_NOTE}`)
         expect(payload).not.toHaveProperty('structuredContent')
         // The UI app hydrates from _meta since structuredContent was dropped.
         expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
@@ -263,7 +267,8 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
 
         expect(payload.structuredContent).toMatchObject(handlerResult)
         // The text channel points at structuredContent instead of repeating it.
-        expect(payload.content).toEqual([{ type: 'text', text: STRUCTURED_CONTENT_ONLY_TEXT }])
+        expect(payload.content[0]!.text).toContain(STRUCTURED_CONTENT_ONLY_TEXT)
+        expect(payload.content[0]!.text).toContain(UI_APP_RENDER_NOTE)
         expect(payload.content[0]!.text).not.toContain('Onboarding copy')
         expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
     })
