@@ -7,16 +7,6 @@ export function shiftedRows(rowShift: RowShiftApi | null | undefined): number {
     return rowShift ? Math.max(rowShift.inserted_rows, rowShift.deleted_rows) : 0
 }
 
-/**
- * How tall the movement is. The net height change when the page really grew
- * or shrank, and the larger side when inserts and deletes cancel out, because
- * the rows still moved even though the page kept its height.
- */
-function shiftMagnitude(rowShift: RowShiftApi): number {
-    const net = Math.abs(rowShift.inserted_rows - rowShift.deleted_rows)
-    return net || Math.max(rowShift.inserted_rows, rowShift.deleted_rows)
-}
-
 /** Only name a position when there is one band, so it can't point at one of several. */
 function shiftPosition(rowShift: RowShiftApi): string {
     return rowShift.bands.length === 1 ? ` at y=${rowShift.bands[0].y}` : ''
@@ -29,13 +19,20 @@ function formatResidual(value: number): string {
     return value < 0.01 ? `${value.toFixed(3)}%` : `${value.toFixed(2)}%`
 }
 
-/** Signed pixel delta. The page grew by this much, or shrank by it. */
+/**
+ * The movement in pixels, the same number the classifier judged. Signed when
+ * the page only grew or only shrank; unsigned when rows moved both ways,
+ * because the net height change would understate how far they moved.
+ */
 function signedShiftPx(rowShift: RowShiftApi): string {
-    const net = rowShift.inserted_rows - rowShift.deleted_rows
-    if (net === 0) {
-        return `${shiftMagnitude(rowShift)}px`
+    const px = `${shiftedRows(rowShift)}px`
+    if (rowShift.deleted_rows === 0) {
+        return `+${px}`
     }
-    return `${net > 0 ? '+' : '-'}${Math.abs(net)}px`
+    if (rowShift.inserted_rows === 0) {
+        return `-${px}`
+    }
+    return px
 }
 
 function absorbedTooltip(rowShift: RowShiftApi): string {
@@ -46,7 +43,7 @@ function absorbedTooltip(rowShift: RowShiftApi): string {
     } else if (rowShift.inserted_rows === 0) {
         opening = `The page shrank by ${pluralize(rowShift.deleted_rows, 'row')}${where}.`
     } else {
-        opening = `The page shifted by ${pluralize(shiftMagnitude(rowShift), 'row')}${where}.`
+        opening = `The page shifted by ${pluralize(shiftedRows(rowShift), 'row')}${where}.`
     }
     return (
         `${opening} Rows below it moved, and after aligning them only ${formatResidual(rowShift.residual_percentage)} ` +
@@ -91,7 +88,7 @@ export function describeShift(rowShift: RowShiftApi | null | undefined, absorbed
     }
     const px = signedShiftPx(rowShift)
     if (absorbed) {
-        const magnitude = `${shiftMagnitude(rowShift)}px shift`
+        const magnitude = `${shiftedRows(rowShift)}px shift`
         return {
             tone: 'neutral',
             label: `Absorbed ${magnitude}`,
