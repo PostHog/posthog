@@ -1192,6 +1192,91 @@ class TestObservationStateActivities:
         assert properties["organization_id"] == str(observation.team.organization_id)
         assert kwargs["groups"]["organization"] == str(observation.team.organization_id)
 
+    def test_spend_is_attributed_to_the_scanner_creator_once_per_billed_scan(self) -> None:
+        # `replay_vision_scan_completed` is keyed to a synthetic per-team id, so it cannot be joined
+        # to the creator. Without this event no experiment can guardrail on realized spend.
+        scanner = _make_scanner()
+        creator = User.objects.create_and_join(
+            organization=scanner.team.organization, email="creator@example.com", password=None
+        )
+        scanner.created_by = creator
+        scanner.save()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+        inputs = MarkObservationSucceededInputs(
+            observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            mark_observation_succeeded_activity(inputs)
+
+        spend = [c for c in capture.call_args_list if c.kwargs["event"] == "replay_vision_credits_spent"]
+        assert len(spend) == 1
+        kwargs = spend[0].kwargs
+        assert kwargs["distinct_id"] == creator.distinct_id
+        properties = kwargs["properties"]
+        assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
+        assert properties["scanner_id"] == str(scanner.id)
+        assert properties["scanner_version"] == observation.scanner_snapshot["scanner_version"]
+        assert properties["organization_id"] == str(observation.team.organization_id)
+        # A shared dedup key would let ingestion drop one of the two events for the same scan.
+        completed = [c for c in capture.call_args_list if c.kwargs["event"] == "replay_vision_scan_completed"]
+        assert kwargs["uuid"] != completed[0].kwargs["uuid"]
+
+    def test_no_spend_event_when_the_scan_was_already_billed(self) -> None:
+        # A transition that finds the receipt already written is a re-settle, not a fresh charge.
+        # The sticky status guard returns before this point, so the receipt is the only thing
+        # standing between a re-settle and a second spend event for one billed scan.
+        scanner = _make_scanner()
+        creator = User.objects.create_and_join(
+            organization=scanner.team.organization, email="billed@example.com", password=None
+        )
+        scanner.created_by = creator
+        scanner.save()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        ReplayObservationUsage.objects.create(
+            observation_id=observation.id,
+            organization_id=scanner.team.organization_id,
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            observation_created_at=observation.created_at,
+            model=observation.scanner_snapshot["model"],
+            credits=observation_credits_for_model(observation.scanner_snapshot["model"]),
+        )
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            mark_observation_succeeded_activity(
+                MarkObservationSucceededInputs(
+                    observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+                )
+            )
+
+        assert [c.kwargs["event"] for c in capture.call_args_list] == ["replay_vision_scan_completed"]
+
+    def test_no_spend_event_when_the_scanner_has_no_creator(self) -> None:
+        # An inline or API-minted scanner has nobody to attribute to; emitting anyway would either
+        # crash on a null distinct id or invent a person.
+        scanner = _make_scanner()
+        assert scanner.created_by is None
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            mark_observation_succeeded_activity(
+                MarkObservationSucceededInputs(
+                    observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+                )
+            )
+
+        assert [c.kwargs["event"] for c in capture.call_args_list] == ["replay_vision_scan_completed"]
+
     def test_mark_failed_writes_no_usage_receipt(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())

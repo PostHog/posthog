@@ -1,5 +1,6 @@
-from collections.abc import Callable, Container
-from uuid import UUID
+from collections.abc import Callable, Container, Mapping
+from typing import Any
+from uuid import UUID, uuid5
 
 from django.db import transaction
 from django.utils import timezone
@@ -91,6 +92,57 @@ def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, s
             "kind": kind,
             # The version that produced this scan, from the snapshot rather than the live scanner, so a
             # later edit cannot retro-attribute a failure to the config that replaced it.
+            "scanner_version": obs["scanner_snapshot__scanner_version"],
+            "team_id": obs["team_id"],
+            "organization_id": str(obs["team__organization_id"]),
+        },
+        # Mirrors posthog.event_usage.groups() without fetching the Team row.
+        groups={
+            "instance": SITE_URL,
+            "organization": str(obs["team__organization_id"]),
+            "project": str(obs["team__uuid"]),
+        },
+    )
+
+
+def _capture_credits_spent(
+    *,
+    observation_id: UUID,
+    scanner_type: str,
+    model: str,
+    credits: int,
+    obs: Mapping[str, Any],
+) -> None:
+    """Spend telemetry attributed to the person who created the scanner.
+
+    `replay_vision_scan_completed` is keyed to a synthetic per-team distinct id, so it shares no
+    person with `replay_vision_scanner_created` and an experiment cannot join the two. That leaves
+    every Replay Vision experiment able to guardrail only on the spend forecast shown at
+    configuration time, never on the spend that actually happened. This event carries the same
+    figures under the creator's distinct id, which is the join key an experiment metric needs.
+
+    Attribution is to the scanner's creator, not to whoever triggered the scan, because a scheduled
+    sweep has no user behind it and the creation is the decision that causes the recurring spend.
+    """
+    distinct_id = obs["scanner__created_by__distinct_id"]
+    if not distinct_id:
+        # No creator (an inline or API-minted scanner, or a deleted user) leaves nobody to attribute
+        # to. Summing this event therefore undercounts total spend; `replay_vision_scan_completed`
+        # stays the complete record.
+        return
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="replay_vision_credits_spent",
+        # Derived from the observation id so a retry cannot duplicate the row, and distinct from the
+        # id `replay_vision_scan_completed` already uses, so neither event dedups the other away.
+        uuid=str(uuid5(observation_id, "replay_vision_credits_spent")),
+        properties={
+            "observation_id": str(observation_id),
+            "scanner_id": str(obs["scanner_id"]),
+            "scanner_type": scanner_type,
+            "model": model,
+            "credits": credits,
+            "triggered_by": obs["triggered_by"],
             "scanner_version": obs["scanner_snapshot__scanner_version"],
             "team_id": obs["team_id"],
             "organization_id": str(obs["team__organization_id"]),
@@ -209,6 +261,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "created_at",
             "scanner_snapshot__model",
             "scanner_snapshot__scanner_version",
+            "scanner__created_by__distinct_id",
         ).get(pk=inputs.observation_id)
         model = obs["scanner_snapshot__model"] or ""
         credits = observation_credits_for_model(model)
@@ -266,3 +319,19 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "project": str(obs["team__uuid"]),
         },
     )
+    if receipt_created:
+        try:
+            _capture_credits_spent(
+                observation_id=inputs.observation_id,
+                scanner_type=inputs.scanner_type.value,
+                model=model,
+                credits=credits,
+                obs=obs,
+            )
+        except Exception:
+            # Fail-soft: the scan is billed and the receipt is written, so raising here would fail an
+            # activity whose work is done, purely over telemetry.
+            logger.exception(
+                "replay_vision.observation.credits_spent_capture_failed",
+                observation_id=str(inputs.observation_id),
+            )
