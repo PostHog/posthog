@@ -127,4 +127,16 @@ describe('retentionLogic', () => {
         expect(logic.values.allCohortsEmpty).toBe(allCohortsEmpty)
         expect(logic.values.hasEntityPropertyFilters).toBe(hasEntityPropertyFilters)
     })
+
+    // A cached result of another insight type keeps the retention query kind, so the selector
+    // must drop rows that have no retention values instead of throwing on them.
+    it('drops result rows without a values array', async () => {
+        await loadResults(retentionQuery(), [
+            { data: [1, 2, 3], labels: ['a', 'b', 'c'] },
+            cohortRow('2024-01-01T00:00:00Z', [100, 50]),
+        ])
+
+        expect(logic.values.results).toHaveLength(1)
+        expect(logic.values.results[0].values.map((value) => value.count)).toEqual([100, 50])
+    })
 })

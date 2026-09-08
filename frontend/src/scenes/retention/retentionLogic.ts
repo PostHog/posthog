@@ -368,7 +368,11 @@ export const retentionLogic = kea<retentionLogicType>([
 
                 const rawResults = isRetentionQuery(insightQuery) ? (insightData?.result ?? []) : []
 
-                const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
+                // A cached result of a different insight type can reach this selector, so keep
+                // only the rows that have retention values.
+                const retentionResults = rawResults.filter((result: RetentionResult) => Array.isArray(result?.values))
+
+                const results: ProcessedRetentionPayload[] = retentionResults.map((result: RetentionResult) => ({
                     ...result,
 
                     values: result.values.map((value, index) => {
