@@ -1,6 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,7 +14,20 @@ import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
-import { SignalScoutRunSummary } from './types'
+import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
+import { SignalReport, SignalScoutRunSummary } from './types'
+
+/** The `Inbox report opened` rows a `posthog.capture` spy saw, with their properties. */
+function openedEvents(spy: jest.SpyInstance): Record<string, any>[] {
+    return spy.mock.calls
+        .filter((call) => call[0] === 'Inbox report opened')
+        .map((call) => call[1] as Record<string, any>)
+}
+
+/** One turn of the retry that resolves a held open's rank (poll interval is 250ms). */
+function waitForOpenRankRetry(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 400))
+}
 
 function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
@@ -119,6 +133,8 @@ describe('inboxSceneLogic routing', () => {
                 '/api/projects/:team_id/signals/scout/configs/': [],
             },
         })
+        // The list-visited flag behind `open_method` lives in session storage, so it outlives a test.
+        window.sessionStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
     })
@@ -254,6 +270,61 @@ describe('inboxSceneLogic routing', () => {
             },
         ])
         expect(openMethod).toBe(expectedMethod)
+    })
+
+    // A reload, a new tab, or a bundle update all start a fresh logic. Without a flag that outlives
+    // the page, each one reads as a cold deep-link from someone who was clicking the list seconds ago.
+    it('a report URL loaded fresh after the list was visited this session is a click, not a deep-link', async () => {
+        mountWithRedesign(true)
+        router.actions.push(urls.inbox('reports'))
+        logic.unmount()
+
+        initKeaTests()
+        featureFlagLogic.mount()
+        mountWithRedesign(true)
+
+        let openMethod: string | undefined
+        await expectLogic(logic, () => router.actions.push(urls.inboxReport('reports', 'r1'))).toDispatchActions([
+            (action: any) => {
+                if (action.type !== logic.actionTypes.setSelectedReportId) {
+                    return false
+                }
+                openMethod = action.payload.openMethod
+                return true
+            },
+        ])
+        expect(openMethod).toBe('click')
+    })
+
+    // A cold load answers the single-report fetch before the lists, so a rank read at open time is
+    // null and the event joins to no impression row for the ranking dataset.
+    it('holds `Inbox report opened` until the list answers, then reports the rank', async () => {
+        const report = { id: 'r1', title: 'Crash on login' } as SignalReport
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': {
+                    results: [report],
+                    count: 1,
+                    next: null,
+                    previous: null,
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(false)
+        const listLogic = reportListLogic(sectionListLogicProps('needs-decision'))
+        listLogic.mount()
+        listLogic.actions.loadReports()
+
+        logic.actions.setSelectedReportId('r1')
+        logic.actions.loadSelectedReportSuccess(report)
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        await waitForOpenRankRetry()
+
+        expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 1, list_size: 1 })
+        captureSpy.mockRestore()
+        listLogic.unmount()
     })
 
     it('stops the runs poll when opening another surface closes the panel', () => {
