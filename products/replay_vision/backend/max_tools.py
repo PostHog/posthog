@@ -369,11 +369,12 @@ class SearchObservationsArgs(BaseModel):
     )
     date_from: str | None = Field(
         default=None,
-        description="Only recordings analyzed at or after this time: ISO 8601 or relative like '-7d'.",
+        description="Only recordings analyzed at or after this time: ISO 8601, relative like '-7d', or 'now'.",
     )
     date_to: str | None = Field(
         default=None,
-        description="Only recordings analyzed at or before this time: ISO 8601 or relative like '-1d'.",
+        description="Only recordings analyzed at or before this time: ISO 8601, relative like '-1d', or 'now'. "
+        "Omit it to search through the current time.",
     )
     limit: int | None = Field(
         default=None,

@@ -207,7 +207,7 @@
             "type": "array"
         },
         "name": {
-            "description": "Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.",
+            "description": "Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.",
             "maxLength": 64,
             "type": "string"
         }
