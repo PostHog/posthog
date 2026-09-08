@@ -758,7 +758,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert no_spend_row[cost_idx].value is None
         assert no_spend_row[clicks_idx].value is None
 
-    def test_integration_filter_can_exclude_campaigns_with_no_ad_spend(self):
+    def test_integration_filter_can_exclude_campaigns_with_no_ad_spend(self) -> None:
         session_id = str(uuid7("2023-01-15"))
         for event in ("$pageview", "purchase"):
             _create_event(
@@ -774,7 +774,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-        def campaigns_for(integration_filter: IntegrationFilter | None) -> set:
+        def campaigns_for(integration_filter: IntegrationFilter | None) -> set[str]:
             query = MarketingAnalyticsTableQuery(
                 dateRange=self.default_date_range,
                 limit=DEFAULT_LIMIT,
@@ -787,7 +787,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             result = self._create_query_runner(query).calculate()
             assert result.columns is not None
             campaign_idx = result.columns.index(MarketingAnalyticsBaseColumns.CAMPAIGN)
-            return {row[campaign_idx].value for row in result.results}
+            return {str(row[campaign_idx].value) for row in result.results}
 
         assert "fall_sale_newsletter" in campaigns_for(None)
         assert "fall_sale_newsletter" in campaigns_for(IntegrationFilter(includeNonIntegrated=True))

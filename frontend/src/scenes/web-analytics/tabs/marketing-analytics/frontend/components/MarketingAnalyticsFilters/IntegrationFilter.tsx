@@ -49,14 +49,17 @@ export function IntegrationFilter(): JSX.Element {
     }
 
     const displayValue = (): string => {
+        // Hiding the non-integrated rows changes what the table reports, so the button says so at
+        // every selection, not only when the sources are all in or all out.
+        const suffix = includeNonIntegrated ? '' : ', integrated only'
         if (selectedIds.length === 0 || isAllSelected) {
             return includeNonIntegrated ? 'All integrations' : 'Integrated only'
         }
         if (selectedIds.length === 1) {
             const source = allAvailableSourcesWithStatus.find((s) => s.id === selectedIds[0])
-            return source ? formatSourceLabel(source) : '1 integration'
+            return `${source ? formatSourceLabel(source) : '1 integration'}${suffix}`
         }
-        return `${selectedIds.length} integrations`
+        return `${selectedIds.length} integrations${suffix}`
     }
 
     // Don't show the filter if there are no available sources
