@@ -11,6 +11,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.response import Response
 
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import PartnerTier
@@ -180,13 +181,13 @@ class TestAccountRequests(ProvisioningTestBase):
 
 
 class TestAccountRequestCallerCaps(ProvisioningTestBase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         cache.clear()
         self.addCleanup(cache.clear)
 
-    def _payload(self, **overrides):
-        payload = {
+    def _payload(self, **overrides: object) -> dict[str, object]:
+        payload: dict[str, object] = {
             "id": "acctreq_caps_test",
             "email": "capstest@example.com",
             "scopes": ["query:read"],
@@ -195,7 +196,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
         payload.update(overrides)
         return payload
 
-    def _post(self, payload, partner=None, **kwargs):
+    def _post(self, payload: dict[str, object], partner: OAuthApplication | None = None, **kwargs: object) -> Response:
         return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload, partner=partner, **kwargs)
 
     def _jwks_partner(self) -> OAuthApplication:
@@ -226,18 +227,18 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
             _provisioning_config=provisioning_config(active=True, can_create_accounts=True),
         )
 
-    def _post_public(self, payload, partner, **kwargs):
+    def _post_public(self, payload: dict[str, object], partner: OAuthApplication, **kwargs: object) -> Response:
         return self._post_api(ACCOUNT_REQUESTS_URL, {**payload, "client_id": partner.client_id}, **kwargs)
 
     @patch("ee.api.agentic_provisioning.views.account_requests.wizard_identity_blocked", return_value=True)
-    def test_blocklisted_email_returns_403_and_creates_no_user(self, _mock_blocked):
+    def test_blocklisted_email_returns_403_and_creates_no_user(self, _mock_blocked: object) -> None:
         res = self._post(self._payload(email="blocked@example.com"))
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "forbidden"
         assert not User.objects.filter(email="blocked@example.com").exists()
 
     @override_settings(PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY=2)
-    def test_ip_cap_blocks_the_request_after_the_nth(self):
+    def test_ip_cap_blocks_the_request_after_the_nth(self) -> None:
         partner = self._public_partner()
         with freeze_time("2026-01-01 00:00:00"):
             for i in range(2):
@@ -252,7 +253,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
         assert not User.objects.filter(email="ipcap_over@example.com").exists()
 
     @override_settings(PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY=1)
-    def test_jwks_tier_partner_is_not_ip_capped(self):
+    def test_jwks_tier_partner_is_not_ip_capped(self) -> None:
         partner = self._jwks_partner()
         assert partner.partner_tier == PartnerTier.JWKS
         with freeze_time("2026-01-01 00:00:00"):
@@ -267,7 +268,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
         TRUST_ALL_PROXIES=True,
         PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY=1,
     )
-    def test_ip_cap_keys_on_the_forwarded_client_not_the_proxy(self):
+    def test_ip_cap_keys_on_the_forwarded_client_not_the_proxy(self) -> None:
         partner = self._public_partner()
         # Same REMOTE_ADDR for every call, standing in for one proxy hop forwarding
         # for many different original callers.
@@ -302,7 +303,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
         TRUSTED_PROXIES="10.0.0.9",
         PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY=1,
     )
-    def test_ip_cap_still_counts_when_the_forwarded_chain_is_untrusted(self):
+    def test_ip_cap_still_counts_when_the_forwarded_chain_is_untrusted(self) -> None:
         partner = self._public_partner()
         with freeze_time("2026-01-01 00:00:00"):
             first = self._post_public(
@@ -322,7 +323,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
         assert second.status_code == 429
 
     @override_settings(PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY=2)
-    def test_email_root_cap_collapses_gmail_variations(self):
+    def test_email_root_cap_collapses_gmail_variations(self) -> None:
         with freeze_time("2026-01-01 00:00:00"):
             res1 = self._post(self._payload(email="user+1@gmail.com"))
             assert res1.status_code == 200
@@ -335,7 +336,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
         assert not User.objects.filter(email="user@gmail.com").exists()
 
     @override_settings(PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY=1)
-    def test_existing_user_linking_does_not_count_against_email_root_cap(self):
+    def test_existing_user_linking_does_not_count_against_email_root_cap(self) -> None:
         User.objects.create_and_join(
             organization=self.organization, email="linked@gmail.com", password="testpass", first_name="Linked"
         )
@@ -346,9 +347,25 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
                 assert res.json()["type"] == "requires_auth"
 
     @override_settings(
+        PROVISIONING_ACCOUNT_REQUESTS_PER_DOMAIN_PER_DAY=1, PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY=100
+    )
+    def test_domain_cap_skips_a_domain_with_a_verified_user(self) -> None:
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="employee@established.example",
+            password="testpass",
+            first_name="Employee",
+            is_email_verified=True,
+        )
+        with freeze_time("2026-01-01 00:00:00"):
+            for i in range(3):
+                res = self._post(self._payload(email=f"newhire{i}@established.example"))
+                assert res.status_code == 200
+
+    @override_settings(
         PROVISIONING_ACCOUNT_REQUESTS_PER_DOMAIN_PER_DAY=2, PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY=100
     )
-    def test_domain_cap_applies_to_private_domain_not_free_mail(self):
+    def test_domain_cap_applies_to_private_domain_not_free_mail(self) -> None:
         with freeze_time("2026-01-01 00:00:00"):
             for i in range(2):
                 res = self._post(self._payload(email=f"user{i}@privatecorp.example"))

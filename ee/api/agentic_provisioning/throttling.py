@@ -40,6 +40,7 @@ from posthog.api.oauth import cimd
 from posthog.llm.wizard_blocklist import blocklist_properties
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import PartnerTier
+from posthog.models.user import User
 from posthog.rate_limit import IPThrottle
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
@@ -174,11 +175,19 @@ def enforce_caller_ip_cap(request: Request, partner: OAuthApplication) -> None:
     )
 
 
+def _domain_has_verified_user(domain: str) -> bool:
+    return User.objects.filter(email__iendswith=f"@{domain}", is_email_verified=True).exists()
+
+
 def enforce_caller_email_caps(partner: OAuthApplication, email: str) -> None:
     """Per-email-root and per-domain daily ceilings on account_requests that create a
     new user. Call only once ``existing_user`` resolves to None: an existing account is
     routed to consent rather than created, so counting it here would cap a caller for a
     request that spent no partner budget and created no account.
+
+    The domain cap applies only to a domain with no verified user yet: it targets a
+    freshly bought farm domain, and must not let a stranger lock a real company's
+    domain out of provisioning by minting unverified accounts at it.
     """
     properties = blocklist_properties(email=email)
     email_root = properties["email_root"]
@@ -191,7 +200,7 @@ def enforce_caller_email_caps(partner: OAuthApplication, email: str) -> None:
             prefix=CALLER_EMAIL_ROOT_RATE_LIMIT_PREFIX,
         )
     domain = properties["email_domain"]
-    if domain and domain not in PROVISIONING_FREE_EMAIL_DOMAINS:
+    if domain and domain not in PROVISIONING_FREE_EMAIL_DOMAINS and not _domain_has_verified_user(domain):
         _enforce_caller_cap(
             partner,
             key_kind="domain",
