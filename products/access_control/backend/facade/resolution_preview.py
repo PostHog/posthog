@@ -13,7 +13,6 @@ migration command are the only callers.
 from collections.abc import Iterator
 from dataclasses import replace
 from typing import Literal, Optional, cast
-from uuid import UUID
 
 from django.db.models import Model
 
@@ -224,38 +223,16 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
 
 
 def object_models(resource: str) -> list[type[Model]]:
-    """The model classes whose rows an object rule on `resource` can point at.
+    """Return the model classes that an object rule on `resource` can point at.
 
-    The display model when the settings UI can name the resource's objects. Otherwise every
-    team-scoped model behind the resource's routes, so rules the UI cannot name still resolve.
-    Empty when nothing backs the resource, for example a resource whose ids are not rows.
+    Return the display model when one exists. Otherwise return every team-scoped model
+    behind the resource's routes. Return an empty list when no model backs the resource.
     """
     display = display_model(resource)
     if display is not None:
         return [display.model]
     models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
     return sorted((model for model in models if model_has_field(model, "team")), key=lambda model: model.__name__)
-
-
-def can_load_objects(resource: str) -> bool:
-    """Whether the preview can evaluate object rules on `resource`. When it cannot, the rows are
-    dropped from the comparison and an empty preview does not prove the organization is unaffected."""
-    return resource == "project" or bool(object_models(resource))
-
-
-def organizations_with_unevaluable_rules() -> set[UUID]:
-    """Organizations with object rules the preview cannot evaluate, because nothing backs the
-    resource. Their previews are incomplete, so callers deciding from an empty preview skip them."""
-    object_resources = set(AccessControl.objects.exclude(resource_id=None).values_list("resource", flat=True))
-    unloadable = {resource for resource in object_resources if not can_load_objects(resource)}
-    if not unloadable:
-        return set()
-    return set(
-        AccessControl.objects.filter(resource__in=unloadable)
-        .exclude(resource_id=None)
-        .values_list("team__organization_id", flat=True)
-        .distinct()
-    )
 
 
 def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, _LoadedObject]:
@@ -434,10 +411,18 @@ def iter_resolution_changes(
     `only_pending`, organizations already on the most-specific resolution are skipped too:
     they are migrated already.
     """
+    # The preview cannot compare object rules on a resource with no model. Skip those
+    # organizations: an empty preview does not show that nothing changes for them.
+    object_resources = set(AccessControl.objects.exclude(resource_id=None).values_list("resource", flat=True))
+    unbacked = {resource for resource in object_resources if resource != "project" and not object_models(resource)}
+    skipped = (
+        AccessControl.objects.filter(resource__in=unbacked).exclude(resource_id=None).values("team__organization_id")
+    )
+
     team_ids = AccessControl.objects.values_list("team_id", flat=True).distinct()
     teams = (
         Team.objects.filter(id__in=team_ids)
-        .exclude(organization_id__in=organizations_with_unevaluable_rules())
+        .exclude(organization_id__in=skipped)
         .select_related("organization")
         .order_by("organization_id")
     )
