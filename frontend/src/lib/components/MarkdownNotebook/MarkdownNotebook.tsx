@@ -5394,7 +5394,7 @@ function MarkdownNotebookEditor({
         }
 
         let responseNodeIndex = -1
-        const keepQuestion = currentPromptNode?.props.keepQuestion === true
+        const keepQuestion = currentPromptNode?.props.keepQuestion !== false
         const nodesWithResponse = nodes.flatMap((currentNode, index): NotebookBlockNode[] => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
                 return [currentNode]

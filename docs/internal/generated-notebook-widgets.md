@@ -25,7 +25,9 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 ## Agent access
 
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
+The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.
+Inline AI insertion also converts plain, `md`, or `markdown` code fences containing only valid `<Widget>` tags into widget blocks. Fences containing other code, malformed tags, or an explicit language such as `text` remain code examples.
 The user clicks **Generate widget** in the inserted block's settings to start generation.
 The widget flag and SQL/Python cell flag are independent; enabling widgets does not grant access to SQLV2 or PythonV2 cells.
 
