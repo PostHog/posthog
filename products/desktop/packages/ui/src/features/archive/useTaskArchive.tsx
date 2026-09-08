@@ -1,5 +1,9 @@
 import { PI_SESSION_CONTROLLER } from "@posthog/core/pi-runtime/identifiers";
 import type { PiSessionController } from "@posthog/core/pi-runtime/piSessionController";
+import {
+  deriveTaskRunState,
+  narrowFullTask,
+} from "@posthog/core/sidebar/buildSidebarData";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { useService } from "@posthog/di/react";
 import type { Task } from "@posthog/shared/domain-types";
@@ -42,22 +46,41 @@ export function useTaskArchive(
   },
 ): TaskArchive {
   const taskId = task?.id;
-  const { isPromptPending, cloudStatus } = useSessionSelector(
-    taskId,
-    (session) => ({
-      isPromptPending: session?.isPromptPending ?? false,
-      cloudStatus: session?.cloudStatus ?? null,
-    }),
-    shallow,
-  );
+  const { taskRunId, isPromptPending, cloudStatus, agentIdleForRunId } =
+    useSessionSelector(
+      taskId,
+      (session) => ({
+        taskRunId: session?.taskRunId,
+        isPromptPending: session?.isPromptPending ?? false,
+        cloudStatus: session?.cloudStatus ?? null,
+        agentIdleForRunId: session?.agentIdleForRunId,
+      }),
+      shallow,
+    );
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
   const isPiGenerating = useStore(piSessionController.store, (state) =>
     taskId ? (state.sessions[taskId]?.status?.isStreaming ?? false) : false,
   );
+  const sidebarTask = task ? narrowFullTask(task) : undefined;
+  const taskRunState = sidebarTask
+    ? deriveTaskRunState(
+        sidebarTask,
+        taskRunId
+          ? {
+              taskRunId,
+              isPromptPending,
+              cloudStatus: cloudStatus ?? undefined,
+              agentIdleForRunId,
+            }
+          : undefined,
+      )
+    : undefined;
   const isGenerating =
-    task?.runtime === "pi" ? isPiGenerating : isPromptPending;
+    task?.runtime === "pi"
+      ? isPiGenerating
+      : (taskRunState?.isGenerating ?? false);
 
   const { archiveTask } = useArchiveTask({
     navigateUnscoped: options?.navigateUnscoped,
@@ -90,15 +113,23 @@ export function useTaskArchive(
     if (
       isTaskActivelyRunning({
         isGenerating,
-        taskRunEnvironment: task?.latest_run?.environment,
-        taskRunStatus: cloudStatus ?? task?.latest_run?.status ?? undefined,
+        runMode: sidebarTask?.latest_run?.mode ?? undefined,
+        taskRunEnvironment: taskRunState?.taskRunEnvironment,
+        taskRunStatus: taskRunState?.taskRunStatus,
       })
     ) {
       setConfirmOpen(true);
       return;
     }
     void runArchive().catch(() => undefined);
-  }, [cloudStatus, isGenerating, runArchive, task?.latest_run, taskId]);
+  }, [
+    isGenerating,
+    runArchive,
+    sidebarTask?.latest_run?.mode,
+    taskId,
+    taskRunState?.taskRunEnvironment,
+    taskRunState?.taskRunStatus,
+  ]);
 
   return {
     requestArchive,
