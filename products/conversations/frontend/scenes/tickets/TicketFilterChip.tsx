@@ -47,7 +47,15 @@ function MultiSelectOverlay<T extends string>({
                     type="tertiary"
                     size="small"
                     fullWidth
-                    icon={<LemonCheckbox checked={selected.includes(option.key)} className="pointer-events-none" />}
+                    role="menuitemcheckbox"
+                    aria-checked={selected.includes(option.key)}
+                    icon={
+                        <LemonCheckbox
+                            checked={selected.includes(option.key)}
+                            className="pointer-events-none"
+                            decorative
+                        />
+                    }
                     onClick={() =>
                         onChange(
                             selected.includes(option.key)
@@ -82,6 +90,8 @@ function SingleSelectOverlay<T extends string>({
                     type="tertiary"
                     size="small"
                     fullWidth
+                    role="menuitemradio"
+                    aria-checked={selected === option.value}
                     onClick={() => onChange(option.value)}
                     active={selected === option.value}
                 >

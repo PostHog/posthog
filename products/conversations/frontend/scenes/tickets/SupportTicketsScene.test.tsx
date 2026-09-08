@@ -220,6 +220,35 @@ describe('SupportTicketsTableFilters', () => {
         expect(await screen.findByText(expected)).toBeInTheDocument()
     })
 
+    // The option rows carried their selected state in CSS alone, so a screen reader user could
+    // not tell which values were in force, and each row's checkbox stayed focusable inside the
+    // row's own button.
+    it('reports which filter options are selected to assistive technology', async () => {
+        act(() => {
+            logic.actions.setStatusFilter(['open'])
+            logic.actions.setChannelFilter('email')
+        })
+
+        render(
+            <Provider>
+                <SupportTicketsTableFilters />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByText('Status'))
+
+        expect(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')).toHaveTextContent('Open')
+        // The row owns the interaction, so its checkbox must not be a second stop of its own.
+        expect(document.querySelector('[role="menuitemcheckbox"] input[type="checkbox"]')).toHaveAttribute(
+            'aria-hidden',
+            'true'
+        )
+
+        await userEvent.click(screen.getByText('Channel'))
+
+        expect(document.querySelector('[role="menuitemradio"][aria-checked="true"]')).toHaveTextContent('Email')
+    })
+
     // Regression: a chip tracked its open editor in local state only, so the filter bar could not
     // tell an open chip from a closed one. Clearing the last value of an open filter dropped the
     // chip and unmounted the panel the person was picking from.
