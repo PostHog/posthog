@@ -135,7 +135,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         """Columns that uniquely identify a row at the current drill-down level.
 
         These are the keys the compare pivot groups by — the same keys the old
-        LEFT JOIN matched on. Names alone don't uniquely identify a row at ad-group /
+        LEFT JOIN matched on — and the final ORDER BY tie-breakers that keep offset
+        pagination stable. Names alone don't uniquely identify a row at ad-group /
         ad levels (two campaigns can both have an ad-group named "All Audiences", and
         renaming an entity between periods would appear as "deleted + created"), so at
         AD_GROUP / AD we key by the platform ID + source. This assumes (AD_GROUP_ID,
@@ -451,15 +452,15 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
 
-        # Add ID as tiebreaker for deterministic ordering when rows share the same sort key
+        # Tie-break down to the level's row key, so a tied block can't permute between the
+        # separate executions that offset pagination runs. Cost and ID don't separate
+        # conversion-only rows: they have no campaign_costs side, so Cost is NULL and ID falls
+        # back to '-' for every one of them.
         already_sorted_columns = {expr.expr.chain[0] for expr in order_by_exprs if isinstance(expr.expr, ast.Field)}
-        if (
-            MarketingAnalyticsBaseColumns.ID.value in select_columns
-            and MarketingAnalyticsBaseColumns.ID.value not in already_sorted_columns
-        ):
-            order_by_exprs.append(
-                ast.OrderExpr(expr=ast.Field(chain=[MarketingAnalyticsBaseColumns.ID.value]), order="ASC")
-            )
+        for column in [MarketingAnalyticsBaseColumns.ID.value, *self._get_compare_pivot_keys()]:
+            if column in select_columns and column not in already_sorted_columns:
+                order_by_exprs.append(ast.OrderExpr(expr=ast.Field(chain=[column]), order="ASC"))
+                already_sorted_columns.add(column)
 
         return order_by_exprs
 

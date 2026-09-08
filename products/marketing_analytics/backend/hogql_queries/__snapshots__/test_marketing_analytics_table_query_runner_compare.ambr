@@ -49,7 +49,9 @@
   FROM
     campaign_costs
   ORDER BY
-    ID ASC
+    ID ASC,
+    Campaign ASC,
+    Source ASC
   LIMIT 101
   OFFSET 0
   '''
@@ -408,7 +410,9 @@
     greater(countIf(equals(combined._period, 'current')), 0)
   ORDER BY
     Cost DESC,
-    ID ASC
+    ID ASC,
+    Campaign ASC,
+    Source ASC
   LIMIT 101
   OFFSET 0
   '''
@@ -767,7 +771,9 @@
     greater(countIf(equals(combined._period, 'current')), 0)
   ORDER BY
     Cost DESC,
-    ID ASC
+    ID ASC,
+    Campaign ASC,
+    Source ASC
   LIMIT 101
   OFFSET 0
   '''
@@ -983,7 +989,9 @@
         greater(countIf(equals(combined._period, 'current')), 0)
       ORDER BY
         Cost DESC,
-        ID ASC
+        ID ASC,
+        Campaign ASC,
+        Source ASC
       LIMIT 101
       OFFSET 0
     ''',

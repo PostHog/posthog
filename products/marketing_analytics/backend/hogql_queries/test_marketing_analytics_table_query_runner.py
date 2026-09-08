@@ -869,6 +869,44 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN, ["Cost", "ID", "Campaign", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL, ["Cost", "Channel"]),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE, ["Cost", "Channel", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.SOURCE, ["Cost", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.AD_GROUP, ["Cost", "Ad group ID", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.AD, ["Cost", "Ad ID", "Source"]),
+            (MarketingAnalyticsDrillDownLevel.MEDIUM, ["Medium"]),
+            (MarketingAnalyticsDrillDownLevel.CONTENT, ["Content"]),
+            (MarketingAnalyticsDrillDownLevel.TERM, ["Term"]),
+        ]
+    )
+    def test_order_by_fully_determines_a_row_at_every_level(self, level, expected_order_by):
+        """Pages are fetched by OFFSET, one ClickHouse execution each, and ClickHouse gives no
+        stable order to rows that tie on the whole sort key — a tied block can permute between
+        executions, so the reader sees a row twice or never. Cost and ID don't break the tie for
+        conversion-only rows: they have no campaign_costs side, so Cost is NULL and ID falls back
+        to '-' for every one of them. The sort key has to reach the level's row key."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+            draftConversionGoal=self._create_test_conversion_goal(goal_id="order_by_goal"),
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            paginated = runner.calculate_without_compare()
+
+        assert paginated.order_by is not None
+        order_by_columns = [expr.expr.chain[0] for expr in paginated.order_by if isinstance(expr.expr, ast.Field)]
+
+        assert order_by_columns == expected_order_by
+
+    @parameterized.expand(
+        [
             (MarketingAnalyticsDrillDownLevel.MEDIUM,),
             (MarketingAnalyticsDrillDownLevel.CONTENT,),
             (MarketingAnalyticsDrillDownLevel.TERM,),
