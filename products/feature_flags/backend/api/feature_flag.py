@@ -3559,8 +3559,10 @@ class FeatureFlagViewSet(
         except Exception:
             logger.exception("Failed to report deprecated feature flag usage dashboard endpoint call")
 
-    # No UI surface calls this, since the Usage tab renders its charts inline. It exists for API
-    # users who want a saved usage dashboard. It remains functional until the announced sunset.
+    # No UI surface calls this, since the Usage tab renders its charts inline.
+    # Without required_scopes, APIScopePermission rejects every personal API key, OAuth, and
+    # project secret key caller, so only a session-authenticated request reaches this action.
+    # It remains functional until the announced sunset.
     @extend_schema(
         request=None,
         responses={
@@ -3619,6 +3621,10 @@ class FeatureFlagViewSet(
         self._report_usage_dashboard_endpoint_call(request, "dashboard", outcome)
         return self._with_usage_dashboard_deprecation_headers(Response({"success": True}, status=status.HTTP_200_OK))
 
+    # Unlike `dashboard` above, the main app does call this: featureFlagLogic.ts's
+    # enrichUsageDashboard listener calls it automatically once a flag gains enriched
+    # analytics. As with `dashboard`, token callers are rejected before reaching this
+    # action, so nearly every call the telemetry below sees is that automatic one.
     @extend_schema(
         request=None,
         responses={
