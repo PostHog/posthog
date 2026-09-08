@@ -1114,10 +1114,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
 
                 try {
-                    // Call the API here rather than through a kea-loaders action in
-                    // `sourcesDataLogic`. A loader resolves its promise even when the request
-                    // fails, which makes the catch below unreachable and reports success on a
-                    // failed save.
+                    // A kea-loaders action resolves even on failure, leaving the catch unreachable.
                     await api.externalDataSources.update(values.source!.id, {
                         ...values.source!,
                         job_inputs: newJobInputs,

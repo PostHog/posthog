@@ -218,8 +218,7 @@ def test_validate_credentials_maps_http_errors(status_code, expected_substring):
 
 
 def test_validate_credentials_reports_a_property_403_without_a_reconnect_prompt():
-    # A 403 means the property, not the token. Users who were told to reconnect kept reconnecting
-    # the same working account, so the message must name the property and carry Google's reason.
+    # A reconnect prompt cannot fix a property-scoped 403, so name the property and Google's reason.
     error = _http_error(
         403,
         {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "User does not have access."}},

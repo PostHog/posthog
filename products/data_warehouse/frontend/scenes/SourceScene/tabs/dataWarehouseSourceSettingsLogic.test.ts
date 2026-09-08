@@ -263,8 +263,7 @@ describe('sourceSettingsLogic', () => {
     })
 
     it('does not report success when the source save fails', async () => {
-        // A kea-loaders action resolves its promise even when the request fails, so a loader-backed
-        // save reports success next to the loaders plugin's failure toast.
+        // A loader's promise resolves on failure, so a loader-backed save reports success too.
         const successToast = jest.spyOn(lemonToast, 'success')
         const errorToast = jest.spyOn(lemonToast, 'error')
         jest.spyOn(api.externalDataSources, 'update').mockRejectedValue(

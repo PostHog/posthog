@@ -215,9 +215,8 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     ),
                 )
             if status == 403:
-                # A 403 is about the property, not the token, so telling the user to reconnect sends
-                # them to a screen that cannot fix it. Keep this in step with the 403 entry in
-                # `get_non_retryable_errors`, which reports the same condition during a sync.
+                # A 403 is about the property, not the token, so a reconnect prompt sends the user
+                # to a screen that cannot fix it. The 403 in `get_non_retryable_errors` must agree.
                 return (
                     False,
                     _with_google_reason(
