@@ -3,7 +3,13 @@ import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common
 import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
-import { MergeEventsConfig, PostgresPersonMerge, personMergeEventProducedCounter } from './person-merge-postgres'
+import { MergeMappingDebounce } from './merge-mapping-debounce'
+import {
+    MergeEventsConfig,
+    PostgresMergePolicy,
+    PostgresPersonMerge,
+    personMergeEventProducedCounter,
+} from './person-merge-postgres'
 import { createDefaultSyncMergeMode } from './person-merge-types'
 import { MergePersonsRequest } from './persons-store'
 
@@ -171,7 +177,50 @@ describe('PostgresPersonMerge merge events', () => {
         await expect(result.kafkaAck).resolves.toBeUndefined()
     })
 
-    function buildSingleSourceMerge(store: object, eventUuid: string): PostgresPersonMerge {
+    // A crash between a merge's commit and its produce loses the mapping message; the
+    // replayed event lands in the noop branch, which must re-emit the committed mapping
+    // exactly once per debounce window (unbounded re-emission would flood the topic and
+    // keep the ClickHouse overrides table from converging).
+    it('an already-satisfied merge re-emits the committed mappings once per debounce window', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const person = { id: 'p1', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const mapping = {
+            distinctId: 'anon',
+            message: { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"version":1}') },
+        }
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(person),
+            fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([mapping]),
+        }
+        const debounce = new MergeMappingDebounce(100, 60_000)
+
+        const cold = await buildSingleSourceMerge(store, new UUIDT().toString(), {
+            noopMappingDebounce: debounce,
+        }).execute()
+        await cold.kafkaAck
+
+        expect(cold.results[0].outcome).toBe('noop_same_person')
+        expect(store.fetchPersonDistinctIdMappings).toHaveBeenCalledWith(2, ['anon', 'd'])
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            expect.objectContaining({ teamId: 2, value: mapping.message.value })
+        )
+
+        const warm = await buildSingleSourceMerge(store, new UUIDT().toString(), {
+            noopMappingDebounce: debounce,
+        }).execute()
+        await warm.kafkaAck
+
+        expect(store.fetchPersonDistinctIdMappings).toHaveBeenCalledTimes(1)
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+    })
+
+    function buildSingleSourceMerge(
+        store: object,
+        eventUuid: string,
+        policyOverrides: Partial<PostgresMergePolicy> = {}
+    ): PostgresPersonMerge {
         const request: MergePersonsRequest = {
             teamId: 2,
             targetDistinctId: 'd',
@@ -196,6 +245,7 @@ describe('PostgresPersonMerge merge events', () => {
                 updateAllProperties: false,
                 isTombstoneTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
+                ...policyOverrides,
             },
             request,
             0

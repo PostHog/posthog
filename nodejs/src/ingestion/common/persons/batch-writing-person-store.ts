@@ -42,6 +42,7 @@ import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
+import { MergeMappingDebounce } from './merge-mapping-debounce'
 import { PersonOutputs } from './person-context'
 import { PostgresMergePolicy, PostgresPersonMerge } from './person-merge-postgres'
 import {
@@ -119,6 +120,10 @@ export interface BatchWritingPersonsStoreOptions {
     mergeEventsEnabled: boolean
     mergeEventsPartitionCount: number
     mergeEventsTeamAllowlist: string
+    /** Gate and debounce sizing for re-emitting mappings on already-satisfied merges. */
+    mergeNoopMappingEmissionEnabled: boolean
+    mergeNoopMappingEmissionCacheSize: number
+    mergeNoopMappingEmissionTtlMs: number
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
@@ -133,6 +138,9 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     mergeEventsEnabled: false,
     mergeEventsPartitionCount: 64,
     mergeEventsTeamAllowlist: '',
+    mergeNoopMappingEmissionEnabled: false,
+    mergeNoopMappingEmissionCacheSize: 500_000,
+    mergeNoopMappingEmissionTtlMs: 15 * 60 * 1000,
 }
 
 interface CacheMetrics {
@@ -569,6 +577,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 partitionCount: this.options.mergeEventsPartitionCount,
                 isTeamEnabled: buildIntegerMatcher(this.options.mergeEventsTeamAllowlist, true),
             },
+            noopMappingDebounce: this.options.mergeNoopMappingEmissionEnabled
+                ? new MergeMappingDebounce(
+                      this.options.mergeNoopMappingEmissionCacheSize,
+                      this.options.mergeNoopMappingEmissionTtlMs
+                  )
+                : undefined,
         }
         this.personCache = new BatchWritingPersonsCache()
         Object.defineProperties(this, {
