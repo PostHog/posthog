@@ -43,9 +43,10 @@ from posthog.hogql.errors import (
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_internal_query_status, get_query_status
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError, QueryErrorCategory
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError, QueryErrorCategory
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
@@ -134,9 +135,11 @@ class QueryStatusError(APIException):
         code: str,
         error_category: Optional[QueryErrorCategory],
         error_retryable: bool = False,
+        query_pending: bool = False,
     ) -> None:
         self.error_category = error_category
         self.error_retryable = error_retryable
+        self.query_pending = query_pending
         super().__init__(detail, code=code)
 
 
@@ -146,13 +149,37 @@ def _query_status_error(
     error_code: Optional[str],
     error_category: Optional[QueryErrorCategory],
     error_retryable: bool = False,
+    query_pending: bool = False,
 ) -> QueryStatusError:
     return QueryStatusError(
         error_message or "Query failed",
         code=error_code or "error",
         error_category=error_category,
         error_retryable=error_retryable,
+        query_pending=query_pending,
     )
+
+
+async def _query_status_after_poll_timeout(*, team_id: int, query_status: dict) -> dict:
+    try:
+        internal_query_status = await database_sync_to_async(get_internal_query_status, thread_sensitive=True)(
+            team_id=team_id, query_id=query_status["id"]
+        )
+    except Exception:
+        logger.warning("Failed to retrieve internal query retry metadata", exc_info=True)
+    else:
+        latest_status = internal_query_status.query_status.model_dump(mode="json")
+        if not latest_status["complete"] and internal_query_status.error_retryable:
+            raise _query_status_error(
+                error_message=latest_status.get("error_message"),
+                error_code=latest_status.get("error_code"),
+                error_category=internal_query_status.error_category,
+                error_retryable=True,
+                query_pending=True,
+            )
+        if latest_status["complete"]:
+            return latest_status
+    raise APIException("Query hasn't completed in time. It's worth trying again, maybe with a shorter time range.")
 
 
 class AssistantQueryExecutor:
@@ -194,6 +221,7 @@ class AssistantQueryExecutor:
         insight_id=None,
         debug_timing=False,
         truncate_results: bool = True,
+        async_query_timeout_seconds: float = 60 * 5,
     ) -> FormattedQueryResult:
         """
         Run a query and format the results with detailed fallback information.
@@ -203,6 +231,7 @@ class AssistantQueryExecutor:
             execution_mode: Optional execution mode override. If None, defaults to:
                           - RECENT_CACHE_CALCULATE_ASYNC_IF_STALE in production
                           - CALCULATE_BLOCKING_ALWAYS in tests
+            async_query_timeout_seconds: Maximum time spent polling an asynchronous query.
 
         Returns:
             A FormattedQueryResult carrying the formatted text, whether the JSON fallback was
@@ -228,7 +257,12 @@ class AssistantQueryExecutor:
                     # Including insight ID for insight search
                     tag_queries(insight_id=insight_id)
                 execute_start = time.time()
-                response_dict = await self.aexecute_query(query, execution_mode, debug_timing=debug_timing)
+                response_dict = await self.aexecute_query(
+                    query,
+                    execution_mode,
+                    debug_timing=debug_timing,
+                    async_query_timeout_seconds=async_query_timeout_seconds,
+                )
                 execute_elapsed = time.time() - execute_start
                 if debug_timing:
                     logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed in {execute_elapsed:.3f}s")
@@ -337,6 +371,7 @@ class AssistantQueryExecutor:
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
         execution_mode: Optional[ExecutionMode] = None,
         debug_timing=False,
+        async_query_timeout_seconds: float = 60 * 5,
     ) -> dict:
         """
         Execute a query and return the response dict.
@@ -344,6 +379,7 @@ class AssistantQueryExecutor:
         Args:
             query: The query object
             execution_mode: Optional execution mode override
+            async_query_timeout_seconds: Maximum time spent polling an asynchronous query.
 
         Returns:
             Response dict with query results
@@ -423,8 +459,7 @@ class AssistantQueryExecutor:
                         )
 
                     # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
-                    while total_wait_s <= 60 * 5:
+                    while total_wait_s <= async_query_timeout_seconds:
                         poll_count += 1
                         total_wait_s += self.WAIT_TIME_S
 
@@ -457,14 +492,13 @@ class AssistantQueryExecutor:
                                 )
                             break
                     else:
-                        # Query timed out after maximum wait time
                         polling_elapsed = time.time() - polling_start
                         if debug_timing:
                             logger.error(
                                 f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
                             )
-                        raise APIException(
-                            "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
+                        query_status = await _query_status_after_poll_timeout(
+                            team_id=self._team.pk, query_status=query_status
                         )
 
                 # Check for query execution errors before using results
@@ -490,6 +524,12 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
+        except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded) as err:
+            elapsed = time.time() - start_time
+            if debug_timing:
+                logger.exception(f"{TIMING_LOG_PREFIX} Transient query failure after {elapsed:.3f}s")
+            # Internal ClickHouse messages can contain storage details, so keep the wrapper generic.
+            raise MaxToolRetryableError("Query temporarily unavailable. Please try again.") from err
         except (
             APIException,
             ExposedHogQLError,
@@ -507,7 +547,7 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+            raise MaxToolRetryableError(err_message) from err
         except Exception as err:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error

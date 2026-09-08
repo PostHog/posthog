@@ -193,6 +193,16 @@ def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | Non
     Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
 
 
+def _clear_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, expected_plan: dict) -> None:
+    # Matching the old plan prevents a stale delivery from clearing a concurrent repair.
+    Subscription.objects.filter(
+        id=subscription_id,
+        team_id=team_id,
+        prompt=prompt,
+        ai_query_plan=expected_plan,
+    ).update(ai_query_plan=None)
+
+
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
     team, user, window, ai_query_plan = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False
@@ -220,6 +230,19 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
             # report is already generated; failing here would burn the LLM run and retry from scratch).
             logger.warning(
                 "ai_report.query_plan_persist_failed",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+                exc_info=True,
+            )
+            capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+    elif result.clear_persisted_plan and ai_query_plan is not None:
+        try:
+            await database_sync_to_async(_clear_ai_query_plan, thread_sensitive=False)(
+                subscription.id, subscription.team_id, subscription.prompt, ai_query_plan
+            )
+        except Exception as exc:
+            logger.warning(
+                "ai_report.query_plan_clear_failed",
                 subscription_id=subscription.id,
                 team_id=subscription.team_id,
                 exc_info=True,

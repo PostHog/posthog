@@ -814,7 +814,7 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
     max_concurrent = 0
     saturated = asyncio.Event()
 
-    async def _track(_query: object) -> FormattedQueryResult:
+    async def _track(_query: object, **_kwargs: object) -> FormattedQueryResult:
         nonlocal concurrent, max_concurrent
         concurrent += 1
         max_concurrent = max(max_concurrent, concurrent)
@@ -887,6 +887,7 @@ def _frozen_plan() -> dict:
             overall_intent="count events",
             steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
         ).model_dump(),
+        "relevant_events": ["export created"],
     }
 
 
@@ -955,7 +956,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
     [
         pytest.param(12, 0, 0, True, id="all_succeeded"),
         pytest.param(12, 1, 1, False, id="structural_failure"),
-        pytest.param(12, 1, 0, True, id="partial_transient_failure"),
+        pytest.param(12, 1, 0, False, id="partial_transient_failure"),
         pytest.param(12, 12, 0, False, id="all_transient_failures"),
         pytest.param(1, 1, 0, False, id="single_transient_failure"),
     ],
@@ -972,7 +973,6 @@ def test_plan_to_freeze_rejects_invalid_or_all_failed_plans(
     )
     result = _plan_to_freeze(
         plan,
-        freshly_planned=True,
         failed_count=failed_count,
         plan_invalidating_failed_count=plan_invalidating_failed_count,
         total_steps=total_steps,
@@ -1043,7 +1043,7 @@ async def test_freeze_carries_post_fix_hogql(
 
     # Succeed only for the fixed query: a regression that froze the pre-fix original would fail here,
     # re-invoke the fixer, and trip the assert_not_awaited below.
-    async def _reuse_execute(query):
+    async def _reuse_execute(query, **_kwargs):
         if "uniq(person_id)" not in query.query:
             raise ExposedHogQLError("bad query")
         return FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)
@@ -1061,6 +1061,82 @@ async def test_freeze_carries_post_fix_hogql(
     mock_fix.assert_not_awaited()
     reuse_executor.assert_awaited_once()  # fixed query succeeds on the first attempt, no retry
     assert reused.plan_to_persist is None  # nothing new to freeze on a reused run
+    assert reused.clear_persisted_plan is False
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}._synthesize", new_callable=AsyncMock, return_value="# Report")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}.build_frozen_prompt")
+async def test_reused_frozen_plan_persists_a_successful_structural_repair(
+    mock_frozen: MagicMock,
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+    _mock_synthesize: AsyncMock,
+    _mock_capture: MagicMock,
+) -> None:
+    mock_frozen.return_value = _spec_with_window_placeholder()
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        side_effect=[
+            ExposedHogQLError("bad query"),
+            FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
+        ]
+    )
+    mock_fix.return_value = "SELECT uniq(person_id) FROM events WHERE {{date_range}}"
+
+    result = await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan=_frozen_plan()
+    )
+
+    assert result.plan_to_persist is not None
+    assert result.plan_to_persist["plan"]["steps"][0]["hogql"] == (
+        "SELECT uniq(person_id) FROM events WHERE {{date_range}}"
+    )
+    assert result.clear_persisted_plan is False
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}._synthesize", new_callable=AsyncMock, return_value="# Report")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}.build_frozen_prompt")
+async def test_reused_frozen_plan_is_cleared_after_an_unrepaired_structural_failure(
+    mock_frozen: MagicMock,
+    mock_executor_cls: MagicMock,
+    _mock_fix: AsyncMock,
+    _mock_synthesize: AsyncMock,
+    _mock_capture: MagicMock,
+) -> None:
+    mock_frozen.return_value = _spec_with_window_placeholder()
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=ExposedHogQLError("bad query"))
+
+    result = await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan=_frozen_plan()
+    )
+
+    assert result.plan_to_persist is None
+    assert result.clear_persisted_plan is True
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_pending_retryable_query_does_not_start_a_duplicate_retry(mock_executor_cls: MagicMock) -> None:
+    pending = _query_status_error(
+        error_message=None,
+        error_code=None,
+        error_category=QueryErrorCategory.RATE_LIMITED,
+        error_retryable=True,
+        query_pending=True,
+    )
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        side_effect=_wrap(MaxToolRetryableError("pending query"), cause=pending)
+    )
+
+    execution = await _run_steps(_spec_with_window_placeholder(), MagicMock(), MagicMock(), _test_window(), None)
+
+    assert execution.failed_count == 1
+    assert execution.plan_invalidating_failed_count == 0
+    mock_executor_cls.return_value.arun_format_and_capture.assert_awaited_once()
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
@@ -1070,7 +1146,7 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
     # window advances) while the rest of the SQL is byte-identical (so the metric structure is frozen).
     captured: list[str] = []
 
-    async def _capture(query: object) -> FormattedQueryResult:
+    async def _capture(query: object, **_kwargs: object) -> FormattedQueryResult:
         captured.append(query.query)  # type: ignore[attr-defined]
         return FormattedQueryResult(formatted="formatted", fallback_used=False, response=_RESPONSE)
 

@@ -19,6 +19,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
     _build_ai_slack_message,
+    _clear_ai_query_plan,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
     _split_text_into_chunks,
@@ -581,10 +582,6 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
 
 
 class TestFreezePlanPersistence:
-    """build_ai_subscription_report freezes a freshly-generated plan and skips persistence on reuse.
-    These guard the freeze contract without touching the DB — the persist write itself is a one-line
-    queryset .update() exercised by the integration/activity suites."""
-
     def _subscription(self, ai_query_plan: dict | None) -> MagicMock:
         sub = MagicMock()
         sub.id = 42
@@ -668,3 +665,39 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
+
+    async def test_reused_run_clears_an_invalidated_frozen_plan(self) -> None:
+        frozen = {"overall_intent": "i", "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}]}
+        sub = self._subscription(ai_query_plan=frozen)
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R",
+                        diagnostics=(),
+                        window_end_utc="2026-06-29T16:00:00+00:00",
+                        clear_persisted_plan=True,
+                    )
+                ),
+            ),
+            patch(f"{_DELIVERY}._clear_ai_query_plan") as mock_clear,
+        ):
+            await build_ai_subscription_report(sub)
+
+        mock_clear.assert_called_once_with(sub.id, sub.team_id, sub.prompt, frozen)
+
+    @patch(f"{_DELIVERY}.Subscription.objects.filter")
+    def test_clear_matches_the_plan_read_at_generation_start(self, mock_filter: MagicMock) -> None:
+        frozen = {"version": 6, "plan": {"overall_intent": "i", "steps": []}}
+
+        _clear_ai_query_plan(42, 7, "how are exports doing?", frozen)
+
+        mock_filter.assert_called_once_with(
+            id=42,
+            team_id=7,
+            prompt="how are exports doing?",
+            ai_query_plan=frozen,
+        )
+        mock_filter.return_value.update.assert_called_once_with(ai_query_plan=None)

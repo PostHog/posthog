@@ -559,6 +559,9 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.start_time)
         self.assertIsNotNone(result.pickup_time)
         self.assertIsNotNone(result.end_time)
+        internal_status = client.get_internal_query_status(self.team.id, query_id)
+        self.assertEqual(internal_status.error_category, QueryErrorCategory.RATE_LIMITED)
+        self.assertTrue(internal_status.error_retryable)
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")

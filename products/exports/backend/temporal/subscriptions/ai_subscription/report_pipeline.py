@@ -81,6 +81,7 @@ logger = structlog.get_logger(__name__)
 # single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
 _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
+_HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS = 50.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
@@ -142,6 +143,7 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
     has_clickhouse_user_error = False
     has_retryable_error = False
     has_self_recoverable_error = False
+    has_pending_retryable_query = False
     has_unknown_query_status_error = False
     has_unclassified_error = False
     has_internal_hogql_error = False
@@ -151,6 +153,8 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         if isinstance(current, QueryStatusError):
             if current.error_retryable:
                 has_self_recoverable_error = True
+            if current.query_pending:
+                has_pending_retryable_query = True
             if current.error_category is None:
                 if not current.error_retryable:
                     has_unknown_query_status_error = True
@@ -179,7 +183,12 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         and not has_unknown_query_status_error
         and not has_unclassified_error
     ):
-        return QueryRepairDecision(repair_hint=None, invalidates_plan=False, retry_unchanged=True)
+        return QueryRepairDecision(
+            repair_hint=None,
+            invalidates_plan=False,
+            # Celery already retries pending queries, so another copy would amplify capacity pressure.
+            retry_unchanged=not has_pending_retryable_query,
+        )
     # Exposed ClickHouse errors are user-safe, so their server text reaches `safe_message`. Check them
     # first to keep query-derived identifiers out of the repair prompt.
     if has_clickhouse_user_error:
@@ -269,14 +278,14 @@ class PlanExecution:
     plan_invalidating_failed_count: int = 0
 
 
-@dataclass(frozen=True)
+@frozen
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
     # The window's end as a UTC ISO instant — persisted so the next run can anchor exactly here.
     window_end_utc: str
-    # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
+    clear_persisted_plan: bool = False
     charts: tuple[RenderedChart, ...] = ()
 
 
@@ -390,9 +399,8 @@ async def generate_ai_report(
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
             report = _all_queries_failed_notice(total_steps) + report
-        plan_to_persist = _plan_to_freeze(
+        eligible_plan = _plan_to_freeze(
             spec.plan,
-            freshly_planned=freshly_planned,
             failed_count=failed_count,
             plan_invalidating_failed_count=execution.plan_invalidating_failed_count,
             total_steps=total_steps,
@@ -400,11 +408,25 @@ async def generate_ai_report(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
         )
+        plan_to_persist: Optional[dict] = None
+        clear_persisted_plan = False
+        if freshly_planned:
+            plan_to_persist = eligible_plan
+            # Drop a malformed stored plan if its replacement did not pass validation.
+            clear_persisted_plan = ai_query_plan is not None and eligible_plan is None
+        elif execution.plan_invalidating_failed_count:
+            clear_persisted_plan = True
+        elif failed_count == 0:
+            if eligible_plan is None:
+                clear_persisted_plan = True
+            elif eligible_plan != ai_query_plan:
+                plan_to_persist = eligible_plan
         return AiReportResult(
             markdown=report,
             diagnostics=tuple(diagnostics),
             window_end_utc=window.end.astimezone(UTC).isoformat(),
             plan_to_persist=plan_to_persist,
+            clear_persisted_plan=clear_persisted_plan,
             charts=tuple(rendered_charts),
         )
 
@@ -429,7 +451,6 @@ def _capture_charts_truncated(
 def _plan_to_freeze(
     plan: QueryPlan,
     *,
-    freshly_planned: bool,
     failed_count: int,
     plan_invalidating_failed_count: int,
     total_steps: int,
@@ -440,26 +461,12 @@ def _plan_to_freeze(
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning, or a plan without a window
     # placeholder because it would scan an unbounded range on every run.
-    if not freshly_planned:
-        return None
-    # Structural and per-query performance failures need a fresh plan because the same SQL is not safe
-    # to reuse. Transient execution/capacity failures keep the plan stable so the metric does not drift.
-    if plan_invalidating_failed_count:
+    if failed_count:
         logger.warning(
-            "ai_report.plan_had_query_structure_failures_not_frozen",
+            "ai_report.plan_had_query_failures_not_frozen",
             trace_correlation_id=trace_correlation_id,
             failed_count=failed_count,
             plan_invalidating_failed_count=plan_invalidating_failed_count,
-            total_steps=total_steps,
-        )
-        return None
-    # If every query failed, no metric was delivered to preserve. Re-plan next time instead of pinning
-    # a query that may keep exceeding its budget against an ever-growing scheduled-report window.
-    if total_steps and failed_count >= total_steps:
-        logger.warning(
-            "ai_report.plan_all_queries_failed_not_frozen",
-            trace_correlation_id=trace_correlation_id,
-            failed_count=failed_count,
             total_steps=total_steps,
         )
         return None
@@ -625,7 +632,9 @@ async def _run_steps(
             try:
                 query = AssistantHogQLQuery(query=executable_hogql)
                 query_result = await asyncio.wait_for(
-                    executor.arun_format_and_capture(query),
+                    executor.arun_format_and_capture(
+                        query, async_query_timeout_seconds=_HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS
+                    ),
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers

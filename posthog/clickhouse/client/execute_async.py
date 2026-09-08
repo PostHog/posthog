@@ -341,7 +341,7 @@ def execute_process_query(
             seconds=1
         )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
-    except (ClickHouseAtCapacity, ConcurrencyLimitExceeded):
+    except (ClickHouseAtCapacity, ConcurrencyLimitExceeded) as err:
         # Capacity/concurrency errors are transient — let them propagate so the enclosing
         # Celery task (process_query_task) retries with backoff instead of being swallowed
         # below as a "user-safe" APIException that never retries. Clear the assumed-complete
@@ -350,6 +350,8 @@ def execute_process_query(
         # If retries are exhausted, process_query_task's on_failure marks the status errored.
         query_status.complete = False
         query_status.error = False
+        error_category = _query_status_error_category(err)
+        error_retryable = True
         raise
     except Exception as err:
         from products.access_control.backend.facade.user_access_control import UserAccessControlError
