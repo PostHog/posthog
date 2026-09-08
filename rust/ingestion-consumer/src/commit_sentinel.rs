@@ -22,10 +22,10 @@
 //! partitions and the invariant must re-baseline instead of firing false
 //! positives.
 //!
-//! The sentinel wraps the [`Committer`] the consumer hands its frontiers to:
-//! every frontier passes through it on the way in, and every tick passes
-//! through it on the way to the committer. It is a pure observer: it never
-//! changes what is committed.
+//! The sentinel wraps the [`CommitPacer`] the consumer hands its frontiers
+//! to: every frontier passes through it on the way in, and every take passes
+//! through it on the way out. It is a pure observer: it never changes what
+//! is committed.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,7 +36,7 @@ use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 use metrics::{counter, gauge};
 use tracing::warn;
 
-use crate::commit_manager::Committer;
+use crate::commit_pacer::CommitPacer;
 use crate::order_sentinel::OffsetSpan;
 
 /// How a commit violated the contiguous-monotonic invariant.
@@ -99,17 +99,17 @@ struct PartitionCommits {
 /// fires for them), commit *success* is verified out of band: the consumer's
 /// commit monitor periodically fetches the group's broker-committed offsets
 /// and feeds them to [`CommitSentinel::observe_broker_committed`].
-pub struct CommitSentinel<C: Committer> {
+pub struct CommitSentinel {
     partitions: Mutex<HashMap<(String, i32), PartitionCommits>>,
     /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
     /// no-op and no state accumulates.
     enabled: AtomicBool,
-    /// The committer being observed.
-    inner: C,
+    /// The pacer being observed.
+    inner: CommitPacer,
 }
 
-impl<C: Committer> CommitSentinel<C> {
-    pub fn new(inner: C) -> Self {
+impl CommitSentinel {
+    pub fn new(inner: CommitPacer) -> Self {
         Self {
             partitions: Mutex::new(HashMap::new()),
             enabled: AtomicBool::new(true),
@@ -136,14 +136,14 @@ impl<C: Committer> CommitSentinel<C> {
     }
 
     /// Partitions leaving the assignment: drop their baselines, and whatever
-    /// the committer holds for them.
+    /// the pacer holds for them.
     pub fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.forget_baselines(topic_partitions);
         self.inner.forget_partitions(topic_partitions);
     }
 
-    pub fn maybe_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.inner.maybe_commit(now)
+    pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        self.inner.take_due(now)
     }
 
     pub fn drain(&self) -> HashMap<TopicPartition, Offset> {
@@ -312,26 +312,12 @@ impl<C: Committer> CommitSentinel<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::commit_manager::test_support::{taken, tp};
+    use crate::commit_pacer::test_support::{taken, tp};
 
     use super::*;
 
-    /// A committer that commits nothing, so the tests see only the sentinel.
-    struct NullCommitter;
-
-    impl Committer for NullCommitter {
-        fn on_frontier(&self, _: &TopicPartition, _: TakenFrontier) {}
-        fn forget_partitions(&self, _: &[TopicPartition]) {}
-        fn maybe_commit(&self, _: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-            None
-        }
-        fn drain(&self) -> HashMap<TopicPartition, Offset> {
-            HashMap::new()
-        }
-    }
-
-    fn sentinel() -> CommitSentinel<NullCommitter> {
-        CommitSentinel::new(NullCommitter)
+    fn sentinel() -> CommitSentinel {
+        CommitSentinel::new(CommitPacer::new(std::time::Duration::from_millis(500)))
     }
 
     #[test]

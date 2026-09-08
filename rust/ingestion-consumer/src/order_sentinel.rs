@@ -32,7 +32,7 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::commit_manager::CommitManager;
+use crate::commit_pacer::CommitPacer;
 use crate::commit_sentinel::CommitSentinel;
 use crate::types::SerializedKafkaMessage;
 use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
@@ -319,7 +319,7 @@ impl KeyOrderSentinel {
 pub struct SentinelContext {
     /// Where the consumer's frontiers go. Held here so the rebalance
     /// callbacks tell it which partitions leave the assignment.
-    commit_sentinel: Arc<CommitSentinel<CommitManager>>,
+    commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
@@ -333,7 +333,7 @@ pub struct SentinelContext {
 
 impl SentinelContext {
     pub fn new(
-        commit_sentinel: Arc<CommitSentinel<CommitManager>>,
+        commit_sentinel: Arc<CommitSentinel>,
         key_sentinel: Arc<KeyOrderSentinel>,
         topic_offset_ledger: Arc<TopicOffsetLedger>,
     ) -> Self {
@@ -352,17 +352,17 @@ impl SentinelContext {
     }
 
     /// A context with its own free-standing sentinels, ledger, and commit
-    /// manager, for tests and tools that build the Kafka consumer separately
+    /// pacer, for tests and tools that build the Kafka consumer separately
     /// from the dispatcher.
     pub fn detached(commit_interval: Duration) -> Self {
         Self::new(
-            Arc::new(CommitSentinel::new(CommitManager::new(commit_interval))),
+            Arc::new(CommitSentinel::new(CommitPacer::new(commit_interval))),
             Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
         )
     }
 
-    pub fn commit_sentinel(&self) -> Arc<CommitSentinel<CommitManager>> {
+    pub fn commit_sentinel(&self) -> Arc<CommitSentinel> {
         Arc::clone(&self.commit_sentinel)
     }
 

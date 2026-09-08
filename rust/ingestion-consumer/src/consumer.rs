@@ -16,8 +16,8 @@ use tokio::time::{Interval, MissedTickBehavior};
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
-use crate::commit_manager::CommitManager;
 use crate::commit_monitor::spawn_commit_monitor;
+use crate::commit_pacer::CommitPacer;
 use crate::commit_sentinel::CommitSentinel;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
@@ -29,7 +29,7 @@ use crate::order_sentinel::{OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// The consumer loop's wake-up timer while it waits on completions: the
-/// resolution at which it reports liveness and gives the commit manager a
+/// resolution at which it reports liveness and gives the commit pacer a
 /// chance to commit. While it collects a poll, the batch timeout is the
 /// resolution.
 const TICK: Duration = Duration::from_millis(100);
@@ -238,10 +238,10 @@ pub struct IngestionConsumer {
     handle: Handle,
     group_id: String,
     /// Where settled frontiers go: the sentinel checks each one and passes
-    /// it to the manager, which says when to commit. Shared with the
+    /// it to the pacer, which says when to commit. Shared with the
     /// consumer's [`SentinelContext`], which tells it which partitions leave
     /// the assignment.
-    commit_sentinel: Arc<CommitSentinel<CommitManager>>,
+    commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// The per-partition offset ledger the commit path reads its frontiers
@@ -319,7 +319,7 @@ impl IngestionConsumer {
             config.consumer_batch_size,
             config.consumer_batch_size_kb,
         );
-        let commit_sentinel = Arc::new(CommitSentinel::new(CommitManager::new(
+        let commit_sentinel = Arc::new(CommitSentinel::new(CommitPacer::new(
             Duration::from_millis(config.consumer_commit_interval_ms),
         )));
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
@@ -490,15 +490,15 @@ impl IngestionConsumer {
         }
     }
 
-    /// Report liveness and commit if the commit manager says a commit is due.
+    /// Report liveness and commit if the commit pacer says a commit is due.
     fn maybe_commit_offsets(&self) -> anyhow::Result<()> {
         self.handle.report_healthy();
-        // The commit manager owns the pacing: it holds the frontiers handed
+        // The commit pacer owns the pacing: it holds the frontiers handed
         // to it and answers with offsets at most once per commit interval.
         // The consumer asks on every wake-up and commits only an answer, so
         // asking here as often as the loop turns does not reach Kafka more
         // often than the interval.
-        if let Some(offsets) = self.commit_sentinel.maybe_commit(Instant::now()) {
+        if let Some(offsets) = self.commit_sentinel.take_due(Instant::now()) {
             self.commit_offsets(&offsets)?;
         }
         Ok(())
