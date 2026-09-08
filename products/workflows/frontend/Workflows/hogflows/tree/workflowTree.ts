@@ -267,6 +267,12 @@ export function countWorkflowTreeNodes(sequence: WorkflowTreeSequence): number {
     )
 }
 
+export function isWorkflowTreeComplete(workflow: Pick<HogFlow, 'actions' | 'edges'>): boolean {
+    const actionIds = new Set<string>()
+    collectWorkflowTreeActionIds(buildWorkflowTree(workflow), actionIds)
+    return workflow.actions.every((action) => actionIds.has(action.id))
+}
+
 function findWorkflowTreeNode(sequence: WorkflowTreeSequence, actionId: string): WorkflowTreeNode | null {
     for (const node of sequence.nodes) {
         if (node.action.id === actionId) {

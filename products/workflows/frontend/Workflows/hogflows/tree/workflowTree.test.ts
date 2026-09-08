@@ -1,5 +1,5 @@
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
-import { buildWorkflowTree, computeMoveTreeBranchEdges } from './workflowTree'
+import { buildWorkflowTree, computeMoveTreeBranchEdges, isWorkflowTreeComplete } from './workflowTree'
 
 const action = (id: string, type: HogFlowAction['type'] = 'function'): HogFlowAction =>
     ({ id, type, name: id, description: '', config: {} }) as HogFlowAction
@@ -17,6 +17,17 @@ const workflow = (actions: HogFlowAction[], edges: HogFlowEdge[]): Pick<HogFlow,
 })
 
 describe('buildWorkflowTree', () => {
+    it('falls back when an action is unreachable from the trigger', () => {
+        expect(
+            isWorkflowTreeComplete(
+                workflow(
+                    [action('trigger', 'trigger'), action('exit', 'exit'), action('orphan')],
+                    [edge('trigger', 'exit')]
+                )
+            )
+        ).toBe(false)
+    })
+
     it('renders converging routes before one shared continuation', () => {
         const tree = buildWorkflowTree(
             workflow(

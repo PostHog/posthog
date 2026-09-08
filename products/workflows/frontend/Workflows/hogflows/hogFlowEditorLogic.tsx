@@ -29,12 +29,12 @@ import type { HogFunctionTemplateType, UserBasicType } from '../../../../../fron
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
-import { getLinearWorkflowActionIds } from './linearWorkflow'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
+import { isWorkflowTreeComplete } from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
 
@@ -2593,13 +2593,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // Find the deleted node
                             const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
                             if (deletedNode) {
-                                // Find the first outgoer of the deleted node
-                                const outgoers = getOutgoers(deletedNode, values.nodes, values.edges)
-                                if (outgoers.length > 0) {
+                                // The React Flow layout may still be pending, so rewire from the canonical workflow.
+                                const outgoer = values.workflow.edges.find((edge) => edge.from === deletedNode.id)
+                                if (outgoer) {
                                     // Change target to the first outgoer
                                     return {
                                         ...hogFlowEdge,
-                                        to: outgoers[0].id,
+                                        to: outgoer.to,
                                     }
                                 }
                             }
@@ -2998,7 +2998,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // Auto-save round-trips can emit a deep-equal workflow; skipping the rebuild avoids
             // re-deriving every node and edge (including the async layout pass) for no change.
             if (hogFlow && !objectsEqual(hogFlow, oldHogFlow)) {
-                if (values.editorLayout === 'simple' && !getLinearWorkflowActionIds(hogFlow)) {
+                if (values.editorLayout === 'simple' && !isWorkflowTreeComplete(hogFlow)) {
                     actions.setEditorLayout('advanced')
                 }
                 actions.resetFlowFromHogFlow(hogFlow)
@@ -3038,7 +3038,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
             const requestedEditorLayout = view === 'graph' ? 'advanced' : 'simple'
             const editorLayout =
-                requestedEditorLayout === 'simple' && !getLinearWorkflowActionIds(values.workflow)
+                requestedEditorLayout === 'simple' && !isWorkflowTreeComplete(values.workflow)
                     ? 'advanced'
                     : requestedEditorLayout
             if (editorLayout !== values.editorLayout) {
@@ -3052,7 +3052,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
     events(({ actions, values }) => ({
         afterMount: () => {
-            if (values.editorLayout === 'simple' && !getLinearWorkflowActionIds(values.workflow)) {
+            if (values.editorLayout === 'simple' && !isWorkflowTreeComplete(values.workflow)) {
                 actions.setEditorLayout('advanced')
             }
             actions.resetFlowFromHogFlow(values.workflow)
