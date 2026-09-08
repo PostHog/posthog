@@ -1625,10 +1625,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // free-text goal. A URL carrying both ?filters= and ?goal= deterministically
                     // takes the filters and drops the goal.
                     const hasFiltersPrefill = 'filters' in router.values.searchParams
+                    const prefillQuery = prefillQueryFromUrl()
                     // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
                     // over the user's edits: an unknown template that fell back to from-scratch (a valid
-                    // template stays), the experiment deep-link params, and the goal param. One replace
-                    // covers all of them and preserves the URL hash, which a second back-to-back replace
+                    // template stays), the experiment deep-link params, the goal param, and the
+                    // `?filters=` prefill. One replace covers all of them and preserves the URL hash,
+                    // which a second back-to-back replace
                     // would drop.
                     const nextParams = { ...router.values.searchParams }
                     if (urlTemplateKey && !templateKey) {
@@ -1640,6 +1642,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (nextParams.goal !== undefined) {
                         delete nextParams.goal
+                    }
+                    if ('filters' in nextParams) {
+                        delete nextParams.filters
                     }
                     if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
                         router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
@@ -1671,10 +1676,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         return
                     }
                     // A `?filters=` deep link expresses fresh intent (e.g. "save these playlist
-                    // filters as a scanner"), so it seeds the query and outranks a saved draft.
-                    const prefillQuery = prefillQueryFromUrl()
+                    // filters as a scanner"), so it seeds the query and outranks a saved draft;
+                    // restoringDraft guards persistDraft so the prefill can't delete that draft.
                     if (prefillQuery) {
-                        actions.loadScannerSuccess({ ...newScanner(templateKey), query: prefillQuery })
+                        cache.restoringDraft = true
+                        try {
+                            actions.loadScannerSuccess({ ...newScanner(templateKey, teamName), query: prefillQuery })
+                        } finally {
+                            cache.restoringDraft = false
+                        }
                         return
                     }
                     cache.restoringDraft = true
