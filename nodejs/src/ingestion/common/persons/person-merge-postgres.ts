@@ -282,7 +282,7 @@ export class PostgresPersonMerge {
 
             this.discardOverrideCounts()
             const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
-            const result = await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+            const [result, kafkaMessages] = await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // New-world merges claim the person's lifecycle mark, which keeps a concurrent
                 // tombstone from landing between this check and the distinct id insert (an
                 // orphaned mapping); old-world merges rely on the delete's FK violation instead.
@@ -308,17 +308,20 @@ export class PostgresPersonMerge {
                 const distinctIdVersion = 1
                 this.recordOverrideCount('oneExists')
 
-                const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
-                await this.produceMessages(kafkaMessages)
+                const messages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 if (this.tombstoneEnabled()) {
                     await tx.releaseLifecycleMarks(lifecycleOpId, teamId, this.targetDistinctId)
                 }
-                return existingPerson
+                return [existingPerson, messages] as const
             })
             this.flushOverrideCounts()
+            // Produce only after the transaction commits: a produce awaited inside the
+            // transaction holds row locks and lifecycle marks across the Kafka roundtrip.
+            const kafkaAck = this.produceMessages(kafkaMessages)
             return {
                 survivor: result,
                 results: [{ sourceDistinctId: otherPersonDistinctId, outcome: 'attached' }],
+                kafkaAck,
             }
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
