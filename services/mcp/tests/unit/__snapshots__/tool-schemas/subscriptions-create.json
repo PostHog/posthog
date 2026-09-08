@@ -107,14 +107,14 @@
             "type": "array"
         },
         "delivery_config": {
-            "description": "Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to.",
+            "description": "Per-delivery rendering options. Each option documents which delivery targets it applies to.",
             "properties": {
                 "include_feedback": {
                     "description": "AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.",
                     "type": "boolean"
                 },
                 "include_images": {
-                    "description": "AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted.",
+                    "description": "AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
                     "type": "boolean"
                 },
                 "include_manage_link": {
