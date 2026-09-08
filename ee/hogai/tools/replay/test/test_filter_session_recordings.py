@@ -106,12 +106,14 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("No recordings found", result_text)
         self.assertIsNone(artifact)
 
-    def _event_filters(self, event: str) -> MaxRecordingUniversalFilters:
+    def _event_filters(self, event: str, properties: list[dict] | None = None) -> MaxRecordingUniversalFilters:
         return MaxRecordingUniversalFilters(
             filter_group=MaxOuterUniversalFiltersGroup(
                 type="AND",
                 values=[
-                    MaxInnerUniversalFiltersGroup(type="AND", values=[MaxRecordingEventFilter(id=event)]),
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND", values=[MaxRecordingEventFilter(id=event, properties=properties)]
+                    ),
                 ],
             ),
             duration=[],
@@ -120,12 +122,34 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("unlinked", {}, "cannot match any recording", "Replay Vision scanner"),
-            ("linked", {"$session_id": str(uuid7())}, "filters are simply too narrow", None),
+            ("unlinked", {}, None, True, "cannot match any recording", "Replay Vision scanner"),
+            ("linked", {"$session_id": str(uuid7())}, None, True, "the cause is elsewhere", None),
+            (
+                "linked, recording disabled",
+                {"$session_id": str(uuid7())},
+                None,
+                False,
+                "session replay is disabled",
+                None,
+            ),
+            (
+                "unlinked, property never sent",
+                {},
+                [{"key": "plan", "value": "enterprise", "operator": "exact", "type": "event"}],
+                True,
+                "no `paywall_shown` events matched this filter",
+                None,
+            ),
         ]
     )
     async def test_diagnoses_why_an_event_search_found_no_recordings(
-        self, _name: str, properties: dict[str, str], expected: str, expected_offer: str | None
+        self,
+        _name: str,
+        properties: dict[str, str],
+        filter_properties: list[dict] | None,
+        recording_enabled: bool,
+        expected: str,
+        expected_offer: str | None,
     ):
         for _ in range(20):
             _create_event(
@@ -136,10 +160,13 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 properties=properties,
             )
         flush_persons_and_events()
+        self.team.session_recording_opt_in = recording_enabled
 
         tool = await self._create_tool()
 
-        result_text, _ = await tool._arun_impl(recordings_filters=self._event_filters("paywall_shown"))
+        result_text, _ = await tool._arun_impl(
+            recordings_filters=self._event_filters("paywall_shown", filter_properties)
+        )
 
         self.assertIn("No recordings found", result_text)
         self.assertIn(expected, result_text)
@@ -153,7 +180,7 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, _ = await tool._arun_impl(recordings_filters=self._event_filters("paywall_shown"))
 
-        self.assertIn("received no `paywall_shown` events", result_text)
+        self.assertIn("no `paywall_shown` events matched this filter", result_text)
         self.assertIn("Do not offer a Replay Vision scanner", result_text)
 
     async def test_returns_single_recording_with_metadata(self):

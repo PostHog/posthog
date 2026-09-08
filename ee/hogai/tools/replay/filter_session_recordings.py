@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from textwrap import dedent
 from typing import Any, Literal
 
@@ -6,15 +6,17 @@ import structlog
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import DateRange, MaxRecordingUniversalFilters, RecordingsQuery
+from posthog.schema import EventsNode, FilterLogicalOperator, MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
-from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
+from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries.utils import SessionRecordingQueryResult, expand_test_account_filters
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
 
@@ -31,6 +33,8 @@ from ee.hogai.tools.replay import empty_result_diagnosis as diagnosis
 from ee.hogai.tools.replay.empty_result_diagnosis import EventSessionLinkage
 
 logger = structlog.get_logger(__name__)
+
+DIAGNOSIS_MAX_EXECUTION_TIME = 30
 
 
 class FilterSessionRecordingsToolArgs(BaseModel):
@@ -201,48 +205,67 @@ class FilterSessionRecordingsTool(MaxTool):
         return content, None
 
     async def _diagnose_empty_result(self, recordings_query: RecordingsQuery) -> str:
-        """Work out why an event-filtered search found nothing, as guidance appended for the agent."""
-        event_names = self._filtered_event_names(recordings_query)
-        if not event_names:
-            # Without an event filter the empty result is about the other filters, and
-            # session id coverage has nothing to say about it.
-            return ""
-
         try:
             linkages = await database_sync_to_async(self._get_event_session_linkage, thread_sensitive=False)(
-                recordings_query, event_names
+                recordings_query
             )
         except Exception as e:
-            # The search itself succeeded, so a failed explanation must not turn it into an error.
             capture_exception(e)
             logger.warning("failed_to_diagnose_empty_recordings_result", error=str(e))
             return ""
+        if not linkages:
+            return ""
 
-        return diagnosis.describe(diagnosis.diagnose(linkages))
-
-    @staticmethod
-    def _filtered_event_names(recordings_query: RecordingsQuery) -> list[str]:
-        """Event names the query filters on. Actions are skipped, they resolve to many events."""
-        names = []
-        for event in recordings_query.events or []:
-            if not isinstance(event, dict):
-                continue
-            # A null id means "any event", which carries no name to measure coverage for.
-            name = event.get("id") or event.get("name")
-            if isinstance(name, str) and name and name not in names:
-                names.append(name)
-        return names
-
-    def _get_event_session_linkage(
-        self, recordings_query: RecordingsQuery, event_names: list[str]
-    ) -> tuple[EventSessionLinkage, ...]:
-        """Measure how many of these events carry the session id the recordings join needs."""
-        date_range = SessionRecordingsQueryDateRange(
-            date_range=DateRange(date_from=recordings_query.date_from, date_to=recordings_query.date_to),
-            team=self._team,
-            interval=None,
-            now=datetime.now(),
+        return diagnosis.describe(
+            diagnosis.diagnose(
+                linkages,
+                match_any=recordings_query.operand == FilterLogicalOperator.OR_,
+                recording_enabled=self._team.session_recording_opt_in,
+            )
         )
+
+    def _get_event_session_linkage(self, recordings_query: RecordingsQuery) -> tuple[EventSessionLinkage, ...]:
+        """Count, per filtered event, how many events matched the filter and how many carry a session id.
+
+        Reuses the search's own entity predicates and event date bounds so the counts describe the
+        rows the search actually scanned. Actions and "any event" entries are skipped.
+        """
+        events_query = ReplayFiltersEventsSubQuery(team=self._team, query=recordings_query)
+        entities = [e for e in events_query.event_entities if isinstance(e, EventsNode) and e.event is not None]
+        if not entities:
+            return ()
+
+        predicates = events_query._event_predicates(entities, self._team)
+        has_session_id = ast.Call(name="notEmpty", args=[ast.Field(chain=["properties", "$session_id"])])
+        select: list[ast.Expr] = []
+        for predicate in predicates:
+            select.append(ast.Call(name="countIf", args=[predicate]))
+            select.append(ast.Call(name="countIf", args=[ast.And(exprs=[predicate, has_session_id])]))
+
+        where: list[ast.Expr] = [
+            ast.Or(exprs=predicates) if len(predicates) > 1 else predicates[0],
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq, left=ast.Field(chain=["timestamp"]), right=ast.Call(name="now", args=[])
+            ),
+        ]
+        if (date_from := events_query._events_date_from()) is not None:
+            where.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_from),
+                )
+            )
+        if recordings_query.date_to:
+            where.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=events_query.query_date_range.date_to() + timedelta(days=1)),
+                )
+            )
+        if recordings_query.filter_test_accounts:
+            where.append(property_to_expr(expand_test_account_filters(self._team), team=self._team))
 
         with tags_context(
             product=Product.MAX_AI,
@@ -252,28 +275,20 @@ class FilterSessionRecordingsTool(MaxTool):
         ):
             response = execute_hogql_query(
                 query_type="FilterSessionRecordingsEmptyResultDiagnosis",
-                query="""
-                    SELECT event, count() AS total, countIf(notEmpty(properties.$session_id)) AS linked
-                    FROM events
-                    WHERE event IN {event_names}
-                      AND timestamp >= {date_from}
-                      AND timestamp <= {date_to}
-                    GROUP BY event
-                """,
+                query=ast.SelectQuery(
+                    select=select,
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=ast.And(exprs=where),
+                ),
                 team=self._team,
                 user=self._user,
-                placeholders={
-                    "event_names": ast.Constant(value=event_names),
-                    "date_from": ast.Constant(value=date_range.date_from()),
-                    "date_to": ast.Constant(value=date_range.date_to()),
-                },
+                settings=HogQLGlobalSettings(max_execution_time=DIAGNOSIS_MAX_EXECUTION_TIME),
             )
 
-        counts = {row[0]: (row[1], row[2]) for row in response.results or []}
-        # Events absent from the results had no volume at all, which is itself a diagnosis.
+        row = response.results[0] if response.results else [0] * len(select)
         return tuple(
-            EventSessionLinkage(event=name, total=counts.get(name, (0, 0))[0], linked=counts.get(name, (0, 0))[1])
-            for name in event_names
+            EventSessionLinkage(event=entity.name or str(entity.event), total=row[2 * i], linked=row[2 * i + 1])
+            for i, entity in enumerate(entities)
         )
 
     def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
