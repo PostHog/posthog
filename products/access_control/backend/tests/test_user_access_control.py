@@ -334,6 +334,28 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         self.user.leave(organization=self.organization)
         assert self.user_access_control.check_access_level_for_object(self.team, "member") is False
 
+    def test_deactivated_org_denies_object_and_resource_access(self):
+        self.organization.is_active = False
+        self.organization.save()
+
+        assert self.user_access_control.get_user_access_level(self.team) is None
+        assert self.user_access_control.access_level_for_object(self.team) is None
+        assert self.user_access_control.access_level_for_resource("dashboard") is None
+        assert self.user_access_control.check_access_level_for_object(self.team, "member") is False
+        assert self.user_access_control.check_access_level_for_resource("dashboard", "viewer") is False
+
+    def test_filters_project_queryset_for_deactivated_org(self):
+        self.organization.is_active = False
+        self.organization.save()
+        team2 = Team.objects.create(organization=self.organization)
+
+        filtered_teams = self.user_access_control.filter_queryset_by_access_level(
+            Team.objects.all(), include_all_if_admin=True
+        )
+
+        assert list(filtered_teams) == []
+        assert team2 not in filtered_teams
+
     def test_filters_project_queryset_based_on_acs(self):
         team2 = Team.objects.create(organization=self.organization)
         team3 = Team.objects.create(organization=self.organization)
@@ -541,6 +563,14 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
         # Because user is org admin => sees everything
         self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+    def test_deactivated_org_hides_files_from_org_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_active = False
+        self.organization.save()
+
+        assert list(self.user_access_control.filter_and_annotate_file_system_queryset(FileSystem.objects.all())) == []
 
     def test_setting_explicit_viewer_or_editor_access(self):
         """
@@ -1321,6 +1351,18 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.user_access_control.has_any_specific_access_for_resource("notebook", "editor") is False
         assert self.user_access_control.has_any_specific_access_for_resource("notebook", "viewer") is False
 
+    def test_deactivated_org_denies_specific_access_fallback(self):
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        self.organization.is_active = False
+        self.organization.save()
+
+        assert self.user_access_control.has_any_specific_access_for_resource("notebook", "viewer") is False
+
     def test_effective_access_level_for_resource_with_resource_access(self):
         """Test effective_access_level_for_resource returns resource level when user has resource access"""
         # Set resource-level access to "editor"
@@ -1358,6 +1400,14 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
 
         # Should return "none" because user has no access at all
         assert self.user_access_control.effective_access_level_for_resource("notebook") == "none"
+
+    def test_filter_queryset_by_access_level_for_deactivated_org(self):
+        from products.notebooks.backend.models import Notebook
+
+        self.organization.is_active = False
+        self.organization.save()
+
+        assert list(self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all())) == []
 
     def test_filter_queryset_by_access_level_with_none_resource_and_specific_access(self):
         """Test queryset filtering when user has 'none' resource access but specific object access"""
