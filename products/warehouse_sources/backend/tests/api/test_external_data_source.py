@@ -12640,6 +12640,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         response = self.client.get(self._url("GoogleSearchConsole", integration.id))
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "fill in the account yourself" in response.json()["detail"]
 
     def test_missing_params_returns_400(self):
         response = self.client.get(
