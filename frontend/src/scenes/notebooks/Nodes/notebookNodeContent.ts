@@ -328,6 +328,24 @@ export const getUniqueSqlV2ReturnVariable = (
 // tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
 // notebook formats. Scoped to the revamped-notebook cell types (SQLV2 + kernel Python):
 // expanding the other node types would change their (markdown-blind) summaries and naming.
+// Each collector that expands a markdown notebook parses the same markdown string, so one edit
+// parses the whole document once per collector. Cache the parse on the node object. Every
+// collector in a recompute reads the same content node, so they share one parse. The next edit
+// builds a new content node, so the old entry drops with it — the parse never goes stale.
+const parsedMarkdownNotebookByNode = new WeakMap<object, ReturnType<typeof parseMarkdownNotebook>>()
+
+const parseMarkdownNotebookNodeCached = (node: {
+    attrs: { markdown: string }
+}): ReturnType<typeof parseMarkdownNotebook> => {
+    const cached = parsedMarkdownNotebookByNode.get(node)
+    if (cached) {
+        return cached
+    }
+    const parsed = parseMarkdownNotebook(node.attrs.markdown)
+    parsedMarkdownNotebookByNode.set(node, parsed)
+    return parsed
+}
+
 const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeType[]): JSONContent[] => {
     if (typeof node?.attrs?.markdown !== 'string') {
         return []
@@ -342,7 +360,7 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
             nodeTypeByTag.set(tag, nodeType)
         }
     }
-    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block): JSONContent[] => {
+    return parseMarkdownNotebookNodeCached(node).nodes.flatMap((block): JSONContent[] => {
         if (block.type !== 'component') {
             return []
         }
