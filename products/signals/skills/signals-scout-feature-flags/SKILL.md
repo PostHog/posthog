@@ -201,15 +201,16 @@ The check already excludes experiment-linked, early-access, survey- and product-
 
 - `rollout_state` is `fully_rolled_out` or `not_rolled_out` — never `partial`;
 - a fresh definition read confirms that direction;
+- a multivariate flag carries no targeted release condition — the direction is derived from the untargeted groups alone, and a targeted group serves its own `variant` override to the segment it matches, so a second variant path can still be live;
 - no exclusion and no known linked-system blocker;
 - one eligible repository can be selected with real confidence;
 - no existing report, task, PR, or recent cleanup covers the flag;
 - the report states exactly one retained behavior, with no product judgment attached; and
 - the report states that the chosen repository may not be every deployed consumer.
 
-Retained behavior follows the direction: **fully rolled out** → keep the enabled path (or the named `winning_variant`), remove the losing path and the flag checks. **Not rolled out** → keep the disabled or control path, remove the gated feature path and the checks. Never recommend deleting or archiving the flag as part of that change: the order is code change, review, merge, deploy, soak, verify no runtime still evaluates the flag, and only then a separately approved archive. A flag rolled out to nobody is especially dangerous to archive early — the disabled path is still the code path in use.
+Retained behavior follows the direction: **fully rolled out** → keep the enabled path (or the named `winning_variant`), remove the losing path and the flag checks. **Not rolled out** → keep the disabled or control path, remove the gated feature path and the checks. A multivariate flag with targeting conditions has no single retained behavior: the segment its targeted group matches still receives that group's `variant`. Hand a human that segment and its variant as the decision, and never name one path to remove. Never recommend deleting or archiving the flag as part of that change: the order is code change, review, merge, deploy, soak, verify no runtime still evaluates the flag, and only then a separately approved archive. A flag rolled out to nobody is especially dangerous to archive early — the disabled path is still the code path in use.
 
-`partial` rollout, inconsistent configuration, ambiguous intent, several plausible repositories, or call sites spread across repos → `requires_human_input`, and only when the report hands someone a concrete decision. Otherwise keep the evidence in memory and move on.
+`partial` rollout, a targeted multivariate flag, inconsistent configuration, ambiguous intent, several plausible repositories, or call sites spread across repos → `requires_human_input`, and only when the report hands someone a concrete decision. Otherwise keep the evidence in memory and move on.
 
 **What a stale report carries:** the roster-confirmed flag key and `id`; the health issue `id` and its `link` as the auth-gated source; the evidence class and rollout direction in plain words; the one retained behavior, or the decision a human owes; the repository scope and what it might miss; `actionability` with its explanation; `already_addressed=false` only after the existing-work checks; P3 with a priority explanation that says routine cleanup; an explicit `repository` when immediately actionable; and `suggested_reviewers` only where member or prior-artefact evidence supports the routing. **Keep project telemetry out of the public PR that may follow** — call counts, exact `last_called_at` timestamps, customer names, and volumes stay in the auth-gated report.
 
