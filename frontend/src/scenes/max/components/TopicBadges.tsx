@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -15,7 +15,6 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { SelfDrivingIntroModal } from 'products/signals/frontend/inbox/components/onboarding/SelfDrivingIntroModal'
 
 import { CODE_BADGE, SuggestionTopic, TopicSuggestion } from '../suggestionTopics'
-import { nextTypingDelayMs } from '../utils/typing'
 import { SuggestionCard } from './SuggestionCard'
 
 // Colors the product icons (via iconForType's ProductIconWrapper). Applied inside the components so
@@ -109,61 +108,18 @@ export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicB
 
 export interface TopicSuggestionsProps {
     topic: SuggestionTopic
-    /** Called per keystroke of the typewriter animation, and once more with the full prompt. */
-    onType: (text: string) => void
-    /** Send the fully typed prompt to PostHog AI. */
-    onSubmit: (text: string) => void
-    /** Fired after a fill-in prompt is typed in — the parent shows `hint` as a postfix cue + focuses. */
-    onFillIn: (hint: string) => void
+    /**
+     * Run the suggestion. `maxLogic` owns the typewriter that writes it into the composer, so a send
+     * that lands mid-animation still carries the whole suggestion.
+     */
+    onRun: (suggestion: TopicSuggestion) => void
     className?: string
 }
 
 /**
  * The suggestion cards for a selected topic. Fills its parent's baseline height (`h-full`).
  */
-export function TopicSuggestions({ topic, onType, onSubmit, onFillIn, className }: TopicSuggestionsProps): JSX.Element {
-    // Cancels an in-flight typewriter animation (new click, or unmount).
-    const cancelTypingRef = useRef<(() => void) | null>(null)
-    useEffect(() => () => cancelTypingRef.current?.(), [])
-
-    // Type the prompt at a human pace, then either send it, or — for a fill-in prompt — add a
-    // trailing space and hand the hint to the parent so it can show the postfix cue.
-    const runSuggestion = (suggestion: TopicSuggestion): void => {
-        cancelTypingRef.current?.()
-        const { content, requiresUserInput, hint } = suggestion
-        let cancelled = false
-        let timer: ReturnType<typeof setTimeout> | undefined
-        cancelTypingRef.current = () => {
-            cancelled = true
-            if (timer) {
-                clearTimeout(timer)
-            }
-        }
-        const finish = (): void => {
-            if (cancelled) {
-                return
-            }
-            if (requiresUserInput) {
-                onType(`${content} `)
-                onFillIn(hint ?? 'the details')
-            } else {
-                onSubmit(content)
-            }
-        }
-        const typeTo = (i: number): void => {
-            if (cancelled) {
-                return
-            }
-            onType(content.slice(0, i))
-            if (i >= content.length) {
-                timer = setTimeout(finish, 250)
-                return
-            }
-            timer = setTimeout(() => typeTo(i + 1), nextTypingDelayMs(content[i - 1] ?? '', content[i]))
-        }
-        typeTo(1)
-    }
-
+export function TopicSuggestions({ topic, onRun, className }: TopicSuggestionsProps): JSX.Element {
     // Docs-style: a plain question list (like production's Docs suggestions), reading as an
     // explanation rather than an action. Card-style: icon + bold title + description.
     const isDocs = topic.variant === 'docs'
@@ -181,7 +137,7 @@ export function TopicSuggestions({ topic, onType, onSubmit, onFillIn, className 
                             className="flex-1 min-h-0"
                             fullWidth
                             type="tertiary"
-                            onClick={() => runSuggestion(suggestion)}
+                            onClick={() => onRun(suggestion)}
                             data-attr={`capability-suggestion-${topic.key}`}
                         >
                             <span className="text-sm font-normal text-left truncate w-full">{suggestion.content}</span>
@@ -195,7 +151,7 @@ export function TopicSuggestions({ topic, onType, onSubmit, onFillIn, className 
                         title={suggestion.title ?? suggestion.content}
                         description={suggestion.description}
                         icon={iconForType(iconType)}
-                        onClick={() => runSuggestion(suggestion)}
+                        onClick={() => onRun(suggestion)}
                         data-attr={`capability-suggestion-${topic.key}`}
                     />
                 )
