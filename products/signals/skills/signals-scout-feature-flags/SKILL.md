@@ -192,8 +192,9 @@ The check already excludes experiment-linked, early-access, survey- and product-
 **Re-verify each shortlisted candidate before it earns a report.** The issue is a snapshot and the flag may have moved since:
 
 1. `feature-flag-get-definition {"id": <flag_id>}` — the flag still exists, is still active, and its `filters` still match `rollout_state`. A current `version` above the payload's `flag_version` means it was edited after detection: re-derive the direction from the live definition or drop the candidate.
-2. Re-check the blockers for this one flag: non-empty `experiment_set` → skip, `feature-flags-dependent-flags-retrieve` returning dependents → skip.
-3. Check for work already in flight — an open report, an implementation task, a recent cleanup PR (the searches are in [Decide](#decide)).
+2. **Confirm the flag is still cold.** The check runs weekly, on Mondays, and calls resuming move `last_called_at` without touching the definition, so an issue stays active for up to a week after a flag comes back to life. Read the key's `calls_14d` from the orientation query, and if it sits in the tail below that query's `LIMIT`, spend one scoped `count()` on `$feature_flag_called` since `evidence_date`. Any calls since then mean the evidence expired: drop the candidate and leave the issue to the next weekly pass. A zero count is not extra proof of staleness — a locally evaluated flag sends no call events either way.
+3. Re-check the blockers for this one flag: non-empty `experiment_set` → skip, `feature-flags-dependent-flags-retrieve` returning dependents → skip.
+4. Check for work already in flight — an open report, an implementation task, a recent cleanup PR (the searches are in [Decide](#decide)).
 
 **One flag, one report — this is the deliberate exception to bundling, and it is earned by a re-verified health issue.** Everywhere else, a cluster of similar findings is one report. A stale flag is not a cluster member: each is an independently actionable code removal with its own owner, its own diff, and its own PR, and the retained behavior differs per flag. A debt count is not a decision anyone can act on. So never merge two stale flags into one report to show a total, and never widen a flag's report to mention the others.
 
