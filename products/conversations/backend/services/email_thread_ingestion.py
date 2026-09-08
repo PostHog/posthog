@@ -60,6 +60,10 @@ class ParsedEmail:
     capture_address: str
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
+    # Set only when a trusted relay named someone else as the requester. `sender` is then the
+    # person named, and this is the relay that vouched for them — kept so a misattributed ticket
+    # can be traced back to the relay that caused it.
+    relay_sender: str = ""
 
     def body_with_matching_html(self, *, prefer_stripped: bool) -> "EmailBody":
         """Return the body text we store paired with the HTML of the same scope.

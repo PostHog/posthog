@@ -16,6 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -66,6 +67,8 @@ _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_BODY_LENGTH = 50_000
+# Matches the EmailField width of Ticket.email_from, which recovered addresses are written to.
+MAX_EMAIL_ADDRESS_LENGTH = 254
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
 # Sender-controlled To/Cc headers can list far more addresses than a real thread carries, and each
@@ -197,8 +200,13 @@ def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]
 
 
 def _is_plausible_email(addr: str) -> bool:
-    """Reject obviously malformed addresses before trusting a recovery header."""
-    return bool(_BASIC_EMAIL_RE.match(addr))
+    """Reject obviously malformed addresses before trusting a recovery header.
+
+    The length bound is the width of `Ticket.email_from`, which is where a recovered address
+    ends up. Anything longer reaches the write as a DataError rather than an IntegrityError,
+    so it escapes the handler as a 500 and Mailgun re-drives the same message for hours.
+    """
+    return len(addr) <= MAX_EMAIL_ADDRESS_LENGTH and bool(_BASIC_EMAIL_RE.match(addr))
 
 
 def _recover_dmarc_rewritten_sender(
@@ -265,6 +273,102 @@ def _recover_dmarc_rewritten_sender(
     sender_name = _VIA_SUFFIX_RE.sub("", sender_name).strip("'\"").strip()
 
     return sender_email, sender_name
+
+
+@frozen
+class _RelayedRequester:
+    """The end user a trusted relay named as the real author of a message."""
+
+    email: str
+    name: str
+
+
+def _relay_skipped(config: EmailChannel, sender_email: str, reason: str) -> None:
+    """Record why a channel with a relay configured did not recover a requester.
+
+    Without this an admin who sets a relay address and sees nothing change cannot tell a
+    rejected sender from a missing header from a failed authentication check.
+    """
+    logger.info(
+        "email_inbound_relayed_requester_skipped",
+        team_id=config.team_id,
+        reason=reason,
+        sender_email=sender_email,
+    )
+
+
+def _recover_relayed_requester(
+    request: HttpRequest,
+    config: EmailChannel,
+    sender_email: str,
+    reserved_addresses: set[str],
+    *,
+    sender_authenticated: bool,
+) -> _RelayedRequester | None:
+    """Attribute the ticket to the relayed end user instead of the relay's own From address.
+
+    A service that writes in on behalf of its users sends from one fixed address and carries
+    the real person in X-PostHog-Requester or Reply-To. Without recovery the ticket, and every
+    reply to it, targets that relay's no-reply mailbox.
+
+    Two conditions gate this and both matter:
+
+    1. The sender is the address this channel named in `trusted_relay_sender`. Authentication
+       alone cannot be the gate: it proves a sender is authenticated for its own domain, which
+       every sender is for theirs, so any stranger could otherwise name a requester and redirect
+       this team's replies to them.
+    2. That sender is itself authenticated, so the address in (1) cannot simply be forged.
+
+    Returns None when the message is not the trusted relay's, leaving From attribution alone.
+    The caller must treat a recovered requester as unauthenticated: the relay proved who sent
+    the mail, not that the person named controls the address.
+    """
+    if not config.trusted_relay_sender:
+        return None
+
+    if not config.relay_sender_trusted(sender_email):
+        # Ordinary mail takes this branch on every message, so only say something when a sender
+        # that is not the relay actually tried to name a requester.
+        if _message_header_values(request, "X-PostHog-Requester") or _message_header_values(request, "Reply-To"):
+            _relay_skipped(config, sender_email, "sender_not_trusted_relay")
+        return None
+
+    if not sender_authenticated:
+        _relay_skipped(config, sender_email, "relay_not_authenticated")
+        return None
+
+    saw_header = False
+    for header in ("X-PostHog-Requester", "Reply-To"):
+        for raw in _message_header_values(request, header):
+            if not raw:
+                continue
+            saw_header = True
+            # Reply-To is an address list, and a relay that keeps itself on the header would
+            # otherwise fall back to the no-reply mailbox this exists to avoid.
+            for requester_name, requester_email in getaddresses([raw]):
+                candidate = requester_email.strip().lower()
+                if not candidate or not _is_plausible_email(candidate):
+                    continue
+                if candidate in reserved_addresses or _extract_inbound_token(candidate):
+                    continue
+                # Any team's channel address, not just this one's: replying to it would deliver
+                # back into PostHog and open a ticket holding our own reply. from_email is
+                # globally unique and stored lowercased, so this is one indexed lookup.
+                if EmailChannel.objects.filter(from_email=candidate).exists():
+                    continue
+                logger.info(
+                    "email_inbound_relayed_requester_recovered",
+                    team_id=config.team_id,
+                    header=header,
+                    relay_sender=sender_email,
+                )
+                return _RelayedRequester(
+                    email=candidate,
+                    name=(requester_name.strip() or candidate.split("@")[0])[:400],
+                )
+
+    _relay_skipped(config, sender_email, "no_usable_requester_header" if saw_header else "no_requester_header")
+    return None
 
 
 def _dkim_aligned_with_sender(request: HttpRequest, sender_domain: str) -> bool:
@@ -433,6 +537,27 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEm
         sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
     sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
 
+    # Authentication is judged against the address that actually sent this message, before relay
+    # recovery swaps in the person it names.
+    sender_authenticated = _sender_authenticated(request, sender_email)
+
+    relay_sender = ""
+    relayed = _recover_relayed_requester(
+        request,
+        config,
+        sender_email,
+        {config.from_email.lower(), sender_email.lower()},
+        sender_authenticated=sender_authenticated,
+    )
+    if relayed:
+        relay_sender = sender_email
+        sender_email, sender_name = relayed.email, relayed.name
+        # The relay proved who sent the mail, not that this person controls the address it named.
+        # Re-deriving authentication from the recovered address would pass whenever a relay and
+        # its users share a domain — the ordinary in-house relay shape — which would mark the
+        # ticket verified and, for a relayed team member, file it as an internal note nobody sees.
+        sender_authenticated = False
+
     stripped_text = request.POST.get("stripped-text", "")
     stripped_signature = request.POST.get("stripped-signature", "")
     if stripped_signature and stripped_text:
@@ -465,7 +590,8 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEm
         stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
         body_html=request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH],
         stripped_html=request.POST.get("stripped-html", "")[:MAX_EMAIL_BODY_LENGTH],
-        sender_authenticated=_sender_authenticated(request, sender_email),
+        sender_authenticated=sender_authenticated,
+        relay_sender=relay_sender,
         dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
         dkim_signing_domains=_dkim_signing_domains(request),
         capture_address=request.POST.get("recipient", "").strip().lower(),
@@ -579,6 +705,9 @@ def _process_support_email(
                     anonymous_traits={
                         "name": sender_name,
                         "email": sender_email,
+                        # A relay asserted this address; the person never proved they control
+                        # it, so org and person attribution must not act on it.
+                        **({"email_relayed": True} if email.relay_sender else {}),
                     },
                     email_subject=email.subject,
                     email_from=sender_email,
@@ -610,6 +739,10 @@ def _process_support_email(
                 "email_attachments": attachments if attachments else None,
                 "has_full_email_content": full_body_plain is not None,
             }
+            if email.relay_sender:
+                # Attribution above is rewritten to the person the relay named, so without this
+                # the address that actually sent the message survives nowhere on the record.
+                item_context["email_relay_from"] = email.relay_sender
 
             comment = Comment.objects.create(
                 team=team,

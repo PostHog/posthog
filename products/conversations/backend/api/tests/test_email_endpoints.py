@@ -2267,6 +2267,196 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert comment.item_context["email_from_name"] == "Alex Smith"
 
 
+class TestEmailInboundTrustedRelay(BaseTest):
+    RELAY = "no-reply@updates.acme.io"
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ab12cd34ef56ab78",
+            from_email="support@acme.com",
+            from_name="Acme Support",
+            domain="acme.com",
+            domain_verified=True,
+            trusted_relay_sender=self.RELAY,
+        )
+
+    def _relay_data(self, msg_id: str, **extra: str) -> dict[str, str]:
+        data = {
+            "recipient": "team-ab12cd34ef56ab78@mg.posthog.com",
+            "Message-Id": msg_id,
+            "subject": "Help please",
+            "stripped-text": "I need help with my account",
+            "from": f"Acme App <{self.RELAY}>",
+            "sender": self.RELAY,
+            "X-Mailgun-Spf": "Pass",
+        }
+        data.update(extra)
+        return data
+
+    @parameterized.expand(
+        [
+            ("reply_to_honored", {"Reply-To": "Jane Doe <jane@customer.com>"}, "jane@customer.com", "Jane Doe"),
+            ("requester_header_honored", {"X-PostHog-Requester": "jane@customer.com"}, "jane@customer.com", "jane"),
+            (
+                "requester_header_beats_reply_to",
+                {"X-PostHog-Requester": "Jane <jane@customer.com>", "Reply-To": "other@customer.com"},
+                "jane@customer.com",
+                "Jane",
+            ),
+            # A relay that keeps itself on Reply-To must still resolve the person.
+            (
+                "multi_address_reply_to",
+                {"Reply-To": "Jane <jane@customer.com>, no-reply@updates.acme.io"},
+                "jane@customer.com",
+                "Jane",
+            ),
+            # Recovery must never point replies back at one of our own mailboxes.
+            (
+                "reply_to_channel_address_ignored",
+                {"Reply-To": "support@acme.com"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+            ),
+            (
+                "reply_to_inbound_address_ignored",
+                {"Reply-To": "team-ab12cd34ef56ab78@mg.posthog.com"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+            ),
+            ("malformed_reply_to_ignored", {"Reply-To": "bad@"}, "no-reply@updates.acme.io", "Acme App"),
+            # Longer than Ticket.email_from, so accepting it would fail the insert as a DataError
+            # and turn one message into hours of Mailgun retries.
+            (
+                "overlong_reply_to_ignored",
+                {"Reply-To": ("a" * 245) + "@customer.com"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+            ),
+            # The relay is only trusted when it is itself authenticated.
+            (
+                "spf_fail_keeps_from",
+                {"Reply-To": "jane@customer.com", "X-Mailgun-Spf": "Fail"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+            ),
+            (
+                "misaligned_envelope_keeps_from",
+                {"Reply-To": "jane@customer.com", "sender": "bounce@elsewhere.com"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_relayed_requester_attribution(self, _name, extra_headers, expected_email, expected_name, _mock_sig):
+        self.client.post(
+            "/api/conversations/v1/email/inbound", self._relay_data(f"<relay-{_name}@t.com>", **extra_headers)
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.anonymous_traits["email"] == expected_email
+        assert ticket.anonymous_traits["name"] == expected_name
+
+    @parameterized.expand(
+        [
+            ("unrelated_domain", "mallory@evil.tld"),
+            # A lookalike must not pass as the configured relay.
+            ("lookalike_domain", "no-reply@updates.acme.io.evil.tld"),
+            ("same_domain_different_mailbox", "someone-else@updates.acme.io"),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_untrusted_sender_cannot_name_requester(self, _name, sender, _mock_sig):
+        """Authentication proves a sender owns its own domain, which every sender does. Without
+        binding trust to the configured relay, any stranger could redirect this team's replies."""
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            self._relay_data(
+                f"<untrusted-{_name}@t.com>",
+                **{"from": f"Someone <{sender}>", "sender": sender, "Reply-To": "victim@bigcorp.example"},
+            ),
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == sender
+        assert ticket.distinct_id == sender
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_relayed_requester_is_never_authenticated(self, _mock_sig: MagicMock):
+        """A relay sharing a domain with its users must not lend them its authentication."""
+        self.config.trusted_relay_sender = "no-reply@portal.acme.io"
+        self.config.save(update_fields=["trusted_relay_sender"])
+
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            self._relay_data(
+                "<same-domain@t.com>",
+                **{
+                    "from": "Portal <no-reply@portal.acme.io>",
+                    "sender": "no-reply@portal.acme.io",
+                    "Reply-To": "Jane <jane@portal.acme.io>",
+                },
+            ),
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == "jane@portal.acme.io"
+        assert ticket.identity_verified is False
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_relayed_team_member_stays_a_customer_message(self, _mock_sig: MagicMock):
+        """A relayed message naming a team member must not be filed as an internal note, which
+        would leave unread_team_count at 0 and hide the request from the whole team."""
+        member_domain = self.user.email.split("@")[1]
+        self.config.trusted_relay_sender = f"no-reply@{member_domain}"
+        self.config.save(update_fields=["trusted_relay_sender"])
+
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            self._relay_data(
+                "<relayed-member@t.com>",
+                **{
+                    "from": f"Portal <no-reply@{member_domain}>",
+                    "sender": f"no-reply@{member_domain}",
+                    "Reply-To": f"Member <{self.user.email}>",
+                },
+            ),
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert ticket.identity_verified is False
+        assert ticket.unread_team_count == 1
+        assert comment.item_context is not None
+        assert comment.item_context["author_type"] == "customer"
+        assert comment.created_by is None
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_relayed_ticket_records_provenance_and_skips_org_attribution(self, _mock_sig: MagicMock):
+        """Attribution is rewritten, so without the relay address on the record a misattributed
+        ticket cannot be traced. organization_id is first-write-wins, so an address the relay
+        merely asserted must not resolve one."""
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            self._relay_data("<relay-ctx@t.com>", **{"Reply-To": "Jane Doe <jane@customer.com>"}),
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.distinct_id == "jane@customer.com"
+        assert ticket.anonymous_traits.get("email_relayed") is True
+        assert ticket.organization_id is None
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
+        assert comment.item_context["email_relay_from"] == self.RELAY
+
+
 class TestEmailInboundTeamMemberDetection(BaseTest):
     def setUp(self):
         super().setUp()

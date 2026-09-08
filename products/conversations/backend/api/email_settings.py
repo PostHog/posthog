@@ -183,6 +183,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "connection_status": config.connection_status,
         "setup_expires_at": setup.expires_at if setup is not None else None,
         "confirmation_available": bool(setup and setup.confirmation_action),
+        "trusted_relay_sender": config.trusted_relay_sender,
     }
 
 
@@ -348,6 +349,23 @@ class ConfigIdSerializer(serializers.Serializer):
     config_id = serializers.UUIDField(help_text="Email channel ID.")
 
 
+class EmailRelaySenderSerializer(serializers.Serializer):
+    config_id = serializers.UUIDField(help_text="ID of the support email channel to update.")
+    trusted_relay_sender = serializers.EmailField(
+        required=True,
+        allow_blank=True,
+        max_length=254,
+        help_text=(
+            "Exact address the relay sends from. Mail from it is attributed to the person named "
+            "in its X-PostHog-Requester or Reply-To header. Blank disables relay attribution. "
+            "A bare domain is rejected: it would trust every mailbox on that domain."
+        ),
+    )
+
+    def validate_trusted_relay_sender(self, value: str) -> str:
+        return value.strip().lower()
+
+
 class EmailDnsRecordSerializer(serializers.Serializer):
     record_type = serializers.CharField(required=False, allow_blank=True, help_text="DNS record type.")
     name = serializers.CharField(required=False, allow_blank=True, help_text="DNS record hostname.")
@@ -406,6 +424,14 @@ class EmailChannelConfigSerializer(serializers.Serializer):
     confirmation_available = serializers.BooleanField(
         read_only=True,
         help_text="Whether an authenticated forwarding confirmation is ready for the owner.",
+    )
+    trusted_relay_sender = serializers.EmailField(
+        read_only=True,
+        allow_blank=True,
+        help_text=(
+            "Address of the one relay allowed to name the ticket requester via the "
+            "X-PostHog-Requester or Reply-To header. Blank when relay attribution is off."
+        ),
     )
 
 
@@ -852,6 +878,52 @@ class EmailSetDefaultView(APIView):
                 config.save(update_fields=["is_default"])
 
         logger.info("email_channel_set_default", team_id=team.id, config_id=config_id, user_id=user.id)
+        return Response({"ok": True})
+
+
+class EmailSetRelaySenderView(APIView):
+    """Name the one relay allowed to attribute a ticket to the person it is writing for."""
+
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+
+    @extend_schema(
+        request=EmailRelaySenderSerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        serializer = EmailRelaySenderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        relay_sender = serializer.validated_data["trusted_relay_sender"]
+
+        config = _get_config_for_team(serializer.validated_data["config_id"], team)
+        if not config:
+            return Response({"error": "Email config not found"}, status=404)
+        if config.kind != EmailChannelKind.SUPPORT:
+            return Response({"error": "Only support email channels can trust a relay."}, status=400)
+        if relay_sender and relay_sender == config.from_email.lower():
+            # Recovery never fires for the channel's own address, so accepting it would leave a
+            # setting that reads as configured and does nothing.
+            return Response({"error": "The relay must be a different address from this channel."}, status=400)
+
+        config.trusted_relay_sender = relay_sender
+        config.save(update_fields=["trusted_relay_sender"])
+
+        logger.info(
+            "email_channel_set_relay_sender",
+            team_id=team.id,
+            config_id=config.id,
+            relay_configured=bool(relay_sender),
+            user_id=user.id,
+        )
         return Response({"ok": True})
 
 
