@@ -811,6 +811,44 @@ describe('subscriptionLogic', () => {
         contextLogic.unmount()
     })
 
+    it('clears a server context error after the context selection changes', async () => {
+        let createRequests = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
+                    createRequests += 1
+                    const body = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 46, ...body } as SubscriptionType]
+                },
+            },
+        })
+        const contextLogic = subscriptionLogic({ id: 'new' })
+        contextLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(contextLogic).toFinishListeners()
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Summarize activation',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        contextLogic.actions.setSubscriptionManualErrors({ contexts: 'This context is no longer available' })
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        await expectLogic(contextLogic).toFinishListeners()
+        expect(contextLogic.values.subscriptionManualErrors.contexts).toBeUndefined()
+
+        contextLogic.actions.setSubscriptionManualErrors({ contexts: 'This context is no longer available' })
+        contextLogic.actions.removeContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.submitSubscription()
+        await expectLogic(contextLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(contextLogic.values.subscriptionManualErrors.contexts).toBeUndefined()
+        expect(createRequests).toBe(1)
+        contextLogic.unmount()
+    })
+
     it('submits the exact unified context array without traditional AI root targets', async () => {
         let capturedBody: Record<string, unknown> | undefined
         useMocks({

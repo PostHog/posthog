@@ -883,14 +883,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 return
             }
             actions.setSubscriptionValue('contexts', [...contexts, context])
+            actions.touchSubscriptionField('contexts')
         },
         removeContext: ({ context }) => {
-            actions.setSubscriptionValue(
-                'contexts',
-                (values.subscription.contexts ?? []).filter(
-                    (selectedContext) => contextKey(selectedContext) !== contextKey(context)
-                )
+            const contexts = values.subscription.contexts ?? []
+            const nextContexts = contexts.filter(
+                (selectedContext) => contextKey(selectedContext) !== contextKey(context)
             )
+            if (nextContexts.length === contexts.length) {
+                return
+            }
+            actions.setSubscriptionValue('contexts', nextContexts)
+            actions.touchSubscriptionField('contexts')
         },
         prefillCurrentContext: async (_, breakpoint) => {
             if (
