@@ -67,6 +67,9 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    dependencies-list:
+        operation: dependencies_list
+        enabled: false
     domains-create:
         operation: domains_create
         enabled: false
