@@ -23,7 +23,7 @@ from posthog.models import Team
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_WORKFLOW,
@@ -99,12 +99,23 @@ def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
 
 def check_spend_gates(team: Team) -> ScoutRunRejection | None:
     """Fail fast on the two spend gates `run_signals_scout_activity` re-checks authoritatively, so
-    a caller gets a clean throttle instead of a 202 whose run only skips."""
-    if is_team_signals_quota_limited(team.api_token):
+    a caller gets a clean throttle instead of a 202 whose run only skips.
+
+    The quota side captures `signal_report_quota_paused` here rather than leaving it to the
+    activity: a rejection dispatches nothing, so this is the only place an off-schedule run's
+    pause is recorded. `team.organization` must be loaded for that capture.
+    """
+    quota_gate = self_driving_quota_gate(team)
+    if quota_gate.limited:
+        capture_signal_report_quota_paused(team, report_id=None, stage="scout_run", enforced=quota_gate.enforced)
+    if quota_gate.enforced:
         return ScoutRunRejection(
             kind=ScoutRunRejectionKind.THROTTLED,
             reason="quota_limited",
-            detail="This project is over its Signals credits quota. Try again later.",
+            detail=(
+                "Self-driving is paused because this project reached its pull request limit. "
+                "Raise the limit or wait for usage to reset."
+            ),
         )
     if daily_report_limit_gate(team).limited:
         return ScoutRunRejection(
