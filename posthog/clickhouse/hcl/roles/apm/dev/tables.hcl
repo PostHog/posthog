@@ -396,118 +396,18 @@ database "posthog" {
   # tables live on the logs nodes, so these write through the writable proxies above
   # rather than straight into local tables.
   #
-  # Two of them carry a different column list as well, in an order a positioned patch
-  # does not reproduce, so those are restated in full rather than patched.
-  materialized_view "kafka_logs34_avro_mv" {
-    override = true
+  # One is restated in full: its column set matches but the order does not, and no
+  # patch can reorder inherited columns. See PostHog/chschema#240.
+  patch_materialized_view "kafka_logs34_avro_mv" {
     to_table = "posthog.writable_logs34"
-    query    = <<SQL
-SELECT
-  uuid,
-  trace_id,
-  span_id,
-  trace_flags,
-  timestamp,
-  observed_timestamp,
-  body,
-  severity_text,
-  severity_number,
-  service_name,
-  instrumentation_scope,
-  event_name,
-  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
-  + toIntervalDay(
-    if(
-      (retention_days IS NOT NULL) AND (retention_days > 0),
-      retention_days,
-      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
-    )
-  ) AS original_expiry_timestamp,
-  _partition,
-  _topic,
-  _offset,
-  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
-  ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
-FROM posthog.kafka_logs_avro
-SQL
-
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "String"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(String, String)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "original_expiry_timestamp" {
+    modify_column "original_expiry_timestamp" {
       type = "Nullable(DateTime64(6))"
     }
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_record_count" {
-      type = "Int64"
-    }
-    column "_bytes_uncompressed" {
+    modify_column "_bytes_uncompressed" {
       type = "Nullable(Float64)"
     }
-    column "_bytes_compressed" {
+    modify_column "_bytes_compressed" {
       type = "Nullable(Float64)"
-    }
-    column "pattern" {
-      type = "String"
-    }
-    column "pattern_version" {
-      type = "UInt8"
     }
   }
 
