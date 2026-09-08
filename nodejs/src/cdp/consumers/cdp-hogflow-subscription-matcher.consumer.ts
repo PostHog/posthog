@@ -880,34 +880,39 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 `SELECT id, status, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
                 [[...byJob.keys()]]
             )
-            const updates: { id: string; resumes: string }[] = []
+            const updates: { id: string; state: Buffer }[] = []
             for (const row of rows.rows) {
                 const jobResumes = byJob.get(row.id)!
                 byJob.delete(row.id)
-                if (row.status !== 'available' && row.status !== 'running') {
+                // A job that is not parked yet cannot take the wake: the worker owns `state` while it
+                // runs, so its flush would drop the write. That step falls back to its own deadline.
+                if (row.status !== 'available') {
                     counterStepResume.labels({ outcome: `job_${row.status}` }).inc()
                     continue
                 }
-                const pending: Record<string, unknown> = {}
-                for (const resume of jobResumes) {
-                    pending[resume.origin_key] ??= {
-                        key: resume.origin_key,
-                        status: resume.status,
-                        result: resume.result ?? undefined,
-                    }
+                // One batch can carry a stale wake from an earlier visit next to the current one.
+                const state = row.state
+                    ? jobResumes.reduce<Buffer | null>(
+                          (applied, resume) => applied ?? applyStepResumeToState(row.state, resume),
+                          null
+                      )
+                    : null
+                if (!state) {
+                    counterStepResume.labels({ outcome: 'stale_key' }).inc()
+                    continue
                 }
-                updates.push({ id: row.id, resumes: JSON.stringify(pending) })
+                updates.push({ id: row.id, state })
             }
             counterStepResume.labels({ outcome: 'job_missing' }).inc(byJob.size)
             if (updates.length > 0) {
                 const updated = await client.query(
                     `UPDATE cyclotron_jobs cj
-                     SET pending_step_resumes = u.resumes || COALESCE(cj.pending_step_resumes, '{}'::jsonb)
-                     FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::jsonb[]) AS resumes) u
-                     WHERE cj.id = u.id AND cj.status IN ('available', 'running')`,
-                    [updates.map((update) => update.id), updates.map((update) => update.resumes)]
+                     SET scheduled = NOW(), state = u.state
+                     FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state) u
+                     WHERE cj.id = u.id AND cj.status = 'available'`,
+                    [updates.map((update) => update.id), updates.map((update) => update.state)]
                 )
-                counterStepResume.labels({ outcome: 'accepted' }).inc(updated.rowCount ?? 0)
+                counterStepResume.labels({ outcome: 'delivered' }).inc(updated.rowCount ?? 0)
             }
             await client.query('COMMIT')
         } catch (err) {
@@ -1482,6 +1487,33 @@ function rewriteStatePersonId(
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
         logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })
+        return null
+    }
+}
+
+// Stamps the resume onto the parked step. Returns null when the job is not waiting on this exact
+// key: the step already advanced, or the wake belongs to an earlier visit of the same step.
+function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | null {
+    try {
+        const parsed = parseJSON(stateBuffer.toString('utf-8'))
+        const currentAction = parsed.state?.currentAction
+        if (currentAction?.id !== resume.actionId || currentAction.awaitingResume?.key !== resume.origin_key) {
+            return null
+        }
+        parsed.state = {
+            ...parsed.state,
+            currentAction: {
+                ...currentAction,
+                resumeResult: {
+                    key: resume.origin_key,
+                    status: resume.status,
+                    result: resume.result ?? undefined,
+                },
+            },
+        }
+        return Buffer.from(JSON.stringify(parsed))
+    } catch (err) {
+        logger.warn('Failed to parse state during step resume', { jobId: resume.jobId, err })
         return null
     }
 }

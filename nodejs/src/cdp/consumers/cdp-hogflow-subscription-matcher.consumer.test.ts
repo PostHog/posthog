@@ -1882,8 +1882,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         const resume = { origin_key: originKey, status: 'completed', result: { final_message: 'done' } }
         const resumeUpdate = () =>
             matcher.calls.find(
-                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET pending_step_resumes')
+                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW(), state')
             )
+        const writtenState = (): any => parseJSON(resumeUpdate()!.params[1][0].toString('utf-8'))
 
         it('routes a resume out of the events stream even for a team with no wait steps', () => {
             const other = { value: Buffer.from(JSON.stringify({ team_id: 2, event: { event: 'other' } })) }
@@ -1908,15 +1909,13 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(rest).toEqual([])
         })
 
-        it.each(['available', 'running'])('stores the result durably for an %s job', async (status) => {
-            matcher.resumeRows = [{ id: jobId, status, state: parkedState() }]
+        it('wakes a parked job and stamps the result on its step', async () => {
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
 
             await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
 
-            const update = resumeUpdate()!
-            expect(update.params[0]).toEqual([jobId])
-            const written = parseJSON(update.params[1][0])
-            expect(written[originKey]).toEqual({
+            expect(resumeUpdate()!.params[0]).toEqual([jobId])
+            expect(writtenState().state.currentAction.resumeResult).toEqual({
                 key: originKey,
                 status: 'completed',
                 result: { final_message: 'done' },
@@ -1924,8 +1923,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
 
         it.each([
+            ['the job is still running', 'running', parkedState()],
             ['the job already finished', 'completed', parkedState()],
             ['the job failed', 'failed', parkedState()],
+            ['the wake belongs to an earlier visit', 'available', parkedState(`${jobId}:task_node:2`)],
         ])('wakes nothing when %s', async (_, status, state) => {
             matcher.resumeRows = [{ id: jobId, status, state }]
 
@@ -1934,18 +1935,16 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(resumeUpdate()).toBeUndefined()
         })
 
-        it('retains different keys in one batch without replacing the first result for a key', async () => {
-            matcher.resumeRows = [{ id: jobId, status: 'running', state: null }]
+        it('applies the current wake when a stale one shares the batch', async () => {
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
             const parsedResume = { ...resume, status: 'completed' as const, jobId, actionId: 'task_node' }
+
             await matcher.processStepResumes([
+                { ...parsedResume, origin_key: `${jobId}:task_node:2`, status: 'failed' },
                 parsedResume,
-                { ...parsedResume, origin_key: `${originKey}.r1` },
-                { ...parsedResume, status: 'failed' },
             ])
 
-            const written = parseJSON(resumeUpdate()!.params[1][0])
-            expect(Object.keys(written)).toEqual([originKey, `${originKey}.r1`])
-            expect(written[originKey].status).toBe('completed')
+            expect(writtenState().state.currentAction.resumeResult.key).toBe(originKey)
         })
     })
 })

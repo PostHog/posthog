@@ -24,8 +24,8 @@ The task template uses 190 minutes and the scout template 35 minutes: each produ
 A step that reaches its deadline without a wake fails with a timeout.
 The wake arrives through the `$workflow_step_resume` internal event, keyed on the step's idempotency key, so any template that dispatches a run its owner can report on can use the same path.
 `CDP_HOGFLOW_AWAITED_STEPS_ENABLED` on the plugin server enables new waits. Existing waits still receive their results when this flag is off.
-Apply the Cyclotron migration for `pending_step_resumes` before deploying the consumer. It stores early completion events until the worker saves the matching wait.
-The database applies the result and schedules the job in the same update. Worker state writes cannot remove an unconsumed event.
+A wake that lands while the step is still dispatching is counted and dropped, because the worker owns the job state until it parks.
+That step then fails at its own deadline. The `cdp_hogflow_step_resume` counter reports these as `job_running`.
 Leave the flag off until the API that emits the wake is deployed.
 A task that ends through the agent's `finish` tool completes a few seconds before its final message is saved.
 The step waits for that message (up to 30 seconds) rather than continuing with an empty one.
