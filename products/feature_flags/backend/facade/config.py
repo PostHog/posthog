@@ -26,7 +26,7 @@ from posthog.dataclasses import frozen
 
 ConfigFormatKind = Literal["v1", "v2", "unsupported"]
 FlagReturnType = Literal["boolean", "string", "number", "object"]
-RuleType = Literal["targeted_release", "percentage_rollout", "variant_rollout", "experiment"]
+RuleType = Literal["targeted_release", "percentage_rollout", "experiment"]
 FlagValue = bool | str | int | float | dict[str, Any]
 
 
