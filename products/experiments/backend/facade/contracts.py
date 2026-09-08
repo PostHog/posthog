@@ -8,6 +8,7 @@ between the experiments product and the rest of the system.
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -92,6 +93,28 @@ class CreateExperimentInput:
     # Internal flags
     allow_unknown_events: bool = False
     serializer_context: dict | None = None
+
+
+@frozen
+class PulseExperimentDraftInput:
+    """Bounded, durable inputs for one inert Pulse experiment draft."""
+
+    team_id: int
+    actor_id: int
+    artifact_id: UUID
+    title: str
+    target: str
+    metric_direction: str
+    expected_metric_movement: str
+
+
+@frozen
+class PulseExperimentDraftResult:
+    """Authoritative identifiers for one prepared Pulse experiment draft."""
+
+    experiment_id: int
+    feature_flag_id: int
+    url: str
 
 
 @dataclass(frozen=True)

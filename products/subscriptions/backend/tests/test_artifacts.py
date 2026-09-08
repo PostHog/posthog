@@ -8,10 +8,65 @@ from products.subscriptions.backend.facade import artifacts
 from products.subscriptions.backend.facade.artifacts import (
     PreparedArtifactClaimInput,
     PreparedArtifactFailureInput,
+    PrepareExperimentDraftInput,
     claim_prepared_artifact,
     mark_prepared_artifact_failed,
+    prepare_experiment_draft,
 )
-from products.subscriptions.backend.models import ProactiveRecommendation, ProactiveRecommendationRun
+from products.subscriptions.backend.models import (
+    ProactivePreparedArtifact,
+    ProactiveRecommendation,
+    ProactiveRecommendationRun,
+)
+
+
+@pytest.mark.django_db
+def test_prepare_experiment_draft_completes_the_claim_once(team, user) -> None:
+    run = ProactiveRecommendationRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=uuid4(),
+        actor_id=user.id,
+        snapshot_hash="a" * 64,
+        artifact_config_hash="b" * 64,
+        status=ProactiveRecommendationRun.Status.COMPLETED,
+    )
+    ProactiveRecommendation.objects.for_team(team.id).create(
+        team_id=team.id,
+        run=run,
+        semantic_key="experiment",
+        recommendation={
+            "kind": "experiment",
+            "title": "Improve checkout completion",
+            "target": "The checkout flow",
+            "metric_direction": "increase",
+            "expected_metric_movement": "completed purchases",
+        },
+        citations=[],
+    )
+    claimed = claim_prepared_artifact(PreparedArtifactClaimInput(team_id=team.id, run_id=run.id, actor_id=user.id))
+    assert claimed is not None
+
+    prepared = prepare_experiment_draft(
+        PrepareExperimentDraftInput(team_id=team.id, artifact_id=claimed.id, actor_id=user.id)
+    )
+    replayed = prepare_experiment_draft(
+        PrepareExperimentDraftInput(team_id=team.id, artifact_id=claimed.id, actor_id=user.id)
+    )
+
+    claimed_row = ProactivePreparedArtifact.objects.for_team(team.id).get(id=claimed.id)
+    assert replayed == prepared
+    assert claimed_row.status == ProactivePreparedArtifact.Status.PREPARED
+    assert claimed_row.experiment_id == prepared.experiment_id
+    assert claimed_row.feature_flag_id == prepared.feature_flag_id
+    assert claimed_row.url == f"/project/{team.id}/experiments/{prepared.experiment_id}"
+    assert claimed_row.prepared_at == prepared.prepared_at
+    assert claimed_row.prepared_at is not None
+
+    failed = mark_prepared_artifact_failed(
+        PreparedArtifactFailureInput(team_id=team.id, artifact_id=claimed.id, failure_code="provider_unavailable")
+    )
+    assert failed.status == ProactivePreparedArtifact.Status.PREPARED
 
 
 @pytest.mark.django_db

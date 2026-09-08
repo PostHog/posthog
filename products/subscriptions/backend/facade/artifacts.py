@@ -5,13 +5,16 @@ from __future__ import annotations
 import re
 import json
 import hashlib
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.facade import PulseExperimentDraftInput, create_pulse_experiment_draft
 from products.subscriptions.backend.models import (
     ProactivePreparedArtifact,
     ProactiveRecommendation,
@@ -36,6 +39,22 @@ class PreparedArtifactFailureInput:
     team_id: int
     artifact_id: UUID
     failure_code: str
+
+
+@frozen
+class PrepareExperimentDraftInput:
+    team_id: int
+    artifact_id: UUID
+    actor_id: int
+
+
+@frozen
+class PreparedExperimentDraftDTO:
+    artifact_id: UUID
+    experiment_id: int
+    feature_flag_id: int
+    url: str
+    prepared_at: datetime
 
 
 @frozen
@@ -107,10 +126,57 @@ def mark_prepared_artifact_failed(input: PreparedArtifactFailureInput) -> Prepar
         )
         if artifact is None:
             raise ValueError("prepared artifact was not found")
-        artifact.status = ProactivePreparedArtifact.Status.FAILED
-        artifact.failure_code = input.failure_code[:128]
-        artifact.save(update_fields=["status", "failure_code", "updated_at"])
+        if artifact.status == ProactivePreparedArtifact.Status.PREPARING:
+            artifact.status = ProactivePreparedArtifact.Status.FAILED
+            artifact.failure_code = input.failure_code[:128]
+            artifact.save(update_fields=["status", "failure_code", "updated_at"])
         return _artifact_dto(artifact)
+
+
+def prepare_experiment_draft(input: PrepareExperimentDraftInput) -> PreparedExperimentDraftDTO:
+    """Complete one claimed experiment draft, preserving exact prepared replays."""
+    with transaction.atomic():
+        artifact = (
+            ProactivePreparedArtifact.objects.for_team(input.team_id)
+            .select_for_update()
+            .select_related("recommendation", "run")
+            .filter(id=input.artifact_id)
+            .first()
+        )
+        if artifact is None:
+            raise ValueError("prepared artifact was not found")
+        if artifact.run.actor_id != input.actor_id:
+            raise ValueError("artifact actor does not match its recommendation run")
+        if artifact.kind != ProactivePreparedArtifact.Kind.EXPERIMENT_DRAFT:
+            raise ValueError("prepared artifact is not an experiment draft")
+        if artifact.status == ProactivePreparedArtifact.Status.PREPARED:
+            return _prepared_experiment_dto(artifact)
+        if artifact.status != ProactivePreparedArtifact.Status.PREPARING:
+            raise ValueError("prepared artifact is not awaiting experiment preparation")
+        if not _matches_durable_replay(artifact=artifact, run=artifact.run):
+            raise ValueError("artifact replay does not match its durable claim")
+
+        result = create_pulse_experiment_draft(
+            _pulse_experiment_draft_input(artifact=artifact, actor_id=input.actor_id)
+        )
+        artifact.experiment_id = result.experiment_id
+        artifact.feature_flag_id = result.feature_flag_id
+        artifact.url = result.url
+        artifact.prepared_at = timezone.now()
+        artifact.status = ProactivePreparedArtifact.Status.PREPARED
+        artifact.failure_code = None
+        artifact.save(
+            update_fields=[
+                "experiment_id",
+                "feature_flag_id",
+                "url",
+                "prepared_at",
+                "status",
+                "failure_code",
+                "updated_at",
+            ]
+        )
+        return _prepared_experiment_dto(artifact)
 
 
 def _select_eligible_artifact(*, run: ProactiveRecommendationRun) -> _EligibleArtifact | None:
@@ -289,6 +355,45 @@ def _artifact_dto(artifact: ProactivePreparedArtifact) -> PreparedArtifactDTO:
         kind=artifact.kind,
         status=artifact.status,
         input_hash=artifact.input_hash,
+    )
+
+
+def _pulse_experiment_draft_input(*, artifact: ProactivePreparedArtifact, actor_id: int) -> PulseExperimentDraftInput:
+    payload = artifact.recommendation.recommendation
+    if not isinstance(payload, dict):
+        raise ValueError("experiment recommendation payload is invalid")
+    title = payload.get("title")
+    target = payload.get("target")
+    metric_direction = payload.get("metric_direction")
+    expected_metric_movement = payload.get("expected_metric_movement")
+    fields = (title, target, metric_direction, expected_metric_movement)
+    if not all(isinstance(field, str) for field in fields):
+        raise ValueError("experiment recommendation payload is invalid")
+    return PulseExperimentDraftInput(
+        team_id=artifact.team_id,
+        actor_id=actor_id,
+        artifact_id=artifact.id,
+        title=title,
+        target=target,
+        metric_direction=metric_direction,
+        expected_metric_movement=expected_metric_movement,
+    )
+
+
+def _prepared_experiment_dto(artifact: ProactivePreparedArtifact) -> PreparedExperimentDraftDTO:
+    if (
+        artifact.experiment_id is None
+        or artifact.feature_flag_id is None
+        or artifact.url is None
+        or artifact.prepared_at is None
+    ):
+        raise ValueError("prepared experiment artifact is incomplete")
+    return PreparedExperimentDraftDTO(
+        artifact_id=artifact.id,
+        experiment_id=artifact.experiment_id,
+        feature_flag_id=artifact.feature_flag_id,
+        url=artifact.url,
+        prepared_at=artifact.prepared_at,
     )
 
 
