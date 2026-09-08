@@ -1,5 +1,11 @@
 # AI Query Plan Visibility Implementation Plan
 
+> **Status: complete. Do not execute this plan.**
+> The work shipped in this pull request, and the unchecked boxes below are the plan as written before implementation rather than remaining work.
+> The build diverged from the plan in several places. The status is recorded per delivery and shown in delivery history instead of in `SubscriptionSummary`, the delivery indicator uses a snowflake instead of a pin, and its copy describes what that delivery already did.
+> The `Implementation notes` section of the spec lists every divergence.
+> Executing the open boxes would undo shipped behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Show AI prompt subscription owners whether the next delivery will reuse a frozen query plan, create one, or regenerate one after a planner compatibility change.
