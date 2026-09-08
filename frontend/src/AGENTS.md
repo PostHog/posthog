@@ -91,7 +91,7 @@ That is a normal working setup, not an edge case, and it is the case agents skip
 Page-translation extensions (Chrome and Edge in-page translate, the Google Translate widget) replace each text node they translate with a `<font>` element.
 React keeps pointing at the original node, which produces two defects — both of which land hardest on users outside English-speaking markets, since they're the ones with translation turned on:
 
-- **A crash.** Removing that text node, or inserting a sibling before it, throws `NotFoundError: Failed to execute 'removeChild' on 'Node'` ([react#11538](https://github.com/facebook/react/issues/11538)). `installTranslationSafeDom` (`frontend/src/translationSafeDom.ts`) neutralizes the two mutators React's commit phase relies on, and the `ErrorBoundary` remounts the subtree for whatever still throws, so the scene survives — but both are backstops, not a licence to render the shape.
+- **A crash.** Removing that text node, or inserting a sibling before it, throws `NotFoundError: Failed to execute 'removeChild' on 'Node'` ([react#11538](https://github.com/facebook/react/issues/11538)). `ErrorBoundary` remounts the subtree instead of dropping the scene, so this degrades rather than breaks — but a remount is still a backstop, not a licence to render the shape: it discards whatever state that subtree held.
 - **Silent staleness.** A text-only update writes `nodeValue` on the detached node, so the text freezes at whatever the extension translated. Live timers and countdowns just stop, and no backstop catches that.
 
 The hazard is specifically a **bare text node that has siblings**, because that's the only shape React tracks as its own node:

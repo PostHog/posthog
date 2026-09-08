@@ -22,9 +22,9 @@ const DOM_MUTATION_PATTERNS = [
 
 /**
  * These throw when something outside React rewrites DOM that React still holds, which in practice
- * means in-page translation that replaces text nodes with `<font>` wrappers (react#11538).
- * `installTranslationSafeDom` stops most of them at the two mutators React's commit phase uses;
- * this branch covers whatever still gets through.
+ * means in-page translation that replaces text nodes with `<font>` wrappers (react#11538). Render
+ * sites can opt out of translation to stop the shape at the source, but `{cond && 'text'}` is
+ * common all over the app, so this branch is what keeps the untreated ones from costing a scene.
  */
 function isDOMModificationError(error: Error): boolean {
     const message = error.message || ''
@@ -39,8 +39,9 @@ const MAX_CONSECUTIVE_REMOUNTS = 2
 /** A crash this long after the last remount is a new incident, not the same remount loop. */
 const REMOUNT_WINDOW_MS = 5000
 /**
- * A tab that stays translated can keep triggering the remount all day, and each one is the same
- * fact. A few per page load is enough to tell how often the recovery runs and where.
+ * The `$exception` is captured before this boundary decides what to do with it, so it cannot say
+ * whether the scene survived. That is what this event is for. A tab that stays translated can
+ * keep triggering the remount all day, and each one is the same fact, so cap the reports.
  */
 const MAX_REPORTED_REMOUNTS = 3
 let reportedRemounts = 0
@@ -86,10 +87,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
         remounts.current = { count, at: now }
         if (reportedRemounts < MAX_REPORTED_REMOUNTS) {
             reportedRemounts += 1
-            posthog.capture('error_boundary_dom_mutation_remounted', {
-                attempt: count,
-                current_path: window.location.pathname,
-            })
+            posthog.capture('error_boundary_dom_mutation_remounted', { attempt: count })
         }
         setRemountCount((previous) => previous + 1)
     }, [])

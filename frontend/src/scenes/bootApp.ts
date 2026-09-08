@@ -1,10 +1,7 @@
-import posthog from 'posthog-js'
-
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
 import { loadPostHogJS } from '../loadPostHogJS'
-import { installTranslationSafeDom } from '../translationSafeDom'
 
 let appBooted = false
 
@@ -26,9 +23,6 @@ export function bootApp(): void {
     }
     appBooted = true
 
-    // Before anything renders, so no commit can hit an unguarded mutator. Only the app bundle
-    // installs it: the toolbar runs in a customer's own page and must not patch their DOM.
-    installTranslationSafeDom(posthog)
     loadPostHogJS()
     // Kea must initialize before any component mounts
     initKea()
