@@ -111,9 +111,10 @@ def _completed_call(
     if wrapper is not None:
         tool_name, raw_arguments = wrapper
     else:
-        tool_name = _direct_tool_name(update, start)
-        if tool_name is None:
+        direct_tool_name = _direct_tool_name(update, start)
+        if direct_tool_name is None:
             return None
+        tool_name = direct_tool_name
         raw_arguments = raw_input
     result = _result(update, start)
     if result is None or not _within_result_budget(result):

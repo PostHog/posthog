@@ -101,7 +101,14 @@ class ProactivePreparedArtifact(TeamScopedRootMixin, UUIDModel):
     adopted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TeamScopedRootMixin.Meta):
-        indexes = [models.Index(fields=["team", "status", "created_at"])]
+        indexes = [
+            models.Index(fields=["team", "status", "created_at"]),
+            models.Index(
+                fields=["updated_at", "id"],
+                condition=models.Q(adopted_at__isnull=True),
+                name="subs_artifact_reconcile_idx",
+            ),
+        ]
 
 
 class ProactiveRecommendationOutcome(TeamScopedRootMixin, UUIDModel):
@@ -145,4 +152,11 @@ class ProactiveRecommendationOutcome(TeamScopedRootMixin, UUIDModel):
     failure_code = models.CharField(max_length=128, choices=FailureCode.choices, null=True, blank=True)
 
     class Meta(TeamScopedRootMixin.Meta):
-        indexes = [models.Index(fields=["due_at"])]
+        indexes = [
+            models.Index(fields=["due_at"]),
+            models.Index(
+                fields=["updated_at", "id"],
+                condition=models.Q(status="pending", due_at__isnull=False),
+                name="subs_outcome_dispatch_idx",
+            ),
+        ]

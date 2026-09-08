@@ -43,7 +43,7 @@ class ReadProactiveOutcomeWorkflow(PostHogWorkflow):
             read_proactive_outcome,
             input,
             start_to_close_timeout=timedelta(minutes=12),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
 
 

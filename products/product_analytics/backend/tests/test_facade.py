@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -99,18 +101,22 @@ class TestSavedInsightMeasurement(BaseTest):
             "interval": "day",
         }
 
-    def _measure(self, **overrides):
-        arguments = {
-            "team_id": self.team.id,
-            "insight_id": self.insight.id,
-            "short_id": self.insight.short_id,
-            "last_modified_at": self.insight.last_modified_at,
-            "frozen_query": self.query,
-            "date_from": now(),
-            "date_to": now(),
-        }
-        arguments.update(overrides)
-        return measure_saved_insight_trends(**arguments)
+    def _measure(
+        self,
+        *,
+        last_modified_at: datetime | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ):
+        return measure_saved_insight_trends(
+            team_id=self.team.id,
+            insight_id=self.insight.id,
+            short_id=self.insight.short_id,
+            last_modified_at=last_modified_at if last_modified_at is not None else self.insight.last_modified_at,
+            frozen_query=self.query,
+            date_from=date_from if date_from is not None else now(),
+            date_to=date_to if date_to is not None else now(),
+        )
 
     @parameterized.expand([("wrong_team",), ("deleted",), ("authority_changed",)])
     @patch("posthog.api.services.query.process_query_model")
@@ -156,3 +162,18 @@ class TestSavedInsightMeasurement(BaseTest):
     def test_measurement_hides_query_errors(self, query) -> None:
         assert self._measure().status == "query_error"
         query.assert_called_once()
+
+    @patch("posthog.api.services.query.process_query_model")
+    def test_measurement_uses_all_and_only_the_calendar_aligned_observed_dates(self, query) -> None:
+        query.return_value = {"results": [{"count": 3}]}
+
+        result = self._measure(
+            date_from=datetime(2026, 9, 8, tzinfo=UTC),
+            date_to=datetime(2026, 9, 14, 23, 59, 59, 999999, tzinfo=UTC),
+        )
+
+        assert result.status == "success"
+        executed_query = query.call_args.args[1]
+        assert executed_query.dateRange is not None
+        assert executed_query.dateRange.date_from == "2026-09-08"
+        assert executed_query.dateRange.date_to == "2026-09-14"

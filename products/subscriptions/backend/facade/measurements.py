@@ -110,7 +110,12 @@ def parse_frozen_measurement(value: object, *, allow_decimal: bool = False) -> F
     query = value.get("query")
     baseline = value.get("baseline")
     metric = value.get("metric")
-    if not all(isinstance(item, Mapping) for item in (saved_insight, query, baseline, metric)):
+    if (
+        not isinstance(saved_insight, Mapping)
+        or not isinstance(query, Mapping)
+        or not isinstance(baseline, Mapping)
+        or not isinstance(metric, Mapping)
+    ):
         return None
     insight_id = saved_insight.get("id")
     short_id = saved_insight.get("short_id")
@@ -188,9 +193,12 @@ def _decimal_value(value: object, *, allow_decimal: bool = False) -> Decimal | N
         decimal = Decimal(str(value))
     except InvalidOperation:
         return None
+    if not decimal.is_finite():
+        return None
+    exponent = decimal.as_tuple().exponent
     if (
-        not decimal.is_finite()
-        or decimal.as_tuple().exponent < -10
+        not isinstance(exponent, int)
+        or exponent < -10
         or len(decimal.as_tuple().digits) > 30
         or decimal.adjusted() > 19
     ):

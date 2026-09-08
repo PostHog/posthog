@@ -109,7 +109,9 @@ def test_canonicalize_measurement_freezes_supported_total_baselines(
         "short_id": "signup-rate",
         "last_modified_at": "2026-09-08T10:30:00+00:00",
     }
-    assert measurement["query"]["series"] == [{"kind": series["kind"], "math": "total", **expected_series}]
+    query = measurement["query"]
+    assert isinstance(query, dict)
+    assert query["series"] == [{"kind": series["kind"], "math": "total", **expected_series}]
     assert measurement["baseline"] == {"value": count, "date_from": "2026-09-01", "date_to": "2026-09-07"}
     assert measurement["metric"] == {
         "name": "Activation count",
@@ -137,9 +139,13 @@ def test_canonicalize_measurement_has_stable_compact_canonical_form_and_hash() -
     assert first == second
     assert first is not None
     assert set(first) == {"version", "source_call_id", "saved_insight", "query", "baseline", "metric", "hash"}
-    assert "response" not in first["query"]
-    assert "tags" not in first["query"]
-    assert len(first["hash"]) == 64
+    query = first["query"]
+    measurement_hash = first["hash"]
+    assert isinstance(query, dict)
+    assert isinstance(measurement_hash, str)
+    assert "response" not in query
+    assert "tags" not in query
+    assert len(measurement_hash) == 64
 
 
 @pytest.mark.parametrize(

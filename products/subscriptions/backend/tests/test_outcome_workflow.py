@@ -139,3 +139,43 @@ async def test_outcome_workflow_time_skips_to_the_due_boundary_and_runs_one_read
 
     assert result == terminal_status
     assert calls == [(17, outcome_id)]
+
+
+@pytest.mark.asyncio
+async def test_outcome_workflow_retries_a_transient_read_failure(monkeypatch) -> None:
+    outcome_id = uuid4()
+    attempts = 0
+
+    def read_once(*, team_id: int, outcome_id: UUID) -> outcomes_facade.OutcomeReadResult:
+        nonlocal attempts
+        assert team_id == 17
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary outage")
+        return outcomes_facade.OutcomeReadResult(outcome_id=outcome_id, status="improved", persisted=True)
+
+    monkeypatch.setattr(outcomes_facade, "read_outcome_once", read_once)
+
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        with ThreadPoolExecutor() as activity_executor:
+            async with Worker(
+                environment.client,
+                task_queue="proactive-outcome-retry-test",
+                workflows=[outcomes.ReadProactiveOutcomeWorkflow],
+                activities=[outcomes.read_proactive_outcome],
+                activity_executor=activity_executor,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result = await environment.client.execute_workflow(
+                    outcomes.ReadProactiveOutcomeWorkflow.run,
+                    outcomes.ProactiveOutcomeReadoutInput(
+                        team_id=17,
+                        outcome_id=outcome_id,
+                        due_at=datetime.now(UTC),
+                    ),
+                    id=f"proactive-outcome-retry-{outcome_id}",
+                    task_queue="proactive-outcome-retry-test",
+                )
+
+    assert result == "improved"
+    assert attempts == 2

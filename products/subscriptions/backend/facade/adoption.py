@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import partial
 from uuid import UUID
 
 from django.db import transaction
@@ -140,10 +141,11 @@ def _adopt_artifact(
             and provisioned.due_at is not None
         ):
             transaction.on_commit(
-                lambda outcome_id=provisioned.outcome_id, due_at=provisioned.due_at: start_proactive_outcome_readout(
+                partial(
+                    start_proactive_outcome_readout,
                     team_id=team_id,
-                    outcome_id=outcome_id,
-                    due_at=due_at,
+                    outcome_id=provisioned.outcome_id,
+                    due_at=provisioned.due_at,
                 )
             )
 

@@ -10,7 +10,8 @@ from django.utils import timezone
 import structlog
 
 from products.subscriptions.backend.facade.adoption import reconcile_prepared_artifact
-from products.subscriptions.backend.models import ProactivePreparedArtifact
+from products.subscriptions.backend.models import ProactivePreparedArtifact, ProactiveRecommendationOutcome
+from products.subscriptions.backend.temporal.client import start_proactive_outcome_readout
 
 logger = structlog.get_logger(__name__)
 
@@ -57,3 +58,24 @@ def reconcile_proactive_artifact_adoptions_batch() -> None:
             )
         finally:
             ProactivePreparedArtifact.objects.for_team(team_id).filter(id=artifact_id).update(updated_at=timezone.now())
+
+    pending_outcomes = list(
+        ProactiveRecommendationOutcome.objects.unscoped()  # nosemgrep: idor-lookup-without-team (bounded system reconciler; each candidate is re-scoped before use)
+        .filter(status=ProactiveRecommendationOutcome.Status.PENDING, due_at__isnull=False)
+        .order_by("updated_at", "id")
+        .values_list("team_id", "id", "due_at")[:_ADOPTION_RECONCILIATION_BATCH_SIZE]
+    )
+    for team_id, outcome_id, due_at in pending_outcomes:
+        assert due_at is not None
+        try:
+            start_proactive_outcome_readout(team_id=team_id, outcome_id=outcome_id, due_at=due_at)
+        except Exception:
+            logger.exception(
+                "proactive_outcome_readout_recovery_failed",
+                team_id=team_id,
+                outcome_id=str(outcome_id),
+            )
+        finally:
+            ProactiveRecommendationOutcome.objects.for_team(team_id).filter(id=outcome_id).update(
+                updated_at=timezone.now()
+            )

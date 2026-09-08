@@ -18,6 +18,7 @@ from products.subscriptions.backend.logic import adoption_reconciliation
 from products.subscriptions.backend.models import (
     ProactivePreparedArtifact,
     ProactiveRecommendation,
+    ProactiveRecommendationOutcome,
     ProactiveRecommendationRun,
 )
 from products.subscriptions.backend.tasks import tasks as subscription_tasks
@@ -483,3 +484,25 @@ def test_reconciliation_task_continues_after_one_artifact_failure(team, monkeypa
     assert seen == [second.id]
     first.refresh_from_db()
     assert first.updated_at > first_updated_at
+
+
+@pytest.mark.django_db
+def test_reconciliation_task_recovers_a_pending_outcome_workflow(team, monkeypatch) -> None:
+    artifact = create_artifact(team, status=ProactivePreparedArtifact.Status.ADOPTED, experiment_id=1)
+    outcome = ProactiveRecommendationOutcome.objects.for_team(team.id).create(
+        team_id=team.id,
+        artifact=artifact,
+        status=ProactiveRecommendationOutcome.Status.PENDING,
+        due_at=timezone.now() + timedelta(days=7),
+    )
+    dispatched: list[tuple[int, UUID, datetime]] = []
+    monkeypatch.setattr(
+        adoption_reconciliation,
+        "start_proactive_outcome_readout",
+        lambda *, team_id, outcome_id, due_at: dispatched.append((team_id, outcome_id, due_at)),
+        raising=False,
+    )
+
+    adoption_reconciliation.reconcile_proactive_artifact_adoptions_batch()
+
+    assert dispatched == [(team.id, outcome.id, outcome.due_at)]

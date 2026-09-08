@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from decimal import Decimal
 from uuid import UUID
 
@@ -46,7 +46,11 @@ def provision_outcome_for_adopted_artifact(*, team_id: int, artifact_id: UUID) -
     """Create the sole outcome row after adoption, preserving every replay unchanged."""
     with transaction.atomic():
         artifact = (
-            ProactivePreparedArtifact.objects.for_team(team_id).select_for_update().filter(id=artifact_id).first()
+            ProactivePreparedArtifact.objects.for_team(team_id)
+            .select_for_update()
+            .select_related("team")
+            .filter(id=artifact_id)
+            .first()
         )
         if (
             artifact is None
@@ -62,7 +66,11 @@ def provision_outcome_for_adopted_artifact(*, team_id: int, artifact_id: UUID) -
         )
         if recommendation is None:
             return None
-        defaults = _outcome_defaults(artifact=artifact, recommendation=recommendation)
+        defaults = _outcome_defaults(
+            artifact=artifact,
+            recommendation=recommendation,
+            timezone_info=artifact.team.timezone_info,
+        )
         outcome, created = ProactiveRecommendationOutcome.objects.for_team(team_id).get_or_create(
             artifact=artifact,
             defaults={"team_id": team_id, **defaults},
@@ -156,11 +164,13 @@ def read_outcome_once(*, team_id: int, outcome_id: UUID) -> OutcomeReadResult:
 
 
 def observed_window_for_baseline(
-    *, adopted_at: datetime, baseline_from: date, baseline_to: date
+    *, adopted_at: datetime, baseline_from: date, baseline_to: date, timezone_info: tzinfo = UTC
 ) -> tuple[datetime, datetime]:
-    """Return an inclusive full-day window with the frozen calendar span."""
+    """Return full local calendar days after adoption with the frozen span."""
     days = (baseline_to - baseline_from).days + 1
-    return adopted_at, adopted_at + timedelta(days=days) - timedelta(microseconds=1)
+    local_adoption = adopted_at if adopted_at.tzinfo is None else adopted_at.astimezone(timezone_info)
+    observed_from = datetime.combine(local_adoption.date() + timedelta(days=1), time.min, tzinfo=timezone_info)
+    return observed_from, observed_from + timedelta(days=days) - timedelta(microseconds=1)
 
 
 def verdict_for_measurement(*, baseline: Decimal, observed: Decimal, direction: str) -> OutcomeVerdict:
@@ -236,7 +246,7 @@ def parse_provisioned_measurement(
 
 
 def _outcome_defaults(
-    *, artifact: ProactivePreparedArtifact, recommendation: ProactiveRecommendation
+    *, artifact: ProactivePreparedArtifact, recommendation: ProactiveRecommendation, timezone_info: tzinfo
 ) -> dict[str, object]:
     measurement = parse_frozen_measurement(recommendation.recommendation.get("measurement"))
     if measurement is None or artifact.adopted_at is None:
@@ -244,6 +254,12 @@ def _outcome_defaults(
             "status": ProactiveRecommendationOutcome.Status.UNAVAILABLE,
             "failure_code": ProactiveRecommendationOutcome.FailureCode.BASELINE_UNAVAILABLE,
         }
+    _, observed_to = observed_window_for_baseline(
+        adopted_at=artifact.adopted_at,
+        baseline_from=measurement.baseline_from,
+        baseline_to=measurement.baseline_to,
+        timezone_info=timezone_info,
+    )
     return {
         "status": ProactiveRecommendationOutcome.Status.PENDING,
         "measurement_spec": _measurement_spec(measurement),
@@ -253,7 +269,7 @@ def _outcome_defaults(
         "baseline_value": measurement.baseline_value,
         "baseline_from": measurement.baseline_from,
         "baseline_to": measurement.baseline_to,
-        "due_at": artifact.adopted_at + timedelta(days=7),
+        "due_at": observed_to + timedelta(microseconds=1),
     }
 
 
@@ -318,4 +334,7 @@ def _unavailable_failure_code(status: str) -> str:
 
 
 def _fits_decimal_field(value: Decimal) -> bool:
-    return value.is_finite() and value.as_tuple().exponent >= -10 and value.adjusted() <= 19
+    if not value.is_finite():
+        return False
+    exponent = value.as_tuple().exponent
+    return isinstance(exponent, int) and exponent >= -10 and value.adjusted() <= 19

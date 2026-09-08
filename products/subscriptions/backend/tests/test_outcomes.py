@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -25,22 +26,42 @@ from products.subscriptions.backend.models import (
 
 
 @pytest.mark.parametrize(
-    ("baseline_from", "baseline_to", "expected_end"),
+    ("baseline_from", "baseline_to", "timezone_info", "expected_window"),
     [
-        (date(2026, 9, 1), date(2026, 9, 1), datetime(2026, 9, 9, 11, 29, 59, 999999)),
-        (date(2026, 9, 1), date(2026, 9, 7), datetime(2026, 9, 15, 11, 29, 59, 999999)),
+        (
+            date(2026, 9, 1),
+            date(2026, 9, 1),
+            ZoneInfo("UTC"),
+            (datetime(2026, 9, 9, tzinfo=UTC), datetime(2026, 9, 9, 23, 59, 59, 999999, tzinfo=UTC)),
+        ),
+        (
+            date(2026, 9, 1),
+            date(2026, 9, 7),
+            ZoneInfo("Europe/Amsterdam"),
+            (
+                datetime(2026, 9, 9, tzinfo=ZoneInfo("Europe/Amsterdam")),
+                datetime(2026, 9, 15, 23, 59, 59, 999999, tzinfo=ZoneInfo("Europe/Amsterdam")),
+            ),
+        ),
     ],
 )
-def test_observed_window_keeps_the_frozen_inclusive_calendar_span(
-    baseline_from: date, baseline_to: date, expected_end: datetime
+def test_observed_window_starts_on_the_first_full_day_after_adoption(
+    baseline_from: date,
+    baseline_to: date,
+    timezone_info: ZoneInfo,
+    expected_window: tuple[datetime, datetime],
 ) -> None:
-    observed_from = datetime(2026, 9, 8, 11, 30)
+    observed_from = datetime(2026, 9, 8, 11, 30, tzinfo=UTC)
 
-    assert observed_window_for_baseline(
-        adopted_at=observed_from,
-        baseline_from=baseline_from,
-        baseline_to=baseline_to,
-    ) == (observed_from, expected_end)
+    assert (
+        observed_window_for_baseline(
+            adopted_at=observed_from,
+            baseline_from=baseline_from,
+            baseline_to=baseline_to,
+            timezone_info=timezone_info,
+        )
+        == expected_window
+    )
 
 
 @pytest.mark.parametrize(
@@ -66,10 +87,12 @@ def test_verdict_uses_absolute_movement_without_a_threshold(
 
 def test_reader_reconstructs_the_compact_persisted_outcome_measurement() -> None:
     measurement = _measurement()
+    query = measurement["query"]
+    assert isinstance(query, dict)
     parsed = parse_provisioned_measurement(
         measurement_spec={
             "saved_insight": measurement["saved_insight"],
-            "query": {key: value for key, value in measurement["query"].items() if key != "dateRange"},
+            "query": {key: value for key, value in query.items() if key != "dateRange"},
         },
         baseline_value=Decimal("10"),
         baseline_from=date(2026, 9, 1),
@@ -137,6 +160,8 @@ def _adopted_artifact(team, *, measurement: object = _measurement(), adopted_at:
 
 @pytest.mark.django_db
 def test_provisioned_outcome_is_one_team_scoped_row_with_a_frozen_seven_day_due_date(team) -> None:
+    team.timezone = "Europe/Amsterdam"
+    team.save(update_fields=["timezone"])
     adopted_at = datetime(2026, 9, 8, 11, 30, tzinfo=UTC)
     artifact = _adopted_artifact(team, adopted_at=adopted_at)
 
@@ -150,12 +175,15 @@ def test_provisioned_outcome_is_one_team_scoped_row_with_a_frozen_seven_day_due_
     assert replay.outcome_id == first.outcome_id
     assert replay.created is False
     outcome = ProactiveRecommendationOutcome.objects.for_team(team.id).get(id=first.outcome_id)
+    measurement = _measurement()
+    query = measurement["query"]
+    assert isinstance(query, dict)
     assert outcome.artifact_id == artifact.id
     assert outcome.team_id == team.id
-    assert outcome.due_at == adopted_at + timedelta(days=7)
+    assert outcome.due_at == datetime(2026, 9, 16, tzinfo=ZoneInfo("Europe/Amsterdam"))
     assert outcome.measurement_spec == {
-        "saved_insight": _measurement()["saved_insight"],
-        "query": {key: value for key, value in _measurement()["query"].items() if key != "dateRange"},
+        "saved_insight": measurement["saved_insight"],
+        "query": {key: value for key, value in query.items() if key != "dateRange"},
     }
 
 
@@ -178,7 +206,7 @@ def test_missing_or_malformed_measurement_is_terminal_unavailable(team, measurem
 
 @pytest.mark.django_db
 def test_due_read_queries_outside_the_terminal_write_lock(team, monkeypatch) -> None:
-    artifact = _adopted_artifact(team, adopted_at=django_timezone.now() - timedelta(days=7))
+    artifact = _adopted_artifact(team, adopted_at=django_timezone.now() - timedelta(days=9))
     provisioned = provision_outcome_for_adopted_artifact(team_id=team.id, artifact_id=artifact.id)
     assert provisioned is not None
     baseline_atomic_depth = len(transaction.get_connection().atomic_blocks)
@@ -194,6 +222,8 @@ def test_due_read_queries_outside_the_terminal_write_lock(team, monkeypatch) -> 
     outcome = ProactiveRecommendationOutcome.objects.for_team(team.id).get(id=provisioned.outcome_id)
     assert outcome.status == ProactiveRecommendationOutcome.Status.IMPROVED
     assert outcome.observed_to is not None
+    assert outcome.observed_from is not None
+    assert outcome.observed_from.astimezone(team.timezone_info).time() == datetime.min.time()
     assert outcome.observed_to - outcome.observed_from == timedelta(days=7) - timedelta(microseconds=1)
 
 
