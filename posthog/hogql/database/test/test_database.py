@@ -1,5 +1,6 @@
 import io
 import json
+import time
 import pickle
 import dataclasses
 from collections.abc import Collection
@@ -4312,12 +4313,12 @@ class TestCachedTeamFlag(TestCase):
         team_b = cast(Team, SimpleNamespace(uuid="team-b-uuid"))
         evaluate = Mock(side_effect=[True, False])
 
-        assert _cached_team_flag("some-flag", team_a, evaluate) is True
-        assert _cached_team_flag("some-flag", team_a, evaluate) is True
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
         assert evaluate.call_count == 1
 
         # A different team must not see team A's cached decision.
-        assert _cached_team_flag("some-flag", team_b, evaluate) is False
+        assert _cached_team_flag("managed-viewsets", team_b, evaluate) is False
         assert evaluate.call_count == 2
 
     @patch("posthog.models.instance_setting.get_instance_setting", return_value=0)
@@ -4325,9 +4326,39 @@ class TestCachedTeamFlag(TestCase):
         team = cast(Team, SimpleNamespace(uuid="team-uuid"))
         evaluate = Mock(return_value=True)
 
-        _cached_team_flag("some-flag", team, evaluate)
-        _cached_team_flag("some-flag", team, evaluate)
+        _cached_team_flag("managed-viewsets", team, evaluate)
+        _cached_team_flag("managed-viewsets", team, evaluate)
         assert evaluate.call_count == 2
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_flags_outside_the_allowlist_are_never_cached(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        assert evaluate.call_count == 2
+        assert _TEAM_FLAG_CACHE == {}
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value="")
+    def test_unparseable_ttl_disables_caching_instead_of_raising(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+
+        assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_cap_sweeps_expired_entries_and_keeps_fresh_ones(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        now = time.monotonic()
+        _TEAM_FLAG_CACHE[("expired-team-uuid", "managed-viewsets")] = (now - 1, True)
+        _TEAM_FLAG_CACHE[("fresh-team-uuid", "managed-viewsets")] = (now + 300, True)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 2):
+            _cached_team_flag("managed-viewsets", team, Mock(return_value=True))
+
+        assert ("expired-team-uuid", "managed-viewsets") not in _TEAM_FLAG_CACHE
+        assert ("fresh-team-uuid", "managed-viewsets") in _TEAM_FLAG_CACHE
+        assert (str(team.uuid), "managed-viewsets") in _TEAM_FLAG_CACHE
 
 
 class TestCreateForPosthogTables(BaseTest):

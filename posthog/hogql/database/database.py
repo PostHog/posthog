@@ -352,23 +352,38 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 _DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
 _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 
-# Every database build evaluates the same per-team feature-flag decisions, and flag evaluation can
-# fall back to a network call. A short per-process TTL bounds that cost; a flag flip lags at most
-# the TTL, so authorization-gating flags must not go through this cache. Entries are tiny, but the
-# key space is one per (team, flag), so cap it and drop the whole dict when it fills - simpler than
-# an LRU and the next builds just re-evaluate. Unlocked by design: dict reads/writes are atomic
-# under the GIL, and the worst race between concurrent builds is a duplicate evaluation or a lost
-# cache entry, both benign.
+# Every database build evaluates the same per-team feature-flag decisions, and flag evaluation
+# costs property matching per call and can fall back to a network call. A short per-process TTL
+# bounds that cost; a flag flip lags at most the TTL. Only flags in the allowlist below are ever
+# cached: a flag that gates authorization or enforcement (who can see which data) must stay out,
+# because a cached stale False holds enforcement open team-wide for the TTL. Availability flags
+# (which schema surfaces exist) tolerate that lag. Expired entries are only replaced on re-request,
+# so on a long-lived worker the dict grows with distinct-team count; at the cap, sweep the expired
+# entries first and drop everything only if live entries alone still exceed it - simpler than an
+# LRU, and fresh entries survive the sweep. Unlocked by design: dict reads/writes are atomic under
+# the GIL, and the worst race between concurrent builds is a duplicate evaluation or a lost cache
+# entry, both benign.
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "data-quality-checks"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
 
 
 def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -> bool:
+    # Not cache_for/CachedFunction: its TTL is fixed at decoration time, and this TTL is a live
+    # instance setting so ops can retune or disable the cache without a redeploy.
     # Function-local: keeps the Django model import off the django.setup() path. The instance
-    # setting has its own short in-process cache, so this read costs no query per build.
+    # setting has its own 60s in-process cache, so this read costs one query per worker per
+    # minute, not one per build.
     from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
 
-    ttl = int(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
+    if flag_key not in _CACHEABLE_TEAM_FLAGS:
+        return evaluate()
+    try:
+        # int(): the setting round-trips through InstanceSetting's raw JSON storage, so a value
+        # edited in the Django admin can come back as a str, float, or blank string.
+        ttl = int(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
+    except (TypeError, ValueError):
+        ttl = 0
     if ttl <= 0:
         return evaluate()
     cache_key = (str(team.uuid), flag_key)
@@ -378,7 +393,10 @@ def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -
         return hit[1]
     value = evaluate()
     if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
-        _TEAM_FLAG_CACHE.clear()
+        for stale_key in [key for key, (expiry, _) in _TEAM_FLAG_CACHE.items() if expiry <= now]:
+            _TEAM_FLAG_CACHE.pop(stale_key, None)
+        if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
+            _TEAM_FLAG_CACHE.clear()
     _TEAM_FLAG_CACHE[cache_key] = (now + ttl, value)
     return value
 

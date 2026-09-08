@@ -31,8 +31,9 @@ CONSTANCE_CONFIG = {
         # test, so a cached decision from one test would leak into the next.
         get_from_env("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS", 0 if TEST else 30, type_cast=int),
         "How long each HogQL database build reuses a team's feature-flag decisions (managed viewsets, "
-        "data quality checks) before re-evaluating. A flag flip reaches HogQL queries within this "
-        "many seconds. 0 re-evaluates on every build.",
+        "data quality checks) before re-evaluating. This lag adds to the flag SDK's own definition "
+        "refresh cadence, and changes to this setting reach each worker within about a minute. "
+        "0 re-evaluates on every build.",
         int,
     ),
     "MATERIALIZED_COLUMNS_ENABLED": (
