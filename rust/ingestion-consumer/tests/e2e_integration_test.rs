@@ -25,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::config::CompletionGranularity;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -435,6 +436,7 @@ struct Harness {
     pub ledger: Arc<TopicOffsetLedger>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
+    completion_granularity: CompletionGranularity,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -531,6 +533,7 @@ impl Harness {
             registry_config,
             0,
             ComponentOptions::new(),
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -553,6 +556,7 @@ impl Harness {
             ComponentOptions::new()
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -570,6 +574,7 @@ impl Harness {
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -584,6 +589,7 @@ impl Harness {
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
         component_options: ComponentOptions,
+        completion_granularity: CompletionGranularity,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -635,6 +641,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
+                completion_granularity,
             },
             handle,
         );
@@ -657,6 +664,7 @@ impl Harness {
             ledger,
             max_in_flight,
             deferred_flush_timeout,
+            completion_granularity,
         }
     }
 
@@ -709,6 +717,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
                 debug_recorder: None,
+                completion_granularity: self.completion_granularity,
             },
             handle,
         );
@@ -2560,6 +2569,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
         },
         handle2,
     );
@@ -2667,6 +2677,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
         },
         handle2,
     );
@@ -2780,6 +2791,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
         },
         handle,
     );

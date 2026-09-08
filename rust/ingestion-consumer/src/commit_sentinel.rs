@@ -128,6 +128,18 @@ impl CommitSentinel {
         violations
     }
 
+    /// Pass a frontier on without a span check. At `group` granularity a
+    /// take no longer maps to one poll's slice, so there is no delivered span
+    /// to hold against the previous commit; the ledger's gap counter covers
+    /// a skip in what Kafka delivered.
+    pub fn advance_frontier_unchecked(
+        &self,
+        topic_partition: &TopicPartition,
+        taken: TakenFrontier,
+    ) {
+        self.inner.advance_frontier(topic_partition, taken);
+    }
+
     /// Partitions leaving the assignment: drop their baselines, and whatever
     /// the pacer holds for them.
     pub fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
