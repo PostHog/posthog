@@ -27,7 +27,7 @@ import {
 import { validateSandboxEventIngestToken } from '../lib/jwt.js'
 import { logger } from '../lib/logging.js'
 import { TaskRunRedisStream, getStreamKey } from '../lib/redis-stream.js'
-import { heartbeatWorkflowIfNeeded } from '../lib/side-effects.js'
+import { heartbeatWorkflowIfNeeded, isAgentTurnActivityEvent } from '../lib/side-effects.js'
 import {
     ClientDisconnected,
     EventIngestBadRequest,
@@ -262,6 +262,16 @@ async function ingestEventLines(
 
             result.accepted++
             result.last_accepted_seq = seq
+            if (isAgentTurnActivityEvent(event)) {
+                try {
+                    await redisStream.recordRelayActivity()
+                } catch (err: unknown) {
+                    logger.warn('ingest:record_activity_failed', {
+                        run: claims.runId,
+                        error: err instanceof Error ? err.message : String(err),
+                    })
+                }
+            }
 
             await heartbeatWorkflowIfNeeded(
                 redisStream,

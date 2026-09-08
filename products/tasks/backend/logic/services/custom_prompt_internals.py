@@ -107,7 +107,6 @@ _TURN_RELEVANT_SESSION_UPDATES = frozenset(
         "plan",
         "tool_call",
         "tool_call_update",
-        "usage_update",
     }
 )
 
@@ -259,16 +258,16 @@ def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> s
 
 
 async def _relay_activity_is_stale(task_run: TaskRun, stale_seconds: int) -> bool:
-    stream = TaskRunRedisStream(
-        get_task_run_stream_key(str(task_run.id)),
-        run_uses_dedicated_stream(getattr(task_run, "state", None)),
-    )
+    use_dedicated = run_uses_dedicated_stream(getattr(task_run, "state", None))
+    streams = [TaskRunRedisStream(get_task_run_stream_key(str(task_run.id)), use_dedicated)]
+    if use_dedicated:
+        streams.append(TaskRunRedisStream(get_task_run_stream_key(str(task_run.id))))
     try:
-        activity_at = await stream.get_relay_activity_at()
+        activity_times = [activity_at for stream in streams if (activity_at := await stream.get_relay_activity_at())]
     except Exception:
         logger.warning("custom_prompt - poll_for_turn: failed to read relay activity", exc_info=True)
         return False
-    return activity_at is not None and time.time() - activity_at >= stale_seconds
+    return bool(activity_times) and time.time() - max(activity_times) >= stale_seconds
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -701,7 +700,9 @@ async def _salvage_dropped_finalization(
     # alongside the late usage_update would push raw growth past the threshold and wrongly decline the
     # very dropped-finalization case this path recovers.
     new_lines = (log_state.full_log or "").strip().split("\n")[max_total_lines_seen:]
-    relevant_growth = (log_state.total_lines - max_total_lines_seen) - _transient_growth(new_lines)
+    relevant_growth = (log_state.total_lines - max_total_lines_seen) - _transient_growth(
+        new_lines, discount_usage_updates=False
+    )
     if relevant_growth > 1:
         logger.warning(
             "custom_prompt - salvage_dropped_finalization: reread grew %d turn-relevant line(s) past "
@@ -1019,7 +1020,7 @@ def _has_prompt_echo(lines: list[str]) -> bool:
     return False
 
 
-def _transient_growth(lines: list[str]) -> int:
+def _transient_growth(lines: list[str], *, discount_usage_updates: bool = True) -> int:
     """Count how many of `lines` carry no agent turn-state: transient relay side-channels (network
     audits, credential refreshes, sandbox stdout, informational progress), setup updates, and echoed prompts. The
     relay echoes the user's own message into the turn log, so without discounting it every turn
@@ -1040,7 +1041,10 @@ def _transient_growth(lines: list[str]) -> int:
         method = notification.get("method")
         if method == "session/update":
             update = (notification.get("params") or {}).get("update")
-            if isinstance(update, dict) and update.get("sessionUpdate") not in _TURN_RELEVANT_SESSION_UPDATES:
+            subtype = update.get("sessionUpdate") if isinstance(update, dict) else None
+            if subtype == "usage_update" and not discount_usage_updates:
+                continue
+            if isinstance(update, dict) and subtype not in _TURN_RELEVANT_SESSION_UPDATES:
                 count += 1
             continue
         if method not in TRANSIENT_SIDE_CHANNEL_METHODS:

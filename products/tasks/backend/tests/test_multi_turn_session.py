@@ -843,6 +843,7 @@ class TestPollForTurnTimeoutDiagnosis:
                 json.dumps({"notification": {"method": "_posthog/run_started", "params": {}}}),
                 json.dumps({"notification": {"method": "_posthog/agent_command_dispatched", "params": {}}}),
                 *lifecycle_updates,
+                _usage_update_line(),
                 _console_line("agentsh network events"),
             ]
         )

@@ -9,7 +9,7 @@
 // TaskRunRedisStream calls (XADD, XRANGE, XREVRANGE, XREAD, XLEN, GET, SET,
 // EXISTS, EXPIRE, DEL, WATCH, UNWATCH, MULTI/EXEC).
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 import { STREAM_COMPLETED_TTL_SECONDS, STREAM_WATCHED_TTL_SECONDS } from '@/lib/constants.js'
 import {
@@ -19,6 +19,7 @@ import {
     getCompletedKey,
     getAgentActiveKey,
     getHeartbeatKey,
+    getRelayActivityKey,
     getFirstCommandKey,
     getFirstActivityKey,
     getWatchedKey,
@@ -486,8 +487,28 @@ describe('redis-stream', () => {
             expect(getCompletedKey(streamKey)).toBe('task-run-stream:abc-123:completed')
             expect(getAgentActiveKey(streamKey)).toBe('task-run-stream:abc-123:ingest-agent-active')
             expect(getHeartbeatKey(streamKey)).toBe('task-run-stream:abc-123:ingest-heartbeat')
+            expect(getRelayActivityKey(streamKey)).toBe('task-run-stream:abc-123:relay-activity')
             expect(getFirstCommandKey(streamKey)).toBe('task-run-stream:abc-123:ingest-first-agent-command')
             expect(getFirstActivityKey(streamKey)).toBe('task-run-stream:abc-123:ingest-first-agent-activity')
+        })
+    })
+
+    describe('relay activity', () => {
+        it('records epoch seconds and throttles updates for ten seconds', async () => {
+            const { stream, redis, streamKey } = newStream()
+            vi.useFakeTimers()
+            vi.setSystemTime(100_000)
+
+            await stream.recordRelayActivity()
+            expect(await redis.get(getRelayActivityKey(streamKey))).toBe('100')
+            vi.setSystemTime(105_000)
+            await stream.recordRelayActivity()
+            expect(await redis.get(getRelayActivityKey(streamKey))).toBe('100')
+            vi.setSystemTime(111_000)
+            await stream.recordRelayActivity()
+            expect(await redis.get(getRelayActivityKey(streamKey))).toBe('111')
+
+            vi.useRealTimers()
         })
     })
 

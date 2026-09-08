@@ -57,6 +57,10 @@ export function getHeartbeatKey(streamKey: string): string {
     return `${streamKey}:ingest-heartbeat`
 }
 
+export function getRelayActivityKey(streamKey: string): string {
+    return `${streamKey}:relay-activity`
+}
+
 export function getFirstCommandKey(streamKey: string): string {
     return `${streamKey}:ingest-first-agent-command`
 }
@@ -139,6 +143,7 @@ export class TaskRunRedisStream {
     private readonly maxLength: number
     private readonly presenceGated: boolean
     private readonly thinTail: boolean
+    private lastRelayActivityAt: number | null = null
 
     constructor(
         streamKey: string,
@@ -408,6 +413,15 @@ export class TaskRunRedisStream {
         return raw === '1'
     }
 
+    async recordRelayActivity(): Promise<void> {
+        const now = Date.now()
+        if (this.lastRelayActivityAt !== null && now - this.lastRelayActivityAt < 10_000) {
+            return
+        }
+        await this.redis.set(getRelayActivityKey(this.streamKey), String(now / 1000), 'EX', this.timeout)
+        this.lastRelayActivityAt = now
+    }
+
     // EXISTS completed-key -> bool
     async isComplete(): Promise<boolean> {
         return (await this.redis.exists(getCompletedKey(this.streamKey))) > 0
@@ -610,6 +624,7 @@ export class TaskRunRedisStream {
             const completedKey = getCompletedKey(this.streamKey)
             const agentActiveKey = getAgentActiveKey(this.streamKey)
             const heartbeatKey = getHeartbeatKey(this.streamKey)
+            const relayActivityKey = getRelayActivityKey(this.streamKey)
             const firstCommandKey = getFirstCommandKey(this.streamKey)
             const firstActivityKey = getFirstActivityKey(this.streamKey)
             const watchedKey = getWatchedKey(this.streamKey)
@@ -619,6 +634,7 @@ export class TaskRunRedisStream {
                 completedKey,
                 agentActiveKey,
                 heartbeatKey,
+                relayActivityKey,
                 firstCommandKey,
                 firstActivityKey,
                 watchedKey

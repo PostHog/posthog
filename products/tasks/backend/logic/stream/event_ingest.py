@@ -132,15 +132,20 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
 
     redis_stream = TaskRunRedisStream(
         get_task_run_stream_key(claims.run_id),
-        claims.use_dedicated_stream,
         presence_gated=claims.presence_gated,
         thin_tail=claims.thin_tail,
         origin_product=claims.origin_product,
+    )
+    activity_stream = (
+        TaskRunRedisStream(get_task_run_stream_key(claims.run_id), True)
+        if claims.use_dedicated_stream
+        else redis_stream
     )
 
     try:
         result = await _ingest_event_lines(
             redis_stream,
+            activity_stream,
             claims,
             receive,
         )
@@ -180,6 +185,7 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
 
 async def _ingest_event_lines(
     redis_stream: TaskRunRedisStream,
+    activity_stream: TaskRunRedisStream,
     claims: SandboxEventIngestTokenPayload,
     receive: ASGIReceive,
 ) -> EventIngestResult:
@@ -223,7 +229,7 @@ async def _ingest_event_lines(
             result.last_accepted_seq = sequence
             if is_agent_turn_activity_event(event):
                 try:
-                    await redis_stream.record_relay_activity()
+                    await activity_stream.record_relay_activity()
                 except Exception as error:
                     logger.warning("event_ingest_record_activity_failed", run_id=claims.run_id, error=str(error))
             await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)

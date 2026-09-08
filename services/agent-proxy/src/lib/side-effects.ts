@@ -109,6 +109,36 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
     )
 }
 
+export function isAgentTurnActivityEvent(event: Record<string, unknown>): boolean {
+    if (event['type'] === 'pi_event') {
+        const piEvent = event['event']
+        if (typeof piEvent !== 'object' || piEvent === null) {
+            return false
+        }
+        const subtype = String((piEvent as Record<string, unknown>)['type'])
+        return PI_GENERATION_EVENTS.has(subtype) || subtype === 'user_message'
+    }
+    if (!isSessionUpdate(event)) {
+        return false
+    }
+    const notification = event['notification'] as Record<string, unknown>
+    const params = notification['params']
+    if (typeof params !== 'object' || params === null) {
+        return false
+    }
+    const update = (params as Record<string, unknown>)['update']
+    if (typeof update !== 'object' || update === null) {
+        return false
+    }
+    const subtype = String((update as Record<string, unknown>)['sessionUpdate'])
+    return (
+        ACP_GENERATION_UPDATES.has(subtype) ||
+        subtype === 'plan' ||
+        subtype === 'user_message' ||
+        subtype === 'user_message_chunk'
+    )
+}
+
 const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
 const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input'])
