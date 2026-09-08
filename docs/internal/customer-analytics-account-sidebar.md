@@ -19,7 +19,7 @@ controls; other editors use Clear value, Cancel, and Save.
 Clearing a custom value requires confirmation and posts a null value to
 `POST /api/projects/:project_id/accounts/:account_id/custom_property_values/`.
 The endpoint returns 204, soft-deletes the current value, and preserves its history.
-Warehouse-backed values reject both manual sets and clears.
+Warehouse-backed and canonical values reject both manual sets and clears.
 
 Relationship editors support single and multiple holders. Removing a holder ends the
 assignment without deleting its history. Multi-holder changes retain unchanged holders.

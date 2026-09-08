@@ -888,9 +888,9 @@ class CustomPropertyDefinitionConflictError(Exception):
 
 
 class CanonicalCustomPropertyReadOnlyError(Exception):
-    """Raised when an update would change a field PostHog owns on a canonical custom property —
-    its name or display type. Both are what the write path matches on, so a user editing them
-    would silently stop the values from being recorded (→ 400)."""
+    """Canonical names and types identify the properties that PostHog records.
+    Manual API writes must preserve those identifiers and their system-managed values.
+    """
 
 
 class ResourceForbiddenError(Exception):
@@ -4372,6 +4372,11 @@ def set_custom_property_value(
     *,
     actor: "User | None" = None,
 ) -> contracts.CustomPropertyValue:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        raise CanonicalCustomPropertyReadOnlyError(
+            "This custom property is managed by PostHog and can't be edited manually."
+        )
     if _source_backed_definition_ids(team_id, [definition_id]):
         raise CustomPropertyValueSourceManaged(
             "This custom property is managed by a data warehouse source and can't be set manually."
@@ -4394,6 +4399,11 @@ def clear_custom_property_value(
     *,
     actor: "User | None" = None,
 ) -> None:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        raise CanonicalCustomPropertyReadOnlyError(
+            "This custom property is managed by PostHog and can't be edited manually."
+        )
     if _source_backed_definition_ids(team_id, [definition_id]):
         raise CustomPropertyValueSourceManaged(
             "This custom property is managed by a data warehouse source and can't be cleared manually."
