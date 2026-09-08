@@ -55,6 +55,48 @@ describe('AccountCustomPropertyEditor', () => {
         expect(onSave).toHaveBeenCalledWith(value)
     })
 
+    it.each(['example.com', 'ftp://example.com/file'])('refuses to save %s as a link', (entered) => {
+        const onSave = jest.fn()
+        const { container } = render(
+            <AccountCustomPropertyEditor
+                definition={{ ...definition, display_type: 'link' }}
+                value={null}
+                onSave={onSave}
+                onCancel={jest.fn()}
+            />
+        )
+        const input = container.querySelector('input')!
+        fireEvent.change(input, { target: { value: entered } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+        fireEvent.click(screen.getByText('Save'))
+        expect(onSave).not.toHaveBeenCalled()
+        expect(container.querySelector('[data-attr="account-property-save"]')).toHaveAttribute('aria-disabled', 'true')
+
+        fireEvent.change(input, { target: { value: 'https://example.com/account' } })
+        fireEvent.click(screen.getByText('Save'))
+        expect(onSave).toHaveBeenCalledWith('https://example.com/account')
+    })
+
+    it('refuses to save a select property with no option picked', () => {
+        const onSave = jest.fn()
+        const selectDefinition = {
+            ...definition,
+            display_type: 'select' as const,
+            options: [{ id: 'option-1', label: 'Enterprise' }],
+        }
+        const { container } = render(
+            <AccountCustomPropertyEditor
+                definition={selectDefinition}
+                value={null}
+                onSave={onSave}
+                onCancel={jest.fn()}
+            />
+        )
+        fireEvent.click(screen.getByText('Save'))
+        expect(onSave).not.toHaveBeenCalled()
+        expect(container.querySelector('[data-attr="account-property-save"]')).toHaveAttribute('aria-disabled', 'true')
+    })
+
     it.each(['date', 'datetime'] as const)(
         'retains an attempted %s selection when the save does not succeed',
         (display_type) => {
