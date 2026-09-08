@@ -36,10 +36,7 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("alerts", "0001_migrate_models"),
-        ("actions", "0001_migrate_actions_models"),
         ("posthog", "1167_remove_alertconfiguration_is_calculating"),
-        ("surveys", "0002_action_fk_repoint"),
     ]
 
     operations = [

@@ -561,7 +561,7 @@ async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput
                     # The push is org-wide, but a project that already uses the product
                     # shouldn't be nudged about it - same rule the nav card applies.
                     if product_path is None or await database_sync_to_async(project_uses_product)(
-                        team.project_id, campaign["product_key"]
+                        team.project_id, campaign["product_key"], organization_id
                     ):
                         team_count += 1
                         continue

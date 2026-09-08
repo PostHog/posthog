@@ -72,7 +72,7 @@ class MailJetSource(
             name=SchemaExternalDataSourceType.MAILJET,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Mailjet",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Mailjet API key and secret key to pull your Mailjet data into the PostHog Data warehouse.
 
 You can find your API key and secret key in your [Mailjet API key management page](https://app.mailjet.com/account/apikeys).

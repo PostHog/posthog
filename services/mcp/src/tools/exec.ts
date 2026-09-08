@@ -11,7 +11,7 @@ import { formatResponse } from '@/lib/response'
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
-import type { ScopeGatedTool } from './toolDefinitions'
+import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_INFORMATIONAL_RESPONSE_KEY,
@@ -134,6 +134,11 @@ export interface ExecToolOptions {
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
     /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
     trackCommand?: ExecCommandTracker
+    /**
+     * Tools a feature flag removed from this connection's catalog. Lets a call to
+     * a retired name name its successor instead of reading as an unknown tool.
+     */
+    flagGatedTools?: FlagGatedTool[]
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -321,12 +326,13 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools that were removed from the MCP server — or flag-gated out of the active
-// catalog. When the model attempts to call one that isn't present, surface a
-// targeted redirect to the replacement instead of dumping the full tool catalog.
-// Keep the redirect text editorial — schemas don't carry "use X instead"
-// guidance. A redirect only fires when the tool is absent, so an entry for a
-// conditionally-gated tool is inert whenever that tool is registered.
+// Tools deleted from the MCP server. When the model attempts to call one,
+// surface a targeted redirect to the replacement instead of dumping the full
+// tool catalog. Keep the redirect text editorial — schemas don't carry
+// "use X instead" guidance.
+// A tool a feature flag removed still has a definition, so it declares its own
+// successor through `superseded_by` and is answered by `flagGatedToolMessage`
+// instead of by an entry here.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
@@ -398,6 +404,68 @@ function looksLikeUnwrappedPayload(
 }
 
 /**
+ * The field names a wrapper parameter declares directly, including the fields of
+ * each variant when the wrapper is a union (`read-data-schema` keys its shape off
+ * a `kind` discriminator). Composition keywords are walked one level; nothing
+ * deeper is collected, because only the caller's own top-level keys are matched
+ * against this set.
+ */
+function wrapperFieldNames(schema: ZodObjectAny, key: string): ReadonlySet<string> {
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    const wrapper = isRecord(properties) ? properties[key] : undefined
+    const names = new Set<string>()
+    if (!isRecord(wrapper)) {
+        return names
+    }
+    for (const node of [wrapper, ...variantsOf(wrapper)]) {
+        const fields = node['properties']
+        if (isRecord(fields)) {
+            for (const name of Object.keys(fields)) {
+                names.add(name)
+            }
+        }
+    }
+    return names
+}
+
+function variantsOf(node: Record<string, unknown>): Record<string, unknown>[] {
+    return ['anyOf', 'oneOf', 'allOf']
+        .flatMap((keyword) => (Array.isArray(node[keyword]) ? (node[keyword] as unknown[]) : []))
+        .filter(isRecord)
+}
+
+/**
+ * Renders the shape the tool would have accepted, by nesting the caller's own
+ * keys under the wrapper they omitted: `{"query": {"dateRange": ..., "limit": ...}}`.
+ *
+ * A caller told only to "resend them as {"query": {...}}" has to work out which
+ * of its fields belong inside, and the reports behind this said so — they asked
+ * for one valid input shape at the point of rejection. Echoing the keys back in
+ * place answers that without a second `info` call.
+ *
+ * Only keys the wrapper itself declares are named, so the rendered shape is the
+ * tool's own vocabulary rather than the caller's, and values are always elided.
+ * The message is returned to the caller and recorded as the analytics error
+ * message, so it must carry no input. Falls back to `{...}` when no key matches.
+ */
+function acceptedWrapperShape(key: string, input: unknown, schema: ZodObjectAny | undefined): string {
+    if (!schema || !isRecord(input)) {
+        return `{"${key}": {...}}`
+    }
+    const declared = wrapperFieldNames(schema, key)
+    const named = Object.keys(input).filter((name) => declared.has(name))
+    if (named.length === 0) {
+        return `{"${key}": {...}}`
+    }
+    const shown = named.slice(0, MAX_WRAPPER_KEYS_NAMED).map((name) => `"${name}": ...`)
+    if (named.length > MAX_WRAPPER_KEYS_NAMED) {
+        shown.push('...')
+    }
+    return `{"${key}": {${shown.join(', ')}}}`
+}
+
+/**
  * Names the top-level keys a non-strict schema dropped, so a caller told `id` is
  * missing can see that the key it did send — `scanner_id` — was discarded rather
  * than read. Without this the caller is told only that a parameter it never used
@@ -426,6 +494,51 @@ function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): strin
  *  undeclared payload cannot inflate the analytics error message. */
 const MAX_DROPPED_KEYS_NAMED = 5
 
+/** Same bound for the rendered wrapper shape: enough keys to recognize the
+ *  payload, not enough for a large one to inflate the message. */
+const MAX_WRAPPER_KEYS_NAMED = 5
+
+/** Bound on the parameter description echoed back with a missing-parameter
+ *  rejection, so a tool with a long field description cannot inflate the
+ *  analytics error message. */
+const MAX_MISSING_PARAM_HINT = 200
+
+/**
+ * The missing parameter's own description, appended to the rejection.
+ *
+ * A bare `missing required parameter: short_id` names the field to fill but not
+ * what to fill it with, so a caller that never held the identifier retries the
+ * same empty call. The field's description already answers that — where the
+ * value comes from and what shape it takes — and this puts it in front of the
+ * caller at the moment it needs it, instead of requiring a separate `info` call.
+ *
+ * Top-level fields only: a nested path describes a field the caller has not
+ * reached yet. The text comes from the tool's own schema, never from caller
+ * input, so it is safe in the message returned to the caller and recorded as the
+ * analytics error message.
+ */
+function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+    if (!schema || path.length !== 1) {
+        return ''
+    }
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    const field = isRecord(properties) ? properties[String(path[0])] : undefined
+    const description = isRecord(field) && typeof field['description'] === 'string' ? field['description'].trim() : ''
+    if (!description) {
+        return ''
+    }
+    const capped =
+        description.length > MAX_MISSING_PARAM_HINT
+            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
+            : description
+    return ` (${capped})`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /** Turns a Zod validation failure into a short, field-named message the model
  *  can act on. Without it, a missing/`undefined` path segment slips through to
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
@@ -450,8 +563,10 @@ export function formatInputValidationError(
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
+                const hint = missingParameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
-                    return `missing required parameter: ${path}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
+                    const shape = acceptedWrapperShape(path, input, schema)
+                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}`
                 }
                 const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
                 if (dropped.length) {
@@ -459,9 +574,9 @@ export function formatInputValidationError(
                         .slice(0, MAX_DROPPED_KEYS_NAMED)
                         .map((key) => `"${key}"`)
                         .join(', ')
-                    return `missing required parameter: ${path}; this tool ignored these keys it does not accept: ${named}`
+                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${named}`
                 }
-                return `missing required parameter: ${path}`
+                return `missing required parameter: ${path}${hint}`
             }
             return `parameter "${path}" must be of type ${issue.expected}`
         }
@@ -539,6 +654,27 @@ function normalizeDescriptorPath(segments: readonly PropertyKey[], declaredNames
 }
 
 const declaredPropertyNamesCache = new WeakMap<object, ReadonlySet<string>>()
+const inputJsonSchemaCache = new WeakMap<object, unknown>()
+
+/**
+ * The agent-facing JSON Schema for a tool, converted once per schema object.
+ *
+ * A schema that can't be converted caches `null`, so a failure costs detail once
+ * rather than being retried on every rejection.
+ */
+function inputJsonSchema(schema: z.ZodType): unknown {
+    if (inputJsonSchemaCache.has(schema)) {
+        return inputJsonSchemaCache.get(schema)
+    }
+    let converted: unknown = null
+    try {
+        converted = z.toJSONSchema(schema, { io: 'input' })
+    } catch {
+        // Neither telemetry nor an error message may break a tool call.
+    }
+    inputJsonSchemaCache.set(schema, converted)
+    return converted
+}
 
 /**
  * Every property name a tool's schema declares, at any depth. A path segment
@@ -555,11 +691,7 @@ function declaredPropertyNames(schema: z.ZodType): ReadonlySet<string> {
         return cached
     }
     const names = new Set<string>()
-    try {
-        collectDeclaredPropertyNames(z.toJSONSchema(schema, { io: 'input' }), names)
-    } catch {
-        // Telemetry must never break a tool call; an empty set only costs detail.
-    }
+    collectDeclaredPropertyNames(inputJsonSchema(schema), names)
     declaredPropertyNamesCache.set(schema, names)
     return names
 }
@@ -688,12 +820,56 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
-function findTool(tools: Tool<ZodObjectAny>[], scopeGatedTools: ScopeGatedTool[], name: string): Tool<ZodObjectAny> {
+/** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
+const HINT_TOOL_NAME_PATTERN = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g
+
+/**
+ * Whether every tool the hint names is one this connection can call. A hint is
+ * free text, so it can name a tool that is behind its own gate here — the second
+ * dead end the successor filter exists to prevent. A hyphenated word the catalog
+ * has no tool for is prose, so it never suppresses the hint.
+ */
+function hintNamesOnlyAvailableTools(hint: string, available: Set<string>): boolean {
+    const definitions = getToolDefinitions()
+    return (hint.match(HINT_TOOL_NAME_PATTERN) ?? []).every(
+        (token) => definitions[token] === undefined || available.has(token)
+    )
+}
+
+/**
+ * Message for a tool a feature flag removed from this connection's catalog.
+ * Names only the successors the catalog can actually serve, because a successor
+ * behind its own gate is no more callable than the tool it replaced. The hint is
+ * held to the same rule. Never names the flag — the agent cannot act on a flag
+ * key, and the key is internal.
+ */
+function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[]): string {
+    const available = new Set(tools.map((t) => t.name))
+    const reachable = gated.supersededBy.filter((successor) => available.has(successor))
+    const hint =
+        gated.redirectHint && hintNamesOnlyAvailableTools(gated.redirectHint, available) ? ` ${gated.redirectHint}` : ''
+    if (reachable.length === 0) {
+        return `Tool "${gated.name}" exists, but it is not enabled on this PostHog connection. The capability was not removed. Run "search ${gated.name}" to find an enabled tool for the same job.${hint}`
+    }
+    const successors = reachable.map((successor) => `"${successor}"`).join(' or ')
+    return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
+}
+
+function findTool(
+    tools: Tool<ZodObjectAny>[],
+    scopeGatedTools: ScopeGatedTool[],
+    flagGatedTools: FlagGatedTool[],
+    name: string
+): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
         const redirect = DEPRECATED_TOOL_REDIRECTS[name]
         if (redirect) {
             throw new ExecCommandError(redirect(tools), 'deprecated_tool')
+        }
+        const flagGatedTool = flagGatedTools.find((candidate) => candidate.name === name)
+        if (flagGatedTool) {
+            throw new ExecCommandError(flagGatedToolMessage(flagGatedTool, tools), 'gated_tool')
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
@@ -721,6 +897,7 @@ export function createExecTool(
     options: ExecToolOptions = {}
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
+    const flagGatedTools = options.flagGatedTools ?? []
 
     return {
         name: 'exec',
@@ -902,7 +1079,7 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, infoArgs)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -947,7 +1124,7 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, schemaToolName)
+                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema =
@@ -1004,7 +1181,7 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(await resolveTools(), scopeGatedTools, toolName)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,

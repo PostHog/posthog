@@ -240,3 +240,27 @@ export function errorTrackingIssueUrl(
       : path;
   }, overrides);
 }
+
+export function colonOffsetToSeconds(offset: string): number | null {
+  const parts = offset.split(":");
+  if (parts.length < 2 || parts.length > 3) return null;
+  if (parts.some((p) => !/^\d+$/.test(p))) return null;
+  const nums = parts.map(Number);
+  const [h, m, s] = parts.length === 3 ? nums : [0, nums[0], nums[1]];
+  if (m >= 60 || s >= 60) return null;
+  const total = h * 3600 + m * 60 + s;
+  return Number.isSafeInteger(total) ? total : null;
+}
+
+export function sessionRecordingUrl(
+  sessionId: string,
+  options?: { secondsOffsetFromStart?: number | null },
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId((pid) => {
+    const path = `/project/${pid}/replay/${encodeURIComponent(sessionId)}`;
+    return options?.secondsOffsetFromStart != null
+      ? `${path}?t=${options.secondsOffsetFromStart}`
+      : path;
+  }, overrides);
+}

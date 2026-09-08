@@ -515,6 +515,17 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB connection pool paused should be classified retryable: {error_msg}"
         )
 
+    def test_interrupted_at_shutdown_is_classified_retryable(self):
+        # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
+        # primary shutting down or stepping down); the next retry hits the new primary.
+        error_msg = (
+            "PlanExecutor error during aggregation :: caused by :: interrupted at shutdown, "
+            "full error: {'ok': 0.0, 'code': 11600, 'codeName': 'InterruptedAtShutdown'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB shutdown failover should be classified retryable: {error_msg}"
+        )
+
 
 class TestGetRowsToSync(SimpleTestCase):
     """rows_to_sync is a best-effort progress estimate; a failed count must degrade to

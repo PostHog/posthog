@@ -21,6 +21,7 @@ import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
+import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
 const SUBTITLE_TONE_CLASS = {
     danger: 'text-danger',
@@ -40,7 +41,7 @@ function MetaSeparator(): JSX.Element {
  */
 export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce } = useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
@@ -65,6 +66,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                         <span className="min-w-0 truncate text-sm font-semibold leading-snug">
                             {prettifyScoutSkillName(config.skill_name)}
                         </span>
+                        <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
                         {config.auto_pause_exempt && group === 'watching' && (
                             <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
                                 <LemonTag size="small">Quiet by design</LemonTag>
@@ -96,7 +98,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRunBoxes runs={runs} />
+                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own.
