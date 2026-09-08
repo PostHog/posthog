@@ -394,7 +394,7 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
 
         # A failed run gets no download links, even where some files did reach the bucket. The
         # `isinstance` arm is unreachable in practice, since every failure comes back as a plain
-        # `BatchExportResult`; it narrows the type for `files_uploaded` below.
+        # `BatchExportResult`; it's needed to narrow the type for `files_uploaded` below.
         if result.error is not None or not isinstance(result, S3BatchExportResult):
             return FileDownloadBatchExportResult(records_completed=0, bytes_exported=0, error=result.error)
 

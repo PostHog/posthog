@@ -210,7 +210,8 @@ async def test_file_download_workflow_generates_no_downloads_for_a_failed_run(
     """A run that fails while staging must not leave download records behind.
 
     An invalid filter fails the staging activity before it reaches S3, so this needs no AWS
-    credentials. The workflow has to complete, because a user's invalid filter is not our error.
+    credentials. The workflow should complete successfully, because this is user error, not our
+    fault.
     """
     batch_export_id = str(file_download_batch_export.id)
 
@@ -257,6 +258,6 @@ async def test_file_download_workflow_generates_no_downloads_for_a_failed_run(
     assert len(runs) == 1
     assert runs[0].status == "Failed"
     assert runs[0].latest_error is not None
-    assert "One or more provided filters are invalid" in runs[0].latest_error
+    assert runs[0].latest_error.startswith("One or more provided filters are invalid")
 
     assert not await BatchExportFileDownload.objects.filter(team_id=ateam.pk, batch_export_run_id=runs[0].id).aexists()
