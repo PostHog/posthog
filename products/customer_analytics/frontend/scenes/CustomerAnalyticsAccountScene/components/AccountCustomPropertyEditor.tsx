@@ -27,7 +27,11 @@ export function AccountCustomPropertyEditor({
     onCancel,
 }: AccountCustomPropertyEditorProps): JSX.Element {
     const [draft, setDraft] = useState<string | boolean>(
-        definition.display_type === 'boolean' ? value === true || String(value) === 'true' : String(value ?? '')
+        definition.display_type === 'boolean'
+            ? value === true || String(value) === 'true'
+            : definition.display_type === 'percent' && value !== null && value !== ''
+              ? String(Number(value) * 100)
+              : String(value ?? '')
     )
     const isDate = definition.display_type === 'date' || definition.display_type === 'datetime'
     const isNumeric = NUMERIC_DISPLAY_TYPES.has(definition.display_type)
@@ -38,7 +42,7 @@ export function AccountCustomPropertyEditor({
         if (typeof draft === 'boolean') {
             onSave(draft)
         } else if (isNumeric && numericDraft !== undefined && Number.isFinite(numericDraft)) {
-            onSave(numericDraft)
+            onSave(definition.display_type === 'percent' ? numericDraft / 100 : numericDraft)
         } else if (!isNumeric) {
             onSave(draft)
         }
@@ -63,10 +67,12 @@ export function AccountCustomPropertyEditor({
         const isDatetime = definition.display_type === 'datetime'
         return (
             <LemonCalendarSelectInput
-                value={typeof draft === 'string' && draft ? dayjs(draft) : null}
+                value={typeof draft === 'string' && draft ? dayjs(isDatetime ? draft : draft.slice(0, 10)) : null}
                 onChange={(next) => {
                     if (next) {
-                        onSave(isDatetime ? next.toISOString() : next.format('YYYY-MM-DD'))
+                        const nextValue = isDatetime ? next.toISOString() : next.format('YYYY-MM-DD')
+                        setDraft(nextValue)
+                        onSave(nextValue)
                     } else {
                         confirmClear()
                     }
@@ -109,6 +115,7 @@ export function AccountCustomPropertyEditor({
             ) : isNumeric ? (
                 <LemonInput
                     type="number"
+                    suffix={definition.display_type === 'percent' ? <span>%</span> : undefined}
                     value={numericDraft}
                     onChange={(next) => setDraft(next === undefined ? '' : String(next))}
                     onPressEnter={save}
