@@ -149,10 +149,10 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertEqual(interval_change["before"], "daily")
         self.assertEqual(interval_change["after"], "hourly")
 
-    def test_alert_schedule_anchor_change_is_logged(self):
-        alert = self.create_alert_configuration("Alert with schedule anchor")
+    def test_alert_schedule_start_time_change_is_logged(self):
+        alert = self.create_alert_configuration("Alert with schedule start time")
 
-        self.update_alert_configuration(alert["id"], {"schedule_anchor": {"time": "08:02"}})
+        self.update_alert_configuration(alert["id"], {"schedule_start_time": {"time": "08:02"}})
 
         update_log = (
             ActivityLog.objects.filter(
@@ -165,7 +165,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         assert update_log is not None
         assert update_log.detail is not None
         schedule_change = next(
-            (change for change in update_log.detail.get("changes", []) if change.get("field") == "schedule anchor"),
+            (change for change in update_log.detail.get("changes", []) if change.get("field") == "schedule start time"),
             None,
         )
         self.assertIsNotNone(schedule_change)

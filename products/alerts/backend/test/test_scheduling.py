@@ -12,8 +12,8 @@ from products.alerts.backend.scheduling import (
     next_calendar_check_time,
     parse_blocked_windows_tuples,
     scan_next_unblocked_utc,
-    validate_and_normalize_schedule_anchor,
     validate_and_normalize_schedule_restriction,
+    validate_and_normalize_schedule_start_time,
 )
 
 # Wednesday 2026-03-18 12:00 UTC
@@ -124,9 +124,9 @@ class TestValidateAndNormalizeScheduleRestriction:
             validate_and_normalize_schedule_restriction(raw)
 
 
-class TestScheduleAnchor:
+class TestScheduleStartTime:
     def test_accepts_any_valid_minute(self) -> None:
-        assert validate_and_normalize_schedule_anchor({"time": "08:02"}) == {"time": "08:02"}
+        assert validate_and_normalize_schedule_start_time({"time": "08:02"}) == {"time": "08:02"}
 
     @parameterized.expand(
         [
@@ -144,7 +144,7 @@ class TestScheduleAnchor:
             now=now,
             tz_name="UTC",
             next_check_at=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
-            schedule_anchor={"time": "09:35"},
+            schedule_start_time={"time": "09:35"},
         )
         assert result == expected
 

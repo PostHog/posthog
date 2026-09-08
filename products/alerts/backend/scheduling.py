@@ -152,7 +152,7 @@ def next_calendar_check_time(
     now: datetime,
     tz_name: str,
     next_check_at: datetime | None,
-    schedule_anchor: dict[str, str] | None = None,
+    schedule_start_time: dict[str, str] | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
@@ -163,7 +163,7 @@ def next_calendar_check_time(
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
-    anchor_minutes = _parse_hhmm(schedule_anchor["time"]) if schedule_anchor else None
+    anchor_minutes = _parse_hhmm(schedule_start_time["time"]) if schedule_start_time else None
 
     if anchor_minutes is not None:
         anchor_hour, anchor_minute = divmod(anchor_minutes, 60)
@@ -291,11 +291,11 @@ def _parse_hhmm(value: str) -> int:
     return h * 60 + m
 
 
-def validate_and_normalize_schedule_anchor(raw: Any) -> dict[str, str] | None:
+def validate_and_normalize_schedule_start_time(raw: Any) -> dict[str, str] | None:
     if raw is None or raw == {}:
         return None
     if not isinstance(raw, dict) or set(raw) != {"time"}:
-        raise ValueError("schedule_anchor must contain only time")
+        raise ValueError("schedule_start_time must contain only time")
     minutes = _parse_hhmm(raw["time"])
     return {"time": _hhmm(minutes)}
 
