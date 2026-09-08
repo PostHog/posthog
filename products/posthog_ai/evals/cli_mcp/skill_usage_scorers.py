@@ -97,10 +97,10 @@ class ExpectedReferencePulled(Scorer):
     def _exec_match(self, parser: LogParser, skill: str, source: str, accepted: list[str]) -> dict[str, object] | None:
         qualified = _qualified_skill(skill, source)
         for call in _successful_exec_calls(parser):
-            verb, rest = _exec_command(call)
-            if verb != "learn":
+            command = _exec_command(call)
+            if command.verb != "learn":
                 continue
-            tokens = rest.split()
+            tokens = command.arguments.split()
             if not tokens or tokens[0] != qualified or len(tokens) <= 1:
                 continue
             # An all-qualified token list is a batch skill load (`learn posthog:a posthog:b`),
@@ -176,15 +176,15 @@ class SearchRecoveryAfterZeroHit(Scorer):
                     metadata={"reason": "No learning follow-up after zero-hit search", "call_id": zero_hit.call_id},
                 )
             nxt = min(following, key=lambda call: call.position)
-            verb, rest = _exec_command(nxt)
-            if verb != "learn":
+            command = _exec_command(nxt)
+            if command.verb != "learn":
                 return Score(
                     name=self._name(),
                     score=0.0,
                     metadata={
                         "reason": "A non-learning command followed a zero-hit search",
                         "call_id": nxt.call_id,
-                        "command": f"{verb} {rest}".strip(),
+                        "command": f"{command.verb} {command.arguments}".strip(),
                     },
                 )
         return Score(name=self._name(), score=1.0, metadata={"zero_hits": len(zero_hits)})
