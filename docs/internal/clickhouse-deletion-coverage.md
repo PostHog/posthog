@@ -103,6 +103,8 @@ That decision predates this document; the older `posthog/models/async_deletion/d
 
 ### Property removal does not reach `flag_evaluations`
 
+The ingestion mapper omits `person_properties` and `group0..group4_properties` from flag-evaluation rows. ClickHouse fills these omitted string columns with empty values; existing rows keep their stored values. Event `properties` and `person_id` are still sent.
+
 The events property-removal path rewrites rows in a staging table and resets each affected materialized column with `ALTER TABLE … UPDATE <col> = ''`.
 That works because `materialize()` creates columns as `DEFAULT <expr>`, which is assignable.
 

@@ -14,6 +14,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+
 export function WebAnalyticsScene(): JSX.Element {
     useMaxTool({
         identifier: 'web_analytics_doctor',
@@ -75,4 +77,5 @@ export const scene: SceneExport = {
     component: WebAnalyticsScene,
     logic: webAnalyticsLogic,
     productKey: ProductKey.WEB_ANALYTICS,
+    emptyState: webVitalsEmptyState,
 }

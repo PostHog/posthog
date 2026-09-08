@@ -79,8 +79,8 @@ export type InboxSourceOption = {
 
 export const INBOX_SOURCE_OPTIONS: InboxSourceOption[] = [
   {
-    value: "session_replay",
-    label: "Session replay",
+    value: "replay_vision",
+    label: "Replay Vision",
     icon: <VideoIcon size={14} />,
   },
   {

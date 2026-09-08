@@ -1,9 +1,8 @@
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconMicrophone, IconPin, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
@@ -14,27 +13,32 @@ import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { cn } from 'lib/utils/css-classes'
 import { uuid } from 'lib/utils/dom'
-import {
-    CAPABILITY_CARDS_HEIGHT_PX,
-    CapabilityBadges,
-    CapabilitySuggestions,
-} from 'scenes/max/components/CapabilityBadges'
 import { FillInHint } from 'scenes/max/components/FillInHint'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
+import { SuggestionCard } from 'scenes/max/components/SuggestionCard'
+import { SUGGESTION_CARDS_HEIGHT_PX, COLORFUL_ICONS, TopicBadges } from 'scenes/max/components/TopicBadges'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
-import { HOMEPAGE_CAPABILITIES } from 'scenes/max/maxCapabilities'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { HOMEPAGE_SUGGESTION_TOPICS } from 'scenes/max/suggestionTopics'
+import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './aiFirstHomepageLogic'
+import {
+    HomepageGridItem,
+    HomepageGridItemKind,
+    PINNED_DASHBOARDS_LIMIT,
+    RAIL_ROW_BUDGET,
+    aiFirstHomepageLogic,
+} from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
+import { SUGGESTIONS_LIMIT } from './homepageSuggestions'
 
 function IdleInput(): JSX.Element {
     const { query, fillInHint } = useValues(aiFirstHomepageLogic)
@@ -67,7 +71,8 @@ function IdleInput(): JSX.Element {
     }
 
     return (
-        <form onSubmit={handleSubmit} className="flex flex-col items-center w-full px-3">
+        // The input stays at readable width even when the idle scene around it is wider
+        <form onSubmit={handleSubmit} className="flex flex-col items-center w-full max-w-180 mx-auto px-3">
             <label
                 htmlFor="homepage-input"
                 className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
@@ -208,8 +213,9 @@ export function HomepageAiInput(): JSX.Element {
         return (
             <div className="border border-primary rounded-lg bg-surface-primary p-4 flex flex-col gap-2">
                 <p className="font-medium text-pretty m-0">
-                    PostHog AI needs your approval to potentially process identifying user data with external AI
-                    providers.
+                    {isAdmin
+                        ? 'PostHog AI needs your approval to potentially process identifying user data with external AI providers.'
+                        : 'PostHog AI needs an organization admin to approve processing identifying user data with external AI providers.'}
                 </p>
                 <p className="text-muted text-xs m-0">Your data won't be used for training third-party models.</p>
                 {isAdmin ? (
@@ -228,9 +234,9 @@ export function HomepageAiInput(): JSX.Element {
                         I allow AI analysis in this organization
                     </LemonButton>
                 ) : (
-                    <LemonButton type="secondary" size="small" disabled sideIcon={<IconLock />}>
-                        {dataProcessingApprovalDisabledReason}
-                    </LemonButton>
+                    <div className="flex">
+                        <AIAccessRequest size="small" />
+                    </div>
                 )}
             </div>
         )
@@ -244,6 +250,9 @@ export function HomepageAiInput(): JSX.Element {
 }
 
 function GridItemIcon({ item }: { item: HomepageGridItem }): JSX.Element | null {
+    if (item.icon) {
+        return <>{item.icon}</>
+    }
     if (item.itemType) {
         return (
             <ProductIconWrapper type={item.itemType}>
@@ -251,40 +260,47 @@ function GridItemIcon({ item }: { item: HomepageGridItem }): JSX.Element | null 
             </ProductIconWrapper>
         )
     }
+    if (item.kind === 'suggestion') {
+        return <IconSparkles className="text-tertiary" />
+    }
     return null
 }
 
-interface GridColumn {
+interface RailSection {
     label: string
-    kind: HomepageGridItem['kind']
+    kind: HomepageGridItemKind
     icon: React.ReactNode
-    emptyLabel: string
-    emptyTooltip: React.ReactNode
+    /** Copy for the resolved-but-empty state. A section without it hides entirely when empty. */
+    emptyState?: { label: string; tooltip: React.ReactNode }
 }
 
-const GRID_COLUMNS: GridColumn[] = [
+// The navigation rail next to the suggestions list: compact links to existing resources.
+// Recents carry no empty state: they fill by themselves as the user browses, so an empty
+// section has nothing actionable to say and just takes space.
+const RAIL_SECTIONS: RailSection[] = [
     {
         label: 'Pinned dashboards',
         kind: 'dashboard',
         icon: <IconPin className="size-3" />,
-        emptyLabel: 'No pinned dashboards',
-        emptyTooltip: 'Pin dashboards by clicking "Pin" in the dashboard context panel',
+        emptyState: {
+            label: 'No pinned dashboards',
+            tooltip: 'Pin dashboards by clicking "Pin" in the dashboard context panel',
+        },
     },
     {
         label: 'Recents',
         kind: 'recent',
         icon: <IconClock className="size-3" />,
-        emptyLabel: 'No recents',
-        emptyTooltip: 'Recents are auto-populated when you visit a resource',
-    },
-    {
-        label: 'Starred',
-        kind: 'starred',
-        icon: <IconStar className="size-3" />,
-        emptyLabel: 'No starred items',
-        emptyTooltip: 'Add items to starred by clicking "add to starred" in the context panel',
     },
 ]
+
+const SKELETON_ROWS_BY_KIND: Record<HomepageGridItemKind, number> = {
+    dashboard: PINNED_DASHBOARDS_LIMIT,
+    // Recents share the rail budget with pinned dashboards, so their guaranteed floor is
+    // whatever a full pinned section leaves over
+    recent: RAIL_ROW_BUDGET - PINNED_DASHBOARDS_LIMIT,
+    suggestion: SUGGESTIONS_LIMIT,
+}
 
 const GRID_SKELETON_COUNTS_KEY = 'homepage-grid-skeleton-counts'
 
@@ -297,43 +313,150 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
     }
 }
 
-function IdleGrid(): JSX.Element {
-    const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
-        useValues(aiFirstHomepageLogic)
+interface GridRowProps {
+    item: HomepageGridItem
+    highlighted: boolean
+    onHighlight: (highlighted: boolean) => void
+}
 
-    // [col, row] position of the highlighted item, null = nothing highlighted
+function GridRow({ item, highlighted, onHighlight }: GridRowProps): JSX.Element {
+    const { gridItemClicked, activateGridItem } = useActions(aiFirstHomepageLogic)
+    return (
+        <div role="row">
+            <Link
+                to={item.href}
+                role="gridcell"
+                title={item.label}
+                buttonProps={{
+                    menuItem: true,
+                    fullWidth: true,
+                    className: 'truncate -outline-offset-2',
+                }}
+                // Items with an href navigate through the anchor itself, so the click handler
+                // only reports; suggestions have no href and the handler performs the action too.
+                onClick={() => (item.href ? gridItemClicked(item) : activateGridItem(item))}
+                data-attr={`homepage-grid-${item.kind}`}
+                data-highlighted={highlighted ? 'true' : undefined}
+                onMouseEnter={() => onHighlight(true)}
+                onMouseLeave={() => onHighlight(false)}
+            >
+                <GridItemIcon item={item} />
+                <span className="truncate">{item.label}</span>
+            </Link>
+        </div>
+    )
+}
+
+function SuggestionRow({ item, highlighted, onHighlight }: GridRowProps): JSX.Element {
+    const { activateGridItem } = useActions(aiFirstHomepageLogic)
+    return (
+        // data-highlighted lives on the wrapper so keyboard navigation can scroll to it;
+        // the visual highlight rides the card's own active state.
+        <div role="row" data-highlighted={highlighted ? 'true' : undefined}>
+            <SuggestionCard
+                title={item.label}
+                description={item.description}
+                icon={<GridItemIcon item={item} />}
+                onClick={() => activateGridItem(item)}
+                active={highlighted}
+                data-attr={`homepage-grid-${item.kind}`}
+                onMouseEnter={() => onHighlight(true)}
+                onMouseLeave={() => onHighlight(false)}
+            />
+        </div>
+    )
+}
+
+function GridSkeletons({
+    kind,
+    counts,
+}: {
+    kind: HomepageGridItemKind
+    counts: Record<string, number> | null
+}): JSX.Element {
+    // Stored counts can predate the current row caps, so clamp to keep the layout stable
+    const rows = Math.min(counts?.[kind] ?? SKELETON_ROWS_BY_KIND[kind], SKELETON_ROWS_BY_KIND[kind])
+    return (
+        <>
+            {Array.from({ length: rows }).map((_, i) => (
+                <div key={`skeleton-${i}`}>
+                    {/* Suggestion cards are two-line units, taller than the single-line rail rows */}
+                    <LemonSkeleton className={kind === 'suggestion' ? 'h-[45px]' : 'h-[30px]'} />
+                </div>
+            ))}
+        </>
+    )
+}
+
+function RailEmptyState({
+    kind,
+    emptyState,
+}: {
+    kind: HomepageGridItemKind
+    emptyState: NonNullable<RailSection['emptyState']>
+}): JSX.Element {
+    return (
+        <div
+            className="px-3 py-2 border border-dashed rounded text-xs text-tertiary"
+            data-attr={`homepage-grid-empty-${kind}`}
+        >
+            {emptyState.label}{' '}
+            <Tooltip title={emptyState.tooltip} delayMs={0}>
+                <IconInfo className="size-3 text-tertiary" data-attr={`homepage-grid-empty-tooltip-${kind}`} />
+            </Tooltip>
+        </div>
+    )
+}
+
+function IdleGrid(): JSX.Element {
+    const {
+        gridItems,
+        displayedSuggestionItems,
+        query,
+        dashboardsLoading,
+        recentItemsLoading,
+        suggestionItemsLoading,
+        selectedTopic,
+    } = useValues(aiFirstHomepageLogic)
+    const { activateGridItem } = useActions(aiFirstHomepageLogic)
+
+    // [col, row] position of the highlighted item, null = nothing highlighted.
+    // Column 0 is the suggestions list, column 1 the whole rail (dashboards then recents).
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
     const gridRef = useRef<HTMLDivElement>(null)
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
 
-    const columns = useMemo(() => {
-        return GRID_COLUMNS.map((col) => ({
-            ...col,
-            items: gridItems.filter((item) => item.kind === col.kind),
-        }))
-    }, [gridItems])
+    const railItemsByKind = useMemo(
+        () => ({
+            dashboard: gridItems.filter((item) => item.kind === 'dashboard'),
+            recent: gridItems.filter((item) => item.kind === 'recent'),
+        }),
+        [gridItems]
+    )
+
+    const columns = useMemo(
+        () => [
+            { key: 'suggestions', items: displayedSuggestionItems },
+            { key: 'rail', items: [...railItemsByKind.dashboard, ...railItemsByKind.recent] },
+        ],
+        [displayedSuggestionItems, railItemsByKind]
+    )
 
     // Persist item counts when loading finishes so skeletons match on next visit
     useEffect(() => {
-        const isLoading = dashboardsLoading || recentItemsLoading || starredItemsLoading
+        const isLoading = dashboardsLoading || recentItemsLoading || suggestionItemsLoading
         if (isLoading) {
             return
         }
-        const counts: Record<string, number> = {}
-        for (const col of columns) {
-            counts[col.kind] = col.items.length
+        const counts: Record<string, number> = {
+            dashboard: railItemsByKind.dashboard.length,
+            recent: railItemsByKind.recent.length,
+            suggestion: displayedSuggestionItems.length,
         }
         localStorage.setItem(GRID_SKELETON_COUNTS_KEY, JSON.stringify(counts))
         setSkeletonCounts(counts)
-    }, [dashboardsLoading, recentItemsLoading, starredItemsLoading, columns])
-
-    const handleItemClick = useCallback((item: HomepageGridItem) => {
-        if (item.href) {
-            posthog.capture('homepage grid item clicked', { kind: item.kind, href: item.href })
-            router.actions.push(item.href)
-        }
-    }, [])
+    }, [dashboardsLoading, recentItemsLoading, suggestionItemsLoading, railItemsByKind, displayedSuggestionItems])
 
     // Clear highlight when user starts typing
     useEffect(() => {
@@ -414,7 +537,7 @@ function IdleGrid(): JSX.Element {
                     e.preventDefault()
                     const item = colItems[row]
                     if (item) {
-                        handleItemClick(item)
+                        activateGridItem(item)
                     }
                     break
                 }
@@ -426,7 +549,7 @@ function IdleGrid(): JSX.Element {
                 }
             }
         },
-        [highlight, columns, handleItemClick]
+        [highlight, columns, activateGridItem]
     )
 
     // Scroll highlighted item into view
@@ -440,21 +563,21 @@ function IdleGrid(): JSX.Element {
         }
     }, [highlight])
 
-    const loadingByKind: Record<HomepageGridItemKind, boolean> = {
-        dashboard: dashboardsLoading,
-        recent: recentItemsLoading,
-        starred: starredItemsLoading,
+    const railHighlightOffset: Record<'dashboard' | 'recent', number> = {
+        dashboard: 0,
+        recent: railItemsByKind.dashboard.length,
     }
 
     // Collapse-on-typing is handled by the shared wrapper in HomepageInput, so this renders the
-    // grid content directly (no self-collapse) — keeping the badges and grid in one animated box.
+    // grid content directly (no self-collapse), keeping the badges and grid in one animated box.
     return (
         <div
             ref={gridRef}
             role="grid"
             data-attr="homepage-grid"
-            // Only shown at @xl+ where the homepage columns sit in a row.
-            className="flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none mt-8"
+            // Only shown at @xl+ where the suggestions list and the rail sit side by side.
+            // shrink-0 so the collapse-on-typing animation clips instead of squeezing.
+            className="flex gap-6 w-full px-3 outline-none shrink-0"
             tabIndex={-1}
             onFocus={(e) => {
                 // Only auto-highlight when focused via keyboard (ArrowDown from input)
@@ -468,124 +591,102 @@ function IdleGrid(): JSX.Element {
             }}
             onKeyDown={handleGridKeyDown}
         >
-            {columns.map((col, colIndex) => (
-                <div
-                    key={col.kind}
-                    role="rowgroup"
-                    className="flex-1 min-w-0 flex flex-col gap-px"
-                    data-attr={`homepage-grid-column-${col.kind}`}
-                >
-                    <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
-                        {col.icon}
-                        {col.label}
-                    </Label>
-                    {loadingByKind[col.kind] &&
-                    col.items.length === 0 &&
-                    (skeletonCounts === null || (skeletonCounts[col.kind] ?? 0) > 0) ? (
-                        Array.from({ length: skeletonCounts?.[col.kind] ?? 3 }).map((_, i) => (
-                            <div key={`skeleton-${i}`}>
-                                <LemonSkeleton className="h-[30px]" />
-                            </div>
-                        ))
-                    ) : col.items.length === 0 ? (
-                        <div
-                            className="px-3 py-2 border border-dashed rounded text-xs text-tertiary"
-                            data-attr={`homepage-grid-empty-${col.kind}`}
-                        >
-                            {col.emptyLabel}{' '}
-                            <Tooltip title={col.emptyTooltip} delayMs={0}>
-                                <IconInfo
-                                    className="size-3 text-tertiary"
-                                    data-attr={`homepage-grid-empty-tooltip-${col.kind}`}
-                                />
-                            </Tooltip>
+            {/* Suggestions list, or the selected topic's suggestions in the same slot */}
+            <div
+                role="rowgroup"
+                className={cn('flex-[2] min-w-0 flex flex-col gap-px', COLORFUL_ICONS)}
+                data-attr="homepage-grid-column-suggestion"
+                style={{ minHeight: SUGGESTION_CARDS_HEIGHT_PX }}
+            >
+                <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
+                    <IconSparkles className="size-3" />
+                    Ask PostHog AI
+                </Label>
+                {/* The static fill means the list is never empty, so gate on the sources
+                    having resolved; a selected topic is static data and never loads */}
+                {!selectedTopic && suggestionItemsLoading ? (
+                    <GridSkeletons kind="suggestion" counts={skeletonCounts} />
+                ) : (
+                    displayedSuggestionItems.map((item, rowIndex) => (
+                        <SuggestionRow
+                            key={item.id}
+                            item={item}
+                            highlighted={highlight?.[0] === 0 && highlight?.[1] === rowIndex}
+                            onHighlight={(over) => setHighlight(over ? [0, rowIndex] : null)}
+                        />
+                    ))
+                )}
+            </div>
+
+            {/* Navigation rail: pinned dashboards and recents */}
+            <div role="rowgroup" className="flex-1 min-w-0 flex flex-col gap-px" data-attr="homepage-grid-column-nav">
+                {RAIL_SECTIONS.map((section) => {
+                    const items = railItemsByKind[section.kind as 'dashboard' | 'recent']
+                    const loading = section.kind === 'dashboard' ? dashboardsLoading : recentItemsLoading
+                    const offset = railHighlightOffset[section.kind as 'dashboard' | 'recent']
+                    if (!loading && items.length === 0 && !section.emptyState) {
+                        return null
+                    }
+                    return (
+                        <div key={section.kind} className="flex flex-col gap-px [&:not(:first-child)]:mt-3">
+                            <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
+                                {section.icon}
+                                {section.label}
+                            </Label>
+                            {loading && items.length === 0 ? (
+                                <GridSkeletons kind={section.kind} counts={skeletonCounts} />
+                            ) : items.length === 0 && section.emptyState ? (
+                                <RailEmptyState kind={section.kind} emptyState={section.emptyState} />
+                            ) : (
+                                items.map((item, index) => (
+                                    <GridRow
+                                        key={item.id}
+                                        item={item}
+                                        highlighted={highlight?.[0] === 1 && highlight?.[1] === offset + index}
+                                        onHighlight={(over) => setHighlight(over ? [1, offset + index] : null)}
+                                    />
+                                ))
+                            )}
                         </div>
-                    ) : (
-                        col.items.map((item, rowIndex) => (
-                            <div key={item.id} role="row">
-                                <Link
-                                    to={item.href}
-                                    role="gridcell"
-                                    title={item.label}
-                                    buttonProps={{
-                                        menuItem: true,
-                                        fullWidth: true,
-                                        className: 'truncate -outline-offset-2',
-                                    }}
-                                    data-attr={`homepage-grid-${item.kind}`}
-                                    data-highlighted={
-                                        highlight?.[0] === colIndex && highlight?.[1] === rowIndex ? 'true' : undefined
-                                    }
-                                    onMouseEnter={() => setHighlight([colIndex, rowIndex])}
-                                    onMouseLeave={() => setHighlight(null)}
-                                >
-                                    <GridItemIcon item={item} />
-                                    <span className="truncate">{item.label}</span>
-                                </Link>
-                            </div>
-                        ))
-                    )}
-                </div>
-            ))}
+                    )
+                })}
+            </div>
         </div>
     )
 }
 
 export function HomepageInput(): JSX.Element {
-    const { mode, query, selectedCapability } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, setSelectedCapability, setFillInHint } = useActions(aiFirstHomepageLogic)
+    const { mode, query, selectedTopic } = useValues(aiFirstHomepageLogic)
+    const { setSelectedTopic } = useActions(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
 
-    const selectedCapabilityData =
-        HOMEPAGE_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
-
     return (
-        <div className="w-full max-w-180 mx-auto py-2 ">
+        // Idle gets extra width for the suggestions grid; AI and search keep the chat width
+        <div className={cn('w-full mx-auto py-2', mode === 'idle' ? 'max-w-240' : 'max-w-180')}>
             {mode === 'idle' && (
                 <div className="flex flex-col items-center gap-3 pb-(--scene-layout-header-height)">
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline={null} />
                     <IdleInput />
-                    {/* Badges + (cards | recents grid) collapse together as a single box when the user
-                        starts typing / leaves idle. Hidden on mobile — only shown at @xl, where the grid
-                        lays its columns in a row. */}
+                    {/* Badges + grid collapse together as a single box when the user starts typing /
+                        leaves idle. Hidden on mobile — only shown at @xl, where the suggestions list
+                        and the rail sit side by side. */}
                     <div
                         className="w-full hidden @xl/main-content:grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:duration-0"
                         style={{ gridTemplateRows: query.trim() ? '0fr' : '1fr' }}
                         aria-hidden={!!query.trim()}
                     >
                         {/* shrink-0 on the children so collapsing just clips them away (top-down) rather
-                            than squeezing their heights, which would reflow the cards/grid mid-animation.
+                            than squeezing their heights, which would reflow the grid mid-animation.
                             gap-6 spaces the badges from the row below — it's part of the flex column's
                             laid-out height, so it's counted in the collapse and the vertical centering. */}
                         <div className="overflow-hidden flex flex-col items-center gap-6">
-                            <CapabilityBadges
+                            <TopicBadges
                                 className="shrink-0"
-                                capabilities={HOMEPAGE_CAPABILITIES}
-                                selectedKey={selectedCapability}
-                                onSelect={setSelectedCapability}
+                                topics={HOMEPAGE_SUGGESTION_TOPICS}
+                                selectedKey={selectedTopic}
+                                onSelect={setSelectedTopic}
                             />
-                            {/* Capability suggestions need a fixed basis; the idle grid uses its intrinsic height. */}
-                            <div
-                                className="w-full shrink-0 overflow-hidden"
-                                style={{
-                                    height: selectedCapabilityData ? CAPABILITY_CARDS_HEIGHT_PX : 'auto',
-                                    minHeight: CAPABILITY_CARDS_HEIGHT_PX,
-                                }}
-                            >
-                                {selectedCapabilityData ? (
-                                    <CapabilitySuggestions
-                                        capability={selectedCapabilityData}
-                                        onType={setQuery}
-                                        onSubmit={() => submitQuery('ai')}
-                                        onFillIn={(hint) => {
-                                            setFillInHint(hint)
-                                            document.querySelector<HTMLElement>('#homepage-input')?.focus()
-                                        }}
-                                    />
-                                ) : (
-                                    <IdleGrid />
-                                )}
-                            </div>
+                            <IdleGrid />
                         </div>
                     </div>
                 </div>

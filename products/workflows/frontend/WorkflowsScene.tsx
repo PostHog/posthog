@@ -25,6 +25,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
+import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
@@ -129,6 +130,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     logic: workflowsSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
     productKey: ProductKey.WORKFLOWS,
+    emptyState: workflowsEmptyState,
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {

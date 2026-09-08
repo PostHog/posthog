@@ -9,6 +9,11 @@ concurrency:
     group: desktop-agent-release
     cancel-in-progress: false
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     release:
         name: Publish agent to npm

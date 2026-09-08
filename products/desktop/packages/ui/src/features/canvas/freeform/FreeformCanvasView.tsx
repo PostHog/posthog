@@ -16,7 +16,10 @@ import {
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
-import type { CanvasDraft } from "@posthog/core/canvas/dashboardSchemas";
+import type {
+  CanvasDraft,
+  CanvasVersion,
+} from "@posthog/core/canvas/dashboardSchemas";
 import {
   type CanvasAgentRequestResult,
   type CanvasAnalyticsConfig,
@@ -40,12 +43,16 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  ItemContent,
+  ItemDescription,
+  ItemMenuItem,
+  ItemTitle,
   Tooltip as QuillTooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { CANVAS_COMPONENT_PATH } from "@posthog/shared";
+import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   isCanvasGenerating,
@@ -133,8 +140,13 @@ const AGENT_REQUEST_OUTCOME_TOASTS: Record<
   reported: "Request sent to the canvas creator",
 };
 
-// Badge tone for a draft's latest build status: ready is good, failed is bad,
-// in-flight is cautionary, and no build yet is neutral.
+function describeCanvasVersion(version: CanvasVersion): string {
+  const age = formatRelativeAge(version.createdAt);
+  return version.createdBy
+    ? `Published by ${version.createdBy} · ${age}`
+    : `Published ${age}`;
+}
+
 function draftBadgeVariant(
   status: CanvasDraft["buildStatus"],
 ): "default" | "warning" | "success" | "destructive" {
@@ -197,12 +209,10 @@ export function FreeformCanvasView({
   const channelId = dashboard?.channelId ?? "";
 
   useEffect(() => {
-    if (genTaskId) setStartedTaskId(null);
-  }, [genTaskId]);
+    if (genTaskId === startedTaskId) setStartedTaskId(null);
+  }, [genTaskId, startedTaskId]);
 
-  // The run whose chat the panel shows: the record's id, or the optimistic
-  // bridge until the poll catches up.
-  const effectiveTaskId = genTaskId ?? startedTaskId;
+  const effectiveTaskId = startedTaskId ?? genTaskId;
 
   const { channels } = useChannels();
   const channelName = useMemo(
@@ -234,13 +244,18 @@ export function FreeformCanvasView({
   // Whether the agent is actively producing the canvas right now. Drives the
   // "Generating…" UI (notice, composer, undo/redo). Shares the tested helper
   // with the completion-toast watcher so both read the same signal. Keys off
-  // effectiveTaskId (genTaskId ?? startedTaskId), matching isSyncing above.
+  // effectiveTaskId, matching isSyncing above.
   const isGenerating = isCanvasGenerating({
     genTaskId: effectiveTaskId,
     genTaskLoading,
     latestRun: genTask?.latest_run,
     session: genSession,
   });
+  // The run whose live chat the panel shows: only one that is still in flight.
+  // The record keeps a finished run's id (comments hang off it), but its chat
+  // is not reopened, so every visit starts a fresh run from the composer.
+  const chatTaskId =
+    startedTaskId ?? (isGenerating && !genTaskLoading ? genTaskId : null);
 
   // Poll the record while the session is alive so a just-published head version
   // appears (the publish lands while the prompt is still pending).
@@ -325,6 +340,8 @@ export function FreeformCanvasView({
   const browsingDraft = drafts.some(
     (draft) => draft.versionId === browseVersionId,
   );
+  const browsedVersion =
+    versions.find((version) => version.id === browseVersionId) ?? null;
 
   // Clear a browse that points at a version the canvas no longer offers (e.g.
   // pruned server-side while open). Published versions and drafts are both valid
@@ -716,23 +733,23 @@ export function FreeformCanvasView({
   const editorRef = useRef<EditorHandle>(null);
   const setPanelTab = useCanvasChatPanelStore((s) => s.setTab);
   const draftActions = useDraftStore((s) => s.actions);
-  // Reveal the panel's chat composer and prefill it. A canvas that has ever
-  // generated shows the task session's composer, which receives content
-  // through the draft store keyed by task id — the editor ref only exists on
-  // the generate bar a never-generated canvas mounts.
+  // Reveal the panel's chat composer and prefill it. While a run is in flight
+  // the panel shows that session's composer, which receives content through
+  // the draft store keyed by task id — otherwise the generate bar's editor ref
+  // is the composer.
   const prefillComposer = useCallback(
     (message: string) => {
       setCollapsed(false);
       setPanelTab("chat");
-      if (effectiveTaskId) {
-        draftActions.setPendingContent(effectiveTaskId, textToContent(message));
-        draftActions.requestFocus(effectiveTaskId);
+      if (chatTaskId) {
+        draftActions.setPendingContent(chatTaskId, textToContent(message));
+        draftActions.requestFocus(chatTaskId);
         return;
       }
       editorRef.current?.setContent(message);
       editorRef.current?.focus();
     },
-    [setCollapsed, setPanelTab, effectiveTaskId, draftActions],
+    [setCollapsed, setPanelTab, chatTaskId, draftActions],
   );
   const askAgentToFix = () => {
     if (!runtimeError) return;
@@ -755,7 +772,7 @@ export function FreeformCanvasView({
   const showHero =
     interactive &&
     !hasContent &&
-    !effectiveTaskId &&
+    !chatTaskId &&
     !dashboardLoading &&
     !buildsLoading &&
     !headSourceLoading;
@@ -782,7 +799,7 @@ export function FreeformCanvasView({
   const panelVisibility = canvasSidePanelVisibility({
     interactive,
     hasContent,
-    hasActiveTask: !!effectiveTaskId,
+    hasActiveTask: !!chatTaskId,
     generatingPanelOpen,
     viewOpen: embedded ? false : panelViewOpen,
     collapsed,
@@ -854,10 +871,50 @@ export function FreeformCanvasView({
                     </Badge>
                   ) : (
                     versions.length > 0 && (
-                      <Text size="1" className="ml-1 text-gray-9">
-                        v{versions.length - currentIndex}/{versions.length}
-                        {!browsing && " · Live"}
-                      </Text>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="ml-1"
+                              aria-label="Version history"
+                            />
+                          }
+                        >
+                          v{versions.length - currentIndex}/{versions.length}
+                          {!browsing && " · Live"}
+                          <CaretDownIcon size={12} />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" side="bottom">
+                          {versions.map((version, index) => (
+                            <DropdownMenuItem
+                              key={version.id}
+                              render={
+                                <ItemMenuItem size="xs" className="w-full" />
+                              }
+                              onClick={() =>
+                                setBrowseVersion(
+                                  threadId,
+                                  version.id === headVersionId
+                                    ? null
+                                    : version.id,
+                                )
+                              }
+                            >
+                              <ItemContent variant="menuItem">
+                                <ItemTitle>
+                                  v{versions.length - index}
+                                  {version.id === headVersionId && " · Live"}
+                                </ItemTitle>
+                                <ItemDescription className="leading-none">
+                                  {describeCanvasVersion(version)}
+                                </ItemDescription>
+                              </ItemContent>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )
                   )}
                   {browsing && !browsingDraft && (
@@ -974,9 +1031,7 @@ export function FreeformCanvasView({
                 showPanel &&
                 collapsed &&
                 !generatingPanelOpen && (
-                  <Tooltip
-                    content={effectiveTaskId ? "Show chat" : "Edit canvas"}
-                  >
+                  <Tooltip content={chatTaskId ? "Show chat" : "Edit canvas"}>
                     <Button
                       size="icon"
                       variant="default"
@@ -1018,10 +1073,28 @@ export function FreeformCanvasView({
                     <Text size="1">
                       {browsingDraft
                         ? "Viewing a draft. It isn't live yet."
-                        : "Viewing a previous version"}
+                        : browsedVersion
+                          ? `Viewing a previous version. ${describeCanvasVersion(browsedVersion)}`
+                          : "Viewing a previous version"}
                     </Text>
                   </Flex>
                   <Flex align="center" gap="2">
+                    {browsedVersion?.taskId && (
+                      <Button
+                        variant="link-muted"
+                        size="sm"
+                        render={
+                          <Link
+                            to="/tasks/$taskId"
+                            params={{
+                              taskId: browsedVersion.taskId,
+                            }}
+                          />
+                        }
+                      >
+                        View task
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -1217,7 +1290,7 @@ export function FreeformCanvasView({
               overflow:hidden) so the embedded run's session — and its activity
               heartbeat — stays alive and chat scroll survives a minimize. */}
           <CanvasSidePanel
-            effectiveTaskId={effectiveTaskId}
+            chatTaskId={chatTaskId}
             commentTaskId={commentTaskId}
             interactive={interactive}
             onMinimize={() => {

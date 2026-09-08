@@ -6,9 +6,10 @@ import inspect
 import logging
 import datetime as dt
 import resource
+import threading
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union, cast
 
@@ -52,6 +53,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
     DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
 )
+from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -83,7 +85,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -487,6 +489,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # the sharing publish gate checks a share against now()
+    # e.g. AND "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz
+    query = re.sub(
+        r"\"posthog_sharingconfiguration\"\.\"expires_at\" > '[^']+'::timestamptz",
+        '"posthog_sharingconfiguration"."expires_at" > \'SHARING-EXPIRY-TIMESTAMP\'::timestamptz',
+        query,
+    )
+
     # replace Savepoint numbers
     query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 
@@ -713,7 +723,7 @@ class PostHogTestCase(SimpleTestCase):
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
+            util.can_enable_actor_on_events = True
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
@@ -2030,6 +2040,7 @@ def reset_clickhouse_database() -> None:
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2152,6 +2163,7 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
@@ -2294,6 +2306,9 @@ def snapshot_hogql_queries(fn_or_class):
     @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         captured_queries = []
+        # A paginator call reaches the executor with the page limit added, so the executor skips it.
+        # Thread-local because a runner may execute its series on worker threads.
+        paginating = threading.local()
 
         # Patch the execute_hogql_query method on the paginator to capture queries before resolution
         original_paginator_method = HogQLHasMorePaginator.execute_hogql_query
@@ -2303,52 +2318,29 @@ def snapshot_hogql_queries(fn_or_class):
             if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
                 captured_queries.append(clone_expr(query))
 
-            return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            paginating.active = True
+            try:
+                return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            finally:
+                paginating.active = False
 
-        # Patch the module-level execute_hogql_query function for direct calls
-        # We need to patch it in modules that import it directly
-        original_module_function = hogql_query_module.execute_hogql_query
+        # Patch the executor every call reaches, whichever way its caller imported execute_hogql_query
+        original_executor_method = hogql_query_module.HogQLQueryExecutor.execute
 
-        def capture_module_execute(*exec_args, **exec_kwargs):
-            # Extract the query parameter - it can be positional or keyword
-            query = exec_kwargs.get("query") if "query" in exec_kwargs else (exec_args[0] if exec_args else None)
-
+        def capture_executor_execute(executor_self):
             # Capture the query AST before it gets resolved
-            if query and isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
-                captured_queries.append(clone_expr(query))
+            if not getattr(paginating, "active", False) and isinstance(
+                executor_self.query, ast.SelectQuery | ast.SelectSetQuery
+            ):
+                captured_queries.append(clone_expr(executor_self.query))
 
-            return original_module_function(*exec_args, **exec_kwargs)
+            return original_executor_method(executor_self)
 
-        # Import modules that use execute_hogql_query directly
-        patches = [
+        # Annotated because the two patches have different types, which join to object.
+        patches: list[AbstractContextManager[Any]] = [
             patch.object(HogQLHasMorePaginator, "execute_hogql_query", capture_paginator_execute),
-            patch.object(hogql_query_module, "execute_hogql_query", capture_module_execute),
+            patch.object(hogql_query_module.HogQLQueryExecutor, "execute", capture_executor_execute),
         ]
-
-        # Add patches for modules that import execute_hogql_query directly
-        try:
-            from products.web_analytics.backend.hogql_queries import web_overview
-
-            if hasattr(web_overview, "execute_hogql_query"):
-                patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from products.web_analytics.backend.hogql_queries import stats_table
-
-            if hasattr(stats_table, "execute_hogql_query"):
-                patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from posthog.hogql_queries.insights.trends import trends_query_runner
-
-            if hasattr(trends_query_runner, "execute_hogql_query"):
-                patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
 
         # Apply all patches
         with ExitStack() as stack:

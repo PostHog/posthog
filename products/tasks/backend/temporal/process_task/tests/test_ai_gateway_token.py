@@ -4,7 +4,12 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
+from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    INTERACTIVE_MINTABLE_PRODUCTS,
+    MINTABLE_PRODUCTS,
     mint_scoped_token,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
@@ -22,6 +27,10 @@ class TestResolveSandboxAiProduct:
         [
             ("signals_scout", "scout", "signals_scout"),
             ("signals_scout", "scout:web-analytics", "signals_scout"),
+            ("scout_suggestions", "scout_suggestions", "signals_scout_suggestions"),
+            ("signal_report", "inbox", "signals_inbox"),
+            ("signals_chat", "chat", "signals_chat"),
+            ("signals_chat", None, "signals"),
             ("signal_report", "research", "signals_research"),
             ("signal_report", "implementation", "signals_implementation"),
             ("signal_report", "repo_selection", "signals_repo_selection"),
@@ -38,6 +47,12 @@ class TestResolveSandboxAiProduct:
     def test_mapping(self, origin_product, ai_stage, expected):
         assert resolve_sandbox_ai_product(origin_product, ai_stage) == expected
 
+    def test_review_hog_requires_the_server_stamped_internal_flag(self):
+        assert resolve_sandbox_ai_product("review_hog", "validation-c1", internal=True) == "review_hog"
+        assert resolve_sandbox_ai_product("review_hog", None, internal=True) == "review_hog"
+        assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
+        assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
+
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
 
@@ -46,6 +61,7 @@ class TestResolveSandboxAiProduct:
 
     def test_stage_does_not_split_non_signals_products(self):
         assert resolve_sandbox_ai_product("loop", "implementation") == "posthog_code"
+        assert resolve_sandbox_ai_product("review_hog", "implementation", internal=True) == "review_hog"
 
 
 class TestSharedRoutingContract:
@@ -126,6 +142,54 @@ class TestMintScopedToken:
         assert kwargs["headers"] == {"Authorization": "Bearer phs_test_mint"}
         assert kwargs["timeout"] == 3
 
+    def test_review_hog_mint_carries_the_model_pin(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="review_hog", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "review_hog"
+        assert body["allowed_models"] == [
+            "claude-haiku-4-5",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5",
+            "claude-opus-4-5",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-fable-5",
+            "claude-fable-5-1",
+            "gpt-5",
+            "gpt-5.5",
+            "gpt-5.6-sol",
+            "gpt-5.6-luna",
+            "gpt-5.6-terra",
+            "gpt-6-astra",
+        ]
+
+    def test_review_hog_pin_covers_every_registry_arm_model(self):
+        """A persisted reviewer arm resolves against the live registry with no
+        re-pin, so any registry model missing from the pin fails its turns
+        after cutover. Slash-namespaced served models are exempt: the reviewer
+        never draws them, and an entry the gateway cannot resolve fails the
+        whole mint."""
+        from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
+        from products.tasks.backend.temporal.process_task.ai_gateway_token import _PRODUCT_ALLOWED_MODELS
+
+        registry = set(get_models_for_runtime_adapter(RuntimeAdapter.CLAUDE)) | set(
+            get_models_for_runtime_adapter(RuntimeAdapter.CODEX)
+        )
+        arm_models = {model for model in registry if "/" not in model}
+        missing = arm_models - set(_PRODUCT_ALLOWED_MODELS["review_hog"])
+        assert not missing, f"registry arm models absent from the review_hog pin: {sorted(missing)}"
+
+    def test_non_pinned_products_send_no_allowed_models(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            mint_scoped_token(ai_product="signals_scout", team_id=123)
+        assert "allowed_models" not in post.call_args.kwargs["json"]
+
     def test_retries_mint_rate_limit_then_succeeds(self, mint_settings):
         with (
             patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
@@ -184,14 +248,37 @@ class TestMintScopedToken:
     def test_ttl_derives_from_run_cap_when_unset(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
         mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+        mint_settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS = 6 * 60 * 60
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
+        # A background product is hard-capped at the shorter ceiling, so the longer one must
+        # not widen its token's window.
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 3 * 60 * 60 + 3600
+
+    def test_ttl_covers_the_interactive_ceiling_for_interactive_products(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
+        mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+        mint_settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS = 6 * 60 * 60
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="signals_inbox", team_id=123) == "phe_abc"
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 6 * 60 * 60 + 3600
+
+    # Zero means no wall-clock ceiling, so the token must not shrink onto the background derivation.
+    def test_ttl_clamps_to_gateway_max_when_the_interactive_ceiling_is_disabled(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
+        mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+        mint_settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS = 0
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="signals_chat", team_id=123) == "phe_abc"
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 86400
 
     def test_ttl_clamps_to_gateway_max_when_run_cap_disabled(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
         mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 0
+        mint_settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS = 0
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
@@ -209,6 +296,8 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
+            "AI_GATEWAY_PRODUCT": "signals_scout",
+            "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
         mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
 
@@ -216,7 +305,14 @@ class TestAiGatewayEnvVars:
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="loop")
         assert "AI_GATEWAY_TOKEN" not in env
+        assert "AI_GATEWAY_PRODUCT" not in env
+        assert "AI_GATEWAY_AI_STAGE" not in env
         mint.assert_not_called()
+
+    # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
+    def test_reserved_keys_cover_the_pinned_product_env(self):
+        assert "AI_GATEWAY_PRODUCT" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+        assert "AI_GATEWAY_AI_STAGE" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 
     def test_skill_qualified_allowlist_still_mints(self, mint_settings):
         """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint
@@ -237,6 +333,8 @@ class TestAiGatewayEnvVars:
         ):
             env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout")
         assert "AI_GATEWAY_TOKEN" not in env
+        # No token, no pinned product: the agent must not route on a product it cannot authenticate.
+        assert "AI_GATEWAY_PRODUCT" not in env
         assert env["AI_GATEWAY_URL"] == "https://ai-gateway.dev.posthog.dev"
 
     def test_no_run_context_still_sets_routing_pair(self, mint_settings):
@@ -251,6 +349,17 @@ class TestAiGatewayEnvVars:
         assert ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout") == {}
 
 
+class TestInteractiveProductSet:
+    # A third stamped stage would take the longer run ceiling and a token from the shorter one.
+    def test_interactive_products_are_exactly_the_stamped_stages(self):
+        assert INTERACTIVE_MINTABLE_PRODUCTS == {
+            f"signals_{stage}" for stage in INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.values()
+        }
+
+    def test_interactive_products_are_mintable(self):
+        assert INTERACTIVE_MINTABLE_PRODUCTS <= MINTABLE_PRODUCTS
+
+
 class TestMintableGate:
     """Mint scope needs server-side provenance: `internal` and some origin_product
     values are API-settable, so a routed-but-unmintable product must never mint."""
@@ -262,12 +371,60 @@ class TestMintableGate:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
+    def test_routed_review_hog_mints(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+
+    def test_non_internal_review_hog_does_not_mint(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=False)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
     def test_stageless_signal_report_cannot_mint_for_bare_signals(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals"
         with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="signal_report", ai_stage=None)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    def test_stageless_chat_cannot_mint_for_bare_signals(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals,signals_chat"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="signals_chat", ai_stage=None)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    @pytest.mark.parametrize("origin_product,ai_stage", sorted(INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.items()))
+    # Reads the stage from the map create_run stamps, so a rename fails here instead of
+    # resolving bare `signals`.
+    def test_stamped_interactive_stages_mint_their_own_product(self, mint_settings, origin_product, ai_stage):
+        expected_product = f"signals_{ai_stage}"
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = expected_product
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, ai_stage=ai_stage)
+        assert env["AI_GATEWAY_PRODUCT"] == expected_product
+        mint.assert_called_once_with(ai_product=expected_product, team_id=123, user=None)
+
+    def test_suggestions_stage_mints_its_own_product(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals_scout_suggestions"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="scout_suggestions", ai_stage=SUGGESTIONS_AI_STAGE)
+        assert env["AI_GATEWAY_PRODUCT"] == "signals_scout_suggestions"
+        mint.assert_called_once_with(ai_product="signals_scout_suggestions", team_id=123, user=None)
 
 
 class TestProvisioningBoundaries:
@@ -386,6 +543,28 @@ class TestUserPinAndCapOverride:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_implementation", team_id=2)
         assert post.call_args.kwargs["json"]["cap_usd"] == "10"
+
+    @pytest.mark.parametrize(
+        "ai_product,expected_cap",
+        [
+            ("signals_implementation", "20"),
+            ("signals_inbox", "75"),
+            ("signals_chat", "30"),
+            ("signals_scout_suggestions", "10"),
+        ],
+    )
+    # A cap key that stops matching the resolver's product fails here instead of quietly
+    # dropping to the default. Suggestions carry no entry and take that default on purpose.
+    def test_shipped_product_caps_reach_the_mint(self, settings, ai_product, expected_cap):
+        settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.dev.posthog.dev"
+        settings.SANDBOX_AI_GATEWAY_MINT_KEY = "phs_test_mint"
+        settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD = "10"
+        settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = ""
+        # The product overrides are left alone, to assert the value the repo ships.
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response({"token": "phe_abc"})
+            mint_scoped_token(ai_product=ai_product, team_id=123)
+        assert post.call_args.kwargs["json"]["cap_usd"] == expected_cap
 
     def test_malformed_overrides_fall_back_to_default(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = "not json"
