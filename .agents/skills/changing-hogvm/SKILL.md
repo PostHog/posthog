@@ -81,10 +81,14 @@ cargo test -p hogvm --manifest-path rust/Cargo.toml            # rust corpus/ora
 
 ## How CI enforces this
 
-- **ci-hog** (on `common/hogvm/**`): spec-artifact freshness check, Python and TS suites, and
-  `test.sh` with `git diff --exit-code` over the snapshots.
-- **ci-rust** (also triggered by `common/hogvm/**` via its paths filter and
-  `rust/affected-services/determinator-rules.toml`): the Rust crate's corpus parity report
-  (`tests/parity.rs`, diffs against the committed Node snapshots), the per-STL oracle
-  (`tests/stl_parity.rs`), the spec vectors, and the contract-table agreement test.
-- **semgrep-devex**: rejects `minArgs=`/`maxArgs:` declarations reappearing in VM code.
+**Hog CI** (`.github/workflows/ci-hog.yml`) owns HogVM parity end to end. It triggers on
+`common/hogvm/**` and `rust/common/hogvm/**` and runs:
+
+- "Hog tests": the spec-artifact freshness check, the Python and TS suites (including the
+  vectors), and `test.sh` with `git diff --exit-code` over the corpus snapshots.
+- "HogVM Rust parity": `cargo test -p hogvm` — the corpus parity report (`tests/parity.rs`,
+  diffs against the committed Node snapshots), the per-STL oracle (`tests/stl_parity.rs`),
+  the spec vectors, and the contract-table agreement test.
+
+ci-rust also tests the crate on rust-side changes like any other crate, and **semgrep-devex**
+rejects `minArgs`/`maxArgs` declarations reappearing in VM code.

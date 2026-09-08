@@ -39,9 +39,10 @@ python -m common.hogvm.spec.compile
 
 This regenerates the artifacts and the conformance vectors in `spec/vectors/`, which every VM runs
 in its test suite (`python/test/test_spec_vectors.py`, `typescript/src/__tests__/specVectors.test.ts`,
-`rust/common/hogvm/tests/spec_vectors.rs`). CI re-runs the compiler and fails on any diff, and a
-change under `common/hogvm/` also runs the Rust crate's parity gates against the shared corpus, so
-the three VMs cannot drift.
+`rust/common/hogvm/tests/spec_vectors.rs`). The Hog CI workflow owns parity end to end: it re-runs
+the compiler and fails on any diff, and its "HogVM Rust parity" job runs the Rust crate's gates
+against the shared corpus on any change under `common/hogvm/` or `rust/common/hogvm/`, so the three
+VMs cannot drift.
 
 ### Operations
 

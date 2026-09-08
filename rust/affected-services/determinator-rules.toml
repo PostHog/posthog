@@ -52,14 +52,6 @@ globs = [
 ]
 mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
 
-# HogVM cross-language contract: the hogvm crate's conformance tests read the shared spec,
-# the corpus, and the snapshots the reference (Python/TypeScript) VMs produce, so any change
-# to the reference side must re-run the Rust parity gates.
-# Must come BEFORE the catch-all rule below.
-[[path-rule]]
-globs = ["../common/hogvm/**"]
-mark-changed = ["hogvm"]
-
 # Django migrations and test environment setup — needed for Rust integration tests.
 [[path-rule]]
 globs = [

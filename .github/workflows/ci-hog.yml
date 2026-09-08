@@ -8,9 +8,12 @@ on:
         branches:
             - master
     pull_request:
-        paths-ignore:
-            - rust/**
-            - livestream/**
+        paths:
+            - '**'
+            - '!rust/**'
+            - '!livestream/**'
+            # Re-included: the Rust VM's parity gates live in this workflow
+            - 'rust/common/hogvm/**'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -37,6 +40,7 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             hog: ${{ steps.filter.outputs.hog || 'true' }}
+            hogvm-rust: ${{ steps.filter.outputs.hogvm-rust || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -67,6 +71,39 @@ jobs:
                         - requirements.txt
                         - requirements-dev.txt
                         - .github/workflows/ci-hog.yml
+                      hogvm-rust:
+                        # The Rust VM must stay in parity with the reference VMs and the shared spec
+                        - 'common/hogvm/**'
+                        - 'rust/common/hogvm/**'
+                        - '.github/workflows/ci-hog.yml'
+
+    # The Rust VM's cross-language gates (corpus parity vs the Node snapshots, the STL oracle,
+    # the spec vectors, and the contract-table agreement) run here, next to the reference VMs
+    # they diff against, so one workflow owns HogVM parity end to end. ci-rust still tests the
+    # crate on rust-side changes like any other crate.
+    hogvm-rust-parity:
+        needs: changes
+        timeout-minutes: 20
+        name: HogVM Rust parity
+        runs-on: depot-ubuntu-24.04
+        if: needs.changes.outputs.hogvm-rust == 'true'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Run the Rust VM parity gates
+              working-directory: rust
+              run: cargo test -p hogvm
 
     hog-tests:
         needs: changes

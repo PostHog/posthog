@@ -66,9 +66,6 @@ jobs:
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
-                        # HogVM contract: the hogvm crate's parity gates run against the shared
-                        # spec, corpus, and reference-VM snapshots under common/hogvm
-                        - 'common/hogvm/**'
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
