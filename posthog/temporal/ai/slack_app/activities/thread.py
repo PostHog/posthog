@@ -3,6 +3,8 @@ from temporalio import activity
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
 
 @activity.defn
 @close_db_connections
@@ -10,7 +12,7 @@ def collect_posthog_code_thread_messages_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
-) -> list[dict[str, str]]:
+) -> list[SlackThreadMessage]:
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.services.slack_messages import collect_thread_messages
