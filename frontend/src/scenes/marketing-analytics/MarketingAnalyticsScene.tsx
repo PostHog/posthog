@@ -117,8 +117,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
-    const { conversion_goals, integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
-    const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
     const { showOnboarding, currentStep } = useValues(marketingOnboardingLogic)
     const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
@@ -206,6 +205,32 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
                     <QueryTileItem key={i} tile={tile} />
                 ))}
             </div>
+        </>
+    )
+}
+
+const MarketingAnalyticsContent = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { activeTab } = useValues(marketingAnalyticsLogic)
+    const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
+    const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+
+    // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
+    // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
+    const dashboard = (
+        <>
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
+                <NewMarketingAnalyticsDashboard />
+            ) : (
+                <>
+                    <MarketingAnalyticsFilters tabs={<></>} />
+                    <MarketingAnalyticsDashboard />
+                </>
+            )}
+            {/* Both dashboards carry the campaign breakdown, whose mapping menus open this modal, so it
+                is mounted beside them rather than inside one. It sits in the tab content, because Setup
+                and Integration health mount their own copy off the same shared state. */}
             {integrationSettingsModal.integration && (
                 <IntegrationSettingsModal
                     integrationName={integrationSettingsModal.integration}
@@ -215,23 +240,6 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
                     initialUtmValue={integrationSettingsModal.initialUtmValue}
                 />
             )}
-        </>
-    )
-}
-
-const MarketingAnalyticsContent = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab } = useValues(marketingAnalyticsLogic)
-    const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
-
-    // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
-    // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
-    const dashboard = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
-        <NewMarketingAnalyticsDashboard />
-    ) : (
-        <>
-            <MarketingAnalyticsFilters tabs={<></>} />
-            <MarketingAnalyticsDashboard />
         </>
     )
 
