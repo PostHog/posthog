@@ -110,26 +110,6 @@ Task creation and resumption keep the submitted draft and unsent context while a
 Web retries confirmed startup failures for up to 20 seconds, then leaves the message available to
 submit again.
 
-Submitting an approval reveals the normal composer immediately. The approval remains mounted but hidden
-until confirmed acceptance or a matching streamed resolution. A failed delivery restores its answers,
-feedback, and selections. The normal composer also stays mounted while hidden, preserving newer draft
-keystrokes even before their debounce commits. Disable composer shortcuts with `composerActive` when the
-approval is visible.
-
-Follow-ups stay in **Up next** while the agent is working or any approval remains unresolved. Both
-approval resolution and turn completion recheck ordinary delivery. Bind `QueuedMessageList.onSteer` to
-`runInteractionLogic.steerQueue` and its `steerPending` prop to the same logic's value. The task-run
-composer also binds **Esc** to this action only while its normal textarea is active, yielding to overlays,
-composition input, and queue editing. An empty queue adds no Esc behavior. Steering sends only saved
-queue text, preserving the unsent draft.
-
-If an approval is being delivered, steering waits for confirmation and then flushes the current saved
-queue. Failure, replacement, cancellation, termination, reset, unmount, or emptying the queue cancels the
-intent. Failed submissions return ahead of newer queued text and leave unsent context available. Use
-**Steer** to retry them; later turn or approval events do not automatically resend an uncertain submission. A
-`user_message` response with `result.queued: true` confirms submission; the workflow's existing steering
-support and fallback determine when the model consumes it.
-
 ### Custom layout via the `RunSurface` compound
 
 `RunSurface.Root` (Tier 1, `api/runSurface`) binds the stream logic and bootstraps the run; the slots
