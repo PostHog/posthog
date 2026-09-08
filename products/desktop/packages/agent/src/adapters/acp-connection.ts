@@ -20,6 +20,7 @@ import type { GatewayEnv } from "./claude/session/options";
 import { nativeCodexBinaryPath } from "./codex-app-server/binary-path";
 import { CodexAppServerAgent } from "./codex-app-server/codex-app-server-agent";
 import type { CodexOptions } from "./codex-app-server/spawn";
+import type { UsageCommandConfig } from "./usage-command";
 
 export type AcpConnectionConfig = {
   adapter?: Adapter;
@@ -47,6 +48,7 @@ export type AcpConnectionConfig = {
   claudeMachineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
+  usageCommand?: UsageCommandConfig;
 };
 
 export type AcpConnection = {
@@ -166,6 +168,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       gatewayEnv: config.claudeGatewayEnv,
       machineAuth: config.claudeMachineAuth,
       contextWiki: config.contextWiki,
+      usageCommand: config.usageCommand,
     });
     return agent;
   }, agentStream);
@@ -254,6 +257,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
       processCallbacks: config.processCallbacks,
       onStructuredOutput: config.onStructuredOutput,
       logger: config.logger?.child("CodexAppServerAgent"),
+      usageCommand: config.usageCommand,
     });
     return agent;
   }, agentStream);

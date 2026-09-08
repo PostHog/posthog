@@ -16,6 +16,7 @@ import {
 } from "./adapters/acp-connection";
 import { machineClaudeAuth } from "./adapters/claude/machine-auth";
 import type { GatewayEnv } from "./adapters/claude/session/options";
+import { usageCommandConfig } from "./adapters/usage-command";
 import {
   DEFAULT_CODEX_MODEL,
   DEFAULT_GATEWAY_MODEL,
@@ -245,6 +246,11 @@ export class Agent {
       claudeGatewayEnv,
       claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
       contextWiki: options.contextWiki,
+      usageCommand: usageCommandConfig(
+        this.posthogAPI,
+        taskId,
+        task?.created_at,
+      ),
       codexOptions:
         options.adapter === "codex" && (codexSubscription || gatewayConfig)
           ? {

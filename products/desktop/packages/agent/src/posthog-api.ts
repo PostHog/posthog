@@ -222,6 +222,28 @@ export class PostHogAPIClient {
     return getLlmGatewayUrl(this.baseUrl);
   }
 
+  /** The conversation is the `$ai_session_id`, which for an agent run is the task. */
+  async getAiUsageMessage({
+    conversationId,
+    conversationStartedAt,
+    product,
+  }: {
+    conversationId?: string;
+    conversationStartedAt?: string;
+    product?: string;
+  } = {}): Promise<string> {
+    const query = new URLSearchParams();
+    if (conversationId) query.set("conversation_id", conversationId);
+    if (conversationStartedAt)
+      query.set("conversation_started_at", conversationStartedAt);
+    if (product) query.set("product", product);
+    const search = query.size > 0 ? `?${query}` : "";
+    const usage = await this.apiRequest<{ message: string }>(
+      `/api/projects/${this.getTeamId()}/ai_usage/${search}`,
+    );
+    return usage.message;
+  }
+
   /**
    * The gateway user node for the signed-in person, or null when the credential
    * resolves to no user (a task-scoped token). This is the distinct id, not the

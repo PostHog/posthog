@@ -1856,6 +1856,19 @@ export class AgentServer {
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
       logger: this.logger,
+      usageCommand: {
+        // Fetched per command rather than per session: `/usage` is rare, and the
+        // task's start time only bounds this one search.
+        loadUsageMessage: async () =>
+          posthogAPI.getAiUsageMessage({
+            conversationId: payload.task_id,
+            conversationStartedAt: await posthogAPI
+              .getTask(payload.task_id)
+              .then((task) => task.created_at)
+              .catch(() => undefined),
+            product: gatewayEnv.aiProduct,
+          }),
+      },
       claudeGatewayEnv: runtimeAdapter !== "codex" ? gatewayEnv : undefined,
       codexOptions:
         runtimeAdapter === "codex"
@@ -4769,6 +4782,7 @@ ${commonInstructions}
       anthropicCustomHeaders: customHeaders,
       openaiCustomHeaders,
       posthogProjectId: String(projectId),
+      aiProduct,
     };
   }
 
