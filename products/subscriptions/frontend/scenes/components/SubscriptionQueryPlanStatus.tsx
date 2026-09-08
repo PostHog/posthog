@@ -1,4 +1,4 @@
-import { IconAsterisk, IconRefresh } from '@posthog/icons'
+import { IconLock, IconRefresh, IconUnlock } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import {
@@ -27,23 +27,18 @@ export function SubscriptionQueryPlanStatus({
     switch (status) {
         case AIQueryPlanStatusEnumApi.Frozen:
             copy =
-                "This delivery's query plan was frozen for reuse. PostHog will reuse it for future deliveries until the prompt or query planner changes. Date ranges, results, and the written report still update."
-            icon = <IconAsterisk aria-hidden="true" className="size-4" />
+                'Query plan locked for reuse. PostHog will reuse these queries until the prompt or query planner changes. Date ranges, results, and the written report still update.'
+            icon = <IconLock aria-hidden="true" className="size-4" />
             break
         case AIQueryPlanStatusEnumApi.NotFrozen:
             copy =
-                "This delivery's query plan was not frozen for reuse. PostHog will generate a new plan for the next delivery."
-            icon = (
-                <span className="relative inline-flex size-4 items-center justify-center">
-                    <IconAsterisk aria-hidden="true" className="size-4" />
-                    <span aria-hidden="true" className="absolute h-0.5 w-[1.1rem] -rotate-45 rounded bg-current" />
-                </span>
-            )
+                'Query plan not locked. PostHog will generate a new plan for the next delivery and automatically lock it once all queries succeed and it can be safely reused.'
+            icon = <IconUnlock aria-hidden="true" className="size-4" />
             break
         case AIQueryPlanStatusEnumApi.PlannerUpdated:
             copy =
-                'The query planner changed, so this delivery generated a new plan. The new plan was frozen for future deliveries.'
-            icon = <IconRefresh aria-hidden="true" />
+                'The query planner changed, so PostHog generated a new plan. The new plan was locked for future deliveries.'
+            icon = <IconRefresh aria-hidden="true" className="size-4" />
             break
     }
 

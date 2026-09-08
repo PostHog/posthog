@@ -93,8 +93,21 @@ describe('SubscriptionAiReportDelivery helpers', () => {
 
         expect(screen.getByText('Generated queries')).toBeInTheDocument()
         expect(screen.getByText('Generated queries').parentElement).toContainElement(
-            screen.getByLabelText(/^This delivery's query plan was frozen for reuse\./)
+            screen.getByLabelText(/^Query plan locked for reuse\./)
         )
+    })
+
+    it('explains that a plan automatically locks once its queries succeed', () => {
+        const row = MOCK_SUBSCRIPTION_DELIVERIES.find((delivery) => delivery.id === 'del-ai-report')
+        if (!row) {
+            throw new Error('Missing AI report delivery fixture')
+        }
+
+        render(<ExpandedDeliveryRow row={{ ...row, ai_query_plan_status: AIQueryPlanStatusEnumApi.NotFrozen }} />)
+
+        expect(
+            screen.getByLabelText(/automatically lock it once all queries succeed and it can be safely reused\./)
+        ).toBeInTheDocument()
     })
 
     it('leaves the query heading unadorned when an older delivery has no recorded plan state', () => {
@@ -118,7 +131,7 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         render(<ExpandedDeliveryRow row={{ ...row, ai_query_plan_status: AIQueryPlanStatusEnumApi.PlannerUpdated }} />)
 
         expect(
-            screen.getByLabelText(/^The query planner changed, so this delivery generated a new plan\./)
+            screen.getByLabelText(/^The query planner changed, so PostHog generated a new plan\./)
         ).toBeInTheDocument()
     })
 })
