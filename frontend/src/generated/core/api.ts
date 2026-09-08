@@ -15,9 +15,11 @@ import type {
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    DependenciesListParams,
     DomainsListParams,
     DomainsScimLogsRetrieveParams,
     EnterprisePropertyDefinitionApi,
+    EntityDependencyGroupApi,
     EventIngestionRestrictionApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
@@ -1463,6 +1465,37 @@ export const dashboardsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getDependenciesListUrl = (projectId: string, params?: DependenciesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dependencies/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dependencies/`
+}
+
+/**
+ * Lists recorded references between entities. Pass target_type and target_id to ask what references an entity (for example, the workflows that use a cohort), or source_type and source_id to ask what an entity references (for example, the cohorts a workflow uses). Exactly one of the two pairs is required. Returns one group per related entity type. References are recorded by each product when its entities are saved; entities of types without a registered resolver come back id-only with status 'unknown'.
+ * @summary List an entity's dependencies
+ */
+export const dependenciesList = async (
+    projectId: string,
+    params?: DependenciesListParams,
+    options?: RequestInit
+): Promise<EntityDependencyGroupApi[]> => {
+    return apiMutator<EntityDependencyGroupApi[]>(getDependenciesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

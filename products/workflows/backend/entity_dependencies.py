@@ -1,8 +1,14 @@
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
-from posthog.models.entity_dependencies.registry import DependencySource, register_source
-from posthog.models.entity_dependencies.types import Reference
+from posthog.models.entity_dependencies.registry import (
+    DependencyResolver,
+    DependencySource,
+    register_resolver,
+    register_source,
+)
+from posthog.models.entity_dependencies.types import EntityRef, EntityRefStatus, Reference
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -113,4 +119,32 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+class HogFlowDependencyResolver(DependencyResolver):
+    entity_type = "hog_flow"
+
+    def resolve(self, team_id: int, ids: list[str]) -> dict[str, EntityRef]:
+        valid_ids = [entity_id for entity_id in ids if _is_uuid(entity_id)]
+        if not valid_ids:
+            return {}
+        refs: dict[str, EntityRef] = {}
+        for flow in HogFlow.objects.filter(team_id=team_id, id__in=valid_ids).only("id", "name", "status"):
+            refs[str(flow.id)] = EntityRef(
+                type="hog_flow",
+                id=str(flow.id),
+                name=flow.name or "",
+                url=f"/workflows/{flow.id}/workflow",
+                status=EntityRefStatus.ARCHIVED if flow.status == HogFlow.State.ARCHIVED else EntityRefStatus.ACTIVE,
+            )
+        return refs
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
 register_source(HogFlowDependencySource())
+register_resolver(HogFlowDependencyResolver())

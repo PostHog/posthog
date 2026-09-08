@@ -6,6 +6,7 @@ import { IconArchive, IconClock, IconCopy, IconScreen, IconTrash, IconUpload } f
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { EntityDependenciesPanel } from 'lib/components/EntityDependencies/EntityDependenciesPanel'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -20,7 +21,12 @@ import {
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
@@ -232,6 +238,18 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 </AccessControlAction>
                                 <LemonDivider vertical />
                                 <ScenePanel>
+                                    {featureFlags[FEATURE_FLAGS.ENTITY_DEPENDENCIES] && workflow?.id && (
+                                        <>
+                                            <ScenePanelInfoSection>
+                                                <EntityDependenciesPanel
+                                                    type="hog_flow"
+                                                    id={workflow.id}
+                                                    direction="depends_on"
+                                                />
+                                            </ScenePanelInfoSection>
+                                            <ScenePanelDivider />
+                                        </>
+                                    )}
                                     <ScenePanelActionsSection>
                                         <ButtonPrimitive
                                             menuItem

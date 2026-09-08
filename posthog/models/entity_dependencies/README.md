@@ -51,6 +51,27 @@ python manage.py backfill_entity_dependencies --source-type hog_flow            
 
 The command walks `DependencySource.get_queryset()` (every instance across teams, `--team-id` to narrow) and runs the same diff as the save signal, so it is idempotent and doubles as the repair tool. It writes only dependency rows and never saves the source, so it fires no source signals. It is a management command rather than a `RunPython` migration on purpose, following `docs/published/handbook/engineering/safe-django-migrations.md`.
 
+## Registering a resolver
+
+A resolver turns ids of one entity type into displayable references (`EntityRef`: name, url, status) for the read API. Implement `DependencyResolver` next to the product and register it at app-ready time, like a source:
+
+```python
+class CohortDependencyResolver(DependencyResolver):
+    entity_type = "cohort"
+
+    def resolve(self, team_id: int, ids: list[str]) -> dict[str, EntityRef]:
+        ...  # one query for all ids, never one per id
+
+
+register_resolver(CohortDependencyResolver())
+```
+
+Return soft-deleted entities with `status="deleted"` rather than omitting them: a reference to a restorable entity is not the same as one to an entity that is gone. Ids you omit are reported as `missing`. Types with no resolver at all come back id-only with `status="unknown"`, so the read API works over a partially adopted registry.
+
+## Reading dependencies
+
+`GET /api/projects/:team_id/dependencies/?target_type=cohort&target_id=123` lists what references an entity; `?source_type=hog_flow&source_id=<uuid>` lists what an entity references. The response is one group per related entity type, resolved through that type's resolver. The generic frontend panel (`frontend/src/lib/components/EntityDependencies/`) renders either direction in a scene's `ScenePanel`, gated by the `entity-dependencies` feature flag.
+
 ## Write paths that skip `save()`
 
 `.update()`, `bulk_update`, and raw SQL fire no signals. A write path that changes reference-bearing fields this way must call `sync_instance_dependencies(instance)` itself. Audit a source's write paths when you register it; a source with an unaudited bypass drifts silently until the next backfill run.

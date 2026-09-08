@@ -6,6 +6,7 @@ import { IconClock, IconCopy, IconInfo, IconRefresh, IconTrash, IconUpload, Icon
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { EntityDependenciesPanel } from 'lib/components/EntityDependencies/EntityDependenciesPanel'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -237,6 +238,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                        {featureFlags[FEATURE_FLAGS.ENTITY_DEPENDENCIES] && cohortId !== null && (
+                            <EntityDependenciesPanel type="cohort" id={String(cohortId)} direction="used_by" />
+                        )}
                     </ScenePanelInfoSection>
 
                     <ScenePanelDivider />

@@ -10,7 +10,7 @@ from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.entity_dependencies.sync import plan_sync, remove_dependencies, sync_dependencies
-from posthog.models.entity_dependencies.types import Reference, SyncResult
+from posthog.models.entity_dependencies.types import EntityRef, EntityRefStatus, Reference, SyncResult
 
 logger = structlog.get_logger(__name__)
 
@@ -54,8 +54,28 @@ class DependencySource(ABC, Generic[M]):
         return manager.all()
 
 
+class DependencyResolver(ABC):
+    """Resolves ids of one entity type into displayable references.
+
+    A product implements this for a model that dependency rows point at (as target or source),
+    then calls `register_resolver()` at app-ready time. `resolve` must batch: one call resolves
+    every id the read API needs for that type, so it should run one query, not one per id.
+
+    Ids absent from the returned dict are reported as `missing` by `resolve_references`, so a
+    resolver only returns entities that exist for the team (soft-deleted ones included, with
+    `status="deleted"`, because a dangling reference to a restorable entity is not the same as
+    one to an entity that is gone).
+    """
+
+    entity_type: str
+
+    @abstractmethod
+    def resolve(self, team_id: int, ids: list[str]) -> dict[str, EntityRef]: ...
+
+
 _sources_by_type: dict[str, DependencySource[Any]] = {}
 _sources_by_model: dict[type[models.Model], DependencySource[Any]] = {}
+_resolvers_by_type: dict[str, DependencyResolver] = {}
 
 
 def register_source(source: DependencySource[Any]) -> None:
@@ -86,6 +106,35 @@ def unregister_source(entity_type: str) -> None:
     _sources_by_model.pop(source.model, None)
     post_save.disconnect(sender=source.model, dispatch_uid=_dispatch_uid(source, "save"))
     post_delete.disconnect(sender=source.model, dispatch_uid=_dispatch_uid(source, "delete"))
+
+
+def register_resolver(resolver: DependencyResolver) -> None:
+    existing = _resolvers_by_type.get(resolver.entity_type)
+    if existing is not None and existing is not resolver:
+        raise EntityDependencyRegistryError(
+            f"Entity type {resolver.entity_type!r} already has resolver {type(existing).__name__}"
+        )
+    _resolvers_by_type[resolver.entity_type] = resolver
+
+
+def unregister_resolver(entity_type: str) -> None:
+    _resolvers_by_type.pop(entity_type, None)
+
+
+def resolve_references(team_id: int, entity_type: str, ids: list[str]) -> dict[str, EntityRef]:
+    """Resolve ids of one type into displayable references, with a ref for every requested id.
+
+    Types without a registered resolver come back id-only with `status="unknown"`, so a read
+    surface over a partially adopted registry degrades to showing ids instead of failing.
+    """
+    resolver = _resolvers_by_type.get(entity_type)
+    if resolver is None:
+        return {entity_id: EntityRef(type=entity_type, id=entity_id) for entity_id in ids}
+    resolved = resolver.resolve(team_id, ids)
+    return {
+        entity_id: resolved.get(entity_id, EntityRef(type=entity_type, id=entity_id, status=EntityRefStatus.MISSING))
+        for entity_id in ids
+    }
 
 
 def get_source(entity_type: str) -> DependencySource[Any]:

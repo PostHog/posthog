@@ -3620,6 +3620,60 @@ export interface SharingConfigurationApi {
 }
 
 /**
+ * * `active` - Active
+ * * `deleted` - Deleted
+ * * `missing` - Missing
+ * * `archived` - Archived
+ * * `unknown` - Unknown
+ */
+export type EntityRefStatusEnumApi = (typeof EntityRefStatusEnumApi)[keyof typeof EntityRefStatusEnumApi]
+
+export const EntityRefStatusEnumApi = {
+    Active: 'active',
+    Deleted: 'deleted',
+    Missing: 'missing',
+    Archived: 'archived',
+    Unknown: 'unknown',
+} as const
+
+export interface EntityRefApi {
+    /** Registry entity type, for example 'cohort' or 'hog_flow'. */
+    type: string
+    /** Entity id as a string. Sources and targets mix integer and UUID keys. */
+    id: string
+    /** Display name from the owning product. Empty when unresolved or unnamed. */
+    name: string
+    /** App path to the entity. Empty when unresolved. */
+    url: string
+    /** Resolution state: 'active' or 'archived' when the entity exists, 'deleted' when soft-deleted, 'missing' when the id resolves to nothing, 'unknown' when no resolver is registered for the type.
+     *
+     * * `active` - Active
+     * * `deleted` - Deleted
+     * * `missing` - Missing
+     * * `archived` - Archived
+     * * `unknown` - Unknown */
+    status: EntityRefStatusEnumApi
+}
+
+export interface EntityDependencyEntryApi {
+    /** The referenced or referencing entity, resolved for display. */
+    entity: EntityRefApi
+    /** Source-defined labels for how the reference is used, for example 'trigger_audience'. A 'draft:' prefix marks references that exist only in unpublished draft content. */
+    roles: string[]
+}
+
+export interface EntityDependencyGroupApi {
+    /** Entity type shared by every entry in this group. */
+    type: string
+    /** Total number of related entities of this type. */
+    total: number
+    /** True when results were capped and more entities exist. */
+    has_more: boolean
+    /** Related entities, capped per group. */
+    results: EntityDependencyEntryApi[]
+}
+
+/**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
  * * `text/csv` - text/csv
@@ -5202,6 +5256,25 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type DependenciesListParams = {
+    /**
+     * Entity id to list referenced entities for. Requires source_type.
+     */
+    source_id?: string
+    /**
+     * Entity type to list referenced entities for. Requires source_id.
+     */
+    source_type?: string
+    /**
+     * Entity id to list referencing entities for. Requires target_type.
+     */
+    target_id?: string
+    /**
+     * Entity type to list referencing entities for. Requires target_id.
+     */
+    target_type?: string
 }
 
 export type ExportsListParams = {
