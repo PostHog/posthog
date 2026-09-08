@@ -4,7 +4,7 @@ from typing import Any
 from structlog import get_logger
 
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
-from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig, redacted_record
 
 logger = get_logger(__name__)
 
@@ -39,6 +39,8 @@ An issue is NOT_ACTIONABLE if it is:
 - A duplicate that only says "same as X" with no new information
 - An internal housekeeping task (dependency bumps, CI config, infra maintenance)
 
+The issue may end with a record_metadata block. `assignee_name` names the person the issue is assigned to in Linear, and the key is absent when the issue has no assignee. The assignee is context and not a verdict. An assigned issue still describes real feedback, so never classify an issue as NOT_ACTIONABLE only because it has an assignee.
+
 When in doubt, classify as ACTIONABLE. Linear issues are filed intentionally, so err on the side of capturing the signal.
 
 <issue>
@@ -58,9 +60,18 @@ EXTRA_FIELDS = (
     "labels",
     "state",
     "team",
+    "assignee",
     "created_at",
     "updated_at",
 )
+
+# `assignee` never belongs in a log line: the emitter keeps the name and drops the id and the email
+# address, and the shared pipeline logs whole records when an emitter raises.
+UNLOGGABLE_FIELDS = ("assignee",)
+
+
+def _loggable(record: dict[str, Any]) -> dict[str, Any]:
+    return redacted_record(record, UNLOGGABLE_FIELDS)
 
 
 def linear_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -70,11 +81,11 @@ def linear_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         description = record["description"]
     except KeyError as e:
         msg = f"Linear issue record missing required field {e}"
-        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg) from e
     if not issue_id or not title:
         msg = f"Linear issue record has empty required field: id={issue_id!r}, title={title!r}"
-        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
     if not description:
         return None
@@ -93,14 +104,37 @@ def _parse_json_field(field_name: str, raw_value: Any, record: dict[str, Any]) -
         return None
     if not isinstance(raw_value, str):
         msg = f"Linear issue {field_name} field has unexpected type {type(raw_value).__name__}: {raw_value!r}"
-        logger.exception(msg, record=record, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), signals_type="data-import-signals")
         raise ValueError(msg)
     try:
         return json.loads(raw_value)
     except (json.JSONDecodeError, TypeError) as e:
         msg = f"Linear issue {field_name} field is not valid JSON: {raw_value!r}"
-        logger.exception(msg, record=record, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), signals_type="data-import-signals")
         raise ValueError(msg) from e
+
+
+def _assignee_name(raw_assignee: Any) -> str | None:
+    """Lift `name` out of a Linear user object, which the warehouse stores as a JSON string.
+
+    Unlike labels, an assignee we can't read degrades to an unowned issue rather than raising: the
+    owner is context for triage, not something the signal is meaningless without.
+    """
+    if isinstance(raw_assignee, str):
+        try:
+            raw_assignee = json.loads(raw_assignee)
+        except (json.JSONDecodeError, TypeError):
+            # The blob itself names a person, so log only enough to spot a shape change upstream.
+            logger.warning(
+                "Ignoring unparseable Linear issue assignee field",
+                signals_type="data-import-signals",
+                raw_assignee_length=len(raw_assignee),
+            )
+            return None
+    if not isinstance(raw_assignee, dict):
+        return None
+    name = raw_assignee.get("name")
+    return name if isinstance(name, str) and name else None
 
 
 def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
@@ -116,7 +150,7 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
         extra["labels"] = [n["name"] for n in nodes if isinstance(n, dict) and "name" in n]
     else:
         msg = f"Linear issue labels field has unexpected shape: {raw.get('labels')!r}"
-        logger.exception(msg, record=record, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), signals_type="data-import-signals")
         raise ValueError(msg)
     parsed_state = _parse_json_field("state", raw.get("state"), record)
     if isinstance(parsed_state, dict):
@@ -127,6 +161,8 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
         extra["state_type"] = None
     parsed_team = _parse_json_field("team", raw.get("team"), record)
     extra["team_name"] = parsed_team.get("name") if isinstance(parsed_team, dict) else None
+    # Always present, so the contract shape doesn't shift when a sync withholds the assignee.
+    extra["assignee_name"] = _assignee_name(raw.get("assignee"))
     return extra
 
 
@@ -142,6 +178,8 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=LINEAR_ACTIONABILITY_PROMPT,
+    actionability_context_fields=("assignee_name",),
+    unloggable_fields=UNLOGGABLE_FIELDS,
     summarization_prompt=LINEAR_SUMMARIZATION_PROMPT,
     description_summarization_threshold_chars=2000,
 )

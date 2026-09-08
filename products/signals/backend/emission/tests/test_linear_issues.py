@@ -1,6 +1,10 @@
 import pytest
+from unittest.mock import patch
 
-from products.signals.backend.emission.linear_issues import linear_issue_emitter
+from products.signals.backend.contracts import LinearIssueSignalExtra
+from products.signals.backend.emission import pipeline
+from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG, linear_issue_emitter
+from products.signals.backend.emission.pipeline import build_emitter_outputs
 
 
 class TestLinearIssueEmitter:
@@ -93,3 +97,51 @@ class TestLinearIssueEmitter:
         assert result is not None
         assert result.extra["state_name"] is None
         assert result.extra["state_type"] is None
+
+    def test_assignee_name_lifted_out_of_nested_object(self, linear_issue_record):
+        result = linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+        assert result is not None
+        assert result.extra["assignee_name"] == "Jane Doe"
+        # The rest of the object is an internal id and an email address.
+        assert "assignee" not in result.extra
+        # The eval fixtures predate the assignee column, so this is the only coverage of a populated
+        # assignee against a contract that forbids unknown keys.
+        LinearIssueSignalExtra(**result.extra)
+
+    @pytest.mark.parametrize(
+        "record_overrides",
+        [
+            pytest.param({}, id="column_absent"),
+            pytest.param({"assignee": None}, id="null_column"),
+            pytest.param({"assignee": "not-json"}, id="unparseable_assignee"),
+            pytest.param({"assignee": '["not", "an", "object"]'}, id="non_object_assignee"),
+            pytest.param({"assignee": '{"id": "user-1"}'}, id="assignee_without_name"),
+        ],
+    )
+    def test_assignee_degrades_to_none_without_raising(self, linear_issue_record, record_overrides):
+        # An assignee the emitter can't read has to become None rather than drop the issue, so a
+        # shape change upstream costs triage the context and nothing else.
+        linear_issue_record.pop("assignee")
+        linear_issue_record.update(record_overrides)
+
+        result = linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+        assert result is not None
+        assert result.extra["assignee_name"] is None
+
+    def test_a_failed_record_reaches_the_pipeline_log_without_the_assignee_object(self, linear_issue_record):
+        # The emitter raises on malformed labels, and the shared pipeline logs the record it handed
+        # over — the whole warehouse row, unless the source declares `assignee` unloggable.
+        linear_issue_record["labels"] = "not-json"
+
+        with patch.object(pipeline.logger, "exception") as log_exception:
+            _, error_count = build_emitter_outputs(
+                team_id=1,
+                records=[linear_issue_record],
+                emitter=LINEAR_ISSUES_CONFIG.emitter,
+                unloggable_fields=LINEAR_ISSUES_CONFIG.unloggable_fields,
+            )
+
+        assert error_count == 1
+        assert "assignee" not in log_exception.call_args.kwargs["record"]

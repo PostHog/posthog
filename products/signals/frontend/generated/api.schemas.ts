@@ -926,6 +926,7 @@ export interface LinearIssueSignalExtraApi {
     team_name: string | null
     created_at: string
     updated_at: string
+    assignee_name?: string | null
 }
 
 export interface JiraIssueSignalExtraApi {
