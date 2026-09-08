@@ -29,8 +29,8 @@ export function TicketListBulkActions(): JSX.Element {
         : editableTicketIds.length === 0
           ? "You don't have edit access to any of the selected tickets"
           : undefined
-    // Restore is only offered for a selection that is entirely archived — a mixed one
-    // (possible while the list shows both) far more likely means "archive these".
+    // Restore only when the whole selection is archived, because a mixed selection more
+    // likely means "archive these".
     const allArchived = selectedTickets.length > 0 && selectedTickets.every((t) => !!t.archived_at)
     const restrictedSelectionTooltip =
         hasRestrictedSelection && editableTicketIds.length > 0

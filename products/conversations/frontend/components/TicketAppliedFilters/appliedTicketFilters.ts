@@ -85,7 +85,6 @@ export function listAppliedTicketFilters(state: AppliedTicketFiltersState): Appl
         })
     }
 
-    // Only a deliberate choice shows as a chip: 'hide' is the default, not a filter.
     if (state.archivedFilter !== 'hide') {
         const label =
             archivedOptions.find((option) => option.value === state.archivedFilter)?.label ?? state.archivedFilter

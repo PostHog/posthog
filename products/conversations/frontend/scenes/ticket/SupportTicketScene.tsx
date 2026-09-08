@@ -273,8 +273,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     ) : undefined
                 }
             />
-            {/* An archived ticket is out of every list, so someone reading one has almost
-                certainly arrived by link or by ticket number and has no other way to tell. */}
+            {/* An archived ticket is out of every list, so a reader arrived by link or by
+                ticket number and has no other way to tell. */}
             {isArchived && (
                 <LemonBanner
                     type="info"

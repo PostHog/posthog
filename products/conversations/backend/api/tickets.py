@@ -554,9 +554,6 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        # `archived` is a boolean on the wire because that is what a caller is deciding;
-        # the model stores the moment instead, so the archive can be read back in the
-        # order things were archived.
         if (archived := validated_data.pop("archived", None)) is not None:
             validated_data["archived_at"] = timezone.now() if archived else None
         return super().update(instance, validated_data)
@@ -784,9 +781,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         queryset = self._filter_queryset_by_access_level(queryset)
 
         user = cast("User", self.request.user) if self.request.user and self.request.user.is_authenticated else None
-        # The archive is scoped for the list only. A ticket looked up by id — to read it, to
-        # restore it, or to archive a selection — has to stay reachable once archived, or the
-        # soft delete would be a one-way door.
+        # List-only, so an archived ticket stays reachable by id and can be restored.
         return apply_ticket_filters(queryset, filters, team=self.team, user=user, archive_scope=self.action == "list")
 
     def _get_view_filters(self, short_id: str) -> dict[str, Any]:
@@ -1174,8 +1169,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 instance.save(update_fields=["status"])
 
     def _emit_update_side_effects(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
-        # An archived ticket is out of the unread count as well as the list, so archiving or
-        # restoring one moves the team's total the same way resolving it does.
+        # An archived ticket leaves the unread count, so the team total moves.
         if diff.crosses_resolved or diff.archive_changed:
             invalidate_unread_count_cache(self.team_id)
 
@@ -1226,8 +1220,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             capture_exception(e, {"ticket_id": str(instance.id)})
 
     def _report_ticket_archived(self, request, instance: Ticket, *, archived: bool) -> None:
-        """Archiving is the closest thing to deleting a ticket, so it is worth being able to see
-        how much it gets used, and whether restores follow it."""
+        """Archiving is the closest thing to deleting a ticket, so the rate of archives and of
+        restores after them is worth measuring."""
         try:
             report_user_action(
                 request.user,
@@ -1356,7 +1350,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         Archiving is a soft delete: the tickets leave the ticket list and the unread count,
         keep their status, assignee and SLA, and stay readable by direct link or through the
-        `archived` filter. Nothing is destroyed, and every change lands in the ticket's
+        `archived` filter. Nothing is destroyed, and every change goes into the ticket's
         activity log.
 
         Team scoping, object-level access and no-op skipping match `bulk_update_status`:
@@ -1389,7 +1383,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         def _emit_bulk_side_effects() -> None:
             if not changed:
                 return
-            # Archived tickets are out of the unread count, so the team total moved.
             invalidate_unread_count_cache(self.team_id)
 
             for ticket, was_archived_at in changed:
@@ -1413,8 +1406,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def _log_archive_activity(self, request, ticket: Ticket, *, before: datetime | None) -> None:
         """Activity entry for one archive or restore.
 
-        Bulk archiving logs per ticket, the way ``bulk_update_status`` does: the entry is what
-        answers "who took this ticket out of the list, and when", so it has to be on the
+        Bulk archiving logs per ticket, the way ``bulk_update_status`` does, because the entry
+        is what answers "who took this ticket out of the list, and when". It has to be on the
         ticket rather than summarized on the request.
         """
         try:
@@ -1467,8 +1460,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if cached_count is not None:
                 return Response({"count": cached_count})
 
-        # Query database - only non-resolved, non-archived tickets with unread messages. An
-        # archived ticket is off the team's plate, so it must not keep the badge lit.
+        # Query database - only non-resolved, non-archived tickets with unread messages
         queryset = (
             Ticket.objects.filter(team_id=team_id, archived_at__isnull=True)
             .exclude(status="resolved")

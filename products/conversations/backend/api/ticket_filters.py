@@ -503,9 +503,9 @@ def apply_ticket_filters(
     (saved-view path) or by query_params_to_view_filters (flat-param path).
 
     `archive_scope` belongs to listing only, the same way object-level access filtering does
-    (see routing._filter_queryset_by_access_level). Pass False when looking one ticket up by
-    id: hiding archived rows there would 404 an archived ticket and leave no way to restore
-    it, which is the opposite of a soft delete.
+    (see routing._filter_queryset_by_access_level). Pass False when you look one ticket up by
+    id, because hiding archived rows there would 404 an archived ticket and leave no way to
+    restore it.
     """
     statuses = filters.get("status") or []
     if statuses:
@@ -565,9 +565,7 @@ def apply_ticket_filters(
     if tags_exclude:
         queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude)
 
-    # Archiving is the product's soft delete, so it is subtractive by default rather than an
-    # opt-in filter: a caller that has never heard of the archive still gets a list without
-    # it, which is the whole point of archiving a ticket.
+    # Subtractive by default, so a caller that does not know about the archive gets a live list.
     if archive_scope:
         archived = filters.get("archived") or TicketArchivedFilter.HIDE
         if archived == TicketArchivedFilter.HIDE:

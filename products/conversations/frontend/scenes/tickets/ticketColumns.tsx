@@ -140,8 +140,6 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                             </span>
                         </TZLabel>
                     )}
-                    {/* Only reachable while the list is showing the archive, where the row
-                        otherwise looks exactly like a live ticket. */}
                     {ticket.archived_at && (
                         <TZLabel time={ticket.archived_at} title="Archived">
                             <LemonTag type="muted">Archived</LemonTag>

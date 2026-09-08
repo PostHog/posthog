@@ -348,8 +348,8 @@ def list_account_tickets(
     ``organization_id`` is the customer's group key (a customer-analytics account's
     ``external_id``). An empty key matches nothing — never every ticket for the team.
 
-    Archived tickets are left out: archiving is the product's soft delete, so an archived
-    ticket is off every list, this account's history included.
+    Archived tickets are left out, because archiving is the product's soft delete and an
+    archived ticket is off every list, this account's history included.
     """
     if not organization_id:
         return []

@@ -810,9 +810,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket,
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
-                // Patches only the archive stamp rather than replacing the ticket: setTicket
-                // re-seeds the sidebar's form reducers from the server, which would throw away
-                // edits the user hasn't saved yet.
+                // Patch only the archive stamp instead of replacing the ticket, because
+                // setTicket re-seeds the sidebar form reducers and drops unsaved edits.
                 setTicketArchivedAt: (state, { archivedAt }) => (state ? { ...state, archived_at: archivedAt } : state),
             },
         ],
@@ -1338,7 +1337,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const updated = await api.conversationsTickets.setArchived(ticketId, archived)
                 actions.setTicketArchivedAt(updated?.archived_at ?? null)
                 lemonToast.success(archived ? 'Ticket archived' : 'Ticket restored')
-                // The ticket has just left (or rejoined) the list behind this page.
                 actions.loadTickets()
             } catch {
                 lemonToast.error(archived ? 'Failed to archive ticket' : 'Failed to restore ticket')

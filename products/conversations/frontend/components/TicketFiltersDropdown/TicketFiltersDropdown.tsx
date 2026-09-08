@@ -171,8 +171,6 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
                 <LemonLabel>Assignee</LemonLabel>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
-            {/* Last, because the default is right for almost every list — this is where you come
-                looking for a ticket someone archived. */}
             <div className="flex flex-col gap-1">
                 <LemonLabel>Archived</LemonLabel>
                 <LemonSelect<TicketArchivedFilter>

@@ -163,7 +163,6 @@ export interface Ticket {
     }
     sla_due_at?: string | null
     snoozed_until?: string | null
-    /** When the ticket was archived, or null/absent while it is live. */
     archived_at?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
@@ -289,8 +288,6 @@ export const channelOptions: { value: TicketChannel | 'all'; label: string }[] =
     { value: 'github', label: 'GitHub' },
 ]
 
-// Archiving is a soft delete, so hiding the archive is the default rather than a filter
-// someone has to think to apply.
 export const archivedOptions: { value: TicketArchivedFilter; label: string }[] = [
     { value: 'hide', label: 'Hide archived' },
     { value: 'only', label: 'Only archived' },

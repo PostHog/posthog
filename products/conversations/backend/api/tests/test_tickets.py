@@ -3412,8 +3412,8 @@ class TestTicketNoteAPI(APIBaseTest):
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketArchive(APIBaseTest):
-    """Archiving is the product's soft delete: the ticket leaves every list, keeps everything
-    it had, and stays reachable so a customer asking about it can still be answered."""
+    """Archiving is the product's soft delete. The ticket leaves every list, keeps everything
+    it had, and stays reachable, so a customer who asks about it can still be answered."""
 
     def setUp(self):
         super().setUp()

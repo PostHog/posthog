@@ -781,8 +781,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.tagsExcludeFilter.length > 0) {
                 params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
             }
-            // Omitted on 'hide': that is the server's default, so a shorter request means the
-            // same thing and the URL stays free of the setting nobody chose.
+            // Omitted on 'hide' because that is the server's default.
             if (values.archivedFilter !== 'hide') {
                 params.archived = values.archivedFilter
             }

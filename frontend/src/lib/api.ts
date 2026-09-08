@@ -7092,7 +7092,6 @@ const api = {
             return await new ApiRequest().conversationsTicket(ticketId).delete()
         },
 
-        /** Archive (soft delete) or restore one ticket. The server records the timestamp. */
         async setArchived(ticketId: string, archived: boolean): Promise<any> {
             return await new ApiRequest().conversationsTicket(ticketId).update({ data: { archived } })
         },
