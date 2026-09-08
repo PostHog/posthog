@@ -2114,7 +2114,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals_INP_value": {
             "label": "Web vitals INP value",
-            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP. A page with no user interaction has no INP value at all, so the metric counts are not comparable.",
             "examples": [50, 200, 500],
             "type": "Numeric",
         },
