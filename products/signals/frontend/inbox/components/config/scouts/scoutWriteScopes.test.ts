@@ -4,9 +4,10 @@ describe('scoutWriteScopes', () => {
     it('labels only the scopes the picker offers', () => {
         // A scope the allowlist dropped is still stored on old configs; labeling it would promise
         // access the token no longer carries.
-        expect(scoutWriteScopeLabels(['insight:write', 'dashboard:write', 'cohort:write'])).toEqual([
+        expect(scoutWriteScopeLabels(['insight:write', 'llm_skill:write', 'dashboard:write', 'cohort:write'])).toEqual([
             'Dashboards',
             'Insights',
+            'Skills',
         ])
     })
 

@@ -397,6 +397,39 @@ export interface EvaluationContextSuggestionResponseApi {
 }
 
 /**
+ * * `remote_evaluation` - remote_evaluation
+ * * `local_evaluation` - local_evaluation
+ */
+export type FeatureFlagRequestTypeEnumApi =
+    (typeof FeatureFlagRequestTypeEnumApi)[keyof typeof FeatureFlagRequestTypeEnumApi]
+
+export const FeatureFlagRequestTypeEnumApi = {
+    RemoteEvaluation: 'remote_evaluation',
+    LocalEvaluation: 'local_evaluation',
+} as const
+
+export interface FeatureFlagRequestUsageItemApi {
+    /** Remote flag evaluation or local flag-definition request.
+     *
+     * * `remote_evaluation` - remote_evaluation
+     * * `local_evaluation` - local_evaluation */
+    request_type: FeatureFlagRequestTypeEnumApi
+    /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
+    bucket: string
+    /** SDK family parsed from the request user agent. */
+    sdk: string
+    /** Number of billable requests in this bucket. */
+    request_count: number
+    /** Estimated billing units. Local evaluation requests count as 10 units each. */
+    billing_units: number
+}
+
+export interface FeatureFlagRequestUsageResponseApi {
+    /** Feature flag request usage by SDK. */
+    results: FeatureFlagRequestUsageItemApi[]
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -1883,6 +1916,33 @@ export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
      */
     context_name: string
 }
+
+export type FeatureFlagRequestUsageListParams = {
+    /**
+     * Inclusive start of the usage period.
+     */
+    date_from: string
+    /**
+     * Exclusive end of the usage period.
+     */
+    date_to: string
+    /**
+     * Time bucket used to group request usage. Hourly queries are limited to 8 days.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * @minLength 1
+     */
+    time_interval?: FeatureFlagRequestUsageListTimeInterval
+}
+
+export type FeatureFlagRequestUsageListTimeInterval =
+    (typeof FeatureFlagRequestUsageListTimeInterval)[keyof typeof FeatureFlagRequestUsageListTimeInterval]
+
+export const FeatureFlagRequestUsageListTimeInterval = {
+    Hour: 'hour',
+    Day: 'day',
+} as const
 
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive

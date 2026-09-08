@@ -1669,11 +1669,11 @@ describe('exec tool', () => {
                 return formatInputValidationError('query-logs', result.error!, input, wrapperSchema)
             }
 
-            it('tells the caller to nest the fields it sent at the top level', () => {
+            it('shows the accepted shape, with the fields the caller sent nested inside it', () => {
                 const message = formatFor({ dateRange: { date_from: '-1h' }, limit: 10 })
 
                 expect(message).toBe(
-                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {...}}'
+                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {"dateRange": ..., "limit": ...}}'
                 )
             })
 
@@ -1682,7 +1682,49 @@ describe('exec tool', () => {
                 // fails again on the same ambiguous message.
                 const message = formatFor({ orderBy: 'newest', limit: 10 })
 
-                expect(message).toContain('resend them as {"query": {...}}')
+                expect(message).toContain('resend them as {"query": {"orderBy": ..., "limit": ...}}')
+            })
+
+            it('names only wrapper fields, so an undeclared key cannot reach the message', () => {
+                // The rendered shape is returned to the caller and recorded as the
+                // analytics error message, so every key in it has to come from the
+                // tool's own schema rather than the caller's payload.
+                const message = formatFor({ limit: 10, sneaky_key: 'x' })
+
+                expect(message).toContain('{"query": {"limit": ...}}')
+                expect(message).not.toContain('sneaky_key')
+            })
+
+            it('caps the fields it names so a large payload cannot inflate the message', () => {
+                const wide = z.object({
+                    query: z.object(
+                        Object.fromEntries(
+                            Array.from({ length: 8 }, (_unused, index) => [`field${index}`, z.string().optional()])
+                        )
+                    ),
+                })
+                const input = Object.fromEntries(Array.from({ length: 8 }, (_unused, index) => [`field${index}`, 'x']))
+                const result = wide.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('query-logs', result.error!, input, wide)
+
+                expect(message).toContain('{"query": {"field0": ..., "field1": ..., "field2": ..., "field3": ...')
+                expect(message).toContain('...}}')
+                expect(message).not.toContain('"field5"')
+            })
+
+            it('falls back to the bare shape when no key the caller sent belongs to the wrapper', () => {
+                // A union-typed wrapper the caller half-guessed still gets a shape to
+                // copy, rather than a message naming fields the wrapper never had.
+                const looseWrapper = z.object({ query: z.looseObject({}).refine(() => true) })
+                const input = { unknown_field: 1 }
+                const result = looseWrapper.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('query-logs', result.error!, input, looseWrapper)).toContain(
+                    'resend them as {"query": {...}}'
+                )
             })
 
             it.each([
@@ -1781,7 +1823,7 @@ describe('exec tool', () => {
                 expect(result.success).toBe(false)
 
                 expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
-                    'resend them as {"query": {...}}'
+                    'resend them as {"query": {"dateRange": ..., "limit": ...}}'
                 )
             })
         })
