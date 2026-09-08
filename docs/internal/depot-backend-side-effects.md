@@ -25,3 +25,16 @@ Enabled shards use canonical Trunk uploads and failure verdicts.
 `TRUNK_QUARANTINE_ENABLED` controls whether a successful quarantine result can
 clear a test failure. An unavailable uploader never clears a failing test.
 With side effects disabled, test failures stop the shard directly.
+
+## Artifacts and sharding plans
+
+Enabled runs upload JUnit, coverage, selection results, timing files, and migrated
+schemas to Depot. Test jobs apply the run-scoped durations snapshot before pytest.
+The gate downloads failing shards' reports and keeps their latest attempt before
+listing failures. Disabled runs keep floating cache restores and upload nothing.
+
+The artifact probe used canonical upload-artifact v6 and download-artifact v7 pins.
+The PR records the proof run. The probe verified JUnit contents and a hidden
+`.test_durations` file across jobs. A pattern matching one artifact extracts
+directly into the destination; named downloads do too. Retention expiry and
+rerun replacement remain unverified.
