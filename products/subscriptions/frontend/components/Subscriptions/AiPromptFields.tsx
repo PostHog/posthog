@@ -6,7 +6,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
@@ -122,12 +121,20 @@ export function AiPromptFields({
                 </LemonBanner>
             ) : null}
             {contextsEnabled ? (
-                <div className="flex flex-col gap-1 min-w-0">
-                    <LemonLabel info="Add up to three dashboards or insights to focus this report. Without context, the report chooses relevant project data based on your prompt.">
-                        Context
-                    </LemonLabel>
-                    <SubscriptionContextPicker contexts={contexts} onAdd={onAddContext} onRemove={onRemoveContext} />
-                </div>
+                <LemonField
+                    name="contexts"
+                    label="Context"
+                    info="Add up to three dashboards or insights to focus this report. Without context, the report chooses relevant project data based on your prompt."
+                    className="gap-1 min-w-0"
+                >
+                    {() => (
+                        <SubscriptionContextPicker
+                            contexts={contexts}
+                            onAdd={onAddContext}
+                            onRemove={onRemoveContext}
+                        />
+                    )}
+                </LemonField>
             ) : null}
             <LemonField
                 name="prompt"
