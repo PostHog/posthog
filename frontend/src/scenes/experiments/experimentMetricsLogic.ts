@@ -1003,7 +1003,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 emitTerminalEvent(recalculation)
                 if (recalculation.failed_metrics > 0) {
                     lemonToast.error(
-                        `${recalculation.failed_metrics} of ${recalculation.total_metrics} metrics failed to load`
+                        `${recalculation.failed_metrics} of ${recalculation.total_metrics} metrics failed to load. Click "Try again" on a metric to reload all of them.`
                     )
                 }
 

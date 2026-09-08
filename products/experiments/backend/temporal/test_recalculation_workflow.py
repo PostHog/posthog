@@ -1,4 +1,6 @@
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import pytest
 from unittest.mock import patch
@@ -6,12 +8,13 @@ from unittest.mock import patch
 import temporalio.worker
 from parameterized import parameterized
 from temporalio import activity
-from temporalio.client import WorkflowFailureError
+from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.experiments.backend.temporal.models import (
+    MAX_CONCURRENT_METRICS_PER_RUN,
     MAX_METRIC_ATTEMPTS,
     ExperimentMetricsRecalculationWorkflowInputs,
     ExperimentMetricToRecalculate,
@@ -62,7 +65,8 @@ def _make_mock_activities(
     return activities, progress_updates, calculate_calls
 
 
-async def _run_workflow(activities) -> dict:
+@asynccontextmanager
+async def _started_workflow(activities) -> AsyncIterator[WorkflowHandle]:
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -72,12 +76,17 @@ async def _run_workflow(activities) -> dict:
             activities=activities,
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            return await env.client.execute_workflow(
+            yield await env.client.start_workflow(
                 ExperimentMetricsRecalculationWorkflow.run,
                 ExperimentMetricsRecalculationWorkflowInputs(recalculation_id=str(uuid.uuid4())),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+
+
+async def _run_workflow(activities) -> dict:
+    async with _started_workflow(activities) as handle:
+        return await handle.result()
 
 
 @pytest.mark.asyncio
@@ -199,6 +208,38 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert result == {"total": 1, "succeeded": 0, "failed": 1}
         # Only the final attempt is flagged final; earlier attempts must not be, or they'd persist early.
         assert recorded_flags == [False] * (MAX_METRIC_ATTEMPTS - 1) + [True]
+
+    async def test_fan_out_never_exceeds_the_per_run_cap(self):
+        # Nothing downstream bounds how many metric queries one run aims at ClickHouse: the per-org
+        # app-query limiter opts out inside Temporal. If the cap is dropped, every metric is scheduled at
+        # once, the online cluster starts rejecting the scans, and metrics that were never broken burn
+        # their retry budget on backpressure and report as failed.
+        #
+        # Read off the history rather than timed in-flight counters: all of one workflow task's schedule
+        # commands land before any activity can complete, so the calc activities scheduled ahead of the
+        # first completion are exactly the ones the workflow put in flight at once.
+        metric_count = MAX_CONCURRENT_METRICS_PER_RUN + 2
+        metrics = [_metric(f"m{i}") for i in range(metric_count)]
+        activities, _, calculate_calls = _make_mock_activities(metrics=metrics)
+
+        calc_event_ids: set[int] = set()
+        async with _started_workflow(activities) as handle:
+            result = await handle.result()
+            async for event in handle.fetch_history_events():
+                completed = event.activity_task_completed_event_attributes
+                if event.HasField("activity_task_completed_event_attributes") and (
+                    completed.scheduled_event_id in calc_event_ids
+                ):
+                    break
+                scheduled = event.activity_task_scheduled_event_attributes
+                if event.HasField("activity_task_scheduled_event_attributes") and (
+                    scheduled.activity_type.name == "calculate_experiment_metric_for_recalculation"
+                ):
+                    calc_event_ids.add(event.event_id)
+
+        assert result == {"total": metric_count, "succeeded": metric_count, "failed": 0}
+        assert len(calculate_calls) == metric_count
+        assert len(calc_event_ids) == MAX_CONCURRENT_METRICS_PER_RUN
 
     @parameterized.expand(
         [
