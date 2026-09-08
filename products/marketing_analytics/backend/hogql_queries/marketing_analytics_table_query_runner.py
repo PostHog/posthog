@@ -7,6 +7,7 @@ from posthog.schema import (
     CachedMarketingAnalyticsTableQueryResponse,
     DateRange,
     MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
@@ -22,6 +23,7 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from .constants import (
     BASE_COLUMN_MAPPING,
     CHANNEL_SESSIONS_CTE_NAME,
+    COST_SIDE_METRIC_COLUMNS,
     DEFAULT_LIMIT,
     DRILL_DOWN_LEVEL_CONFIG,
     MARKETING_SPILL_AFTER_BYTES,
@@ -350,8 +352,17 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             for key, coalesce_col in coalesce_columns.items():
                 conversion_columns_mapping[key] = coalesce_col
 
-            # Leave campaign_costs metric columns as NULL for conversion-only rows
-            # so the frontend displays "-" instead of 0 for cost/clicks/impressions etc.
+            # A row the cost side never matched has no spend to report, and ClickHouse fills its
+            # columns with the type default under `join_use_nulls = 0`, so cost, clicks and
+            # impressions arrive as 0 and read as "we spent nothing". Null them instead, which is
+            # what the table already renders as "-" for the id.
+            # The cost-per-conversion columns divide that same spend, so they inherit the lie.
+            cost_side_keys = {str(column_key) for column_key in COST_SIDE_METRIC_COLUMNS}
+            cost_side_keys |= {key for key in conversion_columns_mapping if key.startswith(self.config.cost_per_prefix)}
+            for key in cost_side_keys:
+                existing = conversion_columns_mapping.get(key)
+                if existing is not None:
+                    conversion_columns_mapping[key] = self._null_without_cost_row(existing)
 
             unified_join = ast.JoinExpr(
                 join_type=join_type,
@@ -430,6 +441,39 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 base_join = base_join.next_join
             base_join.next_join = current_join
         return initial_join
+
+    def _null_without_cost_row(self, column: ast.Expr) -> ast.Expr:
+        """Wrap a cost-side metric so it reads as absent, not as zero, when no cost row matched.
+
+        A campaign that only exists in UTM tags has no row on the cost side. Its spend is unknown,
+        which is a different claim than a spend of zero. The cost side's campaign name is the same
+        signal the id coalesce uses to tell the two apart.
+        """
+        alias = column.alias if isinstance(column, ast.Alias) else None
+        expr = column.expr if isinstance(column, ast.Alias) else column
+        guarded = ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="empty",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[
+                                ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(
+                                        MarketingAnalyticsColumnsSchemaNames.CAMPAIGN
+                                    )
+                                )
+                            ],
+                        )
+                    ],
+                ),
+                ast.Constant(value=None),
+                expr,
+            ],
+        )
+        return ast.Alias(alias=alias, expr=guarded) if alias else guarded
 
     def _build_order_by_exprs(self, select_columns: list[str]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""

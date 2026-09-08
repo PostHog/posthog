@@ -751,6 +751,12 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
 
         assert ("fall_sale_newsletter", "newsletter") in rows
 
+        cost_idx = result.columns.index(MarketingAnalyticsBaseColumns.COST)
+        clicks_idx = result.columns.index(MarketingAnalyticsBaseColumns.CLICKS)
+        no_spend_row = next(row for row in result.results if row[campaign_idx].value == "fall_sale_newsletter")
+        assert no_spend_row[cost_idx].value is None
+        assert no_spend_row[clicks_idx].value is None
+
     def test_channel_source_drill_down_emits_both_channel_and_source_columns(self):
         """The whole point of the composite level: Source survives as a column (it's excluded at
         CHANNEL). Losing it would silently turn the table back into a flat channel breakdown."""
