@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import IntegrityError
+from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 
 from parameterized import parameterized
@@ -389,7 +390,7 @@ class TestVercelIntegration(TestCase):
         assert user.is_email_verified is False
 
         request = RequestFactory().get("/")
-        SessionMiddleware(lambda r: None).process_request(request)
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
         VercelIntegration._authenticate_and_login_user(request, claims, None)
 
         user.refresh_from_db()
@@ -405,7 +406,7 @@ class TestVercelIntegration(TestCase):
         claims.user_email = "someone-else@example.com"
 
         request = RequestFactory().get("/")
-        SessionMiddleware(lambda r: None).process_request(request)
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
         VercelIntegration._authenticate_and_login_user(request, claims, None)
 
         user.refresh_from_db()
