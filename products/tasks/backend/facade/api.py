@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
@@ -166,6 +167,7 @@ __all__ = [
     "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "WarmRunActivationUnavailable",
     "append_task_run_log",
     "apply_task_run_model_config",
     "ensure_task_run_session",
@@ -3933,6 +3935,8 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
+    workflow_id: str | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -3961,13 +3965,14 @@ def signal_task_run_user_message(
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
-            run.workflow_id,
+            workflow_id or run.workflow_id,
             content,
             artifact_ids,
             message_id,
             actor_user_id,
             context,
             steer=steer,
+            **({"rpc_timeout": rpc_timeout} if rpc_timeout is not None else {}),
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
@@ -5708,6 +5713,7 @@ def create_task(
     validated_data: dict,
     client_provenance: TaskClientProvenance | None = None,
     code_access_allowed: bool = False,
+    warm_retry_token: str | None = None,
 ) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
@@ -5835,6 +5841,7 @@ def create_task(
                 )
                 warm_run = None
         if warm_run is not None:
+            _warm_retry_message_id(warm_retry_token, warm_run)
             warm_task = warm_run.task
             should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
             if should_set_client_provenance:
@@ -5878,8 +5885,12 @@ def create_task(
                 artifact_ids=pending_user_artifact_ids,
                 auto_publish=warm_auto_publish,
                 reasoning_effort=warm_reasoning_effort,
+                retry_token=warm_retry_token,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
+
+    if warm_retry_token is not None:
+        raise WarmRunActivationUnavailable("target_unavailable")
 
     # The relationship the client asserted (validated by the serializer, which rejects `research`).
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
@@ -6525,6 +6536,112 @@ def _attach_staged_artifacts_to_run(
     )
 
 
+class WarmRunActivationUnavailable(Exception):
+    code = "warm_run_activation_unavailable"
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        self.retry_token: str | None = None
+        super().__init__("Couldn't start this run yet. Please try again.")
+
+
+def _warm_retry_message_id(token: str | None, run: TaskRun) -> str | None:
+    if token is None:
+        return None
+    try:
+        run_id, workflow_id, message_id = signing.TimestampSigner(salt="warm-run-activation").unsign_object(
+            token, max_age=60
+        )
+    except (signing.BadSignature, ValueError) as error:
+        raise WarmRunActivationUnavailable("invalid_retry") from error
+    if run_id != str(run.id) or workflow_id != run.workflow_id:
+        raise WarmRunActivationUnavailable("target_unavailable")
+    return str(message_id)
+
+
+def _deliver_warm_run_message(
+    run: TaskRun, *, message: str | None, artifact_ids: list[str], message_id: str | None = None
+) -> None:
+    from temporalio.service import RPCError, RPCStatusCode
+
+    started_at = time.monotonic()
+    workflow_id = run.workflow_id
+    frontend_retry = message_id is not None
+    message_id = message_id or str(uuid4())
+    eligible_runs = TaskRun.objects.filter(
+        id=run.id,
+        team_id=run.team_id,
+        task_id=run.task_id,
+        task__deleted=False,
+        state__await_user_message=True,
+    ).exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
+
+    try:
+        current_run = eligible_runs.first()
+        if current_run is None or current_run.workflow_id != workflow_id:
+            raise WarmRunActivationUnavailable("target_unavailable")
+        try:
+            delivered = signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                run.team_id,
+                content=message,
+                artifact_ids=artifact_ids,
+                message_id=message_id,
+                workflow_id=workflow_id,
+                rpc_timeout=timedelta(seconds=10),
+            )
+        except RPCError as error:
+            # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+            current_run = eligible_runs.first()
+            if current_run is None or current_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable") from error
+            unavailable = WarmRunActivationUnavailable("starting")
+            unavailable.retry_token = signing.TimestampSigner(salt="warm-run-activation").sign_object(
+                [str(run.id), workflow_id, message_id]
+            )
+            raise unavailable from error
+        if delivered is not True:
+            raise WarmRunActivationUnavailable("delivery_failed")
+
+        with transaction.atomic():
+            activated_run = eligible_runs.select_for_update(of=("self",)).first()
+            if activated_run is None or activated_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable")
+            activated_run.state.pop("await_user_message", None)
+            activated_run.state["warm_activated"] = True
+            activated_run.save(update_fields=["state", "updated_at"])
+    except WarmRunActivationUnavailable as error:
+        log = logger.info if error.retry_token else logger.warning
+        log(
+            "task_warm_activation_unavailable",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "elapsed_seconds": time.monotonic() - started_at,
+                "reason": error.reason,
+                "frontend_retry": frontend_retry,
+            },
+        )
+        raise
+    if frontend_retry:
+        logger.info(
+            "task_warm_activation_recovered",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "elapsed_seconds": time.monotonic() - started_at,
+                "frontend_retry": frontend_retry,
+            },
+        )
+
+
 def _activate_warm_run(
     run: TaskRun,
     task: Task,
@@ -6535,6 +6652,7 @@ def _activate_warm_run(
     description: str | None = None,
     auto_publish: bool | None = None,
     reasoning_effort: str | None = None,
+    retry_token: str | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -6551,11 +6669,7 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    # Claims the Run as activated before the signal goes out. `await_user_message` can only be cleared
-    # after the signal — clearing it first would drop a Run out of the warm pool that a failed signal
-    # never activated, stranding its sandbox. That leaves a window where the Run is being activated but
-    # still looks idle, so this marker is what the unused-warm metric reads to tell the two apart.
-    activation_state_updates: dict[str, object] = {"warm_activated": True}
+    activation_state_updates: dict[str, object] = {}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -6567,8 +6681,9 @@ def _activate_warm_run(
         updates=activation_state_updates,
         remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
     )
-    signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
-    TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+    _deliver_warm_run_message(
+        run, message=message, artifact_ids=artifact_ids, message_id=_warm_retry_message_id(retry_token, run)
+    )
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
     # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
     # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
@@ -6914,7 +7029,12 @@ def warm_task_resume_sandbox(
 
 
 def run_task(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    warm_retry_token: str | None = None,
 ) -> contracts.TaskRunResult | None:
     """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
 
@@ -6925,7 +7045,10 @@ def run_task(
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
     )
-    from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        get_task_run_artifacts_by_id,
+        get_task_staged_artifacts,
+    )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -7001,6 +7124,7 @@ def run_task(
 
     warm_run = _idling_warm_run_for_task(task)
     if warm_run is not None:
+        _warm_retry_message_id(warm_retry_token, warm_run)
         warm_state = warm_run.state or {}
         # Both directions. A request that states no resume source must not be handed a successor
         # warmed to resume an earlier run — its filesystem was restored from that run's snapshot, so
@@ -7069,6 +7193,9 @@ def run_task(
                     if pending_user_artifact_ids
                     else ([], [])
                 )
+                if warm_missing_artifact_ids:
+                    # A previous activation attempt may have moved these out of staging before delivery failed.
+                    _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(
@@ -7086,8 +7213,11 @@ def run_task(
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
                         reasoning_effort=validated_data.get("reasoning_effort"),
+                        retry_token=warm_retry_token,
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+    if warm_retry_token is not None:
+        raise WarmRunActivationUnavailable("target_unavailable")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
     custom_image_id = validated_data.get("custom_image_id")
