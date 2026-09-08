@@ -156,6 +156,10 @@ Use the link button in the canvas toolbar to copy this link without opening a
 menu. The button has a "Copy link to canvas" tooltip, like the session link
 button. "Copy link" also remains in the canvas options menu.
 
+In the left sidebar, right-click a session or canvas and select **Copy link**.
+Sessions copy the channel thread link. Canvases copy the canvas link.
+The row's options menu has the same action. Copying a link does not change access permissions.
+
 | Segment | Required | Description |
 |---|---|---|
 | `<channelId>` | Yes | Channel (folder) row id the canvas lives under. |
