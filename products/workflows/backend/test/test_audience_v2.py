@@ -83,6 +83,34 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         assert (result.affected, result.total) == (1, 2)
 
+    def test_distinct_id_filter_counts_a_person_with_several_aliases_once(self):
+        # A `distinct_id` person property resolves through the persons.pdi join, which gives a
+        # person one row per distinct id. Both count branches must dedup on the person id, or
+        # the preview reports more sends than the enumeration produces.
+        _create_person(team=self.team, distinct_ids=["alias-a", "alias-b"], properties={"subscribed": "true"})
+        _create_person(team=self.team, distinct_ids=["other"], properties={"subscribed": "true"})
+        flush_persons_and_events()
+
+        filters = {
+            "properties": [
+                {"key": "distinct_id", "type": "person", "value": ["alias-a", "alias-b"], "operator": "exact"}
+            ]
+        }
+
+        result = get_person_audience_count_v2(self.team, filters)
+        v1_result = get_user_blast_radius(self.team, filters)
+
+        assert (result.affected, result.total) == (1, 2)
+        assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
+
+        with (
+            patch("products.workflows.backend.services.audience_v2.SAMPLE_MODULUS", 1),
+            patch("products.workflows.backend.services.audience_v2.MIN_SAMPLED_MATCHES", 0),
+        ):
+            sampled_result = get_person_audience_count_v2(self.team, filters)
+
+        assert (sampled_result.affected, sampled_result.total) == (1, 2)
+
     def test_cohort_filter_matches_v1(self):
         # Cohort filters compile to a different subquery shape than plain property filters,
         # so the sampled query and the bounded settings must not break them.

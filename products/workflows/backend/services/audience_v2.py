@@ -193,10 +193,17 @@ def build_person_count_query(team: Team, filter: Optional[Filter], sample_modulu
     if filter is not None:
         where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
 
-    # Plain count(): the persons table is already one row per person after dedup,
-    # so count(DISTINCT id) would only add a uniqExact state over every matched id.
+    # A filter can add a one-to-many join: a `distinct_id` person property resolves through
+    # persons.pdi, which gives a person one row per distinct id. So a filtered count dedups on
+    # the person id. The unfiltered total joins nothing, so it keeps the plain count() and
+    # avoids a uniqExact state over every person on the team.
+    if filter is None:
+        count_expr: ast.Expr = ast.Call(name="count", args=[])
+    else:
+        count_expr = ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])
+
     return ast.SelectQuery(
-        select=[ast.Call(name="count", args=[])],
+        select=[count_expr],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
     )
