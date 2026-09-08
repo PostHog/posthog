@@ -31,7 +31,7 @@ export function ScoutWriteAccessTag({
         : `Write access to ${objects} is set, but stays off while this scout is a dry run`
     return (
         <Tooltip title={title}>
-            <LemonTag size="small" type={emit ? 'option' : 'muted'} icon={<IconPencil />}>
+            <LemonTag size="small" type={emit ? 'option' : 'muted'} icon={<IconPencil />} wrap={!compact}>
                 {compact ? null : labels.join(', ')}
             </LemonTag>
         </Tooltip>
