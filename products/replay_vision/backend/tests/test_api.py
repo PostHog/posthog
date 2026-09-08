@@ -1057,7 +1057,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         ]
     )
     def test_create_reports_how_the_scanner_was_built(
-        self, _name: str, headers: dict[str, str], claimed: str, expected: str
+        self, _name: str, headers: dict[str, Any], claimed: str, expected: str
     ) -> None:
         # The arm says which flow the person was offered; this says what they did with it. Someone
         # offered the AI flow can still fill the form by hand, so a metric comparing AI-built against
