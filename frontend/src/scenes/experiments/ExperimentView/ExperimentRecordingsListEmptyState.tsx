@@ -21,6 +21,7 @@ import {
 // surface lands on the same page from the other.
 const RETENTION_DOCS = 'https://posthog.com/docs/session-replay/data-retention'
 const AD_BLOCKER_DOCS = 'https://posthog.com/docs/session-replay/troubleshooting#4-adtracking-blockers'
+
 /** How long ago the run started, as the copy says it. Day zero has no count that reads right. */
 function startedWhen(daysSinceStart: number | null): string {
     if (daysSinceStart === null || daysSinceStart <= 0) {

@@ -177,8 +177,6 @@ export type ExperimentRecordingsEmptyAction =
 export interface ExperimentRecordingsListEmptyContext {
     /** Days since the experiment launched, null when it has not launched. */
     daysSinceStart: number | null
-    /** When the experiment launched, null when it has not launched. */
-    startDate: string | null
     /** When the experiment stopped, null while it runs. */
     endDate: string | null
     /** The project's replay retention window, which `ended_past_retention` is decided against. */
@@ -188,9 +186,8 @@ export interface ExperimentRecordingsListEmptyContext {
 }
 
 /**
- * Why the recordings list came back with nothing, from what the client already holds. Reported, not
- * shown: the tab has no way today to tell a project with replay switched off from an experiment
- * launched an hour ago, and both look like "this feature is broken" to whoever opened the tab.
+ * Why the recordings list came back with nothing, from what the client already holds. Both shown to
+ * the viewer, as the banner the empty list carries, and reported alongside the render.
  *
  * `unknown_in_window` is the residue: replay is on, the run window is inside retention, nothing
  * narrowed the list, and it still matched nothing. Exposure linkage and the duration floor both
@@ -302,7 +299,6 @@ export interface experimentReplayTabLogicValues {
     bucketSessionIds: string[] | undefined
     durationFilterActive: boolean
     durationFilterCustomized: boolean
-    filtersCustomized: boolean
     effectiveExposureScope: ExperimentReplayExposureScope
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
@@ -310,6 +306,7 @@ export interface experimentReplayTabLogicValues {
     exposureLinkable: boolean | null
     exposureScope: ExperimentReplayExposureScope
     filterContext: ExperimentRecordingsFilterContext
+    filtersCustomized: boolean
     inSessionExposure: ExperimentInSessionExposureApi | null
     inSessionExposureLoading: boolean
     linkedScanners: LinkedScanner[]
@@ -1135,15 +1132,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 appliedDurationFilter.value !== defaultRecordingDurationFilter.value ||
                 appliedDurationFilter.operator !== defaultRecordingDurationFilter.operator,
         ],
-        /**
-         * The cause to report when the list comes back with nothing, first match wins. The order is
-         * cheapest-and-most-certain first: a project with replay off can have no recordings at all,
-         * while the window and retention reasons only say that the recordings the window would have
-         * shown no longer exist.
-         *
-         * Read only for an empty list. It names a plausible cause of emptiness, not the state of the
-         * tab, so on a list with rows it is meaningless rather than wrong.
-         */
         // Whether the viewer narrowed the list past the tab's own scoping through the filter bar.
         // Only the parts a filter can change are compared: the rest of the playlist's filters are
         // the tab's own and travel back unchanged through `onFiltersChange`. Null before the
@@ -1164,6 +1152,15 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     (playlistFilters.date_to ?? null) !== (recordingsFilters.date_to ?? null) ||
                     !!playlistFilters.filter_test_accounts !== !!recordingsFilters.filter_test_accounts),
         ],
+        /**
+         * The cause to name when the list comes back with nothing, first match wins. The order is
+         * cheapest-and-most-certain first: a project with replay off can have no recordings at all,
+         * while the window and retention reasons only say that the recordings the window would have
+         * shown no longer exist.
+         *
+         * Read only for an empty list. It names a plausible cause of emptiness, not the state of the
+         * tab, so on a list with rows it is meaningless rather than wrong.
+         */
         listEmptyReason: [
             (s) => [
                 s.currentTeam,
@@ -1238,7 +1235,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
-                startDate: experiment.start_date ?? null,
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
