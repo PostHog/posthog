@@ -155,7 +155,10 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 ((StringType(),), DateType()),
                 ((DateTimeType(),), DateType()),
             ],
-            overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+            # Float covers the numeric duration from `timestamp - timestamp`. ClickHouse's toDate
+            # accepts a number, but toDateOrNull accepts only strings and rejects a number with
+            # code 43.
+            overloads=[((ast.DateTimeType, ast.DateType, ast.FloatType), "toDate")],
         )
         for name in ["toDate", "to_date"]
     },
@@ -166,7 +169,9 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
         tz_aware=True,
         overloads=[
-            ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
+            # Float covers the numeric duration from `timestamp - timestamp`.
+            # parseDateTime64BestEffortOrNull accepts only strings, so it cannot take one.
+            ((ast.DateTimeType, ast.DateType, ast.IntegerType, ast.FloatType), "toDateTime"),
             # ((ast.StringType,), "parseDateTime64"),
         ],
         signatures=[

@@ -1461,6 +1461,11 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
 
+        # dates subtract to a duration as well, so this must not fall through to UnknownType
+        node = self._select("select toDate(timestamp) - toDate(timestamp) as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
         # timestamp shifted by an integer stays a datetime
         node = self._select("select timestamp - 1 as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))

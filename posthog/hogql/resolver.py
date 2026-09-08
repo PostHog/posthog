@@ -1833,18 +1833,17 @@ class Resolver(CloningVisitor):
             node.type = ast.FloatType()
         elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.IntegerType):
             node.type = ast.FloatType()
-        elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
+        elif (
+            node.op == ast.ArithmeticOperationOp.Sub
+            and isinstance(left_type, ast.DateTimeType | ast.DateType)
+            and isinstance(right_type, ast.DateTimeType | ast.DateType)
+        ):
             # Subtracting two temporal values yields a numeric duration in ClickHouse (Decimal for
             # DateTime64, Int32 for DateTime/Date), not a datetime. Typing it as DateTime makes the
             # printer wrap later references in toTimeZone(), which ClickHouse rejects (code 43).
-            if (
-                node.op == ast.ArithmeticOperationOp.Sub
-                and isinstance(left_type, ast.DateTimeType | ast.DateType)
-                and isinstance(right_type, ast.DateTimeType | ast.DateType)
-            ):
-                node.type = ast.FloatType()
-            else:
-                node.type = ast.DateTimeType()
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
+            node.type = ast.DateTimeType()
         elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
             # ClickHouse widens Decimal combined with a Float to Float; Decimal combined with a
             # Decimal or Integer stays Decimal. Anything else (e.g. Decimal + String) is unknown.

@@ -3005,6 +3005,14 @@ class TestPrinter(BaseTest):
         printed = self._expr("toDateTime(properties.dt_prop AS d)")
         self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
 
+    @parameterized.expand([("toDate", "toDateOrNull"), ("toDateTime", "parseDateTime64BestEffortOrNull")])
+    def test_date_conversion_of_a_duration_uses_the_plain_constructor(self, function: str, parser: str):
+        # Subtracting two datetimes gives a number. ClickHouse's plain constructors take one, while
+        # the parsers behind these names only take strings and reject it with code 43.
+        printed = self._expr(f"{function}(toDateTime(200000) - toDateTime(100000))")
+        assert parser not in printed, printed
+        assert printed.startswith(f"{function}(minus("), printed
+
     def test_window_functions(self):
         self.assertEqual(
             self._select(

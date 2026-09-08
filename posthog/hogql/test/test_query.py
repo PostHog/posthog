@@ -1888,6 +1888,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
 
+    def test_timestamp_subtraction_is_a_numeric_duration(self):
+        # Subtracting two datetimes gives a number, so reading the result must not be wrapped in
+        # toTimeZone() and converting it must reach ClickHouse's numeric toDate. Both used to fail
+        # the whole query with code 43.
+        response = execute_hogql_query(
+            "SELECT gap, toDate(gap) FROM (SELECT toDateTime(200000) - toDateTime(100000) AS gap)",
+            team=self.team,
+            pretty=False,
+        )
+        self.assertEqual(response.results, [(100000, datetime.date(1970, 1, 2))])
+
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
         response = execute_hogql_query(

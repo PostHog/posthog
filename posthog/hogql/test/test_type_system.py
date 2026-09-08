@@ -827,6 +827,9 @@ class TestHogQLTypeSystem:
             ("toDate", [ast.DateTimeType(nullable=False)], False),
             ("toDateTime", [ast.DateTimeType(nullable=False)], False),
             ("toDateTime", [ast.IntegerType(nullable=False)], False),
+            # A numeric duration (`timestamp - timestamp`) also reaches the plain constructor.
+            ("toDate", [ast.FloatType(nullable=False)], False),
+            ("toDateTime", [ast.FloatType(nullable=False)], False),
             # `_toDate` is already the plain constructor, so it never parses.
             ("_toDate", [ast.StringType(nullable=False)], False),
             # A nullable argument stays nullable down either path.
