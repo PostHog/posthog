@@ -793,7 +793,7 @@ export function DataTable({
                       }
                       return null
                   }
-                : sourceFeatures.has(QueryFeature.campaignMappingActions)
+                : sourceFeatures.has(QueryFeature.nonIntegratedConversionsRowActions)
                   ? (row: DataTableRow) => {
                         if (row.label || !row.result || !columnsInResponse) {
                             return null
