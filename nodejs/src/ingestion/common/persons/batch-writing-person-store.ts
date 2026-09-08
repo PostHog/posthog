@@ -73,6 +73,7 @@ type MethodName =
     | 'fetchPersonsForUpdateByDistinctIds'
     | 'countDistinctIdsForPersons'
     | 'fetchPersonDistinctIds'
+    | 'hasMoreDistinctIdsThan'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'updateCohortsAndFeatureFlagsForMergeBatch'
     | 'addPersonUpdateToBatch'
@@ -118,6 +119,8 @@ export interface BatchWritingPersonsStoreOptions {
     mergeEventsEnabled: boolean
     mergeEventsPartitionCount: number
     mergeEventsTeamAllowlist: string
+    /** Probe the source person's distinct-id count before a limited move, so an over-limit merge never writes rows it then rolls back. */
+    mergeMoveLimitPrecheck: boolean
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
@@ -132,6 +135,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     mergeEventsEnabled: false,
     mergeEventsPartitionCount: 64,
     mergeEventsTeamAllowlist: '',
+    mergeMoveLimitPrecheck: false,
 }
 
 interface CacheMetrics {
@@ -562,6 +566,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.mergePolicy = {
             updateAllProperties: this.options.updateAllProperties,
+            moveLimitPrecheck: this.options.mergeMoveLimitPrecheck,
             isTombstoneTeam: buildIntegerMatcher(this.options.mergeTombstoneTeamAllowlist, true),
             mergeEvents: {
                 enabled: this.options.mergeEventsEnabled,
@@ -1667,6 +1672,21 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const start = performance.now()
         const response = await tx.fetchPersonDistinctIds(person, limit)
         observeLatencyByVersion(person, start, 'fetchPersonDistinctIds')
+
+        return response
+    }
+
+    async hasMoreDistinctIdsThan(
+        person: InternalPerson,
+        distinctId: string,
+        limit: number,
+        tx: PersonRepositoryTransaction
+    ): Promise<boolean> {
+        this.incrementCount('hasMoreDistinctIdsThan', distinctId)
+        this.incrementDatabaseOperation('hasMoreDistinctIdsThan', distinctId)
+        const start = performance.now()
+        const response = await tx.hasMoreDistinctIdsThan(person, limit)
+        observeLatencyByVersion(person, start, 'hasMoreDistinctIdsThan')
 
         return response
     }

@@ -1851,6 +1851,22 @@ export class PostgresPersonRepository
         return rows.map((row) => row.distinct_id)
     }
 
+    async hasMoreDistinctIdsThan(person: InternalPerson, limit: number, tx?: TransactionClient): Promise<boolean> {
+        // No ORDER BY on purpose: the planner can stop after limit + 1 index entries
+        // instead of reading every mapping of the person and sorting them.
+        const { rows } = await this.postgres.query<{ found: number }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT 1 AS found
+             FROM posthog_persondistinctid
+             WHERE person_id = $1 AND team_id = $2 AND is_deleted = false
+             OFFSET $3
+             LIMIT 1`,
+            [person.id, person.team_id, limit],
+            'hasMoreDistinctIdsThan'
+        )
+        return rows.length > 0
+    }
+
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
         const queryString = `
             SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes

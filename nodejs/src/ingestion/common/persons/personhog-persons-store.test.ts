@@ -50,6 +50,24 @@ describe('PersonhogPersonsStore', () => {
         store = new PersonhogPersonsStore(repository)
     })
 
+    it.each([
+        [3, 2, true],
+        [3, 3, false],
+        [0, 0, false],
+    ])('hasMoreDistinctIdsThan with %i mappings and limit %i resolves %s', async (count, limit, expected) => {
+        // The leader honors the per-person limit, so it returns at most limit + 1 ids.
+        const returned = Array.from({ length: Math.min(count, limit + 1) }, (_, i) => `d${i}`)
+        repository.getDistinctIdsForPersons.mockResolvedValue({ [person.id]: returned })
+
+        await expect(store.hasMoreDistinctIdsThan(person, 'd1', limit, {} as any)).resolves.toBe(expected)
+        expect(repository.getDistinctIdsForPersons).toHaveBeenCalledWith(
+            person.team_id,
+            [person.id],
+            limit + 1,
+            expect.any(String)
+        )
+    })
+
     it('folds a batch of ops into one leader call per person and publishes nothing', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' }, $set_once: { first: 'x' } }), 'd1')

@@ -242,6 +242,7 @@ export class IngestionConsumer {
             mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
             mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+            mergeMoveLimitPrecheck: this.config.PERSON_MERGE_MOVE_LIMIT_PRECHECK_ENABLED,
         })
 
         this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {

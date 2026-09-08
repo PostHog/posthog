@@ -180,6 +180,7 @@ describe('BatchWritingPersonStore', () => {
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             countDistinctIdsForPersons: jest.fn().mockResolvedValue(new Map()),
+            hasMoreDistinctIdsThan: jest.fn().mockResolvedValue(false),
         }
         return mockTransaction
     }
@@ -1618,6 +1619,20 @@ describe('BatchWritingPersonStore', () => {
 
             expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(personId, teamId)
             expect(result).toBe(0)
+        })
+    })
+
+    describe('hasMoreDistinctIdsThan', () => {
+        it.each([true, false])('passes the person and limit to the transaction and returns %s', async (verdict) => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+            const mockTransaction = createMockTransaction()
+            mockTransaction.hasMoreDistinctIdsThan.mockResolvedValue(verdict)
+
+            const result = await personStore.hasMoreDistinctIdsThan(person, 'test-distinct', 10, mockTransaction)
+
+            expect(result).toBe(verdict)
+            expect(mockTransaction.hasMoreDistinctIdsThan).toHaveBeenCalledWith(person, 10)
         })
     })
 

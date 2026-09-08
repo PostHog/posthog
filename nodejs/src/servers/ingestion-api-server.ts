@@ -345,6 +345,7 @@ export class IngestionApiServer implements NodeServer {
             mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
             mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+            mergeMoveLimitPrecheck: this.config.PERSON_MERGE_MOVE_LIMIT_PRECHECK_ENABLED,
         })
         // Which backend person writes land in, deployment-wide: pg (the
         // default) builds nothing new; the other modes construct the

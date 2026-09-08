@@ -104,6 +104,9 @@ export interface RawPostgresPersonRepository {
 
     fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]>
 
+    /** True when the person owns more than `limit` live distinct ids. Reads at most `limit + 1` rows. */
+    hasMoreDistinctIdsThan(person: InternalPerson, limit: number, tx?: TransactionClient): Promise<boolean>
+
     personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(

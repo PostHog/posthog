@@ -288,6 +288,7 @@ describe('PostgresPersonRepository', () => {
             await expect(repository.countDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual(
                 new Map([[person.id, 1]])
             )
+            await expect(repository.hasMoreDistinctIdsThan(person, 1)).resolves.toBe(false)
         })
 
         it('updatePerson does not touch a tombstoned person', async () => {
@@ -1306,6 +1307,35 @@ describe('PostgresPersonRepository', () => {
                 expect(distinctIds).toHaveLength(2)
                 expect(distinctIds).toContain('tx-distinct')
                 expect(distinctIds).toContain('tx-distinct-2')
+            })
+        })
+    })
+
+    describe('hasMoreDistinctIdsThan()', () => {
+        it.each([
+            [1, true],
+            [2, true],
+            [3, false],
+            [4, false],
+        ])('with three live mappings and limit %i resolves %s', async (limit, expected) => {
+            const person = await createTestPerson(team.id, 'probe-did-1')
+            await repository.addDistinctId(person, 'probe-did-2', 1)
+            await repository.addDistinctId(person, 'probe-did-3', 1)
+            const decoy = await createTestPerson(team.id, 'decoy-did-1')
+            for (const suffix of ['2', '3', '4', '5']) {
+                await repository.addDistinctId(decoy, `decoy-did-${suffix}`, 1)
+            }
+
+            await expect(repository.hasMoreDistinctIdsThan(person, limit)).resolves.toBe(expected)
+        })
+
+        it('sees mappings added earlier in the same transaction', async () => {
+            const person = await createTestPerson(team.id, 'probe-tx-did-1')
+
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'probe-in-tx', async (tx) => {
+                await expect(repository.hasMoreDistinctIdsThan(person, 1, tx)).resolves.toBe(false)
+                await repository.addDistinctId(person, 'probe-tx-did-2', 1, tx)
+                await expect(repository.hasMoreDistinctIdsThan(person, 1, tx)).resolves.toBe(true)
             })
         })
     })
