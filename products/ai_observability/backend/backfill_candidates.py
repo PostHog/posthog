@@ -7,26 +7,21 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError, query_ai_events
 from posthog.models.team import Team
 
+from products.ai_observability.backend.evaluation_conditions import build_condition_filter
 from products.ai_observability.backend.models.evaluations import EvaluationTarget
 
-# The count runs inside an API request and the walk inside one activity attempt, so a
-# pathological filter must fail the caller rather than hold it for the 60s default.
+# The count runs inside an API request and the walk inside one activity attempt, so a filter that
+# is too expensive for ClickHouse must fail the caller quickly rather than hold it for the 60s default.
 MAX_EXECUTION_TIME_SECONDS = 30
 
 CANDIDATE_QUERY_TYPE = "EvaluationBackfillCandidates"
 COUNT_QUERY_TYPE = "EvaluationBackfillCount"
-
-# Sampling resolution: cityHash64(key) % 10000 < rollout * 100 gives 0.01% steps, matching the
-# rollout slider. The hash differs from the live scheduler's md5 on purpose, because the two paths
-# never need to agree: dedupe removes any unit the live path already covered.
-_SAMPLING_BUCKETS = 10000
 
 _TARGET_TYPES: dict[str, str] = {
     EvaluationTarget.GENERATION.value: "generation_uuid",
@@ -106,40 +101,6 @@ def _target_type_filter(target: str) -> ast.Expr:
     # Verdicts emitted before $ai_target_type existed are generation verdicts, so a null value
     # belongs to the generation id space. Same rule as eval_reports/targets.py:target_event_predicate.
     return ast.Or(exprs=[matches, ast.Call(name="isNull", args=[target_type])])
-
-
-def _sampling_predicate(unit_key: ast.Expr, rollout_percentage: float) -> ast.Expr | None:
-    if rollout_percentage >= 100:
-        return None
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.Lt,
-        left=ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Mod,
-            left=ast.Call(name="cityHash64", args=[unit_key]),
-            right=ast.Constant(value=_SAMPLING_BUCKETS),
-        ),
-        right=ast.Constant(value=int(round(rollout_percentage * 100))),
-    )
-
-
-def build_condition_filter(conditions: list[dict[str, Any]], team: Team, unit_key: ast.Expr) -> ast.Expr | None:
-    """OR across condition sets, AND within a set (properties AND sampling)."""
-    sets: list[ast.Expr] = []
-    for condition in conditions:
-        parts: list[ast.Expr] = []
-        props = condition.get("properties") or []
-        if props:
-            parts.append(property_to_expr(props, team))
-        sampling = _sampling_predicate(unit_key, float(condition.get("rollout_percentage", 100)))
-        if sampling is not None:
-            parts.append(sampling)
-        if len(parts) > 1:
-            sets.append(ast.And(exprs=parts))
-        else:
-            sets.append(parts[0] if parts else ast.Constant(value=True))
-    if not sets:
-        return None
-    return sets[0] if len(sets) == 1 else ast.Or(exprs=sets)
 
 
 def _not_already_evaluated(
