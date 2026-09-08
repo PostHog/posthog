@@ -21,6 +21,19 @@ LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 
 
+WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
+
+# Internal events a product emits for its own consumer, carrying that product's data. A
+# user-created destination filtered on one of these forwards it off-platform without the
+# read permission the owning product requires.
+RESERVED_INTERNAL_EVENTS = frozenset({WORKFLOW_STEP_RESUME_EVENT})
+
+
+def is_reserved_internal_event(event_name: object) -> bool:
+    """Return whether an internal event is reserved from user-created destinations."""
+    return isinstance(event_name, str) and event_name in RESERVED_INTERNAL_EVENTS
+
+
 def is_managed_alert_internal_event(event_name: object) -> bool:
     """Return whether an internal event is reserved for an alert-owned destination."""
     return (

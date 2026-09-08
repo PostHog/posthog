@@ -4,11 +4,9 @@ from typing import Any, Literal
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.cdp.internal_events import WORKFLOW_STEP_RESUME_EVENT, InternalEventEvent, produce_internal_event
 
 logger = structlog.get_logger(__name__)
-
-WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
 
 RESULT_STRING_CAP = 1500
 RESULT_BYTE_CAP = 4096
