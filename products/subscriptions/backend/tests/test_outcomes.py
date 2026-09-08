@@ -176,14 +176,15 @@ def test_missing_or_malformed_measurement_is_terminal_unavailable(team, measurem
     assert outcome.measurement_spec is None
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_due_read_queries_outside_the_terminal_write_lock(team, monkeypatch) -> None:
     artifact = _adopted_artifact(team, adopted_at=django_timezone.now() - timedelta(days=7))
     provisioned = provision_outcome_for_adopted_artifact(team_id=team.id, artifact_id=artifact.id)
     assert provisioned is not None
+    baseline_atomic_depth = len(transaction.get_connection().atomic_blocks)
 
     def measure(**_kwargs: object) -> SavedInsightMeasurement:
-        assert not transaction.get_connection().in_atomic_block
+        assert len(transaction.get_connection().atomic_blocks) == baseline_atomic_depth
         return SavedInsightMeasurement(status="success", value=Decimal("12"))
 
     monkeypatch.setattr(outcomes, "measure_saved_insight_trends", measure)
