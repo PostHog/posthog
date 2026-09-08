@@ -61,7 +61,8 @@ class WizardRunArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         page = self.paginate_queryset(artifacts)
 
-        assert page is not None
+        if page is None:
+            raise ValueError("Pagination returned None")
 
         return self.get_paginated_response([serialize_wizard_run_artifact(artifact) for artifact in page])
 

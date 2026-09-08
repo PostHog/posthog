@@ -33,5 +33,6 @@ class WizardRegistryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             organization_id=str(self.team.organization_id),
         )
         page = self.paginate_queryset(programs)
-        assert page is not None
+        if page is None:
+            raise ValueError("Pagination returned None")
         return self.get_paginated_response(WizardProgramSerializer(page, many=True).data)
