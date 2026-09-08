@@ -511,6 +511,7 @@ def _ensure_widget_instance(*, notebook: Notebook, node_id: str, prompt: str, us
             user_id=user_id,
             channel_id=channel_id,
             name=_display_name(prompt),
+            context=prompt,
         )
         widget = GeneratedWidget.objects.for_team(notebook.team_id).create(
             team_id=notebook.team_id,

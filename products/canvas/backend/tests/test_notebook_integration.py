@@ -52,6 +52,7 @@ class TestNotebookCanvasCreation(APIBaseTest):
                 user_id=self.user.id,
                 channel_id=channel.id,
                 name="Widget",
+                context="Context",
             )
 
         self.assertFalse(Canvas.objects.unscoped().filter(channel_id=channel.id).exists())
@@ -67,6 +68,7 @@ class TestNotebookCanvasCreation(APIBaseTest):
                 user_id=self.user.id,
                 channel_id=channel.id,
                 name="Widget",
+                context="Context",
             )
 
         self.assertFalse(Canvas.objects.unscoped().filter(channel_id=channel.id).exists())

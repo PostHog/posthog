@@ -316,8 +316,13 @@ const CanvasMoveSchema = () => {
     const CanvasesPartialUpdateParams = orvalSchemas.CanvasesPartialUpdateParams()
     return CanvasesPartialUpdateParams.omit({ project_id: true })
         .extend(
-            CanvasesPartialUpdateBody.omit({ name: true, description: true, pinned: true, generation_task_id: true })
-                .shape
+            CanvasesPartialUpdateBody.omit({
+                name: true,
+                context: true,
+                description: true,
+                pinned: true,
+                generation_task_id: true,
+            }).shape
         )
         .extend({
             id: CanvasesPartialUpdateParams.shape['id'].describe('ID of the canvas to move.'),
