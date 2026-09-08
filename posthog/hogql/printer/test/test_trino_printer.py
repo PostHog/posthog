@@ -1,5 +1,6 @@
 import sqlite3
 from contextlib import closing
+from typing import TYPE_CHECKING
 
 import pytest
 from unittest import mock
@@ -13,7 +14,14 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, StringJSONDatabaseField, TableNode
+from posthog.hogql.database.models import (
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    SavedQuery,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    TableNode,
+)
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
@@ -24,6 +32,9 @@ from posthog.hogql.transforms.trino.transpiler import TrinoTranspilerInput, tran
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 from posthog.schema_enums import PersonsOnEventsMode
+
+if TYPE_CHECKING:
+    from pytest_django.plugin import DjangoDbBlocker
 
 
 def _trino_modifiers() -> HogQLQueryModifiers:
@@ -110,6 +121,122 @@ def test_prepared_trino_transpiler_does_not_rebuild_the_schema_database(
         transpiled = transpile_prepared_hogql_to_trino(transpiler_input)
 
     assert (transpiled.sql, transpiled.values) == snapshot
+
+
+def _context_with_saved_views() -> HogQLContext:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    for name, query in (
+        ("signup_dates", "SELECT user_id, created_at AS signed_at, toDate(created_at) AS signed_day FROM users"),
+        ("nested_dates", "SELECT user_id, signed_at, signed_day FROM signup_dates"),
+    ):
+        context.database.tables.add_child(
+            TableNode(
+                name=name,
+                table=SavedQuery(
+                    id=name,
+                    name=name,
+                    query=query,
+                    fields={
+                        "user_id": StringDatabaseField(name="user_id", nullable=False),
+                        "signed_at": DateTimeDatabaseField(name="signed_at", nullable=True),
+                        "signed_day": DateDatabaseField(name="signed_day", nullable=False),
+                    },
+                ),
+            )
+        )
+    return context
+
+
+@pytest.mark.parametrize(
+    "query, expected_predicate",
+    [
+        (
+            "SELECT signed_at FROM signup_dates WHERE signed_at > '2025-01-01'",
+            '"signup_dates"."signed_at" > CAST(%(hogql_val_0)s AS TIMESTAMP)',
+        ),
+        (
+            "SELECT v.signed_day AS day FROM nested_dates AS v WHERE '2025-01-01' = day",
+            'CAST(%(hogql_val_0)s AS DATE) = "v"."signed_day"',
+        ),
+        (
+            "SELECT renamed.moment FROM (SELECT signed_at FROM nested_dates) AS renamed(moment) "
+            "WHERE renamed.moment >= '2025-01-01'",
+            '"renamed"."moment" >= CAST(%(hogql_val_0)s AS TIMESTAMP)',
+        ),
+        (
+            "SELECT a.signed_day FROM signup_dates AS a JOIN signup_dates AS b ON a.user_id = b.user_id "
+            "WHERE a.signed_day > '2025-01-01' AND b.signed_at IS NULL",
+            '"a"."signed_day" > CAST(%(hogql_val_0)s AS DATE)',
+        ),
+    ],
+)
+def test_saved_view_types_survive_database_free_transpilation(
+    query: str, expected_predicate: str, django_db_blocker: "DjangoDbBlocker"
+) -> None:
+    preparation_context = _context_with_saved_views()
+    prepared = prepare_ast_for_printing(parse_select(query), preparation_context, "trino", _finalize_trino=False)
+    assert prepared is not None
+    assert preparation_context.database is not None
+    transpiler_input = TrinoTranspilerInput(
+        node=prepared,
+        values=tuple(preparation_context.values.items()),
+        table_locators=preparation_context.trino_table_locators,
+        persons_on_events_mode=preparation_context.modifiers.personsOnEventsMode,
+        convert_to_project_timezone=preparation_context.modifiers.convertToProjectTimezone,
+        limit_top_select=False,
+        limit_context=preparation_context.limit_context,
+        timezone=preparation_context.database.get_timezone(),
+        week_start_day=preparation_context.database.get_week_start_day(),
+    )
+    preparation_context.database = None
+
+    with (
+        django_db_blocker.block(),
+        mock.patch(
+            "posthog.hogql.database.database.Database.create_for",
+            side_effect=AssertionError("the prepared transpiler must not build a database"),
+        ),
+    ):
+        transpiled = transpile_prepared_hogql_to_trino(transpiler_input)
+
+    assert expected_predicate in transpiled.sql
+    assert 'FROM "ducklake"."analytics"."users" AS "users"' in transpiled.sql
+    assert transpiled.values == {"hogql_val_0": "2025-01-01"}
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_saved_views(), "trino")
+    assert sql == transpiled.sql
+
+
+def test_prepared_view_metadata_preserves_nullability_and_source_identity() -> None:
+    context = _context_with_saved_views()
+    prepared = prepare_ast_for_printing(
+        parse_select("SELECT a.signed_at, b.signed_day FROM signup_dates AS a CROSS JOIN signup_dates AS b"),
+        context,
+        "trino",
+    )
+    assert prepared is not None
+    assert isinstance(prepared.type, ast.SelectQueryType)
+    first_view = prepared.type.tables["a"]
+    second_view = prepared.type.tables["b"]
+    assert isinstance(first_view, ast.SelectViewType)
+    assert isinstance(second_view, ast.SelectViewType)
+    assert first_view is not second_view
+    assert first_view.column_table is second_view.column_table
+
+    assert context.database is not None
+    source_column = context.database.get_table("signup_dates").get_field("signed_at")
+    assert isinstance(source_column, DateTimeDatabaseField)
+    source_column.nullable = False
+    context.database = None
+
+    timestamp_field = first_view.get_child("signed_at", context)
+    assert isinstance(timestamp_field, ast.FieldType)
+    assert timestamp_field.table_type is first_view
+    assert timestamp_field.is_nullable(context)
+    assert timestamp_field.resolve_constant_type(context) == ast.DateTimeType(nullable=True)
+    assert second_view.get_child("signed_day", context).resolve_constant_type(context) == ast.DateType(nullable=False)
+    assert prepared.type.columns["signed_at"].resolve_constant_type(context) == ast.DateTimeType(nullable=True)
+    assert print_prepared_ast(timestamp_field, context, "trino") == '"a"."signed_at"'
 
 
 def test_prints_trino_lambda_syntax() -> None:

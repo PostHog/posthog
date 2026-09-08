@@ -424,6 +424,14 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
+    if dialect == "trino":
+        from posthog.hogql.transforms.trino.view_types import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            prepare_trino_view_types,
+        )
+
+        with context.timings.measure("prepare_trino_view_types"):
+            prepare_trino_view_types(node, context, stack)
+
     if dialect == "trino" and _finalize_trino:
         from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
             validate_trino_ready_ast,

@@ -424,11 +424,13 @@ class SelectSetQueryType(Type):
         return self.types[0].resolve_constant_type(context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectViewType(BaseTableType):
     view_name: str
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
+    # Trino preparation snapshots column metadata before discarding the schema context.
+    column_table: Table | None = field(default=None, repr=False, compare=False)
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         try:
@@ -438,6 +440,8 @@ class SelectViewType(BaseTableType):
             return False
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
+        if self.column_table is not None:
+            return self.column_table
         if context.database is None:
             raise ResolutionError("Database must be set for queries with views")
         return context.database.get_table(self.view_name)

@@ -10,6 +10,11 @@ The returned SQL uses named placeholders, with values stored in `context.values`
 
 The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindings, table locators, modifiers, limits, timezone, and week start. It clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
 
+Trino preparation snapshots the column metadata for expanded saved views from the existing schema before this handoff, including references reachable through aliases and nested query types.
+Each referenced view shares one column snapshot per preparation call, preserving field names, nested field metadata, and nullability without retaining saved-query callbacks or rebuilding the catalog.
+Field and table types keep their source identity and alias qualification so final lowering and type-dependent casts work with `database=None`.
+Callers of `transpile_prepared_hogql_to_trino(...)` must supply an AST prepared through `prepare_ast_for_printing(..., "trino")`; preparation includes these snapshots even when final Trino lowering is deferred.
+
 `transpile_hogql_to_trino(...)` is the restricted, manifest-backed front end. Its immutable manifest allowlists logical tables, physical Trino locators, and warehouse column types. `events` and `persons` use fixed built-in schemas. The function resolves and prints with no team, user, Django model, saved query, or lazy database callback, and its tests assert that it executes zero Django queries.
 
 Use `prepare_trino_catalog(...)` when several queries share one manifest. Preparation validates the manifest and builds its schema database and physical locator map once. Each `PreparedTrinoCatalog.transpile(...)` call creates a new AST, context, modifiers, and bound-value map, so query state does not cross compilation boundaries.
