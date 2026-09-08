@@ -55,17 +55,15 @@ export function deriveActivityFeedContent({
     (item) => !archivedTaskIds.has(item.taskId),
   );
   const visibleReports = unreadsOnly ? [] : reports;
+  const visibleTaskItems = mentionsIncluded
+    ? unreadsOnly
+      ? getUnreadActivityItems(shownItems)
+      : shownItems
+    : [];
 
   return {
     unreadItems,
-    feedItems: mergeActivityFeedItems(
-      mentionsIncluded
-        ? unreadsOnly
-          ? getUnreadActivityItems(shownItems)
-          : shownItems
-        : [],
-      visibleReports,
-    ),
+    feedItems: mergeActivityFeedItems(visibleTaskItems, visibleReports),
     lastShownReportId: visibleReports.at(-1)?.id ?? null,
     remainingInboxReportCount: Math.max(
       0,
