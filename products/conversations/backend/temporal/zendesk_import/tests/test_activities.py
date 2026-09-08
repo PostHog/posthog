@@ -12,7 +12,7 @@ from django.db.utils import OperationalError
 
 from parameterized import parameterized
 
-from posthog.models import Tag
+from posthog.models import Tag, Team
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, ZendeskImportJob
@@ -626,18 +626,22 @@ class TestZendeskImportBatchActivity(BaseTest):
 class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def test_import_uses_the_live_allocator_advisory_lock(self) -> None:
+    @parameterized.expand([("advisory",), ("team_row",)])
+    def test_import_waits_for_each_bridge_lock(self, held_lock: str) -> None:
         lock_acquired = Event()
         release_lock = Event()
 
-        def hold_live_allocator_lock() -> None:
+        def hold_allocation_lock() -> None:
             close_old_connections()
             try:
                 with transaction.atomic():
-                    Ticket.objects.lock_ticket_number_allocation(self.team.id)
+                    if held_lock == "advisory":
+                        Ticket.objects.lock_ticket_number_allocation(self.team.id)
+                    else:
+                        Team.objects.select_for_update().get(id=self.team.id)
                     lock_acquired.set()
                     if not release_lock.wait(timeout=5):
-                        raise TimeoutError("test did not release the advisory lock")
+                        raise TimeoutError("test did not release the allocation lock")
             finally:
                 close_old_connections()
 
@@ -657,15 +661,15 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
         )
 
         with ThreadPoolExecutor(max_workers=1) as executor:
-            lock_future = executor.submit(hold_live_allocator_lock)
+            lock_future = executor.submit(hold_allocation_lock)
             if not lock_acquired.wait(timeout=5):
                 release_lock.set()
                 lock_future.result(timeout=1)
-                self.fail("live allocator did not acquire the advisory lock")
+                self.fail(f"allocator did not acquire the {held_lock} lock")
             try:
                 with connection.cursor() as cursor:
                     cursor.execute("SET lock_timeout = '250ms'")
-                with self.assertRaises(OperationalError):
+                with self.assertRaisesRegex(OperationalError, "canceling statement due to lock timeout"):
                     _persist_ticket_batch(self.team, [built], {})
             finally:
                 with connection.cursor() as cursor:

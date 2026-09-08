@@ -16,11 +16,10 @@ if TYPE_CHECKING:
 
 class TicketManager(models.Manager):
     def lock_ticket_number_allocation(self, team_id: int) -> None:
-        """Serialize next ticket_number assignment until the current transaction commits.
+        """Acquire the team-scoped transaction lock for ticket number assignment.
 
-        Callers must be inside ``transaction.atomic()``. This is an advisory lock
-        keyed by team, not a ``SELECT FOR UPDATE`` on ``Team``, so unrelated writers
-        of team-child rows do not wait.
+        Callers must be inside ``transaction.atomic()`` and acquire this before
+        any other allocation lock.
         """
         db_connection = transaction.get_connection(self.db)
         if not db_connection.in_atomic_block:
@@ -41,7 +40,7 @@ class TicketManager(models.Manager):
 
         with transaction.atomic(using=self.db):
             self.lock_ticket_number_allocation(team.id)
-            # nosemgrep: hot-parent-row-select-for-update -- mixed-version allocators still share only the Team lock
+            # nosemgrep: hot-parent-row-select-for-update -- preserves compatibility with Team-lock-only allocators
             Team.objects.using(self.db).select_for_update().get(id=team.id)
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1
