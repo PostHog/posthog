@@ -9,6 +9,8 @@ from django.db import InterfaceError, OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
+import grpc
+from celery import Task
 from celery.exceptions import Retry
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
@@ -32,6 +34,7 @@ from posthog.tasks.calculate_cohort import (
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
+    insert_cohort_from_query,
     reset_stuck_cohorts,
     trigger_cohort_backfill_run_task,
     update_cohort_metrics,
@@ -42,7 +45,7 @@ from products.cohorts.backend.backfill.runs import BackfillRefusalReason
 from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
+from products.cohorts.backend.models.util import count_cohort_members, insert_static_cohort, list_cohort_member_ids
 
 MISSING_COHORT_ID = 12345
 
@@ -59,6 +62,12 @@ BACKFILL_TASK_SETTINGS = {
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1_000_000,
 }
+
+
+def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
+    error = grpc.RpcError()
+    error.code = MagicMock(return_value=code)
+    return error
 
 
 def calculate_cohort_test_factory(event_factory: Callable, person_factory: Callable):  # type: ignore
@@ -1415,8 +1424,6 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertTrue(cohort.is_calculating)
 
     def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
-        from posthog.tasks.calculate_cohort import insert_cohort_from_query
-
         cohort = Cohort.objects.create(
             team_id=self.team.pk,
             name="test_query_cohort",
@@ -1451,8 +1458,6 @@ class TestCohortCalculationTasks(APIBaseTest):
     def test_insert_cohort_from_query_only_captures_system_errors(
         self, _name: str, raised: Exception, expected_capture_calls: int
     ) -> None:
-        from posthog.tasks.calculate_cohort import insert_cohort_from_query
-
         cohort = Cohort.objects.create(
             team_id=self.team.pk,
             name="test_query_cohort",
@@ -1473,6 +1478,65 @@ class TestCohortCalculationTasks(APIBaseTest):
             cohort.refresh_from_db()
             self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
             self.assertGreater(cohort.errors_calculating, 0, "Failure should be recorded regardless of error type")
+
+    @override_settings(DEBUG=False)
+    @patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch")
+    @patch("products.cohorts.backend.models.util.insert_cohort_members")
+    def test_insert_cohort_from_query_records_personhog_sync_failure(
+        self, mock_insert_members: MagicMock, _mock_insert_ch: MagicMock
+    ) -> None:
+        person = create_person(team=self.team, distinct_ids=["personhog-sync-failure"])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="query cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+        )
+        insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
+        mock_insert_members.side_effect = ValueError("personhog unavailable")
+
+        insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.last_calculation)
+
+    @parameterized.expand(
+        [
+            (
+                "query",
+                insert_cohort_from_query,
+                "products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch",
+            ),
+            (
+                "filters",
+                insert_cohort_from_filters,
+                "products.cohorts.backend.models.util.insert_cohort_filter_actors_into_ch",
+            ),
+        ]
+    )
+    def test_static_population_retries_transient_personhog_sync_failure(
+        self, _name: str, task: Task, ch_insert_path: str
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
+        task.push_request(retries=0, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch(ch_insert_path),
+                patch(
+                    "products.cohorts.backend.models.util.insert_cohort_people_into_pg",
+                    side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE),
+                ),
+                self.assertRaises(Retry),
+            ):
+                task.run(cohort.id, self.team.pk)
+        finally:
+            task.pop_request()
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
 
     def test_insert_cohort_from_filters_count_updated_on_exception(self) -> None:
         cohort = Cohort.objects.create(
@@ -1659,28 +1723,56 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("retries_exhausted", ClickHouseAtCapacity, calculate_cohort_from_list.max_retries, False),
-            ("called_directly", ClickHouseAtCapacity, 0, True),
-            ("not_retryable", ValueError, 0, False),
+            (
+                "clickhouse_retries_exhausted",
+                "products.cohorts.backend.models.util.insert_static_cohort",
+                ClickHouseAtCapacity,
+                calculate_cohort_from_list.max_retries,
+                False,
+            ),
+            (
+                "clickhouse_called_directly",
+                "products.cohorts.backend.models.util.insert_static_cohort",
+                ClickHouseAtCapacity,
+                0,
+                True,
+            ),
+            (
+                "not_retryable",
+                "products.cohorts.backend.models.util.insert_static_cohort",
+                ValueError,
+                0,
+                False,
+            ),
+            (
+                "personhog_retries_exhausted",
+                "products.cohorts.backend.models.util.insert_cohort_members",
+                lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
+                calculate_cohort_from_list.max_retries,
+                False,
+            ),
+            (
+                "personhog_not_retryable",
+                "products.cohorts.backend.models.util.insert_cohort_members",
+                lambda: _rpc_error(grpc.StatusCode.INVALID_ARGUMENT),
+                0,
+                False,
+            ),
         ]
     )
-    @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_records_failure_when_nothing_will_retry(
         self,
         _name: str,
-        error_class: type[Exception],
+        insert_path: str,
+        error_factory: Callable[[], Exception],
         retries: int,
         called_directly: bool,
-        mock_insert_ch: MagicMock,
     ) -> None:
-        # raise_on_error hands terminal-state finalization to the task, so whenever no retry
-        # follows, the task itself has to clear is_calculating and bump errors_calculating.
-        # Otherwise the cohort is stranded looking in-flight forever with no recorded error.
-        mock_insert_ch.side_effect = error_class("boom")
+        error = error_factory()
         create_person(team=self.team, distinct_ids=["user123"])
         cohort = self._create_static_cohort()
 
-        with self.assertRaises(error_class):
+        with patch(insert_path, side_effect=error), self.assertRaises(type(error)):
             self._run_task(cohort, retries=retries, called_directly=called_directly)
 
         cohort.refresh_from_db()
@@ -1688,31 +1780,54 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         self.assertEqual(cohort.errors_calculating, 1)
         self.assertIsNotNone(cohort.last_error_at)
 
-    @patch("products.cohorts.backend.models.util.insert_static_cohort")
-    def test_leaves_state_untouched_while_retries_remain(self, mock_insert_ch: MagicMock) -> None:
-        # A transient failure with attempts left belongs to the pending autoretry, so recording it
-        # now would show a cohort that is still being retried as errored and no longer calculating.
-        # Celery raising Retry rather than the original error is what confirms one was scheduled.
-        mock_insert_ch.side_effect = ClickHouseAtCapacity()
+    @parameterized.expand(
+        [
+            (
+                "clickhouse",
+                "products.cohorts.backend.models.util.insert_static_cohort",
+                ClickHouseAtCapacity,
+            ),
+            (
+                "personhog",
+                "products.cohorts.backend.models.util.insert_cohort_members",
+                lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
+            ),
+        ]
+    )
+    def test_leaves_state_untouched_while_retries_remain(
+        self, _name: str, insert_path: str, error_factory: Callable[[], Exception]
+    ) -> None:
         create_person(team=self.team, distinct_ids=["user123"])
         cohort = self._create_static_cohort()
 
-        with self.assertRaises(Retry):
+        with patch(insert_path, side_effect=error_factory()), self.assertRaises(Retry):
             self._run_task(cohort, retries=0, called_directly=False)
 
         cohort.refresh_from_db()
         self.assertTrue(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
 
-    @patch("products.cohorts.backend.models.util.insert_static_cohort")
-    def test_retry_after_transient_failure_completes_the_cohort(self, mock_insert_ch: MagicMock) -> None:
-        # What the retry buys: the attempt that follows a capacity blip populates every member and
-        # finalizes clean state, and re-running the whole list adds no duplicate members.
-        mock_insert_ch.side_effect = [ClickHouseAtCapacity(), None]
+    @parameterized.expand(
+        [
+            (
+                "clickhouse",
+                "products.cohorts.backend.models.util.insert_static_cohort",
+                ClickHouseAtCapacity,
+            ),
+            (
+                "personhog",
+                "products.cohorts.backend.models.util.insert_cohort_members",
+                lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
+            ),
+        ]
+    )
+    def test_retry_after_transient_failure_completes_the_cohort(
+        self, _name: str, insert_path: str, error_factory: Callable[[], Exception]
+    ) -> None:
         create_person(team=self.team, distinct_ids=["user123"])
         cohort = self._create_static_cohort()
 
-        with self.assertRaises(Retry):
+        with patch(insert_path, side_effect=error_factory()), self.assertRaises(Retry):
             self._run_task(cohort, retries=0, called_directly=False)
 
         self._run_task(cohort, retries=1, called_directly=False)

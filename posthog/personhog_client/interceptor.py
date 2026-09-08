@@ -159,6 +159,13 @@ _RETRYABLE_CODES = frozenset(
 )
 
 
+def is_transient_rpc_error(exc: BaseException) -> bool:
+    if not isinstance(exc, grpc.RpcError):
+        return False
+    code = getattr(exc, "code", None)
+    return callable(code) and code() in _RETRYABLE_CODES
+
+
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     """Retries transient gRPC errors with jittered backoff.
 
