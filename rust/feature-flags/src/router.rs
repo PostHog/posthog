@@ -136,6 +136,16 @@ pub struct State {
 }
 
 impl State {
+    /// The Redis cluster the flags namespace lives in: the dedicated flags cluster when
+    /// `FLAGS_REDIS_URL` is set, and the shared cluster when it is not. `server.rs` repeats
+    /// this derivation inline for the flags.json, team_metadata, and remote-config readers
+    /// and for the auth token cache, because those are built before `State` exists.
+    pub(crate) fn flags_namespace_redis_client(&self) -> Arc<dyn RedisClient + Send + Sync> {
+        self.dedicated_redis_client
+            .clone()
+            .unwrap_or_else(|| self.redis_client.clone())
+    }
+
     /// Builds a `FlagService` from shared state. Centralized so every endpoint gets the
     /// same caching/fallback config instead of copying the constructor per handler.
     pub(crate) fn flag_service(&self) -> FlagService {

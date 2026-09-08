@@ -1,4 +1,5 @@
 use crate::{
+    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -211,12 +212,23 @@ pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<Stri
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
         .zrangebyscore(
-            "flag_definitions:rebuild_requests".to_string(),
+            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
             "-inf".to_string(),
             "+inf".to_string(),
         )
         .await
         .unwrap_or_default()
+}
+
+/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
+/// test redis between runs, and team ids restart when the test database is recreated, so a
+/// stale member with a reused id would satisfy a poll on its first read.
+pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .await
+        .unwrap();
 }
 
 /// An S3 client that reports every key as NotFound. Lets integration tests force a
