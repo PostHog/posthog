@@ -561,6 +561,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 clearSimulation: () => null,
                 // Drop the last chart when a run fails, so the failure toast isn't read against it.
                 simulateForecastFailure: () => null,
+                // The history range is an input to the run, so the last chart no longer answers it.
+                setSimulationDateFrom: () => null,
                 setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
                 setAlertFormValues: (state, { values: changed }) =>
                     'forecast_config' in changed || 'threshold' in changed || 'config' in changed ? null : state,
