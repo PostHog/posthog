@@ -7,14 +7,18 @@ description: |
 
     Use `pnpm-install` instead when the job needs the workspace installed.
 
-    Depot shadow of .github/actions/setup-pnpm: no app token is available here,
-    so setup-node reads github.token.
-
 inputs:
     node-version-file:
         description: 'File specifying the Node version.'
         required: false
         default: .nvmrc
+    token:
+        description: |
+            GitHub token for setup-node's version-manifest lookup and Node download.
+            Pass an app token at high-fanout call sites to keep those API calls off
+            the shared per-repo GITHUB_TOKEN core bucket.
+        required: false
+        default: ${{ github.token }}
 
 runs:
     using: composite
@@ -64,7 +68,7 @@ runs:
           uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
           with:
               node-version-file: ${{ inputs.node-version-file }}
-              token: ${{ github.token }}
+              token: ${{ inputs.token }}
 
         # Save only on the default branch: caches written on a PR ref are scoped to
         # that ref alone, evict the shared master entry, and help only that one PR.
