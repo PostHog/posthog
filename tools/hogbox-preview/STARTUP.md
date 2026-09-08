@@ -18,7 +18,7 @@ doesn't distort it):
 | `migrate` (pg)       | **126s** | `run --rm web manage.py migrate` — a **no-op** on the golden (`No planned migration operations`) |
 | `migrate_clickhouse` | **147s** | same, 281 CH migrations, all no-ops                                                              |
 | `up-web`             | 2s       | create the web container                                                                         |
-| web `/_health`       | **117s** | Nginx Unit + workers import `posthog.wsgi`, then serve                                           |
+| web `/_health`       | **117s** | Workers import `posthog.wsgi`, then serve                                                        |
 
 > Numbers predate temporal. `up-deps` now also starts `temporal` and `up-web`
 > also recreates `temporal-django-worker` (needed so the worker runs the PR's
@@ -54,13 +54,11 @@ pays for it:
 
 ## Validated levers
 
-- **Web: `NGINX_UNIT_APP_PROCESSES=1` + `NGINX_UNIT_PRELOAD_CONFIG=true` → first
-  `/_health` 118s → ~18s.** The biggest cheap win. `bin/docker-server-unit` runs
-  **4** Unit workers and, when `PRELOAD_CONFIG` is unset, **double-loads** Django
-  per worker (start → apply config → stop → restart) = 8 full imports. A preview
-  serves one user; one worker + a preloaded config kills the redundancy. Applied
-  in `stack.py` `write_override` and in the golden's own bake
-  (hogland `scripts/posthog-preview-setup.sh`).
+- **Web: one worker.** `bin/docker-server` runs **4** by default, each paying a full
+  Django import. A preview serves one user, so `GRANIAN_WORKERS=1` drops the rest.
+  Applied in `stack.py` `write_override` and in the golden's own bake
+  (hogland `scripts/posthog-preview-setup.sh`). The 118s→18s figure in the table
+  above predates granian and has not been re-measured.
 - **Tighter poll intervals** (`run_long`/`wait_http_ok` 10s → 3s): each completed
   step otherwise sits on up to 10s of dead air before we notice; a handful of
   steps adds up.
@@ -140,10 +138,6 @@ encodes them, but they're easy to regress, so they live here too:
 - **`compose run` has no `--no-build`.** Only a _present_ image stops it from
   silently starting dev-full's ~20-min `build: .`. Pull the image upfront and
   hard-fail if it's absent — don't discover the build at the migrate step.
-- **Never `compose restart web`.** Nginx Unit installs its `*:8000` listener only
-  on a fresh container's first boot (`/var/lib/unit` empty); a restart skips it
-  and comes up with `listeners: {}` serving nothing. Recreate with a clean `up`
-  (`--force-recreate` if web must be replaced).
 - **Restore sizing must match the baked spec exactly** — 8 vCPU / 16384 MiB /
   100 GiB / mirrored. "Omit to inherit" is unreliable server-side; a mismatch is
   rejected. (NB: the SDK sends `disk_mbps=0` = unthrottled; the `hogland` CLI
