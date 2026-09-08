@@ -126,8 +126,8 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
 
 @frozen
 class WizardTierLimits:
-    """`cap_usd` applies to a program with no entry of its own; `max_cap_usd` is
-    the ceiling a program entry may raise it to."""
+    """`cap_usd` applies to a program with no entry of its own; a program with
+    one replaces it, up to `max_cap_usd`."""
 
     cap_usd: Decimal | None = None
     max_cap_usd: Decimal | None = None
@@ -141,22 +141,22 @@ NO_TIER_LIMITS = WizardTierLimits()
 # operator meant, not toward the flat setting, which is wider than all three.
 _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
-        cap_usd=Decimal("5").quantize(_CAP_QUANTUM),
+        cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         mints_per_day=2,
-        ttl_seconds=28800,
+        ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "active": WizardTierLimits(
         cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
         mints_per_day=5,
-        ttl_seconds=28800,
+        ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "paid": WizardTierLimits(
         cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
-        max_cap_usd=Decimal("15").quantize(_CAP_QUANTUM),
+        max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
         mints_per_day=10,
-        ttl_seconds=28800,
+        ttl_seconds=_MAX_TTL_SECONDS,
     ),
 }
 
@@ -310,8 +310,9 @@ def mint_wizard_gateway_token(
     """Mint one run's token; returns {token, expires_at, cap_usd}. Raises
     WizardGatewayMintError on any refusal or transport failure; the bearer never
     appears in logs or exception text. `cap_usd`, when set, outranks every
-    configured cap and must already be validated; otherwise the program's cap,
-    then the posture's tier, then the flat setting.
+    configured cap and must already be validated; otherwise the program's cap
+    bounded by the posture's ceiling, then the posture's own, then the flat
+    setting, which applies only when there is no posture.
     """
     base_url = wizard_gateway_base_url()
     body = {
@@ -385,17 +386,25 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
     """The cap as a fixed-point string: the override, then the program's cap
     bounded by the posture's ceiling, then the posture's, then the flat setting.
 
-    program is a caller-supplied body field, so an unbounded program cap would
-    let any account set its own cap by naming the priciest program.
+    program is a caller-supplied body field, so the program cap only applies
+    inside a posture; with no posture there is no ceiling to bound it and it is
+    ignored, or an account would set its own cap by naming the priciest program.
     """
     if override is not None:
         return f"{override.quantize(_CAP_QUANTUM):f}"
-    tier = wizard_tier_limits(posture) if posture is not None else NO_TIER_LIMITS
-    cap = wizard_program_cap(program)
-    if cap is not None and tier.max_cap_usd is not None:
-        cap = min(cap, tier.max_cap_usd)
-    if cap is None:
-        cap = tier.cap_usd
+    if posture is None:
+        cap = None
+    else:
+        tier = wizard_tier_limits(posture)
+        cap = wizard_program_cap(program)
+        if cap is not None:
+            # A ceiling below the posture's own cap would make a program entry
+            # tighten rather than size, so the posture's cap is the floor here.
+            ceiling = max(tier.max_cap_usd, tier.cap_usd) if tier.max_cap_usd else tier.cap_usd
+            if ceiling is not None:
+                cap = min(cap, ceiling)
+        if cap is None:
+            cap = tier.cap_usd
     if cap is None:
         raw = str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD)
         cap = _parse_cap(raw)
