@@ -30,6 +30,8 @@ describe('AccountCustomPropertyEditor', () => {
 
     it.each([
         [0.184, '18.4', '25', 0.25],
+        [0.29, '29', '25', 0.25],
+        [0.58, '58', '0.5', 0.005],
         [0, '0', '0', 0],
         [null, '', '10', 0.1],
     ])('edits stored percent %s in percentage units', (value, shown, entered, expected) => {
@@ -42,6 +44,15 @@ describe('AccountCustomPropertyEditor', () => {
         fireEvent.change(input, { target: { value: entered } })
         fireEvent.click(screen.getByText('Save'))
         expect(onSave).toHaveBeenCalledWith(expected)
+    })
+
+    it.each([0.007, 0.009])('saves stored percent %s unchanged when nothing is edited', (value) => {
+        const onSave = jest.fn()
+        render(
+            <AccountCustomPropertyEditor definition={definition} value={value} onSave={onSave} onCancel={jest.fn()} />
+        )
+        fireEvent.click(screen.getByText('Save'))
+        expect(onSave).toHaveBeenCalledWith(value)
     })
 
     it.each(['date', 'datetime'] as const)(
