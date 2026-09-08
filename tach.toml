@@ -79,6 +79,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.autoresearch",
     "products.cohorts",
     "ee",
     "products.access_control",
@@ -191,6 +192,7 @@ layer = "modules"
 path = "products.autoresearch"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.feature_flags",
 ]
 layer = "modules"
@@ -460,6 +462,7 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.signals", "products.tasks",
 ]
 layer = "modules"
 
@@ -1313,7 +1316,7 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions"]
+depends_on = ["posthog", "products.event_definitions", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]

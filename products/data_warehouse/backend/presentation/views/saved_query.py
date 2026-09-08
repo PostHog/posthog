@@ -53,13 +53,13 @@ from products.access_control.backend.presentation.access_control import (
 from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS, get_incremental_config
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
+    DataModelingJobEngine,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     Edge,
     Node,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, unpause_saved_query_schedule
 from products.data_warehouse.backend.presentation.views.column_annotation_base import (
     DESCRIPTION_HELP_TEXT,
     upsert_annotation,
@@ -453,16 +453,46 @@ class DataWarehouseSavedQuerySerializerMixin:
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
+    def _serving_run(self, view: DataWarehouseSavedQuery) -> DataModelingJob | None:
+        """The newest materialization run that serves this view, or None if it has never run.
+
+        Prefers the prefetched job so a list of views costs one query. Falls back to a lookup for
+        the detail route, which has no prefetch.
+        """
+        try:
+            jobs = view.jobs  # type: ignore[attr-defined]
+            return jobs[0] if jobs else None
+        except AttributeError:
+            return (
+                DataModelingJob.objects.filter(saved_query_id=view.id)
+                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                .order_by("-last_run_at")
+                .first()
+            )
+
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
-        try:
-            jobs = view.jobs  # type: ignore
-            if len(jobs) > 0:
-                return jobs[0].last_run_at
-        except Exception:
-            pass
+        run = self._serving_run(view)
+        return run.last_run_at if run is not None else view.last_run_at
 
-        return view.last_run_at
+    @extend_schema_field(serializers.ChoiceField(choices=DataWarehouseSavedQuery.Status.choices, allow_null=True))
+    def get_status(self, view: DataWarehouseSavedQuery) -> str | None:
+        run = self._serving_run(view)
+        if run is None:
+            return view.status
+        # Modified means "edited and not materialized since", which no run can express. A run that
+        # happened after the edit answers it, so the column only wins while the edit is the newer fact.
+        edited_since_the_run = (
+            view.status == DataWarehouseSavedQuery.Status.MODIFIED
+            and view.updated_at is not None
+            and view.updated_at > run.last_run_at
+        )
+        return view.status if edited_since_the_run else run.status
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, view: DataWarehouseSavedQuery) -> str | None:
+        run = self._serving_run(view)
+        return run.error if run is not None else view.latest_error
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
@@ -542,6 +572,8 @@ class DataWarehouseSavedQueryMinimalSerializer(
         read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
     )
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
     folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
@@ -688,6 +720,8 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(read_only=True, help_text=SYNC_FREQUENCY_BOUNDS_HELP_TEXT)
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     suspended = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
@@ -1350,6 +1384,19 @@ class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
 
+class SavedQueryResumeSchedulesRequestSerializer(serializers.Serializer):
+    """Body of the `resume_schedules` action."""
+
+    view_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text=(
+            "Ids of the saved queries to resume. An id is ignored when it is not in this project, "
+            "has been deleted, or you cannot edit it."
+        ),
+    )
+
+
 class SavedQueryLineageRequestSerializer(serializers.Serializer):
     """Body of the `ancestors` and `descendants` actions."""
 
@@ -1529,7 +1576,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "managed_viewset",
                 "column_annotations",
                 Prefetch(
-                    "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
+                    "datamodelingjob_set",
+                    queryset=DataModelingJob.objects.exclude(engine=DataModelingJobEngine.DUCKGRES).order_by(
+                        "-last_run_at"
+                    )[:1],
+                    to_attr="jobs",
                 ),
             )
             .exclude(deleted=True)
@@ -1889,21 +1940,32 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False)
+    @extend_schema(request=SavedQueryResumeSchedulesRequestSerializer, responses={202: None})
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
-        Resume paused materialization schedules for multiple matviews.
+        Resume materialization for several models that were suspended after repeated failures.
 
         Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
-        This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+        This endpoint is idempotent - calling it on models that are already running is safe.
         """
-        view_ids = request.data.get("view_ids", [])
-        if not view_ids:
-            return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
-        saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
-        for saved_query in saved_queries:
-            if saved_query_workflow_exists(saved_query):
-                unpause_saved_query_schedule(saved_query)
+        from products.data_modeling.backend.facade.api import resume_saved_query
+
+        serializer = SavedQueryResumeSchedulesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Skip rather than refuse, so one id the caller cannot edit does not cost them the rest of
+        # the batch. Every skipped id looks the same from outside, whether it is absent, in another
+        # project, deleted, or denied - the response would otherwise confirm that a model exists.
+        candidates = list(
+            DataWarehouseSavedQuery.objects.filter(
+                id__in=serializer.validated_data["view_ids"], team_id=self.team_id
+            ).exclude(deleted=True)
+        )
+        self.user_access_control.preload_object_access_controls(cast(list[Model], candidates))
+        for saved_query in candidates:
+            if self.user_access_control.check_access_level_for_object(saved_query, "editor"):
+                resume_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})

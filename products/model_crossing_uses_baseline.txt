@@ -858,8 +858,6 @@ web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_subscr
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
-web_analytics:backend/hogql_queries/ posthog.test.base drives(stats_table) 1
-web_analytics:backend/hogql_queries/ posthog.test.base drives(web_overview) 1
 web_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
 web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
 web_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1

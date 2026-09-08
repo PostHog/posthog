@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   getOauthClientIdFromRegion,
   POSTHOG_DEV_CLIENT_ID,
+  POSTHOG_DEV_CLOUD_CLIENT_ID,
   POSTHOG_EU_CLIENT_ID,
   POSTHOG_US_CLIENT_ID,
 } from "./oauth";
-import { formatRegionBadge, REGION_LABELS } from "./regions";
+import { CLOUD_REGIONS, formatRegionBadge, REGION_LABELS } from "./regions";
 import { getCloudUrlFromRegion } from "./urls";
 
 describe("getCloudUrlFromRegion", () => {
@@ -13,6 +14,9 @@ describe("getCloudUrlFromRegion", () => {
     expect(getCloudUrlFromRegion("us")).toBe("https://us.posthog.com");
     expect(getCloudUrlFromRegion("eu")).toBe("https://eu.posthog.com");
     expect(getCloudUrlFromRegion("dev")).toBe("http://localhost:8010");
+    expect(getCloudUrlFromRegion("dev-cloud")).toBe(
+      "https://app.dev.posthog.dev",
+    );
   });
 });
 
@@ -21,6 +25,9 @@ describe("getOauthClientIdFromRegion", () => {
     expect(getOauthClientIdFromRegion("us")).toBe(POSTHOG_US_CLIENT_ID);
     expect(getOauthClientIdFromRegion("eu")).toBe(POSTHOG_EU_CLIENT_ID);
     expect(getOauthClientIdFromRegion("dev")).toBe(POSTHOG_DEV_CLIENT_ID);
+    expect(getOauthClientIdFromRegion("dev-cloud")).toBe(
+      POSTHOG_DEV_CLOUD_CLIENT_ID,
+    );
   });
 
   it("uses a different client id per region", () => {
@@ -28,12 +35,24 @@ describe("getOauthClientIdFromRegion", () => {
       getOauthClientIdFromRegion("us"),
       getOauthClientIdFromRegion("eu"),
       getOauthClientIdFromRegion("dev"),
+      getOauthClientIdFromRegion("dev-cloud"),
     ]);
-    expect(ids.size).toBe(3);
+    expect(ids.size).toBe(CLOUD_REGIONS.length);
   });
 });
 
 describe("formatRegionBadge", () => {
+  it("labels the two development targets with their hosts", () => {
+    expect(REGION_LABELS.dev).toMatchObject({
+      label: "Local development",
+      hint: "localhost:8010",
+    });
+    expect(REGION_LABELS["dev-cloud"]).toMatchObject({
+      label: "Dev Cloud",
+      hint: "app.dev.posthog.dev",
+    });
+  });
+
   it("combines the flag and label for a region", () => {
     expect(formatRegionBadge("us")).toBe(
       `${REGION_LABELS.us.flag} ${REGION_LABELS.us.label}`,
@@ -41,7 +60,7 @@ describe("formatRegionBadge", () => {
   });
 
   it("formats every known region without throwing", () => {
-    for (const region of ["us", "eu", "dev"] as const) {
+    for (const region of CLOUD_REGIONS) {
       expect(formatRegionBadge(region)).toContain(REGION_LABELS[region].label);
     }
   });

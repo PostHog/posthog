@@ -15,13 +15,14 @@ cold start (`scout-notes-list`). The note is the trigger, never the record: it a
 revisit its own memory, and the scout decides what to keep. Nothing here writes to the scratchpad,
 because a mechanical entry would overwrite ownership evidence a scout verified for itself.
 
-Targets are whoever holds the memory, which is why this is the only derived kind addressed to more
-than one scout. The authoring scout hears about its own report. On top of that, every scout whose
-`reviewer:` memory names a removed login hears about the removal, because those are the scouts still
-routing on it — a fleet-wide note would reach them only if it survived the newest-first window a run
-reads. A report with no live authoring scout falls back to the fleet-wide target, but only when no
-holder resolved: a run reads the fleet-wide notes alongside its own, so pairing the two would tell a
-holder the same thing twice.
+Targets are whoever was involved in the routing, which is why this is the only derived kind
+addressed to more than one scout. Every live scout that emitted or edited the report hears about it:
+an edit is how a scout puts reviewers on a report it did not file, so an editor is as much a router
+as the author. On top of that, every scout whose `reviewer:` memory names a removed login hears about
+the removal, because those are the scouts still routing on it — a fleet-wide note would reach them
+only if it survived the newest-first window a run reads. A report no live scout touched falls back to
+the fleet-wide target, but only when no holder resolved: a run reads the fleet-wide notes alongside
+its own, so pairing the two would tell a holder the same thing twice.
 
 Authorization is the editor's, and mirrors `dismissal_notes` rather than `feedback_notes`: the logins
 already reach scouts through the report's reviewers artefact and the project profile, so the note
@@ -49,7 +50,7 @@ from posthog.models import Team, User
 from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, principal_may_steer_scouts
 from products.signals.backend.models import SignalReport, SignalScoutNote
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
-from products.signals.backend.scout_authorship import resolve_report_scout_skill
+from products.signals.backend.scout_authorship import resolve_touching_scout_skills
 from products.signals.backend.scout_harness.tools.notes import leave_note
 from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad_naming
 from products.skills.backend.models.skills import LLMSkill
@@ -247,17 +248,21 @@ def _renderable(logins: Sequence[str]) -> tuple[str, ...]:
 
 
 def _resolve_targets(team_id: int, report_id: str, removed_logins: Sequence[str]) -> list[str]:
-    """Who to tell: the scout that filed the report, plus every holder of the removed logins.
+    """Who to tell: every scout that touched the report, plus every holder of the removed logins.
 
-    A report with no live authoring scout (a pipeline report, or one whose scout is gone) falls back
-    to the fleet-wide target ("") that dismissals use — but only when no holder resolved, because a
-    run reads the fleet-wide notes alongside its own and a holder would hear the same edit twice.
+    Touching means emitted or edited, because a scout that set the reviewers through an edit did the
+    routing a human has just corrected, and it is better to tell it once too often than to leave it
+    routing on a login somebody removed. The touching union keeps deleted skills, so it is filtered
+    to live ones the way the holders are.
+
+    A report no live scout touched (a pipeline report, or one whose scouts are gone) falls back to
+    the fleet-wide target ("") that dismissals use — but only when no holder resolved, because a run
+    reads the fleet-wide notes alongside its own and a holder would hear the same edit twice.
     """
+    touching = _live_skills(team_id, resolve_touching_scout_skills(team_id, report_id))
     holders = _memory_holders(team_id, removed_logins)
-    authoring = resolve_report_scout_skill(team_id, report_id)
-    if not authoring:
-        return holders[:MAX_NOTE_TARGETS] if holders else [""]
-    return [authoring, *(name for name in holders if name != authoring)][:MAX_NOTE_TARGETS]
+    targets = [*touching, *(name for name in holders if name not in touching)]
+    return targets[:MAX_NOTE_TARGETS] if targets else [""]
 
 
 def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
@@ -284,11 +289,18 @@ def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
         )
         if entry.created_by_skill
     }
-    if not named:
+    return _live_skills(team_id, sorted(named))
+
+
+def _live_skills(team_id: int, names: Sequence[str]) -> list[str]:
+    """The given skill names that still exist, in the order they were given.
+
+    One query. A note addressed to a deleted skill steers no one, and `leave_note` rejects it.
+    """
+    if not names:
         return []
-    return sorted(
-        LLMSkill.objects.filter(team_id=team_id, name__in=named, deleted=False).values_list("name", flat=True)
-    )
+    live = set(LLMSkill.objects.filter(team_id=team_id, name__in=names, deleted=False).values_list("name", flat=True))
+    return [name for name in names if name in live]
 
 
 def _actor_login(team_id: int, actor: User) -> str | None:

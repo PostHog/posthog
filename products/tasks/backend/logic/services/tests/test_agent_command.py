@@ -71,6 +71,28 @@ class TestValidateSandboxUrl:
         assert result is not None
         assert "blocked range" in result
 
+    @pytest.mark.parametrize(
+        "url,allowed",
+        [
+            ("https://hogland.example.com/v1/hogboxes/box-abc/proxy/8080", True),
+            ("https://hogland.example.com:8443/v1/hogboxes/box-abc/proxy/8080", False),
+            ("https://hogland.attacker.example.com/v1/hogboxes/box-abc/proxy/8080", False),
+        ],
+        ids=["configured_origin", "wrong_port", "wrong_host"],
+    )
+    @override_settings(HOGLAND_API_URL="https://hogland.example.com")
+    @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
+    def test_configured_hogland_origin_is_exempt_from_private_ip_block(self, mock_getaddrinfo, url, allowed):
+        mock_getaddrinfo.return_value = [
+            (2, 1, 6, "", ("10.0.0.5", 443)),
+        ]
+        result = validate_sandbox_url(url)
+        if allowed:
+            assert result is None
+        else:
+            assert result is not None
+            assert "blocked range" in result
+
     @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
     def test_ssrf_allows_public_ip(self, mock_getaddrinfo):
         mock_getaddrinfo.return_value = [

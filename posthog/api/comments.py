@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -485,7 +486,10 @@ class CommentSerializer(serializers.ModelSerializer):
         ):
             mentions = []
 
-        comment = super().create(validated_data)
+        # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+        persist_ctx = transaction.atomic() if validated_data["scope"] == "conversations_ticket" else nullcontext()
+        with persist_ctx:
+            comment = super().create(validated_data)
 
         if mentions:
             if comment.scope not in DESKTOP_COMMENT_SCOPES:
