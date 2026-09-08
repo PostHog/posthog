@@ -7279,11 +7279,26 @@
         }
     },
     "logs-anomalies-scan": {
-        "description": "Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus per-severity learning status. Requires a serviceName (use logs-services-list or the resource attribute values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours to a day. Per-bucket band evidence is omitted from the tool response to save tokens; the API endpoint returns it for charts.",
+        "description": "Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus per-severity learning status. Requires a serviceName (use logs-services-create or the resource attribute values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours to a day. Per-bucket band evidence is omitted from the tool response to save tokens; the API endpoint returns it for charts.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Scan a service's logs for volume anomalies",
         "title": "Scan a service's logs for volume anomalies",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-anomalies"
+    },
+    "logs-anomalies-series-bands": {
+        "description": "Return log volume for every (namespace, environment, severity) series of one service, each with an expected band learned from the same time of week over the previous weeks of the volume rollup. This is the data behind the Anomalies tab in the logs UI. A bucket whose observed count sits above upper or below lower fell outside the expected range. lower and upper are null while a series is still learning; band_ready_at says when its band arrives. Omit intervalMinutes and the grain is picked from the window (7 days gives 60 minutes, 1 day gives 15); pass 5, 15, 30 or 60 to choose. A series too sparse or too quiet for the requested grain comes back coarser, with its own interval_minutes and a coarsened_reason. Requires a serviceName (use logs-services-create or the resource attribute values tool to discover services). The window defaults to the last 7 days, may span at most 7 days, and may start at most 35 days ago. Synchronous and read only.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Per-series log volume with expected bands",
+        "title": "Per-series log volume with expected bands",
         "required_scopes": ["logs:read"],
         "annotations": {
             "destructiveHint": false,
