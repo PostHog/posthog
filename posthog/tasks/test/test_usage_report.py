@@ -3687,7 +3687,6 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         expected = {
-            "metrics_bytes_in_period": 3_500_000,
             "metrics_records_in_period": 120,
             "metrics_mb_in_period": 3,
         }

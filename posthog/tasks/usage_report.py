@@ -391,7 +391,6 @@ class UsageReportCounters:
 
     # Metrics (OTel). Report-only while the product is in alpha — makes per-team ingestion
     # visible fleet-wide, the same signal logs_records_in_period provides for logs.
-    metrics_bytes_in_period: int
     metrics_records_in_period: int
     metrics_mb_in_period: int
 
@@ -2871,7 +2870,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.apm_tracing_bytes_in_period > 0
-        or report.metrics_bytes_in_period > 0
+        or report.metrics_records_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -3237,7 +3236,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     )
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
-    metrics_bytes_in_period = all_data["teams_with_metrics_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
@@ -3457,9 +3455,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
-        metrics_bytes_in_period=metrics_bytes_in_period,
         metrics_records_in_period=all_data["teams_with_metrics_records_in_period"].get(team.id, 0),
-        metrics_mb_in_period=int(metrics_bytes_in_period // 1_000_000),
+        metrics_mb_in_period=int(all_data["teams_with_metrics_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 
