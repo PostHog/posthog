@@ -167,7 +167,11 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             return [campaign_alias, MarketingAnalyticsBaseColumns.SOURCE.value]
 
     def _build_paginated_query(
-        self, select_columns: list[ast.Expr], select_from: ast.JoinExpr | None, ctes=None
+        self,
+        select_columns: list[ast.Expr],
+        select_from: ast.JoinExpr | None,
+        ctes=None,
+        where: ast.Expr | None = None,
     ) -> ast.SelectQuery:
         """Build a paginated SelectQuery with common logic"""
         # Extract column names for order by
@@ -183,6 +187,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             select=select_columns,
             select_from=select_from,
             ctes=ctes,
+            where=where,
             order_by=order_by_exprs,
             limit=ast.Constant(value=actual_limit),
             offset=ast.Constant(value=offset),
@@ -192,7 +197,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         """Execute the query and return results with pagination support"""
         query = self.to_query()
         filtered_select = self._get_filtered_select_columns(query)
-        return self._build_paginated_query(filtered_select, query.select_from, query.ctes)
+        return self._build_paginated_query(filtered_select, query.select_from, query.ctes, query.where)
 
     def calculate_with_compare(self) -> ast.SelectQuery:
         """Execute the query and return results with pagination support"""
@@ -376,9 +381,16 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         if level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
             self._append_sessions_join(from_clause, joined_ctes, conversion_columns_mapping)
 
+        where = (
+            ast.Call(name="notEmpty", args=[self._cost_side_grouping_value()])
+            if self._non_integrated_rows_excluded()
+            else None
+        )
+
         return ast.SelectQuery(
             select=list(conversion_columns_mapping.values()),
             select_from=from_clause,
+            where=where,
         )
 
     def _append_sessions_join(
@@ -442,6 +454,22 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             base_join.next_join = current_join
         return initial_join
 
+    def _cost_side_grouping_value(self) -> ast.Expr:
+        """The cost side's grouping value, which is empty exactly when no cost row matched.
+
+        Every level puts its grouping value in this column — the campaign name at campaign level,
+        the channel or source at the others. Under `join_use_nulls = 0` an unmatched side returns
+        the type default, so an empty string here means the row came from the conversion side only.
+        """
+        return ast.Call(
+            name="toString",
+            args=[
+                ast.Field(
+                    chain=self.config.get_campaign_cost_field_chain(MarketingAnalyticsColumnsSchemaNames.CAMPAIGN)
+                )
+            ],
+        )
+
     def _null_without_cost_row(self, column: ast.Expr) -> ast.Expr:
         """Wrap a cost-side metric so it reads as absent, not as zero, when no cost row matched.
 
@@ -454,26 +482,17 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         guarded = ast.Call(
             name="if",
             args=[
-                ast.Call(
-                    name="empty",
-                    args=[
-                        ast.Call(
-                            name="toString",
-                            args=[
-                                ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(
-                                        MarketingAnalyticsColumnsSchemaNames.CAMPAIGN
-                                    )
-                                )
-                            ],
-                        )
-                    ],
-                ),
+                ast.Call(name="empty", args=[self._cost_side_grouping_value()]),
                 ast.Constant(value=None),
                 expr,
             ],
         )
         return ast.Alias(alias=alias, expr=guarded) if alias else guarded
+
+    def _non_integrated_rows_excluded(self) -> bool:
+        """True when the user cleared the filter's non-integrated option."""
+        integration_filter = getattr(self.query, "integrationFilter", None)
+        return bool(integration_filter) and integration_filter.includeNonIntegrated is False
 
     def _build_order_by_exprs(self, select_columns: list[str]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
