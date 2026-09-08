@@ -424,7 +424,7 @@ export interface contentAutopilotLogicMeta {
             siteProposals: ContentAutopilotProposalListApi[]
         ) => ContentAutopilotProposalListApi[]
         workspaceInitialized: (workspaceSettled: ContentAutopilotWorkspaceSettled) => boolean
-        profileDataLoaded: (profileDataSettled: any) => boolean
+        profileDataLoaded: (profileDataSettled: ContentAutopilotProfileDataSettled) => boolean
         proposalActionReasons: (
             selectedProposal: ContentAutopilotProposalApi | null,
             proposalHasUnsavedChanges: boolean,
