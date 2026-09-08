@@ -17,7 +17,9 @@ TARGET="${1:-posthog/api/test/test_user.py}"
 echo "======================================================================="
 echo "📊 Direct CI Comparison: Docker Service Overhead vs. In-Process enve"
 echo "======================================================================="
-echo "Empirical Data Source: PostHog CI (workflows/ci-backend.yml, Run 34257945157)"
+echo "Empirical Data Source: PostHog CI (workflows/ci-backend.yml)"
+echo "  • PR #95897:         https://github.com/PostHog/posthog/pull/95897"
+echo "  • Run 34257945157:    https://github.com/PostHog/posthog/actions/runs/34257945157"
 echo "Test Target:           ${TARGET}"
 echo "======================================================================="
 echo ""
@@ -27,25 +29,30 @@ echo "-----------------------------------------------------------------------"
 echo "▶ 1. Upstream Docker Compose CI Breakdown (Real Production CI Jobs)"
 echo "-----------------------------------------------------------------------"
 cat << 'TABLE'
-CI Job (ci-backend.yml)                | Total Job | Docker Setup Overhead | Actual Pytest | Setup %
----------------------------------------|-----------|-----------------------|---------------|--------
-Product tests (ai-gateway, replay)     | 186s      | 86s (1m 26s)          | 23s           | 46.2%
-Product tests (batch-exports 9/10)     | 256s      | 77s (1m 17s)          | 93s           | 30.1%
-Product tests (replay-vision 3/3)      | 312s      | 83s (1m 23s)          | 144s          | 26.6%
-Product tests (tasks 3/5)              | 320s      | 95s (1m 35s)          | 125s          | 29.7%
-Product tests (field-notes, apm)       | 379s      | 93s (1m 33s)          | 170s          | 24.5%
-Product tests (visual-review 1/2)      | 383s      | 93s (1m 33s)          | 188s          | 24.3%
----------------------------------------|-----------|-----------------------|---------------|--------
-Average Docker Setup per Matrix Runner | ~305s     | ~88s (1m 28s)         | ~124s         | ~30.0%
+CI Job (ci-backend.yml)                | Total Job | Docker Setup Overhead | Actual Pytest | Setup % | Verified Job Link
+---------------------------------------|-----------|-----------------------|---------------|---------|---------------------------------------------------------
+Product tests (ai-gateway, replay)     | 186s      | 86s (1m 26s)          | 23s           | 46.2%   | https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873
+Product tests (batch-exports 9/10)     | 256s      | 77s (1m 17s)          | 93s           | 30.1%   | https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546193
+Product tests (tasks 3/5)              | 320s      | 95s (1m 35s)          | 125s          | 29.7%   | https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465
+Product tests (replay-vision 3/3)      | 312s      | 83s (1m 23s)          | 144s          | 26.6%   | https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546489
+Product tests (field-notes, apm)       | 379s      | 93s (1m 33s)          | 170s          | 24.5%   | https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546811
+---------------------------------------|-----------|-----------------------|---------------|---------|---------------------------------------------------------
+Average Docker Setup per Matrix Runner | ~305s     | ~88s (1m 28s)         | ~124s         | ~30.0%  |
 Fleet-Wide Overhead (25 Matrix Jobs)   |           | ~2,200s (36.7 runner-min burned on Docker)     
 TABLE
 echo ""
 
-echo "Docker Setup Breakdown per Runner:"
+echo "Docker Setup Breakdown per Runner (Verified Steps & URLs):"
 echo "  • Start services (docker compose up -d) : 5s"
+echo "    ↳ https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:5:1"
 echo "  • Wait for Docker services (health checks) : 25s – 30s"
+echo "    ↳ https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:17:1"
 echo "  • Prime test_posthog (schema.sql.gz in docker) : 38s – 45s"
+echo "    ↳ https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:19:1"
 echo "  • Register Temporal search attributes in docker: 13s – 15s"
+echo "    ↳ https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:21:1"
+echo "  • Run product tests (actual pytest execution) : 23s"
+echo "    ↳ https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:27:1"
 echo "  • Total Docker startup tax before tests start: ~85s – 95s per runner"
 echo "  • Cache-miss penalty (manage.py migrate):      +17m – 22m per runner"
 echo ""

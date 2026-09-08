@@ -120,22 +120,24 @@ When a shared dependency (e.g. [`packages/quill/packages/charts/src/index.ts`](.
 
 #### Direct CI Comparison: Docker Service Overhead vs. In-Process enve
 
-Empirical timing data extracted from PostHog's production CI ([`workflows/ci-backend.yml`](../.github/workflows/ci-backend.yml), PR #95897, Run `34257945157`):
+Empirical timing data extracted from PostHog's production CI ([`workflows/ci-backend.yml`](../.github/workflows/ci-backend.yml), PR [#95897](https://github.com/PostHog/posthog/pull/95897), Run [`34257945157`](https://github.com/PostHog/posthog/actions/runs/34257945157)):
 
-| Product Test Matrix Job    | Total CI Job Time | Docker Setup Overhead | Actual Pytest Time | Setup Overhead % | Time with In-Process Services (~3s setup) | Wall-Clock Cut |
-| :------------------------- | :---------------: | :-------------------: | :----------------: | :--------------: | :---------------------------------------: | :------------: |
-| **`ai-gateway, replay`**   | **186s** (3m 06s) |   **86s** (1m 26s)    |      **23s**       |    **46.2%**     |                 **~45s**                  | **75% faster** |
-| **`batch-exports (9/10)`** | **256s** (4m 16s) |   **77s** (1m 17s)    |  **93s** (1m 33s)  |    **30.1%**     |            **~115s** (1m 55s)             | **55% faster** |
-| **`tasks (3/5)`**          | **320s** (5m 20s) |   **95s** (1m 35s)    | **125s** (2m 05s)  |    **29.7%**     |            **~145s** (2m 25s)             | **54% faster** |
-| **`replay-vision (3/3)`**  | **312s** (5m 12s) |   **83s** (1m 23s)    | **144s** (2m 24s)  |    **26.6%**     |            **~165s** (2m 45s)             | **47% faster** |
-| **`field-notes, apm`**     | **379s** (6m 19s) |   **93s** (1m 33s)    | **170s** (2m 50s)  |    **24.5%**     |            **~190s** (3m 10s)             | **50% faster** |
+| Product Test Matrix Job                                                                                    | Total CI Job Time | Docker Setup Overhead | Actual Pytest Time | Setup Overhead % | Time with In-Process Services (~3s setup) | Wall-Clock Cut |
+| :--------------------------------------------------------------------------------------------------------- | :---------------: | :-------------------: | :----------------: | :--------------: | :---------------------------------------: | :------------: |
+| [**`ai-gateway, replay`**](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873)   | **186s** (3m 06s) |   **86s** (1m 26s)    |      **23s**       |    **46.2%**     |                 **~45s**                  | **75% faster** |
+| [**`batch-exports (9/10)`**](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546193) | **256s** (4m 16s) |   **77s** (1m 17s)    |  **93s** (1m 33s)  |    **30.1%**     |            **~115s** (1m 55s)             | **55% faster** |
+| [**`tasks (3/5)`**](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465)          | **320s** (5m 20s) |   **95s** (1m 35s)    | **125s** (2m 05s)  |    **29.7%**     |            **~145s** (2m 25s)             | **54% faster** |
+| [**`replay-vision (3/3)`**](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546489)  | **312s** (5m 12s) |   **83s** (1m 23s)    | **144s** (2m 24s)  |    **26.6%**     |            **~165s** (2m 45s)             | **47% faster** |
+| [**`field-notes, apm`**](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546811)     | **379s** (6m 19s) |   **93s** (1m 33s)    | **170s** (2m 50s)  |    **24.5%**     |            **~190s** (3m 10s)             | **50% faster** |
 
-**Docker Setup Tax per Runner (Upstream CI):**
+**Specific Step Breakdown per Runner (Workflow Source vs. Verified Execution Logs):**
 
-- `Start services` (`docker compose up -d`): **5s**
-- `Wait for Docker services` (`bin/ci-wait-for-docker wait`): **25s – 30s**
-- `Prime test_posthog` (`schema.sql.gz` restore into Docker container): **38s – 45s**
-- `Register Temporal search attributes` in Docker: **13s – 15s**
+- [**`Start services`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L804-L814) (`docker compose up -d`): **5s** (e.g. [Job 102169546873 Step 5](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:5:1))
+- [**`Wait for Docker services`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L885-L886) (`bin/ci-wait-for-docker wait`): **25s – 30s** (e.g. [Job 102169546873 Step 17](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:17:1))
+- [**`Prime test_posthog from cached schema`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L902-L920) (`schema.sql.gz` restore into Docker container): **38s – 45s** (e.g. [Job 102169546873 Step 19](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:19:1))
+- [**`Register Temporal search attributes`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L942-L950) in Docker: **13s – 15s** (e.g. [Job 102169546873 Step 21](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:21:1))
+- [**`Run product tests`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L977) (Actual pytest execution): e.g. [Job 102169546873 Step 27](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:27:1) (**23s**) vs. 86s setup.
+- [**`Migrate test_posthog from scratch`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L921-L941) (On cache miss): **+17m – 22m penalty** per runner.
 - **Total Overhead:** **~80s – 100s per runner** before the first test runs.
 - **Fleet Impact:** Across 25 parallel matrix jobs per PR, Docker spinup burns **~36.7 runner-minutes per run**. With in-process `enve` services on tmpfs (~2.8s startup + restore), setup overhead is virtually eliminated, cutting typical 4-minute jobs down to ~2 minutes.
 
