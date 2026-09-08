@@ -142,6 +142,7 @@ program
     "interactive",
   )
   .option("--repositoryPath <path>", "Path to the repository")
+  .option("--claudeSubscription", "Use a relayed Claude subscription token")
   .option(
     "--repoReadyFile <path>",
     "Sentinel file; session creation blocks until it exists (set while cloning concurrently)",
@@ -187,6 +188,13 @@ program
     }
 
     const env = envResult.data;
+    if (
+      options.claudeSubscription &&
+      (env.POSTHOG_AGENT_RUNTIME === "pi" ||
+        env.POSTHOG_CODE_RUNTIME_ADAPTER === "codex")
+    ) {
+      program.error("--claudeSubscription requires the Claude runtime");
+    }
     delete process.env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS;
 
     // The telemetry token is only ever consumed here (into the server config);
@@ -286,6 +294,9 @@ program
       ),
       runtimeAdapter: env.POSTHOG_CODE_RUNTIME_ADAPTER,
       model: env.POSTHOG_CODE_MODEL,
+      claudeModelAccess: options.claudeSubscription
+        ? "own-subscription"
+        : "posthog-gateway",
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,
       contextWindow: env.POSTHOG_CODE_CONTEXT_WINDOW,
       fastMode: env.POSTHOG_CODE_FAST_MODE,

@@ -21,6 +21,7 @@ import {
 import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   CLOUD_TASK_SERVICE,
   MCP_RELAY_EXECUTOR,
@@ -164,6 +165,7 @@ import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/a
 import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
+import { CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY } from "@posthog/workspace-server/services/claude-subscription/identifiers";
 import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import { enrichmentModule } from "@posthog/workspace-server/services/enrichment/enrichment.module";
 import {
@@ -201,7 +203,10 @@ import { posthogPluginModule } from "@posthog/workspace-server/services/posthog-
 import { PROCESS_TRACKING_SERVICE } from "@posthog/workspace-server/services/process-tracking/identifiers";
 import { processTrackingModule } from "@posthog/workspace-server/services/process-tracking/process-tracking.module";
 import { releaseFeedModule } from "@posthog/workspace-server/services/release-feed/release-feed.module";
-import { SECURE_STORE_SERVICE } from "@posthog/workspace-server/services/secure-store/identifiers";
+import {
+  type ISecureStoreService,
+  SECURE_STORE_SERVICE,
+} from "@posthog/workspace-server/services/secure-store/identifiers";
 import { shellModule } from "@posthog/workspace-server/services/shell/shell.module";
 import { skillsModule } from "@posthog/workspace-server/services/skills/skills.module";
 import { skillsMarketplaceModule } from "@posthog/workspace-server/services/skills-marketplace/skills-marketplace.module";
@@ -635,6 +640,31 @@ container.load(mcpRelayModule);
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
+  .inSingletonScope();
+container
+  .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+  .toDynamicValue((ctx) => {
+    const secureStore = ctx.get<ISecureStoreService>(SECURE_STORE_SERVICE);
+    return {
+      get: async () => secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY),
+      save: async (token: string) => {
+        secureStore.setItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY, token);
+        if (
+          secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY) !== token
+        ) {
+          throw new Error("Could not save the Claude token. Try again.");
+        }
+      },
+      clear: async () => {
+        secureStore.removeItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY);
+        if (secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY) !== null) {
+          throw new Error("Could not remove the Claude token. Try again.");
+        }
+      },
+      has: async () =>
+        secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY) !== null,
+    };
+  })
   .inSingletonScope();
 container.load(claudeCliSessionsModule);
 container.load(additionalDirectoriesModule);

@@ -698,6 +698,32 @@ class TestModalSandboxAgentServer:
         assert expected_env in command
 
     @pytest.mark.parametrize(
+        "claude_model_access, subscription_flag",
+        [
+            ("own-subscription", True),
+            ("posthog-gateway", False),
+            (None, False),
+        ],
+    )
+    def test_start_agent_server_claude_subscription_flag(
+        self, mock_sandbox: Any, claude_model_access, subscription_flag
+    ):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            claude_model_access=claude_model_access,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert (" --claudeSubscription" in command) is subscription_flag
+
+    @pytest.mark.parametrize(
         "keep_stream_open, expected_env_present",
         [
             (True, True),
@@ -1224,8 +1250,8 @@ class TestModalSandboxAgentServerStartupHelpers:
         sandbox._free_agent_server_port()
 
         command = sandbox.execute.call_args_list[0][0][0]
-        assert "pkill -TERM -f agent-server" in command
-        assert "pkill -KILL -f agent-server" in command
+        assert "pkill -TERM -f '[a]gent-server'" in command
+        assert "pkill -KILL -f '[a]gent-server'" in command
 
 
 class TestStartupFailureDiagnostics:

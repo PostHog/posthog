@@ -336,6 +336,7 @@ export interface SessionTrpc {
     sendCommand: TrpcMutation;
     stop: TrpcMutation;
     designateRelayedMcpServers: TrpcMutation;
+    designateClaudeSubscription: TrpcMutation;
     onUpdate: TrpcSubscription;
   };
   logs: {
@@ -4950,6 +4951,16 @@ export class SessionService {
     }
     const { auth } = authStatus;
 
+    if (session.claudeModelAccess === "own-subscription") {
+      await this.designateClaudeSubscription(
+        session.taskId,
+        session.taskRunId,
+      ).catch((error) => {
+        this.d.store.clearTailOptimisticItems(session.taskRunId);
+        throw error;
+      });
+    }
+
     this.watchCloudTask(
       session.taskId,
       session.taskRunId,
@@ -5323,6 +5334,15 @@ export class SessionService {
                 : undefined,
           },
         );
+        if (
+          previousState.claude_model_access === "own-subscription" &&
+          updatedTask.latest_run?.id
+        ) {
+          await this.designateClaudeSubscription(
+            session.taskId,
+            updatedTask.latest_run.id,
+          );
+        }
       } catch (error) {
         // Only the resume call gates on authorship: non-creators of a channeled
         // task get a 404 (not a 403) here, so on a task the app can already read
@@ -6453,6 +6473,25 @@ export class SessionService {
     });
   }
 
+  async designateClaudeSubscription(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error(
+        "Sign in to PostHog Desktop before starting a task with your Claude plan.",
+      );
+    }
+    const { apiHost, projectId: teamId } = authStatus.auth;
+    await this.d.trpc.cloudTask.designateClaudeSubscription.mutate({
+      taskId,
+      runId,
+      apiHost,
+      teamId,
+    });
+  }
+
   watchCloudTask(
     taskId: string,
     runId: string,
@@ -6477,6 +6516,14 @@ export class SessionService {
       watchedSession?.firstPromptForRunId !== taskRunId
     ) {
       this.d.store.setTaskStarting?.(taskId, taskRunId);
+    }
+    const claudeModelAccess =
+      runState?.claude_model_access === "own-subscription" ||
+      runState?.claude_model_access === "posthog-gateway"
+        ? runState.claude_model_access
+        : undefined;
+    if (claudeModelAccess && watchedSession?.taskRunId === taskRunId) {
+      this.d.store.updateSession(taskRunId, { claudeModelAccess });
     }
     const persistedConfigOptions = this.d.getPersistedConfigOptions(taskRunId);
     const persistedAdapter = this.d.adapterStore.getAdapter(taskRunId);
@@ -6675,6 +6722,7 @@ export class SessionService {
           ? [runState.resume_from_run_id]
           : undefined;
       session.adapter = adapter;
+      session.claudeModelAccess = claudeModelAccess;
       session.configOptions = buildInitialConfigOptions(
         initialMode,
         existing?.taskRunId === taskRunId ? existing.adapter : persistedAdapter,

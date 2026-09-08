@@ -273,3 +273,23 @@ persisted, with caps and the no-secrets rule above.**
 4. Creation-payload plumbing (`relayed_mcp_servers`) + composer UX flips the
    "Requires your machine" annotation to "Relayed via your machine".
 5. Enable `posthog-code-local-mcp-import` for staff once the Django side lands.
+
+
+## Claude subscription credentials
+
+The cloud subscription feature uses the same transport under `posthog-code-claude-own-subscription-cloud`.
+Keep the flag off until the backend and sandbox agent build are deployed.
+Desktop stores the token from `claude setup-token` in its encrypted local secure store.
+The renderer can save, remove, and check for a token; only the main process reads it for relay.
+
+A subscription run emits a `credential_request` before initializing Claude.
+Only the Desktop that explicitly starts or continues that run may answer it, scoped to the API host, project, task, and run.
+Other viewers ignore the request.
+Request metadata uses the durable event stream so a late watcher can receive it.
+The `credential_response` command carries the secret in flight to sandbox memory, never into stored events, task state, logs, or analytics.
+Desktop retries temporary delivery failures until the request expires, and duplicate responses are safe.
+
+The run fails if the token does not arrive within 120 seconds, the backend flag is unavailable, or the sandbox lacks `--claudeSubscription` support.
+It never changes an explicit subscription choice to PostHog model billing.
+Continuation inherits that choice; subscription runs skip prewarming because a warm Claude process has already selected its credentials.
+Sandbox compute still uses PostHog credits.

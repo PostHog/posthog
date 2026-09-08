@@ -6,6 +6,17 @@ export interface ICloudTaskAuth {
   getCloudContext(): Promise<{ apiHost: string; teamId: number } | null>;
 }
 
+export interface ClaudeSubscriptionTokenStore {
+  get(): Promise<string | null>;
+  save(token: string): Promise<void>;
+  clear(): Promise<void>;
+  has(): Promise<boolean>;
+}
+
+export const CLAUDE_SUBSCRIPTION_TOKEN_STORE = Symbol.for(
+  "posthog.cloud-task.claudeSubscriptionTokenStore",
+);
+
 /**
  * Host-bound executor for MCP relay requests (docs/CLOUD-MCP-RELAY.md).
  * Desktop binds this to the workspace-server relay service; hosts without a
