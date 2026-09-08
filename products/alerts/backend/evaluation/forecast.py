@@ -143,6 +143,18 @@ def _forecast_min_samples(horizon: int, interval: IntervalType | None = None) ->
     return bounded_training_points(_required_history_points(horizon, interval), interval)
 
 
+def _with_resolved_interval(query: TrendsQuery) -> TrendsQuery:
+    """The query extraction runs, with a null interval resolved to the daily default.
+
+    A stored query can hold an explicit null interval. The trends runner and every forecast helper
+    read that as daily, but the shared history-range picker reads it as hourly. The alert would then
+    ask for hours of history to fill daily buckets and never hold enough points to evaluate.
+    """
+    if query.interval is not None:
+        return query
+    return query.model_copy(update={"interval": IntervalType.DAY})
+
+
 def _bounded_simulation_date_from(
     date_from: str | None, timezone: ZoneInfo, today: date, interval: IntervalType | None
 ) -> str | None:
@@ -378,7 +390,7 @@ class TrendsForecastExtractor:
         forecast_config = alert.forecast_config
         if not forecast_config:
             raise ValueError("TrendsForecastExtractor requires forecast_config")
-        trends_query = TrendsQuery.model_validate(query)
+        trends_query = _with_resolved_interval(TrendsQuery.model_validate(query))
         series_index = (alert.config or {}).get("series_index", 0)
         now = datetime.now(ZoneInfo(alert.team.timezone))
         horizon, reference_date = _forecast_extraction_contract(
@@ -404,7 +416,7 @@ class TrendsForecastExtractor:
         return result
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
-        trends_query = TrendsQuery.model_validate(query)
+        trends_query = _with_resolved_interval(TrendsQuery.model_validate(query))
         team_timezone = ZoneInfo(ctx.team.timezone)
         now = datetime.now(team_timezone)
         today = now.date()

@@ -14,6 +14,7 @@ from posthog.schema import ForecastConfig, InsightsThresholdBounds, InsightThres
 
 from posthog.api.services.query import ExecutionMode
 from posthog.models.team import Team
+from posthog.tasks.alerts.detector import _date_range_override_for_detector
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -450,6 +451,42 @@ class TestHistoryRequirements:
         assert extract.call_args.args[3] == 124
         assert evaluation.is_inconclusive is False
         assert engine.calls[0]["horizon"] == 31
+
+    @parameterized.expand([("scheduled check", False), ("preview", True)])
+    def test_a_null_interval_asks_for_daily_history(self, _name: str, is_preview: bool) -> None:
+        forecast_config = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 7}
+        team = SimpleNamespace(timezone="UTC", week_start_day=1, base_currency="USD")
+        query = {
+            "kind": "TrendsQuery",
+            "interval": None,
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with (
+            freeze_time("2026-09-07T12:00:00Z"),
+            patch(
+                "products.alerts.backend.evaluation.forecast.extract_trends_series", return_value=_series()
+            ) as extract,
+        ):
+            if is_preview:
+                context = SimulationContext(team=cast(Team, team), extractor_config=forecast_config)
+                TrendsForecastExtractor().simulate(cast(Insight, SimpleNamespace()), query, context)
+            else:
+                alert = SimpleNamespace(
+                    forecast_config=forecast_config,
+                    config={"series_index": 0},
+                    team=team,
+                    created_by=None,
+                )
+                TrendsForecastExtractor().extract(
+                    cast(AlertConfiguration, alert),
+                    cast(Insight, SimpleNamespace()),
+                    query,
+                    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                )
+
+        requested_query, min_samples = extract.call_args.args[2], extract.call_args.args[3]
+        assert _date_range_override_for_detector(requested_query, min_samples) == {"date_from": "-28d"}
 
     @parameterized.expand(
         [
