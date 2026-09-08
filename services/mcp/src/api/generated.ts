@@ -56963,7 +56963,7 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
        * * `template` - Template
@@ -67060,7 +67060,7 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
        * * `template` - Template
