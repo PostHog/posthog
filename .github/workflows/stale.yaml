@@ -7,6 +7,14 @@ on:
 permissions:
     contents: read
 
+# A manual dispatch can land while the cron run is still sweeping. Two runs would
+# then mark and delete the same refs and spend the operations budget twice, so a
+# second run queues instead. Never cancel in progress: a half-finished sweep has
+# already posted comments and deleted refs.
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
 jobs:
     holiday:
         runs-on: ubuntu-24.04
