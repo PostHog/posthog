@@ -30,3 +30,11 @@ routed to Depot, that job relays Depot's gate conclusion instead of running the
 matrix. Branch protection does not change during the rollout.
 
 Hourly scheduling and `mirror-schema-cache` remain on GitHub Actions for now.
+
+## Trunk uploads and quarantine
+
+Enabled shards use canonical Trunk uploads and failure verdicts.
+`TRUNK_UPLOAD_ENABLED` remains the upload kill switch, and
+`TRUNK_QUARANTINE_ENABLED` controls whether a successful quarantine result can
+clear a test failure. An unavailable uploader never clears a failing test.
+With side effects disabled, test failures stop the shard directly.
