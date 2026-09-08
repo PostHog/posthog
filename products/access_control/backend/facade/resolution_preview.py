@@ -36,6 +36,7 @@ from products.access_control.backend.facade.user_access_control import (
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     ResolvedAccess,
     UserAccessControl,
+    model_to_resource,
     ordered_access_levels,
 )
 from products.access_control.backend.models.access_control import AccessControl
@@ -226,13 +227,17 @@ def object_models(resource: str) -> list[type[Model]]:
     """Return the model classes that an object rule on `resource` can point at.
 
     Return the display model when one exists. Otherwise return every team-scoped model
-    behind the resource's routes. Return an empty list when no model backs the resource.
+    behind the resource's routes that the resolver maps back to `resource`. Return an
+    empty list when no such model exists: the preview cannot resolve those rules.
     """
     display = display_model(resource)
     if display is not None:
         return [display.model]
     models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
-    return sorted((model for model in models if model_has_field(model, "team")), key=lambda model: model.__name__)
+    return sorted(
+        (model for model in models if model_has_field(model, "team") and model_to_resource(model) == resource),
+        key=lambda model: model.__name__,
+    )
 
 
 def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, _LoadedObject]:
@@ -406,28 +411,26 @@ def iter_resolution_changes(
     """Yield (team, changes) for every team with access rules, ordered by organization.
 
     Resolution is evaluated as one acting active member per organization; teams of
-    organizations with no active member are skipped, and so are organizations with object
-    rules the preview cannot evaluate, because their preview would be incomplete. With
-    `only_pending`, organizations already on the most-specific resolution are skipped too:
-    they are migrated already.
+    organizations with no active member are skipped. Without `organization_id`, organizations
+    with object rules the preview cannot resolve are skipped too, because their preview would
+    be incomplete. With `only_pending`, organizations already on the most-specific resolution
+    are skipped: they are migrated already.
     """
-    # The preview cannot compare object rules on a resource with no model. Skip those
-    # organizations: an empty preview does not show that nothing changes for them.
-    object_resources = set(AccessControl.objects.exclude(resource_id=None).values_list("resource", flat=True))
-    unbacked = {resource for resource in object_resources if resource != "project" and not object_models(resource)}
-    skipped = (
-        AccessControl.objects.filter(resource__in=unbacked).exclude(resource_id=None).values("team__organization_id")
-    )
-
     team_ids = AccessControl.objects.values_list("team_id", flat=True).distinct()
-    teams = (
-        Team.objects.filter(id__in=team_ids)
-        .exclude(organization_id__in=skipped)
-        .select_related("organization")
-        .order_by("organization_id")
-    )
+    teams = Team.objects.filter(id__in=team_ids).select_related("organization").order_by("organization_id")
     if organization_id is not None:
         teams = teams.filter(organization_id=organization_id)
+    else:
+        # The preview cannot resolve object rules on a resource with no model. Skip those
+        # organizations: an empty preview does not show that nothing changes for them.
+        object_rules = AccessControl.objects.exclude(resource_id=None).exclude(resource__in=_SKIPPED_RESOURCES)
+        object_resources = set(object_rules.values_list("resource", flat=True))
+        unresolvable = {
+            resource for resource in object_resources if resource != "project" and not object_models(resource)
+        }
+        teams = teams.exclude(
+            organization_id__in=object_rules.filter(resource__in=unresolvable).values("team__organization_id")
+        )
     if only_pending:
         teams = teams.exclude(organization__uses_most_specific_access_resolution=True)
 
