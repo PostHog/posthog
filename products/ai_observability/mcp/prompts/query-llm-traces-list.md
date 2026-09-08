@@ -197,4 +197,4 @@ Use `limit` and `offset` for pagination. The default limit is 100. The response 
 - This tool returns raw trace data — it does not aggregate or visualize. For aggregated LLM metrics over time (e.g. total token usage per day), use `query-trends` with AI events like `$ai_generation` instead.
 - Use `filterTestAccounts: true` by default to exclude internal users unless the user asks otherwise.
 - The default time range is last 7 days. LLM trace data tends to be recent, so shorter ranges are usually appropriate.
-- For deep inspection of a single trace (full event tree with all nested children and complete properties), use `query-llm-trace` with the trace's `id`.
+- For deep inspection of a single trace (full event tree with all nested children, with the same properties withheld), use `query-llm-trace` with the trace's `id`.
