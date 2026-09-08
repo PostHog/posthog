@@ -150,14 +150,21 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # A Bing SOAP call that comes back with a bare HTTP 400 (no SOAP fault) is rejected at the
-        # transport/edge layer, not by request validation — suds surfaces it as `Exception((400,
-        # 'Bad Request'))`, which our wrapper re-raises as `ValueError(... Exception: (400, 'Bad
-        # Request'))`. A genuinely malformed report request instead returns a coded WebFault
-        # (InvalidReportColumn, etc.), so this shape is a transient upstream blip that Temporal's
-        # activity retry clears — keep it out of error tracking as noise rather than paging as a bug.
-        # Match the stable status tuple only; a fault-backed 400 never produces this substring.
-        return {"(400, 'Bad Request')"}
+        return {
+            # A Bing SOAP call that comes back with a bare HTTP 400 (no SOAP fault) is rejected at the
+            # transport/edge layer, not by request validation — suds surfaces it as `Exception((400,
+            # 'Bad Request'))`, which our wrapper re-raises as `ValueError(... Exception: (400, 'Bad
+            # Request'))`. A genuinely malformed report request instead returns a coded WebFault
+            # (InvalidReportColumn, etc.), so this shape is a transient upstream blip that Temporal's
+            # activity retry clears — keep it out of error tracking as noise rather than paging as a bug.
+            # Match the stable status tuple only; a fault-backed 400 never produces this substring.
+            "(400, 'Bad Request')",
+            # Bing did not finish building the report before the SDK exhausted its own polling window
+            # (REPORT_TIMEOUT_MS), which it reports as `ReportingDownloadException`. Generation runs on
+            # Bing's queue, so the next Temporal attempt submits a fresh request and normally clears it.
+            # Match the SDK's stable message text, which carries no request or account values.
+            "Reporting file download tracking status timeout",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
