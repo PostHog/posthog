@@ -1,4 +1,9 @@
-import { CheckCircle, Lifebuoy, SignOut } from "@phosphor-icons/react";
+import {
+  ArrowRight,
+  CheckCircle,
+  Lifebuoy,
+  SignOut,
+} from "@phosphor-icons/react";
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { integrationKeys } from "@posthog/core/integrations/repositoryKeys";
 import {
@@ -37,7 +42,6 @@ import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
-import { SkipSetupProvider } from "@posthog/ui/features/onboarding/components/StepActions";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -92,7 +96,7 @@ function OnboardingAccount({
   if (!isAuthenticated) return null;
 
   return (
-    <aside className="absolute top-10 right-8 z-[2] w-[380px] max-w-[calc(100%-4rem)]">
+    <aside className="absolute right-8 bottom-6 z-[2] w-[380px] max-w-[calc(100%-4rem)]">
       <Item variant="muted" size="sm" className="w-full py-1">
         <ItemMedia variant="icon">
           <CheckCircle size={14} weight="fill" className="text-(--green-11)" />
@@ -371,114 +375,125 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
         <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col items-center">
           <OnboardingHeader />
 
-          <SkipSetupProvider
-            onSkipSetup={IS_DEV && isAuthenticated ? handleSkip : undefined}
-          >
+          <div className="w-full">
             <div aria-hidden="true" className="h-16 shrink-0" />
-            <div className="w-full">
-              <AnimatePresence mode="wait" custom={direction}>
-                {currentStep === "project-select" && (
-                  <motion.div
-                    key="project-select"
-                    custom={direction}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    variants={stepVariants}
-                    transition={{ duration: 0.3 }}
-                    className="w-full"
-                  >
-                    <ProjectSelectStep onNext={handleNext} onBack={onBack} />
-                  </motion.div>
-                )}
+            <AnimatePresence mode="wait" custom={direction}>
+              {currentStep === "project-select" && (
+                <motion.div
+                  key="project-select"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <ProjectSelectStep onNext={handleNext} onBack={onBack} />
+                </motion.div>
+              )}
 
-                {currentStep === "consent" && (
-                  <motion.div
-                    key="consent"
-                    custom={direction}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    variants={stepVariants}
-                    transition={{ duration: 0.3 }}
-                    className="w-full"
-                  >
-                    <ConsentStep
-                      onNext={handleNext}
-                      onBack={onBack}
-                      requirements={consentRequirement}
-                      onSubmittingChange={setConsentSubmitting}
-                    />
-                  </motion.div>
-                )}
+              {currentStep === "consent" && (
+                <motion.div
+                  key="consent"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <ConsentStep
+                    onNext={handleNext}
+                    onBack={onBack}
+                    requirements={consentRequirement}
+                    onSubmittingChange={setConsentSubmitting}
+                  />
+                </motion.div>
+              )}
 
-                {currentStep === "connect-github" && (
-                  <motion.div
-                    key="connect-github"
-                    custom={direction}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    variants={stepVariants}
-                    transition={{ duration: 0.3 }}
-                    className="w-full"
-                  >
-                    <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
-                  </motion.div>
-                )}
+              {currentStep === "connect-github" && (
+                <motion.div
+                  key="connect-github"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
+                </motion.div>
+              )}
 
-                {currentStep === "install-cli" && (
-                  <motion.div
-                    key="install-cli"
-                    custom={direction}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    variants={stepVariants}
-                    transition={{ duration: 0.3 }}
-                    className="w-full"
-                  >
-                    <InstallCliStep onNext={handleNext} onBack={handleBack} />
-                  </motion.div>
-                )}
+              {currentStep === "install-cli" && (
+                <motion.div
+                  key="install-cli"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <InstallCliStep onNext={handleNext} onBack={handleBack} />
+                </motion.div>
+              )}
 
-                {currentStep === "select-repo" && (
-                  <motion.div
-                    key="select-repo"
-                    custom={direction}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    variants={stepVariants}
-                    transition={{ duration: 0.3 }}
-                    className="w-full"
-                  >
-                    <SelectRepoStep
-                      onComplete={handleComplete}
-                      onBack={handleBack}
-                      selectedDirectory={selectedDirectory}
-                      detectedRepo={detectedRepo}
-                      isDetectingRepo={isDetectingRepo}
-                      onDirectoryChange={handleDirectoryChange}
-                      selectedCloudRepo={selectedCloudRepo}
-                      onCloudRepoChange={handleCloudRepoChange}
-                      hasGithubIntegration={hasGithubIntegration}
-                    />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {currentStep === "select-repo" && (
+                <motion.div
+                  key="select-repo"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <SelectRepoStep
+                    onComplete={handleComplete}
+                    onBack={handleBack}
+                    selectedDirectory={selectedDirectory}
+                    detectedRepo={detectedRepo}
+                    isDetectingRepo={isDetectingRepo}
+                    onDirectoryChange={handleDirectoryChange}
+                    selectedCloudRepo={selectedCloudRepo}
+                    onCloudRepoChange={handleCloudRepoChange}
+                    hasGithubIntegration={hasGithubIntegration}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="mx-auto flex w-full max-w-[480px] items-center justify-between pt-2">
+              {IS_DEV && isAuthenticated ? (
+                <Button
+                  size="xs"
+                  variant="link-muted"
+                  className="min-h-11 px-2 text-xs"
+                  onClick={handleSkip}
+                >
+                  Skip setup
+                  <ArrowRight size={12} weight="bold" />
+                </Button>
+              ) : (
+                <span />
+              )}
+              <Button
+                size="xs"
+                variant="link-muted"
+                className="min-h-11 px-2 text-xs"
+                onClick={onOpenSupport}
+              >
+                <Lifebuoy size={12} />
+                Get support
+              </Button>
             </div>
-          </SkipSetupProvider>
-
-          <Button
-            size="sm"
-            variant="link-muted"
-            className="mt-4 min-h-11"
-            onClick={onOpenSupport}
-          >
-            <Lifebuoy size={14} />
-            Get support
-          </Button>
+          </div>
         </div>
       </div>
     </FullScreenLayout>

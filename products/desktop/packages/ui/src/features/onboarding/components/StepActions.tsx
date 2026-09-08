@@ -1,23 +1,5 @@
-import { ArrowRight } from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
 import { motion, useReducedMotion } from "framer-motion";
-import { createContext, type ReactNode, useContext } from "react";
-
-const SkipSetupContext = createContext<(() => void) | undefined>(undefined);
-
-export function SkipSetupProvider({
-  children,
-  onSkipSetup,
-}: {
-  children: ReactNode;
-  onSkipSetup?: () => void;
-}) {
-  return (
-    <SkipSetupContext.Provider value={onSkipSetup}>
-      {children}
-    </SkipSetupContext.Provider>
-  );
-}
+import type { ReactNode } from "react";
 
 interface StepActionsProps {
   children?: ReactNode;
@@ -30,7 +12,6 @@ export function StepActions({
   primaryAction,
   delay = 0.15,
 }: StepActionsProps) {
-  const onSkipSetup = useContext(SkipSetupContext);
   const shouldReduceMotion = useReducedMotion() === true;
 
   return (
@@ -39,21 +20,10 @@ export function StepActions({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay }}
       style={{ zIndex: 1 }}
-      className="relative shrink-0 pt-[16px]"
+      className="relative shrink-0"
     >
       <div className="flex items-center gap-2">
         {children}
-        {onSkipSetup && (
-          <Button
-            size="sm"
-            variant="link-muted"
-            className="min-h-11"
-            onClick={onSkipSetup}
-          >
-            Skip setup
-            <ArrowRight size={14} weight="bold" />
-          </Button>
-        )}
         {primaryAction}
       </div>
     </motion.div>
