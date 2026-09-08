@@ -34,15 +34,60 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
         )
         flush_persons_and_events()
 
-        properties = fetch_session_person_properties(team=team, session_id=session_id, start=_START, end=_END)
+        properties = fetch_session_person_properties(
+            team=team, session_id=session_id, distinct_id="user-1", start=_START, end=_END
+        )
 
         assert properties["email"] == "rene@customer.example"
         assert properties["name"] == "Rene Diaz"
         assert properties["org__name"] == "Customer Co"
 
     @pytest.mark.django_db
+    def test_ignores_events_another_person_posted_under_the_same_session_id(self, team) -> None:
+        # A project's write token is public, so anyone who knows a session id can post an event carrying it
+        # under their own distinct id. Attributing the recording to them would persist a spoofed subject on the
+        # observation and present it as authoritative, so the query binds to the distinct id the replay names.
+        # Only the intruder carries an email, because `any()` skips nulls: were the clause dropped, the
+        # aggregate would reach past the subject's missing value and return the intruder's, whatever the row
+        # order. Giving both an email would let the assertion pass on luck.
+        session_id = str(uuid7())
+        _create_person(team_id=team.pk, distinct_ids=["subject"], properties={"name": "Rene Diaz"})
+        _create_person(team_id=team.pk, distinct_ids=["intruder"], properties={"email": "attacker@evil.example"})
+        for distinct_id in ("subject", "intruder"):
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=_START,
+                properties={"$session_id": session_id},
+            )
+        flush_persons_and_events()
+
+        properties = fetch_session_person_properties(
+            team=team, session_id=session_id, distinct_id="subject", start=_START, end=_END
+        )
+
+        assert properties.get("email") is None
+        assert properties.get("name") == "Rene Diaz"
+
+    @pytest.mark.django_db
     def test_returns_empty_for_a_session_with_no_events(self, team) -> None:
-        assert fetch_session_person_properties(team=team, session_id=str(uuid7()), start=_START, end=_END) == {}
+        assert (
+            fetch_session_person_properties(
+                team=team, session_id=str(uuid7()), distinct_id="user-1", start=_START, end=_END
+            )
+            == {}
+        )
+
+    @pytest.mark.django_db
+    def test_returns_empty_without_a_subject_distinct_id(self, team) -> None:
+        # No subject to attribute to, so nothing is read rather than whatever else shares the session id.
+        assert (
+            fetch_session_person_properties(
+                team=team, session_id=str(uuid7()), distinct_id=None, start=_START, end=_END
+            )
+            == {}
+        )
 
 
 class TestPersonOrganization:

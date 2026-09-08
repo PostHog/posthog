@@ -41,9 +41,14 @@ IDENTITY_TIMESTAMP_SLACK = dt.timedelta(hours=1)
 
 
 def _person_identity_query() -> str:
-    """`SELECT` over the session's events, one aggregate per identity property.
+    """`SELECT` over the subject's events in the session, one aggregate per identity property.
 
     Built from `PERSON_IDENTITY_KEYS` so the columns and the readers below cannot drift apart.
+
+    The `distinct_id` clause is load-bearing, not an optimization. A project's write token is public by design,
+    so anyone who knows a session id can post an event carrying it under a `distinct_id` of their choosing.
+    Without the clause this aggregates over whoever shares the session id, and an arbitrary `any()` pick would
+    be persisted as the subject and shown as authoritative. Bind to the distinct id the replay metadata names.
     """
     selects = ", ".join(
         f"any(person.properties.{escape_hogql_identifier(key)}) AS {escape_hogql_identifier(key)}"
@@ -51,7 +56,7 @@ def _person_identity_query() -> str:
     )
     return (
         f"SELECT {selects} FROM events WHERE `$session_id` = {{session_id}} "
-        "AND timestamp >= {start} AND timestamp <= {end}"
+        "AND distinct_id = {distinct_id} AND timestamp >= {start} AND timestamp <= {end}"
     )
 
 
@@ -60,14 +65,21 @@ SESSION_PERSON_IDENTITY_QUERY = _person_identity_query()
 
 
 def fetch_session_person_properties(
-    *, team: Team, session_id: str, start: dt.datetime, end: dt.datetime
+    *, team: Team, session_id: str, distinct_id: str | None, start: dt.datetime, end: dt.datetime
 ) -> dict[str, Any]:
-    """The recorded person's identity properties, keyed by property name; empty when the session has no person."""
+    """Identity properties of the person the recording is of, keyed by property name.
+
+    `distinct_id` is the subject named by the replay metadata; without one there is no subject to attribute to,
+    so the caller gets nothing rather than whatever else shares the session id.
+    """
+    if not distinct_id:
+        return {}
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
     query = parse_select(
         SESSION_PERSON_IDENTITY_QUERY,
         placeholders={
             "session_id": ast.Constant(value=session_id),
+            "distinct_id": ast.Constant(value=distinct_id),
             "start": ast.Constant(value=start - IDENTITY_TIMESTAMP_SLACK),
             "end": ast.Constant(value=end + IDENTITY_TIMESTAMP_SLACK),
         },

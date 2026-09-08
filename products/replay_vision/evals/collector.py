@@ -338,7 +338,7 @@ def build_llm_inputs(
         if event_descriptions
         else {},
         distinct_id=str(distinct_id) if distinct_id else None,
-        identity=_build_identity(api, session_id, start, end),
+        identity=_build_identity(api, session_id, str(distinct_id) if distinct_id else None, start, end),
         metadata=SessionMetadata(
             start_time=start,
             end_time=end,
@@ -354,16 +354,22 @@ def build_llm_inputs(
     )
 
 
-def _build_identity(api: PostHogApi, session_id: str, start: dt.datetime, end: dt.datetime) -> SessionIdentity:
+def _build_identity(
+    api: PostHogApi, session_id: str, distinct_id: str | None, start: dt.datetime, end: dt.datetime
+) -> SessionIdentity:
     """The identity production renders into the preamble, read through the query API.
 
-    Runs the same person query production runs, so a collected case exercises the same prompt. Group names are
-    left out: they need the project's group-type labels, and a case without them still renders the block.
+    Runs the same person query production runs, bound to the same subject, so a collected case exercises the
+    same prompt. Group names are left out: they need the project's group-type labels, and a case without them
+    still renders the block.
     """
+    if not distinct_id:
+        return SessionIdentity()
     rows = api.hogql(
         SESSION_PERSON_IDENTITY_QUERY,
         {
             "session_id": session_id,
+            "distinct_id": distinct_id,
             "start": (start - IDENTITY_TIMESTAMP_SLACK).isoformat(),
             "end": (end + IDENTITY_TIMESTAMP_SLACK).isoformat(),
         },

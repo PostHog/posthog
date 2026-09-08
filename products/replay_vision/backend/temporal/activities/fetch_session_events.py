@@ -156,6 +156,8 @@ def _resolve_person_properties(team: Team, session_id: str, metadata: RecordingM
         return fetch_session_person_properties(
             team=team,
             session_id=session_id,
+            # The subject the replay itself names — never whoever else emitted events under this session id.
+            distinct_id=metadata.get("distinct_id"),
             start=metadata["start_time"],
             end=metadata["end_time"],
         )
