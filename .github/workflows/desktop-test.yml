@@ -11,11 +11,14 @@ on:
                 required: false
             POSTHOG_CODE_E2E_GATEWAY_URL:
                 required: false
-    push:
-        branches: [master]
-        paths:
-            - 'products/desktop/**'
-            - '.github/workflows/desktop-test.yml'
+    # Master coverage comes from this cron, not from the push. Pull requests and merge
+    # queue batches already run the suite per change, and its macOS job asks a fixed,
+    # shared pool that cannot autoscale for a runner. The gap a cron has to cover is
+    # drift from outside the repo: an Electron, Playwright or runner-image change. Daily
+    # matches desktop-update-e2e.yml, the other macOS desktop job. 05:00 UTC is the
+    # emptiest hour measured on the pool, and clear of that job at 07:00.
+    schedule:
+        - cron: '3 5 * * *'
 
 concurrency:
     group: desktop-test-${{ github.head_ref || github.ref }}
