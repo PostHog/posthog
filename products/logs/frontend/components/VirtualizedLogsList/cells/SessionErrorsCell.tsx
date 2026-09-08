@@ -16,7 +16,9 @@ export function SessionErrorsCell({ log }: { log: ParsedLogMessage }): JSX.Eleme
     const { configuredSessionIdKeys } = useValues(logsConfigLogic)
 
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
-    const errorCount = sessionId ? (sessionErrorCounts[sessionId] ?? 0) : 0
+    // hasOwn, not a plain lookup: a session id that collides with an Object member would
+    // otherwise read back an inherited function instead of a count.
+    const errorCount = sessionId && Object.hasOwn(sessionErrorCounts, sessionId) ? sessionErrorCounts[sessionId] : 0
 
     return (
         <div className="flex items-center justify-center shrink-0" style={{ width: SESSION_ERRORS_WIDTH }}>

@@ -11,7 +11,11 @@ import { hogql } from '~/queries/utils'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { RELATED_ERRORS_WINDOW_HOURS, getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
+import {
+    RELATED_ERRORS_WINDOW_HOURS,
+    getSessionIdFromLogAttributes,
+    parseLogTimestamp,
+} from 'products/logs/frontend/utils'
 
 // One page of logs can carry hundreds of distinct sessions. The lookup is a single query either
 // way, but the IN list ends up in the query text, so cap what a runaway page can put there.
@@ -32,18 +36,25 @@ interface SessionErrorsWindow {
 }
 
 // The union of every loaded row's Related errors window. That union is the range that can hold an
-// exception the tab lists for any row on the page, so a wide page reads a wide range.
-function pageLookupWindow(logs: ParsedLogMessage[]): SessionErrorsWindow {
-    let earliest = Date.parse(logs[0].timestamp)
-    let latest = earliest
+// exception the tab lists for any row on the page, so a wide page reads a wide range. Null when no
+// row carries a timestamp the parser understands, because there is then no range to ask about.
+function pageLookupWindow(logs: ParsedLogMessage[]): SessionErrorsWindow | null {
+    let earliest = Number.POSITIVE_INFINITY
+    let latest = Number.NEGATIVE_INFINITY
     for (const log of logs) {
-        const timestamp = Date.parse(log.timestamp)
+        const timestamp = parseLogTimestamp(log.timestamp).valueOf()
+        if (Number.isNaN(timestamp)) {
+            continue
+        }
         if (timestamp < earliest) {
             earliest = timestamp
         }
         if (timestamp > latest) {
             latest = timestamp
         }
+    }
+    if (!Number.isFinite(earliest) || !Number.isFinite(latest)) {
+        return null
     }
     return {
         from: dayjs(earliest).subtract(RELATED_ERRORS_WINDOW_HOURS, 'hours').toISOString(),
@@ -170,13 +181,17 @@ export const logsSessionErrorsLogic = kea<logsSessionErrorsLogicType>([
                 ): Promise<Record<string, number>> => {
                     // A fresh query replaces the result set, so drop what the previous filters answered.
                     const known = reset ? {} : values.sessionErrorCounts
-                    const sessionIds = values.sessionIdsInView.filter((sessionId) => !(sessionId in known))
-                    if (sessionIds.length === 0) {
+                    // hasOwn, not `in`: `in` walks the prototype chain, so a session id that
+                    // collides with an Object member would read as already answered.
+                    const sessionIds = values.sessionIdsInView.filter((sessionId) => !Object.hasOwn(known, sessionId))
+                    // Read the range off the same snapshot the ids came from, before the debounce,
+                    // so a page that empties mid-wait cannot leave the two disagreeing.
+                    const range = pageLookupWindow(values.logs)
+                    if (sessionIds.length === 0 || !range) {
                         return known
                     }
                     await breakpoint(reset ? FIRST_LOOKUP_DEBOUNCE_MS : INCREMENTAL_LOOKUP_DEBOUNCE_MS)
 
-                    const range = pageLookupWindow(values.logs)
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT properties.$session_id AS session_id, count() AS exceptions
