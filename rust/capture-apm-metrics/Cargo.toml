@@ -1,5 +1,5 @@
 [package]
-name = "capture-metrics"
+name = "capture-apm-metrics"
 version = "0.1.0"
 edition = "2021"
 publish = false

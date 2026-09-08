@@ -114,7 +114,7 @@ case "$RS_SVC" in
     export KAFKA_METRICS_TOPIC=metrics_ingestion
     ;;
 
-  capture-metrics)
+  capture-apm-metrics)
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export BIND_HOST=0.0.0.0

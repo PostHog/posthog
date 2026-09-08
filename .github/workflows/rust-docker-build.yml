@@ -177,8 +177,8 @@ jobs:
                     - release: capture-logs
                       digest_key: capture-logs
                       values_key: image
-                    - release: capture-metrics
-                      digest_key: capture-metrics
+                    - release: capture-apm-metrics
+                      digest_key: capture-apm-metrics
                       values_key: image
                     - release: ingestion-consumer
                       digest_key: ingestion-consumer

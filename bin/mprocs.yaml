@@ -404,10 +404,10 @@ procs:
             layer: Ingestion pipeline
             tech: Rust
 
-    capture-metrics:
+    capture-apm-metrics:
         shell: |-
             bin/wait-for-docker && \
-            bin/start-rust-service capture-metrics
+            bin/start-rust-service capture-apm-metrics
         capability: metrics_ingestion
         groups:
             layer: Ingestion pipeline

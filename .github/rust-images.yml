@@ -85,14 +85,14 @@
   dockerfile: ./rust/Dockerfile
   project: 4ppc15q4bv
 
-# capture-logs and capture-metrics build the same crates as capture, so they
+# capture-logs and capture-apm-metrics build the same crates as capture, so they
 # share its Depot project and layer cache.
 - image: capture-logs
   dockerfile: ./rust/Dockerfile
   project: kshskj225r
 
 # Metrics half of capture-logs: same library, metrics routes only.
-- image: capture-metrics
+- image: capture-apm-metrics
   dockerfile: ./rust/Dockerfile
   project: kshskj225r
 

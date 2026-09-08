@@ -7,7 +7,7 @@ members = [
   "capture",
   "capture-load-gen",
   "capture-logs",
-  "capture-metrics",
+  "capture-apm-metrics",
   "cohort-core",
   "cohort-event-shuffler",
   "cohort-seeder",

@@ -7,7 +7,7 @@ This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). 
 ## Running the service
 
 ```bash
-cargo run --bin capture-metrics
+cargo run --bin capture-apm-metrics
 ```
 
-Local dev: `bin/start-rust-service capture-metrics` (HTTP on `4321`, management on `3312`).
+Local dev: `bin/start-rust-service capture-apm-metrics` (HTTP on `4321`, management on `3312`).
