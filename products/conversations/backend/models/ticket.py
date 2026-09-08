@@ -31,6 +31,7 @@ class TicketManager(models.Manager):
                     "SELECT pg_advisory_xact_lock(%s, %s)",
                     [_TICKET_NUMBER_LOCK_NAMESPACE, team.id],
                 )
+            # nosemgrep: hot-parent-row-select-for-update -- keep Team lock until every allocator takes the advisory lock first
             Team.objects.select_for_update().get(id=team.id)
 
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
