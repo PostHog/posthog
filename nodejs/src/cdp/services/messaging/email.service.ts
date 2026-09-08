@@ -619,9 +619,8 @@ export class EmailService {
                 return null
             }
             if (claim.deniedIndex === null) {
-                // The claim failed rather than being denied, so no cap was reached. The null label
-                // keeps the caller from naming a limit the project never hit. Wait on the hourly
-                // bucket's cadence, the shorter of the two, because nothing must refill first.
+                // A failed claim is not a denial, so the null label keeps the caller from naming a
+                // limit the project never hit. Nothing must refill, so wait the shorter cadence.
                 teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: 'error', mode })
                 return {
                     retryDelayMs: pickTokenBucketRetryDelayMs(buckets[0].refillPerSecond),

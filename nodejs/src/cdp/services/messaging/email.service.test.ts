@@ -613,8 +613,6 @@ describe('EmailService', () => {
             })
 
             it('does not report a cap when the claim itself failed', async () => {
-                // The limiter fails closed with deniedIndex null on any runtime fault. Reading that
-                // as a cap tells the project it hit a limit it never reached.
                 claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: null })
 
                 const result = await cappedService.executeSendEmail(invocation)
