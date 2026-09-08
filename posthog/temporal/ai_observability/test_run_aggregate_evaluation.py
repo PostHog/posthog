@@ -15,6 +15,7 @@ from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    _NOT_SETTLED_ERROR_TYPES,
     MAX_SETTLE_POLLS_PER_RUN,
     CheckSessionSettledInputs,
     CheckTraceSettledInputs,
@@ -31,6 +32,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     EmitTraceEvaluationEventInputs,
     ExecuteTraceEvaluationInputs,
 )
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 
 @pytest.fixture
@@ -200,6 +202,16 @@ class TestResolvePollInterval:
         for primary_seconds, poll_budget_seconds in [(10, 604775), (60, 604740), (10, 7175)]:
             interval = resolve_poll_interval(primary_seconds, poll_budget_seconds)
             assert poll_budget_seconds // interval <= MAX_SETTLE_POLLS_PER_RUN
+
+
+class TestSettleErrorTypesAreNotReportedAsDefects:
+    def test_every_not_settled_type_is_exempt_from_error_tracking(self):
+        # A settle target whose type is absent from the exemption set files one error tracking
+        # issue per poll probe, so a new target must extend both sets together.
+        assert _NOT_SETTLED_ERROR_TYPES <= EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+    def test_a_runaway_session_still_reaches_error_tracking(self):
+        assert "session_runaway" not in EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 
 def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[Any]:
