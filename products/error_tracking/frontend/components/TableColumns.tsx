@@ -5,7 +5,7 @@ import { IconMinus } from '@posthog/icons'
 import { LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { cleanIssueField, getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Button, ButtonGroup, SelectTriggerIcon } from 'lib/ui/quill'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -73,6 +73,7 @@ export const IssueListTitleColumn = (props: {
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
+    const description = cleanIssueField(record.description)
 
     const handleSelectionChange = (newValue: boolean): void => {
         const idsToToggle = getShiftClickIds(
@@ -111,10 +112,10 @@ export const IssueListTitleColumn = (props: {
             <div className="flex flex-col gap-[2px]">
                 <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} />
                 <div
-                    title={record.description || undefined}
+                    title={description || undefined}
                     className="font-medium line-clamp-1 text-[var(--gray-8)] h-(--line-height)"
                 >
-                    {record.description}
+                    {description}
                 </div>
                 {(record.function || record.source) && (
                     <div className="line-clamp-1 text-[var(--gray-6)] italic font-light h-(--line-height)">
@@ -157,7 +158,7 @@ const IssueTitle = ({
     >
         <div className="flex items-center gap-2 h-(--line-height)">
             <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
-            <span className="font-semibold line-clamp-1">{record.name || 'Unknown Type'}</span>
+            <span className="font-semibold line-clamp-1">{cleanIssueField(record.name) ?? 'Unknown Type'}</span>
         </div>
     </Link>
 )
