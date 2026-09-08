@@ -26,8 +26,8 @@ tools:
             — use dashboard-insights-run to fetch the actual data for each insight. This tool does not take insights: to
             put a saved insight on the new dashboard, pass the new dashboard's id in the insight's `dashboards` field
             with insight-create or insight-update. To add widget tiles instead, see dashboard-widget-catalog-list for
-            available widget types and dashboard-widgets-batch-add to add them; both only exist when the project has the
-            dashboard widgets feature.
+            available widget types and dashboard-widgets-batch-add to add them. The dashboard-widgets-batch-add tool
+            only exists when the project has the dashboard widgets feature.
 
             A dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring,
             weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive:
