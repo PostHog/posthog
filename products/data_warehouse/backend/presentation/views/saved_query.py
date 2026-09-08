@@ -11,7 +11,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -514,15 +514,7 @@ class DataWarehouseSavedQuerySerializerMixin:
         if not isinstance(query, dict) or "query" not in query:
             return []
 
-        team_id = self.context["team_id"]  # type: ignore[attr-defined]
-        database = self.context.get("database", None)  # type: ignore[attr-defined]
-        if not database:
-            database = Database.create_for(
-                team_id=team_id,
-                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
-            )
-
-        context = HogQLContext(team_id=team_id, database=database)
+        context = HogQLContext(team_id=self.context["team_id"])  # type: ignore[attr-defined]
 
         descriptions = view_annotation_map(view)
         fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
@@ -742,6 +734,14 @@ class DataWarehouseSavedQuerySerializer(
         help_text="How far incremental materialization has progressed. Null until the first run "
         "records any. Written by the materialization run, not by this API.",
     )
+
+    MATERIALIZATION_FIELDS = ("sync_frequency_bounds", "suspended")
+
+    def to_representation(self, instance: DataWarehouseSavedQuery) -> dict[str, Any]:
+        if not self.context.get("include_materialization", True):
+            for name in self.MATERIALIZATION_FIELDS:
+                self.fields.pop(name, None)
+        return super().to_representation(instance)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -1506,18 +1506,38 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         request_data = getattr(self.request, "data", {})
-        should_include_database = self.action in {"create", "list", "retrieve"} or (
+        should_include_database = self.action == "create" or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        context["include_materialization"] = not (
+            self.action == "retrieve" and self.request.query_params.get("include_materialization") == "false"
+        )
         return context
 
     def get_serializer_class(self):
         if self.action == "list":
             return DataWarehouseSavedQueryMinimalSerializer
         return DataWarehouseSavedQuerySerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include_materialization",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Pass `false` to leave out `sync_frequency_bounds` and `suspended`. Each costs a DAG "
+                    "walk, which a caller that only needs the query body can skip."
+                ),
+            )
+        ]
+    )
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        return super().retrieve(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         base_queryset = (

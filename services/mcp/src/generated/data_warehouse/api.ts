@@ -413,6 +413,15 @@ export const WarehouseSavedQueriesRetrieveParams = () => zod.object({
         ),
 })
 
+export const WarehouseSavedQueriesRetrieveQueryParams = () => zod.object({
+    include_materialization: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Pass `false` to leave out `sync_frequency_bounds` and `suspended`. Each costs a DAG walk, which a caller that only needs the query body can skip.'
+        ),
+})
+
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */

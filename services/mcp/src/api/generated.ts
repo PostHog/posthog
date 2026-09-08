@@ -102792,6 +102792,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type WarehouseSavedQueriesRetrieveParams = {
+    /**
+     * Pass `false` to leave out `sync_frequency_bounds` and `suspended`. Each costs a DAG walk, which a caller that only needs the query body can skip.
+     */
+    include_materialization?: boolean;
+    };
+
     export type WarehouseSavedQueriesCheckSuiteRunsListParams = {
     /**
      * Number of results to return per page.

@@ -15,6 +15,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -992,6 +994,31 @@ class TestSavedQuery(APIBaseTest):
         )
 
         self.assertNotIn("sync_frequency_bounds", DataWarehouseSavedQueryMinimalSerializer().fields)
+
+    def test_retrieve_can_leave_out_the_materialization_fields(self):
+        saved_query = self._create_saved_query_for_frequency_tests()
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/"
+
+        plain = self.client.get(url).json()
+        self.assertIn("sync_frequency_bounds", plain)
+        self.assertIn("suspended", plain)
+
+        without = self.client.get(f"{url}?include_materialization=false").json()
+        self.assertNotIn("sync_frequency_bounds", without)
+        self.assertNotIn("suspended", without)
+
+    def test_reads_do_not_build_the_hogql_database(self):
+        saved_query = self._create_saved_query_for_frequency_tests()
+        views_module = "products.data_warehouse.backend.presentation.views.saved_query"
+
+        with patch(f"{views_module}.Database.create_for", wraps=Database.create_for) as create_for:
+            detail = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/")
+            listing = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual([c["name"] for c in detail.json()["columns"]], ["event"])
+        create_for.assert_not_called()
 
     def _create_saved_query(self) -> dict:
         response = self.client.post(

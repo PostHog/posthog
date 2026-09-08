@@ -5697,8 +5697,15 @@ const api = {
         async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
             return await new ApiRequest().dataWarehouseSavedQueries().get()
         },
-        async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
-            return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
+        async get(
+            viewId: DataWarehouseSavedQuery['id'],
+            options?: { includeMaterialization?: boolean }
+        ): Promise<DataWarehouseSavedQuery> {
+            const request = new ApiRequest().dataWarehouseSavedQuery(viewId)
+            if (options?.includeMaterialization === false) {
+                return await request.withQueryString({ include_materialization: 'false' }).get()
+            }
+            return await request.get()
         },
         async create(data: Partial<DataWarehouseSavedQuery> & { types: string[][] }): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
