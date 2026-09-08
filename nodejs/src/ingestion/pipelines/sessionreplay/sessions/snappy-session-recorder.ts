@@ -9,7 +9,14 @@ import {
     PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
     ParsedMessageData,
 } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { hrefFrom, isClick, isKeypress, isMouseActivity } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import {
+    SnapshotMode,
+    hrefFrom,
+    isClick,
+    isKeypress,
+    isMouseActivity,
+    snapshotModeFrom,
+} from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import {
     SegmentationEvent,
     activeMillisecondsFromSegmentationEvents,
@@ -49,6 +56,8 @@ export interface EndResult {
     snapshotSource: string | null
     /** Library used for the snapshot */
     snapshotLibrary: string | null
+    /** Only applies when snapshotSource is 'mobile'; null until a visual snapshot identifies the mode. */
+    snapshotMode: SnapshotMode | null
     /** ID of the batch this session belongs to */
     batchId: string
 }
@@ -92,6 +101,7 @@ export class SnappySessionRecorder {
     private messageCount: number = 0
     private snapshotSource: string | null = null
     private snapshotLibrary: string | null = null
+    private snapshotMode: SnapshotMode | null = null
     private segmentationEvents: SegmentationEvent[] = []
     private droppedUrlsCount: number = 0
 
@@ -146,6 +156,9 @@ export class SnappySessionRecorder {
 
         for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
             for (const event of events) {
+                if (this.snapshotMode === null && message.snapshot_source === 'mobile') {
+                    this.snapshotMode = snapshotModeFrom(event)
+                }
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
                 const chunk = Buffer.from(serializedLine)
                 this.uncompressedChunks.push(chunk)
@@ -284,6 +297,7 @@ export class SnappySessionRecorder {
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,
+            snapshotMode: this.snapshotMode,
             batchId: this.batchId,
         }
     }
