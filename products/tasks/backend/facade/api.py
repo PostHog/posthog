@@ -862,10 +862,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
     server-verifiable Inbox shapes qualify:
 
-    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
-      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
-      caller can't forge one. Acting on a report is entitled through self-driving
-      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
+      integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
+      team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
+      entitled through self-driving (`product-autonomy`). A report task that resolved a
+      repository, or that carries the team integration for a repo-less discussion, is not
+      exempt, because `create_task` only gives it either after the gate passed. Re-checking
+      here costs the caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
@@ -5672,13 +5675,16 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def _capture_no_repo_selection_override(*, team: Team, report_id: str, resolved_repository: str | None) -> None:
+def _capture_no_repo_selection_override(
+    *, team: Team, report_id: str, resolved_repository: str | None, relationship: str | None
+) -> None:
     """Record a person starting work on a report whose scout chose no repository.
 
     The count tells the signals team how often the scouts' `NO_REPO` default disagrees with what a
     person wanted, and `resolved_repository` separates a recovery from a cascade that also found
-    nothing. Keyed on the team, like the other scout events. Best-effort: a capture failure must
-    never fail the task creation."""
+    nothing. `relationship` separates a "Create PR" override from an Ask AI one, which start from
+    different intents. Keyed on the team, like the other scout events. Best-effort: a capture
+    failure must never fail the task creation."""
     try:
         posthoganalytics.capture(
             distinct_id=str(team.uuid),
@@ -5687,6 +5693,7 @@ def _capture_no_repo_selection_override(*, team: Team, report_id: str, resolved_
                 "report_id": report_id,
                 "team_id": team.id,
                 "resolved_repository": resolved_repository,
+                "relationship": relationship,
             },
             groups=groups(team=team),
         )
@@ -5700,6 +5707,7 @@ def create_task(
     *,
     validated_data: dict,
     client_provenance: TaskClientProvenance | None = None,
+    code_access_allowed: bool = False,
 ) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
@@ -5707,6 +5715,11 @@ def create_task(
     ``resolve_user_github_integration_for_task`` so no internal/other-product import leaks into
     presentation. ``validated_data`` carries the validated write fields (integrations already
     resolved to instances by the write serializer's PK fields).
+
+    ``code_access_allowed`` is the caller's Desktop-access outcome, which only the request layer can
+    evaluate. It upgrades a report discussion from the repo-less exempt shape to a full cloud task:
+    a resolved repository and the team's GitHub credential. Defaults to ``False`` so a caller that
+    never ran the gate creates the exempt shape.
     """
     from posthog.models import Team  # noqa: PLC0415
 
@@ -5873,17 +5886,17 @@ def create_task(
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
     # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
-    # report-linked task that can never open a PR. Only "implementation" (Create PR) and legacy
-    # clients (no relationship) resolve one: "Discuss" (and any other non-implementation label)
-    # must stay repo-less to keep the code-access exemption (`task_exempt_from_code_access`).
-    # Giving a discussion a repository would 403 a caller without Desktop access on the very click
-    # this path exists to unblock.
+    # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
+    # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
+    # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
+    # repository-backed report task, so resolving for anyone else would 403 the very click this
+    # path exists to unblock (see `task_exempt_from_code_access`).
     signal_report = validated_data.get("signal_report")
     if (
         signal_report is not None
         and not validated_data.get("repository")
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
-        and signal_report_task_relationship in (None, "implementation")
+        and (signal_report_task_relationship in (None, "implementation") or code_access_allowed)
     ):
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
             persisted_repo_selection,
@@ -5909,12 +5922,25 @@ def create_task(
             )
             if selection is not None:
                 _capture_no_repo_selection_override(
-                    team=team, report_id=str(signal_report.id), resolved_repository=resolved_repository
+                    team=team,
+                    report_id=str(signal_report.id),
+                    resolved_repository=resolved_repository,
+                    relationship=signal_report_task_relationship,
                 )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
 
-    if validated_data.get("repository") and not validated_data.get("github_integration"):
+    # The credential follows the entitlement, not the repository: an entitled report task carries
+    # the team's GitHub integration even when nothing resolved, so the agent can still clone what
+    # the conversation turns out to need. That is the shape a repo-less user-created task already
+    # has, and provisioning keys the token off the attached integration, so a task created without
+    # the gate stays credential-less.
+    entitled_report_task = (
+        code_access_allowed
+        and signal_report is not None
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+    )
+    if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
         if default_integration:
             validated_data["github_integration"] = default_integration
@@ -6010,7 +6036,9 @@ def update_task(
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
 
-        # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+        # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
+        # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
+        # attached, so an attachable one would credential a run the create path left credential-less.
         if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
             validated_data.pop("repository", None)
             validated_data.pop("repositories", None)
