@@ -48,6 +48,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
+    AccountPresenceViewer,
     AccountRelationship,
     AccountRelationshipDefinition,
     AccountTableField,
@@ -997,6 +998,17 @@ class AccountSerializer(DataclassSerializer):
         except (TypeError, ValueError):
             raise serializers.ValidationError("properties must be JSON-serializable.")
         return value
+
+
+class AccountPresenceViewerSerializer(DataclassSerializer):
+    user_id = serializers.IntegerField(
+        read_only=True, help_text="PostHog user ID of the teammate viewing this account."
+    )
+    display_name = serializers.CharField(read_only=True, help_text="Display name of the teammate viewing this account.")
+
+    class Meta:
+        dataclass = AccountPresenceViewer
+        fields = ["user_id", "display_name"]
 
 
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):

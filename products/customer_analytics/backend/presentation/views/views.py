@@ -70,6 +70,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
@@ -1720,6 +1721,27 @@ class AccountViewSet(
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
+
+    @extend_schema(
+        parameters=[_ACCOUNT_ID_PARAM],
+        request=None,
+        responses={200: AccountPresenceViewerSerializer(many=True)},
+    )
+    @action(methods=["POST"], detail=True, pagination_class=None, required_scopes=["account:read"])
+    def presence(self, request: Request, *args, **kwargs) -> Response:
+        if is_service_auth(request):
+            if api.get_account(self.team_id, self.kwargs["pk"]) is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response([])
+        viewers = api.list_account_presence_viewers(
+            self.team_id,
+            self.kwargs["pk"],
+            self.user_access_control,
+            cast(User, request.user),
+        )
+        if viewers is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)

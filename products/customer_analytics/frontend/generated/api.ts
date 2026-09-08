@@ -12,6 +12,7 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPresenceViewerApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
@@ -794,6 +795,21 @@ export const accountsMeetingsList = async (
     return apiMutator<PaginatedMeetingListApi>(getAccountsMeetingsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAccountsPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/presence/`
+}
+
+export const accountsPresenceCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountPresenceViewerApi[]> => {
+    return apiMutator<AccountPresenceViewerApi[]>(getAccountsPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

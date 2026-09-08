@@ -10,18 +10,24 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
-import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import {
+    accountsPartialUpdate,
+    accountsPresenceCreate,
+    accountsRetrieve,
+} from 'products/customer_analytics/frontend/generated/api'
+import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsPartialUpdate: jest.fn(),
+    accountsPresenceCreate: jest.fn(),
     accountsRetrieve: jest.fn(),
 }))
 
 const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+const mockAccountsPresenceCreate = accountsPresenceCreate as jest.MockedFunction<typeof accountsPresenceCreate>
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
@@ -58,7 +64,9 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        jest.useRealTimers()
         jest.resetAllMocks()
+        mockAccountsPresenceCreate.mockResolvedValue([])
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
@@ -74,6 +82,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
     }
 
     afterEach(() => {
+        jest.useRealTimers()
         logic.unmount()
         featureFlagLogic.unmount()
     })
@@ -87,6 +96,38 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.account).toEqual(account)
         expect(logic.values.accountLoadError).toBeNull()
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe(account.name)
+    })
+
+    it('heartbeats account presence immediately, polls every 10 seconds, and clears it on failure', async () => {
+        jest.useFakeTimers()
+        const captureException = jest.spyOn(posthog, 'captureException')
+        const viewers: AccountPresenceViewerApi[] = [{ user_id: 2, display_name: 'Alex Rivera' }]
+        mockAccountsRetrieve.mockResolvedValue(account)
+        mockAccountsPresenceCreate.mockResolvedValueOnce(viewers).mockRejectedValueOnce(new Error('Unavailable'))
+
+        try {
+            mountLogic()
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(mockAccountsPresenceCreate).toHaveBeenCalledWith(String(logic.values.currentTeamId), ACCOUNT_ID)
+            expect(logic.values.accountPresenceViewers).toEqual(viewers)
+
+            jest.advanceTimersByTime(10_000)
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(mockAccountsPresenceCreate).toHaveBeenCalledTimes(2)
+            expect(logic.values.accountPresenceViewers).toEqual([])
+            expect(logic.values.accountPresenceError).toBeInstanceOf(Error)
+            expect(captureException).not.toHaveBeenCalled()
+
+            logic.unmount()
+            jest.advanceTimersByTime(10_000)
+            expect(mockAccountsPresenceCreate).toHaveBeenCalledTimes(2)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('classifies a missing account without reporting an exception', async () => {

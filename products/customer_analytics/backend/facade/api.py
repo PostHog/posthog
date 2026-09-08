@@ -98,6 +98,7 @@ from products.customer_analytics.backend.facade.contracts import (
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.logic import (
+    account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
@@ -3694,6 +3695,23 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     except (ValidationError, ValueError):
         return None
     return str(account.id) if account is not None else None
+
+
+def list_account_presence_viewers(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    user: "User",
+) -> list[contracts.AccountPresenceViewer] | None:
+    accessible_account_id = get_accessible_account_id(team_id, account_id, user_access_control)
+    if accessible_account_id is None:
+        return None
+    display_name = user.get_full_name().strip() or user.first_name.strip() or "A teammate"
+    return _account_presence_logic.heartbeat_account_presence(
+        team_id=team_id,
+        account_id=accessible_account_id,
+        viewer=contracts.AccountPresenceViewer(user_id=user.id, display_name=display_name),
+    )
 
 
 def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
