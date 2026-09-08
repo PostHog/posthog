@@ -14,6 +14,10 @@ import {
   type TabsSnapshot,
   type TabViewState,
 } from "@posthog/shared";
+import {
+  ANALYTICS_EVENTS,
+  type BrowserTabCloseSource,
+} from "@posthog/shared/analytics-events";
 import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
@@ -41,12 +45,11 @@ import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/use
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useTabSession } from "@posthog/ui/features/navigation/useActiveSession";
-import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
-import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useAppView } from "@posthog/ui/router/useAppView";
+import { track } from "@posthog/ui/shell/analytics";
 import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -57,11 +60,19 @@ import {
 } from "@tanstack/react-router";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { shouldHandleBrowserTabSwitch } from "./browserTabShortcuts";
+import {
+  cycledTabId,
+  shouldHandleBrowserTabSwitch,
+} from "./browserTabShortcuts";
 import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "./browserTabsClient";
+import {
+  type ClosedTab,
+  closedTabRecord,
+  useClosedTabsStore,
+} from "./closedTabsStore";
 import {
   frontOfUnpinnedOrder,
   partitionPinnedFirst,
@@ -102,21 +113,6 @@ function remember<V>(map: Map<string, V>, key: string, value: V): void {
     const oldest = map.keys().next().value;
     if (oldest !== undefined) map.delete(oldest);
   }
-}
-
-// True when the open task's focused editor panel has a closeable active tab.
-// Cmd+W is inner-first: it closes that editor tab (handled by
-// usePanelKeyboardShortcuts) before it closes the browser tab.
-function taskHasCloseableEditorTab(taskId: string | undefined): boolean {
-  if (!taskId) return false;
-  const layout = usePanelLayoutStore.getState().getLayout(taskId);
-  const panelId = layout?.focusedPanelId;
-  if (!panelId || !layout?.panelTree) return false;
-  const panel = getLeafPanel(layout.panelTree, panelId);
-  const activeTab = panel?.content.tabs.find(
-    (t) => t.id === panel.content.activeTabId,
-  );
-  return !!activeTab && activeTab.closeable !== false;
 }
 
 type TabRef = {
@@ -211,6 +207,8 @@ function BrowserTabStripImpl() {
   const pinnedTabIds = usePinnedTabsStore((s) => s.pinnedTabIds);
   const togglePinned = usePinnedTabsStore((s) => s.togglePinned);
   const prunePinned = usePinnedTabsStore((s) => s.prune);
+  const recordClosedTabs = useClosedTabsStore((s) => s.record);
+  const takeClosedTab = useClosedTabsStore((s) => s.take);
   // Transient reorder preview (set while a pill is dragged); overrides the
   // strip's order without touching the domain snapshot mirror.
   const previewOrder = useTabReorderStore((s) => s.previewOrder);
@@ -810,13 +808,35 @@ function BrowserTabStripImpl() {
     else landOnDefault();
   };
 
+  // Snapshot what a close is about to remove, so Cmd/Ctrl+Shift+T can put it
+  // back on the page it was on. Read from the mirror BEFORE the close transform
+  // runs, and skip a tab with no href — there is nothing to restore.
+  const recordClosed = (tabIds: string[]) => {
+    const byId = new Map(readMirror().tabs.map((tab) => [tab.id, tab]));
+    const records: ClosedTab[] = [];
+    for (const tabId of tabIds) {
+      const tab = byId.get(tabId);
+      const record = tab && closedTabRecord(tab);
+      if (record) records.push(record);
+    }
+    recordClosedTabs(records);
+  };
+
   // Close applies locally and navigates to the survivor in the same tick — the
   // /website index therefore always renders against the post-close snapshot
   // and can't redirect (re-opening a tab) mid-flight.
-  const handleClose = (tabId: string) => {
+  const handleClose = (
+    tabId: string,
+    from: BrowserTabCloseSource = "strip",
+  ) => {
     useDraftStore
       .getState()
       .actions.setDraft(getTaskInputSessionId(tabId), null);
+    recordClosed([tabId]);
+    track(ANALYTICS_EVENTS.BROWSER_TAB_CLOSED, {
+      from,
+      tab_count: tabs.length,
+    });
     const newTabId = crypto.randomUUID();
     const next = applyLocalTransform(
       (s) =>
@@ -851,6 +871,11 @@ function BrowserTabStripImpl() {
     for (const tabId of tabIds) {
       draftActions.setDraft(getTaskInputSessionId(tabId), null);
     }
+    recordClosed(tabIds);
+    track(ANALYTICS_EVENTS.BROWSER_TAB_CLOSED, {
+      from: "context-menu",
+      tab_count: tabs.length,
+    });
     const newTabId = crypto.randomUUID();
     const next = applyLocalTransform((s) =>
       closeTabsLocal(
@@ -906,7 +931,44 @@ function BrowserTabStripImpl() {
     navigate({ to: DEFAULT_TAB_HREF, state });
   };
 
-  const handleNewTab = (): void => openBrowserTab(DEFAULT_TAB_HREF);
+  const handleNewTab = (): void => {
+    track(ANALYTICS_EVENTS.BROWSER_TAB_OPENED, { tab_count: tabs.length + 1 });
+    openBrowserTab(DEFAULT_TAB_HREF);
+  };
+
+  // Cmd/Ctrl+Shift+T reopens the most recently closed tab, newest first, and
+  // focuses it — the same promise as a browser. A reopen always appends rather
+  // than restoring the tab's old slot: `openTab` has no insert-at primitive,
+  // and a tab landing where the strip has since changed shape is worse than a
+  // tab landing at the end where the action put it.
+  const handleReopenClosedTab = (): void => {
+    const restored = takeClosedTab();
+    if (!restored) return;
+    const { href, ...state } = restored;
+    track(ANALYTICS_EVENTS.BROWSER_TAB_REOPENED, {
+      tab_count: tabs.length + 1,
+    });
+    openBrowserTab(href, state);
+  };
+
+  const selectTab = (tabId: string, from: "click" | "shortcut"): void => {
+    track(ANALYTICS_EVENTS.BROWSER_TAB_SELECTED, {
+      from,
+      tab_count: tabs.length,
+    });
+    handleSelect(tabId);
+  };
+
+  // Ctrl+Tab / Ctrl+Shift+Tab step through the strip in displayed order and
+  // wrap at both ends.
+  const handleCycleTab = (step: 1 | -1): void => {
+    const target = cycledTabId(
+      tabs.map((tab) => tab.id),
+      activeTabId,
+      step,
+    );
+    if (target) selectTab(target, "shortcut");
+  };
 
   // Cmd/Ctrl+T opens a new browser tab. Bound here (not globally) so it only
   // fires where the strip is mounted; the new-task shortcut owns Cmd/Ctrl+N.
@@ -935,8 +997,7 @@ function BrowserTabStripImpl() {
       const slot = Number.parseInt(handler.keys?.[0] ?? "", 10);
       if (Number.isNaN(slot) || tabs.length === 0) return;
       const tab = slot === 9 ? tabs[tabs.length - 1] : tabs[slot - 1];
-      if (!tab) return;
-      handleSelect(tab.id);
+      if (tab) selectTab(tab.id, "shortcut");
     },
     {
       enableOnFormTags: true,
@@ -946,24 +1007,45 @@ function BrowserTabStripImpl() {
     [tabs, handleSelect],
   );
 
-  // Cmd/Ctrl+W closes the active browser tab. Always preventDefault so Electron
-  // doesn't close the window, but defer to the task's editor panel when it has a
-  // closeable tab (inner-first) — that handler closes the editor tab instead.
+  // Cmd/Ctrl+W closes the active top-level tab, and nothing else claims it —
+  // an inner editor tab inside a session no longer takes the key, because a
+  // shortcut that closes a different thing depending on where you are is not a
+  // shortcut you can trust. Always preventDefault, or the key reaches
+  // Electron's Window ▸ Close role and takes the window with it.
   useHotkeys(
     SHORTCUTS.CLOSE_TAB,
     (e) => {
       e.preventDefault();
-      if (taskHasCloseableEditorTab(params.taskId)) return;
-      if (activeTabId) handleClose(activeTabId);
+      if (activeTabId) handleClose(activeTabId, "shortcut");
     },
     { enableOnFormTags: true, enableOnContentEditable: true },
+  );
+
+  useHotkeys(
+    SHORTCUTS.REOPEN_TAB,
+    (e) => {
+      e.preventDefault();
+      handleReopenClosedTab();
+    },
+    { enableOnFormTags: true, enableOnContentEditable: true },
+  );
+
+  useHotkeys(
+    `${SHORTCUTS.NEXT_BROWSER_TAB},${SHORTCUTS.PREV_BROWSER_TAB}`,
+    (event) => handleCycleTab(event.shiftKey ? -1 : 1),
+    {
+      enableOnFormTags: true,
+      enableOnContentEditable: true,
+      preventDefault: true,
+    },
+    [tabs, activeTabId, handleSelect],
   );
 
   return (
     <TabStrip
       tabs={tabs}
       activeTabId={activeTabId}
-      onSelect={handleSelect}
+      onSelect={(tabId) => selectTab(tabId, "click")}
       onClose={handleClose}
       onTogglePin={handleTogglePin}
       onCloseOthers={handleCloseOthers}

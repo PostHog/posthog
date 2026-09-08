@@ -382,9 +382,9 @@ function RootLayout() {
             )}
           </Flex>
           {/* The strip owns the title bar's middle in both layouts. Search
-              moved to the rail to make room for it (see NavRail). The strip is
-              also the only global owner of Cmd+W, so the fallback has to hold
-              that key wherever the strip isn't mounted. */}
+              moved to the rail to make room for it (see NavRail). It is mounted
+              on every route, which is what lets it be the only owner of Cmd+W.
+              */}
           <BrowserTabStrip />
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls

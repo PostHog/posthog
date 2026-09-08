@@ -13,8 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { Flex } from "@radix-ui/themes";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 export interface TabView {
   id: string;
@@ -70,6 +69,17 @@ export function TabStrip({
   onCloseToRight,
   onCloseToLeft,
 }: TabStripProps) {
+  // Keyboard selection can land on a tab scrolled out of view (Ctrl+Tab past
+  // the end, Cmd/Ctrl+9). Bring the active pill back into the strip so the
+  // highlight is always something you can see.
+  const stripRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!activeTabId) return;
+    stripRef.current
+      ?.querySelector(`[data-tab-id="${CSS.escape(activeTabId)}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTabId]);
+
   // Which bulk closes are live per pill, in a single pass over the strip
   // (each closes only *unpinned* tabs in its range).
   const unpinnedTotal = tabs.reduce((n, t) => n + (t.pinned ? 0 : 1), 0);
@@ -87,15 +97,16 @@ export function TabStrip({
 
   return (
     <TooltipProvider delay={400}>
-      {/* overflow-hidden: incompressible pinned pills must clip within the
-          strip rather than overlap the title bar's right-side controls.
-          The container inherits the title bar's `drag` region so the empty
-          space right of the pills moves the window; each interactive child
-          opts out with `no-drag` individually. */}
-      <Flex
-        align="center"
-        gap="1"
-        className="h-6 min-w-0 flex-1 overflow-hidden pt-px pr-2"
+      {/* Pills shrink to `min-w-[88px]` — below that a label carries no word —
+          and the strip scrolls past that, so enough tabs never clips the last
+          one out of reach. `scrollbar-hide`: a scrollbar does not belong in a
+          title bar 24px tall. The container
+          inherits the title bar's `drag` region so the empty space right of
+          the pills moves the window; each interactive child opts out with
+          `no-drag` individually. */}
+      <div
+        ref={stripRef}
+        className="scrollbar-hide flex h-6 min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden pt-px pr-2"
         role="tablist"
       >
         {tabs.map((tab, index) => (
@@ -130,7 +141,7 @@ export function TabStrip({
             <TooltipContent side="bottom">New tab</TooltipContent>
           </Tooltip>
         )}
-      </Flex>
+      </div>
     </TooltipProvider>
   );
 }
@@ -177,10 +188,11 @@ function SortableTabPill({
   const pill = (
     <div
       ref={ref}
+      data-tab-id={tab.id}
       className={
         tab.pinned
           ? "no-drag flex shrink-0 items-center"
-          : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden"
+          : "no-drag group relative flex min-w-[88px] max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden"
       }
     >
       <Button

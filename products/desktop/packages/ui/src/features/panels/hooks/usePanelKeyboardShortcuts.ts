@@ -40,36 +40,4 @@ export function usePanelKeyboardShortcuts(taskId: string): void {
     },
     [taskId],
   );
-
-  useHotkeys(
-    SHORTCUTS.CLOSE_TAB,
-    (event) => {
-      event.preventDefault();
-
-      const state = usePanelLayoutStore.getState();
-      const currentLayout = state.getLayout(taskId);
-      const currentFocusedPanelId = currentLayout?.focusedPanelId;
-      const panelTree = currentLayout?.panelTree;
-
-      if (!currentFocusedPanelId || !panelTree) return;
-
-      const panel = getLeafPanel(panelTree, currentFocusedPanelId);
-      if (!panel) return;
-
-      const activeTab = panel.content.tabs.find(
-        (t) => t.id === panel.content.activeTabId,
-      );
-
-      if (activeTab && activeTab.closeable !== false) {
-        state.closeTab(taskId, currentFocusedPanelId, activeTab.id);
-      }
-    },
-    {
-      enabled: !!layout,
-      enableOnFormTags: ["INPUT", "TEXTAREA", "SELECT"],
-      enableOnContentEditable: true,
-      scopes: ["taskDetail"],
-    },
-    [taskId],
-  );
 }
