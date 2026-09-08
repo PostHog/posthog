@@ -662,6 +662,9 @@ export interface dashboardLogicActions {
     previewDashboardChanges: () => {
         value: true
     }
+    previewDashboardChangesFailure: () => {
+        value: true
+    }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
         tile: any
@@ -1445,6 +1448,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         clearInitialDashboardSettingsOverride: true,
         clearDashboardSettingsUrlOverrides: true,
         previewDashboardChanges: true,
+        previewDashboardChangesFailure: true,
         saveDashboardChanges: true,
         saveDashboardChangesSuccess: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1986,6 +1990,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 previewDashboardChanges: () => true,
+                previewDashboardChangesFailure: () => false,
             },
         ],
         cancellingPreview: [
@@ -4206,7 +4211,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id, e)
             }
         },
-        refreshDashboardItems: async ({ action, forceRefresh }, breakpoint) => {
+        refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
             const dashboardRefreshStartTime = performance.now()
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
@@ -4368,6 +4373,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
                     }
                 )
+
+                if (previewUnsavedFilters && (tilesErroredCount > 0 || tilesAbortedCount > 0)) {
+                    actions.previewDashboardChangesFailure()
+                }
             }
 
             if (
@@ -4845,6 +4854,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
+                previewUnsavedFilters: true,
             })
         },
         setProperties: ({ properties }) => {

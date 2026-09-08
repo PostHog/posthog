@@ -69,7 +69,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                                 data-attr="dashboard-apply-filters"
                                 type="tertiary"
                                 size="small"
-                                disabledReason={loadingPreview ? 'Dashboard preview in progress' : undefined}
+                                disabledReason={loadingPreview ? 'Previewing unsaved filters' : undefined}
                                 tooltip="Update the dashboard data with these unsaved filters. This does not save them."
                                 onClick={previewDashboardChanges}
                             >
@@ -103,7 +103,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                         ? [
                               {
                                   label: loadingPreview ? 'Previewing' : 'Preview',
-                                  disabledReason: loadingPreview ? 'Dashboard preview in progress' : undefined,
+                                  disabledReason: loadingPreview ? 'Previewing unsaved filters' : undefined,
                                   onClick: previewDashboardChanges,
                               },
                           ]

@@ -176,6 +176,43 @@ describe('DashboardFilterBar', () => {
         logic.unmount()
     })
 
+    it('makes Preview available after a preview request fails', async () => {
+        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+        const getInsightSpy = jest
+            .spyOn(dashboardUtils, 'getInsightWithRetry')
+            .mockRejectedValue(new Error('Preview request failed'))
+        const previewDashboard: DashboardType<QueryBasedInsightModel> = {
+            ...MOCK_DASHBOARD,
+            tiles: [
+                {
+                    id: 1,
+                    color: null,
+                    layouts: {},
+                    insight: { id: 1, short_id: 'preview', name: 'Preview' } as QueryBasedInsightModel,
+                },
+            ],
+        }
+        const logic = renderFilterBar(DashboardEventSource.DashboardFilters, previewDashboard)
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-7d', null)
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.previewDashboardChanges()
+        }).toFinishAllListeners()
+
+        expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveTextContent('Preview')
+        expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toHaveAttribute(
+            'aria-disabled',
+            'false'
+        )
+
+        getInsightSpy.mockRestore()
+        payloadSpy.mockRestore()
+        logic.unmount()
+    })
+
     it('shows a separate save action for unsaved filters while editing the layout', async () => {
         const logic = renderFilterBar(DashboardEventSource.SceneCommonButtons)
 
