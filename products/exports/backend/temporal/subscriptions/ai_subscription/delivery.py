@@ -187,8 +187,10 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
     # plan (if any) is read here too so the generation path stays free of ORM access.
     with transaction.atomic():
+        # of=("self",) keeps the lock on the subscription row: created_by is nullable, so
+        # select_related joins it as an outer join, and Postgres refuses a lock that reaches it.
         current = (
-            Subscription.objects.select_for_update()
+            Subscription.objects.select_for_update(of=("self",))
             .select_related("team", "created_by")
             .get(id=subscription.id, team_id=subscription.team_id)
         )
