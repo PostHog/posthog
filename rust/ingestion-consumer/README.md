@@ -34,6 +34,9 @@ Every delivered message is charged to its partition's ledger during collection, 
 A partition that settles without a frontier is not committed and stays on its last commit.
 A batch with no frontier on any partition is not committed at all; `ingestion_consumer_commits_skipped_total{reason}` counts those, where `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
 Each frontier the consumer takes goes to the commit sentinel (`commit_sentinel.rs`), which checks it and passes it to the commit pacer (`commit_pacer.rs`); after settling a poll the consumer asks the pacer what is due and commits it in one call.
+`CONSUMER_COMPLETION_GRANULARITY` selects the unit that settles against the ledger: `poll` (the default) settles a whole poll once every one of its groups is accepted, oldest poll first, and `group` settles each group's offsets as its completion arrives.
+At `group` granularity a stalled key holds back only the partitions it sits on, and the others commit through the stall; the consumer still frees an in-flight slot only when a whole poll is covered, so replay exposure does not grow.
+The consumer then commits once per wake of its completion loop, carrying every partition that advanced while it was busy.
 The pacer is immediate for now, so every poll commits its frontiers as it completes; an interval pacer that coalesces per partition comes with per-partition commits (see the driver-model plan, cycle 8).
 The commit pacer holds no I/O: the consumer commits what it is given, and the commit monitor (`commit_monitor.rs`) reports the broker's committed offsets to the sentinel.
 A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
