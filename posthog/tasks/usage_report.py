@@ -369,8 +369,8 @@ class UsageReportCounters:
     logs_retention_30d_mb_in_period: int
     logs_retention_90d_mb_in_period: int
     # Byte-days of retention floored to whole MB-days (retention_byte_days // 1_000_000): ingested bytes
-    # weighted by retention days, so it scales to any retention day count. Report-only, like
-    # logs_mb_in_period. Average retention days = logs_retention_mb_days_in_period / logs_mb_in_period.
+    # weighted by the full retention day count, so it scales to any retention day count. Zero for teams
+    # on the default retention; they are covered by logs_mb_in_period alone. Report-only.
     logs_retention_mb_days_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
@@ -2601,10 +2601,11 @@ def get_teams_with_logs_retention_byte_days_in_period(
     Returns byte-days of log retention grouped by team: ingested bytes weighted by retention days.
 
     The consumer emits one `retention_byte_days` metric into `app_metrics2`
-    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush). Summed over the period
-    it is total storage-duration and scales to any retention day count. Average retention days =
-    `retention_byte_days` / `bytes_ingested`. Each `(team_id, count)` tuple is ready for
-    `convert_team_usage_rows_to_dict`.
+    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush) only for teams on a
+    non-default retention; default-retention teams emit nothing, so their storage is billed through
+    `bytes_ingested` alone. Summed over the period it is the storage-duration of the logs kept beyond
+    the default, not of all logs, and it scales to any retention day count. Each `(team_id, count)`
+    tuple is ready for `convert_team_usage_rows_to_dict`.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
