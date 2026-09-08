@@ -64,6 +64,17 @@ function compareEdges(a: HogFlowEdge, b: HogFlowEdge): number {
     return (a.index ?? 0) - (b.index ?? 0)
 }
 
+function getSortedEdgesByFrom(edges: HogFlowEdge[]): Map<string, HogFlowEdge[]> {
+    const byFrom = new Map<string, HogFlowEdge[]>()
+    for (const edge of edges) {
+        byFrom.set(edge.from, [...(byFrom.get(edge.from) ?? []), edge])
+    }
+    for (const group of byFrom.values()) {
+        group.sort(compareEdges)
+    }
+    return byFrom
+}
+
 /**
  * Orders actions the way the canvas reads, top to bottom, by walking `edges` from the trigger.
  * The stored `actions` array is creation order, which is a different sequence for most templates.
@@ -75,26 +86,14 @@ export function getOrderedActions(actions: HogFlowAction[], edges: HogFlowEdge[]
     }
 
     const actionsById = new Map(actions.map((action) => [action.id, action]))
-    const edgesByFrom = new Map<string, HogFlowEdge[]>()
-    for (const edge of edges ?? []) {
-        const fromEdges = edgesByFrom.get(edge.from) ?? []
-        fromEdges.push(edge)
-        edgesByFrom.set(edge.from, fromEdges)
-    }
-    for (const fromEdges of edgesByFrom.values()) {
-        fromEdges.sort(compareEdges)
-    }
+    const edgesByFrom = getSortedEdgesByFrom(edges ?? [])
 
-    const ordered: HogFlowAction[] = []
+    const reached: string[] = []
     const visited = new Set<string>([trigger.id])
     const queue: string[] = [trigger.id]
-    // A cursor rather than `shift()`, so a template with many edges stays linear.
-    for (let cursor = 0; cursor < queue.length; cursor++) {
-        const id = queue[cursor]
-        const action = actionsById.get(id)
-        if (action) {
-            ordered.push(action)
-        }
+    while (queue.length > 0) {
+        const id = queue.shift() as string
+        reached.push(id)
         for (const edge of edgesByFrom.get(id) ?? []) {
             if (!visited.has(edge.to)) {
                 visited.add(edge.to)
@@ -104,5 +103,6 @@ export function getOrderedActions(actions: HogFlowAction[], edges: HogFlowEdge[]
     }
 
     // Keep any action the edges never reach, so a broken graph hides nothing
+    const ordered = reached.map((id) => actionsById.get(id)).filter((action) => !!action)
     return [...ordered, ...actions.filter((action) => !visited.has(action.id))]
 }
