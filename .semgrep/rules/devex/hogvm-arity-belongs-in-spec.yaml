@@ -1,0 +1,31 @@
+rules:
+    - id: hogvm-arity-belongs-in-spec-python
+      message: |
+          HogVM STL arity lives in common/hogvm/spec/stl.json, the shared cross-language contract —
+          not in the per-VM tables. A minArgs/maxArgs declared here is overwritten by the spec
+          loader at import, so it is dead and misleading. Edit spec/stl.json and run
+          `python -m common.hogvm.spec.compile` instead. See the changing-hogvm skill.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - pattern: STLFunction(..., minArgs=$V, ...)
+                - pattern: STLFunction(..., maxArgs=$V, ...)
+      paths:
+          include:
+              - common/hogvm/python/stl/**/*.py
+    - id: hogvm-arity-belongs-in-spec-typescript
+      message: |
+          HogVM STL arity lives in common/hogvm/spec/stl.json, the shared cross-language contract —
+          not in the per-VM tables. A minArgs/maxArgs declared here is overwritten from the
+          generated stlSpec.ts at module init, so it is dead and misleading. Edit spec/stl.json and
+          run `python -m common.hogvm.spec.compile` instead. See the changing-hogvm skill.
+      languages: [typescript]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - pattern: '{ ..., minArgs: $V, ... }'
+                - pattern: '{ ..., maxArgs: $V, ... }'
+      paths:
+          include:
+              - common/hogvm/typescript/src/stl/stl.ts

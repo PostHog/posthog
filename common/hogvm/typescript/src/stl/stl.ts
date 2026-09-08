@@ -495,7 +495,6 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Concatenates multiple values into a single string',
         example: 'concat($1, $2, $3)',
-        maxArgs: undefined,
     },
     match: {
         fn: (args, _name, options) => {
@@ -642,7 +641,6 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Creates a tuple from multiple values',
         example: 'tuple($1, $2, $3)',
-        maxArgs: undefined,
     },
     lower: {
         fn: (args) => {
@@ -675,7 +673,6 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Prints values to console',
         example: 'print($1, $2)',
-        maxArgs: undefined,
     },
     jsonParse: {
         fn: (args) => {
