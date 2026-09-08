@@ -5,6 +5,7 @@ import type {
   CloudRunSource,
   ExecutionMode,
   McpServerConnection,
+  ModelAccess,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -71,6 +72,7 @@ import type {
   TaskRun,
   TaskRunArtefact,
   TaskRunArtifact,
+  TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
@@ -322,12 +324,16 @@ export interface TaskListOptions {
 
 export interface TaskSearchResult {
   id: string;
-  kind: "task" | "pull_request" | "artifact" | "channel";
+  kind: "task" | "pull_request" | "artifact" | "channel" | "canvas";
   title: string;
   subtitle: string;
   task_id: string | null;
   task_run_id: string | null;
   channel_id: string | null;
+  created_by?: UserBasic | null;
+  origin_product?: string | null;
+  latest_run?: TaskSearchResultRun | null;
+  updated_at: string;
   metadata: Record<string, unknown>;
 }
 
@@ -406,17 +412,11 @@ export interface CreateResourceCommentRequest {
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
   resetAt: string | null;
-  isPro: boolean;
-  constructor(params: {
-    limitType: UsageLimitType;
-    resetAt: string | null;
-    isPro: boolean;
-  }) {
+  constructor(params: { limitType: UsageLimitType; resetAt: string | null }) {
     super(CLOUD_USAGE_LIMIT_ERROR_MESSAGE);
     this.name = "CloudUsageLimitError";
     this.limitType = params.limitType;
     this.resetAt = params.resetAt;
-    this.isPro = params.isPro;
   }
 }
 
@@ -531,6 +531,10 @@ export interface LlmSkillListItem {
 export interface LlmSkill extends LlmSkillListItem {
   /** The SKILL.md markdown content. */
   body: string;
+  /** Length of the whole body, whatever slice of it `body` holds. */
+  body_total_length?: number;
+  /** Offset of the next body page, or null once `body` reaches the end. */
+  body_next_offset?: number | null;
   /** Companion file manifest (paths only; fetch contents separately). */
   files: LlmSkillFileManifest[];
 }
@@ -1077,6 +1081,7 @@ export interface CloudRunOptions {
   autoPublish?: boolean;
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
+  claudeModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1226,6 +1231,9 @@ function buildCloudRunRequestBody(
   }
   if (options?.rtkEnabled === false) {
     body.rtk_enabled = false;
+  }
+  if (!options?.piRuntime && options?.claudeModelAccess) {
+    body.claude_model_access = options.claudeModelAccess;
   }
   if (options?.runSource) {
     body.run_source = options.runSource;
@@ -2268,7 +2276,7 @@ export class PostHogAPIClient {
     const data = await this.api.get("/api/projects/{project_id}/", {
       path: { project_id: projectId.toString() },
     });
-    return data as Schemas.Team;
+    return data as Schemas.ProjectBackwardCompat;
   }
 
   /**
@@ -4061,6 +4069,7 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     reason?: string,
+    onlyIfAwaitingFirstMessage = false,
   ): Promise<{ status?: string }> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/cancel/`;
@@ -4069,7 +4078,12 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${path}`),
       path,
       overrides: {
-        body: JSON.stringify(reason ? { reason } : {}),
+        body: JSON.stringify({
+          ...(reason ? { reason } : {}),
+          ...(onlyIfAwaitingFirstMessage
+            ? { only_if_awaiting_first_message: true }
+            : {}),
+        }),
       },
     });
     return (await response.json().catch(() => ({}))) as { status?: string };
@@ -5155,7 +5169,7 @@ export class PostHogAPIClient {
   async updateTeam(updates: {
     session_recording_opt_in?: boolean;
     autocapture_exceptions_opt_in?: boolean;
-  }): Promise<Schemas.Team> {
+  }): Promise<Schemas.ProjectBackwardCompat> {
     const teamId = await this.getTeamId();
     const url = new URL(`${this.api.baseUrl}/api/projects/${teamId}/`);
     const response = await this.api.fetcher.fetch({
@@ -5195,7 +5209,7 @@ export class PostHogAPIClient {
       );
     }
 
-    return (await response.json()) as Schemas.Team;
+    return (await response.json()) as Schemas.ProjectBackwardCompat;
   }
 
   async getSignalReport(reportId: string): Promise<SignalReport | null> {
@@ -6503,7 +6517,6 @@ export class PostHogAPIClient {
           typeof parsed.body.reset_at === "string"
             ? parsed.body.reset_at
             : null,
-        isPro: parsed.body.is_pro === true,
       });
     }
   }
@@ -7022,11 +7035,49 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  /** Fetches the latest version of a team skill, including body and file manifest. */
+  /**
+   * Fetches the latest version of a team skill, including body and file manifest.
+   * The endpoint caps an unpaged body at its own page length, so follow
+   * `body_next_offset` to the end and return the whole body to every caller.
+   */
   async getLlmSkillByName(name: string): Promise<LlmSkill> {
+    const first = await this.getLlmSkillBodyPage(name);
+    const pages = [first.body];
+    let offset = first.body_next_offset;
+    while (offset != null) {
+      // Pin the version: a publish between pages would otherwise splice two bodies.
+      const page = await this.getLlmSkillBodyPage(name, {
+        offset,
+        version: first.version,
+      });
+      pages.push(page.body);
+      // An offset that does not advance would page forever; the length check below
+      // then reports the short body.
+      const next = page.body_next_offset;
+      offset = next != null && next > offset ? next : null;
+    }
+
+    const body = pages.join("");
+    const total = first.body_total_length;
+    if (total != null && body.length !== total) {
+      throw new Error(
+        `Failed to fetch team skill: got ${body.length} of ${total} characters of the body of "${name}"`,
+      );
+    }
+    return { ...first, body, body_next_offset: null };
+  }
+
+  private async getLlmSkillBodyPage(
+    name: string,
+    paging?: { offset: number; version: number },
+  ): Promise<LlmSkill> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/environments/${teamId}/llm_skills/name/${encodeURIComponent(name)}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    if (paging) {
+      url.searchParams.set("body_offset", String(paging.offset));
+      url.searchParams.set("version", String(paging.version));
+    }
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,

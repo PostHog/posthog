@@ -751,6 +751,8 @@ class Task(DeletedMetaFields, models.Model):
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
+            if state.get("claude_model_access") == "own-subscription":
+                state["claude_subscription_user_id"] = acting_user_id or task.created_by_id
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.
             if task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state:
@@ -3259,6 +3261,7 @@ class TaskSearchDocument(TeamScopedRootMixin, UUIDModel):
         PULL_REQUEST = "pull_request", "Pull request"
         ARTIFACT = "artifact", "Artifact"
         CHANNEL = "channel", "Channel"
+        CANVAS = "canvas", "Canvas"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)

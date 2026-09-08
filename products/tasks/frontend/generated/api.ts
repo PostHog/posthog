@@ -87,8 +87,8 @@ import type {
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
-    TaskRunAnalysisInsightRequestApi,
-    TaskRunAnalysisInsightResponseApi,
+    TaskRunAnalysisActivityRequestApi,
+    TaskRunAnalysisActivityResponseApi,
     TaskRunAnalyzeResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -1745,27 +1745,30 @@ export const tasksRunsPartialUpdate = async (
     })
 }
 
-export const getTasksRunsAnalysisInsightCreateUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analysis-insight/`
+export const getTasksRunsAnalysisActivityCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analysis-activity/`
 }
 
 /**
- * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
- * @summary Report an analysis finding
+ * Store one activity record on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. Activities arrive in log order and do not overlap. An exact repeat of a stored activity returns its index without storing it again. The activities list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis activity
  */
-export const tasksRunsAnalysisInsightCreate = async (
+export const tasksRunsAnalysisActivityCreate = async (
     projectId: string,
     taskId: string,
     id: string,
-    taskRunAnalysisInsightRequestApi?: TaskRunAnalysisInsightRequestApi,
+    taskRunAnalysisActivityRequestApi: TaskRunAnalysisActivityRequestApi,
     options?: RequestInit
-): Promise<TaskRunAnalysisInsightResponseApi> => {
-    return apiMutator<TaskRunAnalysisInsightResponseApi>(getTasksRunsAnalysisInsightCreateUrl(projectId, taskId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskRunAnalysisInsightRequestApi),
-    })
+): Promise<TaskRunAnalysisActivityResponseApi> => {
+    return apiMutator<TaskRunAnalysisActivityResponseApi>(
+        getTasksRunsAnalysisActivityCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunAnalysisActivityRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsAnalyzeCreateUrl = (projectId: string, taskId: string, id: string) => {
@@ -2058,7 +2061,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Permission responses return 503 agent_session_not_ready only when rejected before execution; clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (

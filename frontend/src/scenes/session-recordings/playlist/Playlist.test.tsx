@@ -7,7 +7,7 @@ import { BindLogic, Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { Playlist } from './Playlist'
+import { Playlist, PlaylistProps } from './Playlist'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 jest.mock('scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed', () => ({
@@ -53,11 +53,11 @@ describe('Playlist', () => {
         localStorage.clear()
     })
 
-    function renderPlaylist(): ReturnType<typeof render> {
+    function renderPlaylist(props: PlaylistProps = {}): ReturnType<typeof render> {
         return render(
             <Provider>
                 <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-                    <Playlist />
+                    <Playlist {...props} />
                 </BindLogic>
             </Provider>
         )
@@ -68,6 +68,17 @@ describe('Playlist', () => {
 
         expect(screen.queryByText(/selected recording/)).not.toBeInTheDocument()
         expect(screen.queryByText('Show all')).not.toBeInTheDocument()
+    })
+
+    it('lets the caller replace the troubleshooting panel for an empty list', async () => {
+        renderPlaylist({ listEmptyState: <div data-attr="caller-empty-state" /> })
+
+        await waitFor(() => {
+            expect(logic.values.sessionRecordingsResponseLoading).toBe(false)
+        })
+
+        expect(screen.getByTestId('caller-empty-state')).toBeInTheDocument()
+        expect(screen.queryByTestId('mock-troubleshooting')).not.toBeInTheDocument()
     })
 
     it('shows the selected sessions notice and clears session_ids via "Show all"', async () => {

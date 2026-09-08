@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,6 +29,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
+import { INBOX_EVENTS } from '../inboxAnalytics'
 import { scoutFleetLogic } from './scoutFleetLogic'
 import { scoutSuggestionsLogic } from './scoutSuggestionsLogic'
 
@@ -307,6 +309,23 @@ describe('scoutSuggestionsLogic', () => {
 
         scoutFleetLogic.actions.loadScoutConfigsSuccess([{ ...CONFIG, enabled: true }])
         expect(logic.values.suggestions.map((item) => item.id)).toEqual([CUSTOM_ITEM.id])
+    })
+
+    it('reports a card-body press as the button it stands in for, marked as the card', async () => {
+        await mountWithBatch()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.openCreateFromSuggestion(CUSTOM_ITEM, 'strip', 'card')
+        logic.actions.openCreateFromSuggestion(CUSTOM_ITEM, 'strip')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const clicks = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+        )
+        expect(clicks.map(([, properties]) => [properties.click_target, properties.via])).toEqual([
+            ['create', 'card'],
+            ['create', 'button'],
+        ])
     })
 
     it('sends one refresh request however often the button is pressed while it is out', async () => {

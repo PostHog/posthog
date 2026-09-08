@@ -989,6 +989,13 @@ export const TasksCreateParams = () => zod.object({
         ),
 })
 
+export const TasksCreateHeader = () => zod.object({
+    'X-PostHog-Warm-Retry': zod
+        .string()
+        .optional()
+        .describe('Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.'),
+})
+
 export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255

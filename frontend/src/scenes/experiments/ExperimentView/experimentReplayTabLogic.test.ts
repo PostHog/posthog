@@ -211,6 +211,37 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         },
     },
     {
+        // Sessions matched the metric, none of them has a recording.
+        reason: ExperimentReplayListEmptyReason.MetricFilterMatchedNothing,
+        experimentId: 146,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                ...BUCKET_RESPONSE,
+                session_ids: ['bucket-session'],
+            })
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.FiltersNarrowed,
+        experimentId: 147,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) =>
+            logic.actions.playlistFiltersChanged({
+                ...logic.values.recordingsFilters,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                        },
+                    ],
+                },
+            }),
+    },
+    {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,
         experimentId: 124,
         experiment: { start_date: daysAgo(200), end_date: daysAgo(60) },
@@ -219,6 +250,18 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.TooEarly,
         experimentId: 125,
         experiment: { start_date: daysAgo(1), end_date: null },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.VariantHasNone,
+        experimentId: 141,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.InSessionHasNone,
+        experimentId: 142,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+        setup: (logic) => logic.actions.setExposureScope('in_session'),
     },
     {
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
@@ -791,6 +834,35 @@ describe('experimentReplayTabLogic', () => {
             empty.unmount()
         }
     )
+
+    it('reports no reason for the hidden-recordings action, and the reason for the others', async () => {
+        // `show_hidden` is offered when rows came back and the browser hid them, so the list is not
+        // empty. Sending the reason there would count a cause of emptiness against a list that had
+        // recordings, and every reason's click-through rate would be measured against it.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        const empty = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 143, start_date: daysAgo(1), end_date: null } as Experiment,
+        })
+        empty.mount()
+        await expectLogic(empty).toFinishAllListeners()
+
+        empty.actions.listEmptyActionClicked('show_hidden')
+        empty.actions.listEmptyActionClicked('replay_settings')
+        await expectLogic(empty).toFinishAllListeners()
+
+        const clicks = captureSpy.mock.calls.filter(
+            ([event, properties]) =>
+                event === 'experiment recordings empty state action clicked' &&
+                (properties as any)?.experiment_id === 143
+        )
+        expect(clicks.map(([, properties]) => (properties as any).empty_reason)).toEqual([
+            null,
+            ExperimentReplayListEmptyReason.TooEarly,
+        ])
+
+        empty.unmount()
+    })
 
     it('reports a list with rows, with no reason and the facets it was narrowed by', async () => {
         // The empty reason names a plausible cause of emptiness, so on a list with rows it would

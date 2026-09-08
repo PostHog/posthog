@@ -45,6 +45,8 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
+    retry_token?: string
     /** Why PostHog Desktop access was denied, when applicable.
      *
      * * `startup_plan` - startup_plan
@@ -1331,6 +1333,12 @@ export interface OnboardingSessionApi {
 
 export interface OnboardingSessionTestApi {
     /**
+     * Optional LLM model identifier for the test session. Omit to use the plan default.
+     * @maxLength 255
+     * @nullable
+     */
+    model?: string | null
+    /**
      * Company domain to research. Blank simulates a personal email address.
      * @maxLength 253
      */
@@ -2562,6 +2570,17 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
+ * * `posthog-gateway` - posthog-gateway
+ * * `own-subscription` - own-subscription
+ */
+export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+
+export const ClaudeModelAccessEnumApi = {
+    PosthogGateway: 'posthog-gateway',
+    OwnSubscription: 'own-subscription',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2661,6 +2680,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -2787,6 +2811,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3158,6 +3187,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -3220,213 +3254,197 @@ export interface PatchedTaskRunUpdateApi {
 }
 
 /**
- * * `run_was_efficient` - run_was_efficient
- * * `too_short_to_judge` - too_short_to_judge
- * * `insufficient_visibility` - insufficient_visibility
+ * * `orient` - orient
+ * * `explore` - explore
+ * * `gather` - gather
+ * * `produce` - produce
+ * * `verify` - verify
+ * * `setup_env` - setup_env
+ * * `ship` - ship
+ * * `wait` - wait
+ * * `operate` - operate
+ * * `deliver` - deliver
  */
-export type NoFindingsReasonEnumApi = (typeof NoFindingsReasonEnumApi)[keyof typeof NoFindingsReasonEnumApi]
+export type TaskAnalysisGoalKindEnumApi = (typeof TaskAnalysisGoalKindEnumApi)[keyof typeof TaskAnalysisGoalKindEnumApi]
 
-export const NoFindingsReasonEnumApi = {
-    RunWasEfficient: 'run_was_efficient',
-    TooShortToJudge: 'too_short_to_judge',
-    InsufficientVisibility: 'insufficient_visibility',
+export const TaskAnalysisGoalKindEnumApi = {
+    Orient: 'orient',
+    Explore: 'explore',
+    Gather: 'gather',
+    Produce: 'produce',
+    Verify: 'verify',
+    SetupEnv: 'setup_env',
+    Ship: 'ship',
+    Wait: 'wait',
+    Operate: 'operate',
+    Deliver: 'deliver',
 } as const
 
 /**
- * * `transcript_quote` - transcript_quote
- * * `command_output` - command_output
- * * `measured_count` - measured_count
+ * * `worked` - worked
+ * * `failed` - failed
+ * * `abandoned` - abandoned
+ * * `unknown` - unknown
  */
-export type EvidenceTypeEnumApi = (typeof EvidenceTypeEnumApi)[keyof typeof EvidenceTypeEnumApi]
+export type TaskAnalysisOutcomeEnumApi = (typeof TaskAnalysisOutcomeEnumApi)[keyof typeof TaskAnalysisOutcomeEnumApi]
 
-export const EvidenceTypeEnumApi = {
-    TranscriptQuote: 'transcript_quote',
-    CommandOutput: 'command_output',
-    MeasuredCount: 'measured_count',
+export const TaskAnalysisOutcomeEnumApi = {
+    Worked: 'worked',
+    Failed: 'failed',
+    Abandoned: 'abandoned',
+    Unknown: 'unknown',
 } as const
 
-export interface TaskAnalysisEvidenceApi {
+/**
+ * * `missing_binary` - missing_binary
+ * * `missing_package` - missing_package
+ * * `service_down` - service_down
+ * * `missing_build_artifact` - missing_build_artifact
+ * * `missing_credential` - missing_credential
+ * * `memory_limit` - memory_limit
+ * * `network` - network
+ * * `shallow_git` - shallow_git
+ * * `tool_error` - tool_error
+ * * `tool_syntax` - tool_syntax
+ * * `api_error` - api_error
+ * * `missing_flag` - missing_flag
+ * * `unclear_instructions` - unclear_instructions
+ * * `user_redirect` - user_redirect
+ */
+export type TaskAnalysisBlockerKindEnumApi =
+    (typeof TaskAnalysisBlockerKindEnumApi)[keyof typeof TaskAnalysisBlockerKindEnumApi]
+
+export const TaskAnalysisBlockerKindEnumApi = {
+    MissingBinary: 'missing_binary',
+    MissingPackage: 'missing_package',
+    ServiceDown: 'service_down',
+    MissingBuildArtifact: 'missing_build_artifact',
+    MissingCredential: 'missing_credential',
+    MemoryLimit: 'memory_limit',
+    Network: 'network',
+    ShallowGit: 'shallow_git',
+    ToolError: 'tool_error',
+    ToolSyntax: 'tool_syntax',
+    ApiError: 'api_error',
+    MissingFlag: 'missing_flag',
+    UnclearInstructions: 'unclear_instructions',
+    UserRedirect: 'user_redirect',
+} as const
+
+/**
+ * One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it.
+ */
+export interface TaskRunAnalysisActivityRequestApi {
+    /** Which kind of work the agent did in this span.
+     *
+     * * `orient` - orient
+     * * `explore` - explore
+     * * `gather` - gather
+     * * `produce` - produce
+     * * `verify` - verify
+     * * `setup_env` - setup_env
+     * * `ship` - ship
+     * * `wait` - wait
+     * * `operate` - operate
+     * * `deliver` - deliver */
+    goal_kind: TaskAnalysisGoalKindEnumApi
     /**
-     * Verbatim span copied from the analysed run log.
-     * @minLength 20
+     * What the agent tried, in 3 to 8 words.
+     * @minLength 3
+     * @maxLength 80
+     */
+    goal: string
+    /** How the activity ended for the agent.
+     *
+     * * `worked` - worked
+     * * `failed` - failed
+     * * `abandoned` - abandoned
+     * * `unknown` - unknown */
+    outcome: TaskAnalysisOutcomeEnumApi
+    /** What stopped the agent, when something did. Omit for healthy work.
+     *
+     * * `missing_binary` - missing_binary
+     * * `missing_package` - missing_package
+     * * `service_down` - service_down
+     * * `missing_build_artifact` - missing_build_artifact
+     * * `missing_credential` - missing_credential
+     * * `memory_limit` - memory_limit
+     * * `network` - network
+     * * `shallow_git` - shallow_git
+     * * `tool_error` - tool_error
+     * * `tool_syntax` - tool_syntax
+     * * `api_error` - api_error
+     * * `missing_flag` - missing_flag
+     * * `unclear_instructions` - unclear_instructions
+     * * `user_redirect` - user_redirect */
+    blocker_kind?: TaskAnalysisBlockerKindEnumApi | null
+    /**
+     * The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.
+     * @maxLength 120
+     * @nullable
+     */
+    blocker_name?: string | null
+    /**
+     * The command or step that removed the blocker, when the agent found one. Requires blocker_kind.
      * @maxLength 300
+     * @nullable
      */
-    quote: string
-    /** What kind of log content the quote was taken from.
-     *
-     * * `transcript_quote` - transcript_quote
-     * * `command_output` - command_output
-     * * `measured_count` - measured_count */
-    evidence_type: EvidenceTypeEnumApi
-}
-
-/**
- * * `environment_failure` - environment_failure
- * * `missing_tool` - missing_tool
- * * `verbose_output` - verbose_output
- * * `redundant_work` - redundant_work
- * * `missing_capability` - missing_capability
- * * `instruction_gap` - instruction_gap
- * * `wasted_retry` - wasted_retry
- * * `other` - other
- */
-export type TaskRunAnalysisInsightRequestCategoryEnumApi =
-    (typeof TaskRunAnalysisInsightRequestCategoryEnumApi)[keyof typeof TaskRunAnalysisInsightRequestCategoryEnumApi]
-
-export const TaskRunAnalysisInsightRequestCategoryEnumApi = {
-    EnvironmentFailure: 'environment_failure',
-    MissingTool: 'missing_tool',
-    VerboseOutput: 'verbose_output',
-    RedundantWork: 'redundant_work',
-    MissingCapability: 'missing_capability',
-    InstructionGap: 'instruction_gap',
-    WastedRetry: 'wasted_retry',
-    Other: 'other',
-} as const
-
-export interface TaskAnalysisWastedEffortApi {
+    repair?: string | null
     /**
-     * Wasted tool calls, counted from the log.
-     * @minimum 1
-     */
-    tool_calls?: number
-    /**
-     * Wall-clock seconds across the wasted span.
-     * @minimum 1
-     */
-    seconds?: number
-    /**
-     * Token delta across the wasted span.
-     * @minimum 1
-     */
-    tokens?: number
-    /**
-     * Sum of tool-output sizes across the wasted span.
-     * @minimum 1
-     */
-    output_bytes?: number
-}
-
-/**
- * * `every_run_in_this_repo` - every_run_in_this_repo
- * * `runs_touching_this_area` - runs_touching_this_area
- * * `one_off` - one_off
- */
-export type RecurrenceEnumApi = (typeof RecurrenceEnumApi)[keyof typeof RecurrenceEnumApi]
-
-export const RecurrenceEnumApi = {
-    EveryRunInThisRepo: 'every_run_in_this_repo',
-    RunsTouchingThisArea: 'runs_touching_this_area',
-    OneOff: 'one_off',
-} as const
-
-/**
- * * `directly_observed` - directly_observed
- * * `inferred` - inferred
- */
-export type ConfidenceBasisEnumApi = (typeof ConfidenceBasisEnumApi)[keyof typeof ConfidenceBasisEnumApi]
-
-export const ConfidenceBasisEnumApi = {
-    DirectlyObserved: 'directly_observed',
-    Inferred: 'inferred',
-} as const
-
-export interface TaskAnalysisSuggestedFixApi {
-    /**
-     * The specific change to make.
-     * @minLength 50
-     * @maxLength 400
-     */
-    change: string
-    /**
-     * A checkable condition confirming the fix worked.
-     * @minLength 30
+     * One exact quote from the run log inside the activity's line range.
+     * @minLength 10
      * @maxLength 200
      */
-    done_when: string
+    evidence: string
     /**
-     * Single-line commands only; these may become image build steps.
-     * @maxItems 10
-     * @items.minLength 1
-     * @items.maxLength 500
-     */
-    setup_commands?: string[]
-    /**
-     * Services the fix needs available.
-     * @maxItems 10
-     * @items.minLength 1
-     * @items.maxLength 100
-     */
-    required_services?: string[]
-    /**
-     * Environment variable names only, never values.
-     * @maxItems 10
-     * @items.minLength 1
-     * @items.maxLength 100
-     */
-    env_var_names?: string[]
-}
-
-/**
- * One analysis finding. The shape the server stores, independent of what the tool sent.
- */
-export interface TaskRunAnalysisInsightRequestApi {
-    /** Only for a run with zero findings; never combined with a finding.
-     *
-     * * `run_was_efficient` - run_was_efficient
-     * * `too_short_to_judge` - too_short_to_judge
-     * * `insufficient_visibility` - insufficient_visibility */
-    no_findings_reason?: NoFindingsReasonEnumApi
-    /**
-     * What happened, 1-3 sentences.
-     * @minLength 80
-     * @maxLength 500
-     */
-    observation?: string
-    /** Quotes from the analysed log backing the observation. */
-    evidence?: TaskAnalysisEvidenceApi[]
-    /**
-     * How often this happened.
+     * First log line of the activity, 1-based.
      * @minimum 1
      */
-    occurrence_count?: number
-    /** The kind of inefficiency observed.
-     *
-     * * `environment_failure` - environment_failure
-     * * `missing_tool` - missing_tool
-     * * `verbose_output` - verbose_output
-     * * `redundant_work` - redundant_work
-     * * `missing_capability` - missing_capability
-     * * `instruction_gap` - instruction_gap
-     * * `wasted_retry` - wasted_retry
-     * * `other` - other */
-    category?: TaskRunAnalysisInsightRequestCategoryEnumApi
+    start_line: number
     /**
-     * Required when category is 'other'.
-     * @minLength 50
-     * @maxLength 200
+     * Last log line of the activity, 1-based.
+     * @minimum 1
      */
-    other_justification?: string
-    /** Effort measured from the log, never estimated. */
-    wasted_effort?: TaskAnalysisWastedEffortApi
-    /** How widely this is expected to recur.
-     *
-     * * `every_run_in_this_repo` - every_run_in_this_repo
-     * * `runs_touching_this_area` - runs_touching_this_area
-     * * `one_off` - one_off */
-    recurrence?: RecurrenceEnumApi
-    /** How the finding was established.
-     *
-     * * `directly_observed` - directly_observed
-     * * `inferred` - inferred */
-    confidence_basis?: ConfidenceBasisEnumApi
-    /** The fix the finding argues for. */
-    suggested_fix?: TaskAnalysisSuggestedFixApi
+    end_line: number
+    /**
+     * Distinct tool calls started inside the line range.
+     * @minimum 0
+     */
+    tool_calls: number
+    /**
+     * Tool calls started inside the line range that ended as failed.
+     * @minimum 0
+     */
+    failed_calls: number
+    /**
+     * Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.
+     * @minimum 0
+     */
+    seconds: number
+    /**
+     * Sum of the gaps longer than 4 minutes between those consecutive timestamps.
+     * @minimum 0
+     */
+    idle_seconds: number
+    /**
+     * Command heads run in the activity, in order, adjacent duplicates removed.
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 60
+     */
+    commands?: string[]
+    /**
+     * Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.
+     * @maxItems 20
+     * @items.minLength 1
+     * @items.maxLength 200
+     */
+    guidance_read?: string[]
 }
 
-export interface TaskRunAnalysisInsightResponseApi {
-    /** Zero-based position of the stored finding on the run. */
-    insight_index: number
+export interface TaskRunAnalysisActivityResponseApi {
+    /** Zero-based position of the stored activity on the run. */
+    activity_index: number
 }
 
 export interface TaskRunAnalyzeResponseApi {
@@ -3732,6 +3750,7 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `credential_response` - credential_response
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
@@ -3747,6 +3766,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    CredentialResponse: 'credential_response',
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
@@ -3769,6 +3789,7 @@ export interface TaskRunCommandRequestApi {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -3781,7 +3802,7 @@ export interface TaskRunCommandRequestApi {
 }
 
 /**
- * Error details on failure
+ * JSON-RPC error details, including failures returned with HTTP 200
  */
 export type TaskRunCommandResponseApiError = { [key: string]: unknown }
 
@@ -3793,9 +3814,9 @@ export interface TaskRunCommandResponseApi {
     jsonrpc: string
     /** Request ID echoed back (string or number) */
     id?: unknown
-    /** Command result on success */
+    /** Command result. Permission responses confirm acceptance only with resolved=true. */
     result?: unknown
-    /** Error details on failure */
+    /** JSON-RPC error details, including failures returned with HTTP 200 */
     error?: TaskRunCommandResponseApiError
 }
 
@@ -4520,6 +4541,7 @@ export interface RepositoryReadinessResponseApi {
  * * `pull_request` - pull_request
  * * `artifact` - artifact
  * * `channel` - channel
+ * * `canvas` - canvas
  */
 export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
 
@@ -4528,7 +4550,50 @@ export const TaskSearchResultKindEnumApi = {
     PullRequest: 'pull_request',
     Artifact: 'artifact',
     Channel: 'channel',
+    Canvas: 'canvas',
 } as const
+
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `local` - Local
+ * * `cloud` - Cloud
+ */
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
+
+export const TaskRunEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
+export interface TaskRunSummaryApi {
+    /** ID of the latest run. */
+    id: string
+    status: TaskRunStatusEnumApi | null
+    environment: TaskRunEnvironmentEnumApi | null
+    /** Execution mode of the latest run.
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
+    mode: TaskExecutionModeEnumApi
+}
 
 export interface TaskSearchResultApi {
     /** Search document identifier. */
@@ -4538,7 +4603,8 @@ export interface TaskSearchResultApi {
      * * `task` - task
      * * `pull_request` - pull_request
      * * `artifact` - artifact
-     * * `channel` - channel */
+     * * `channel` - channel
+     * * `canvas` - canvas */
     kind: TaskSearchResultKindEnumApi
     /** Primary result label. */
     title: string
@@ -4559,6 +4625,17 @@ export interface TaskSearchResultApi {
      * @nullable
      */
     channel_id: string | null
+    /** Who created the containing task, when the match has one. */
+    created_by: TaskUserBasicInfoApi | null
+    /**
+     * What created the containing task, for example 'slack'.
+     * @nullable
+     */
+    origin_product: string | null
+    /** Status of the containing task's most recent run. */
+    latest_run: TaskRunSummaryApi | null
+    /** When the matched resource last changed. */
+    updated_at: string
     /** Resource-specific navigation metadata. */
     metadata: unknown
 }
@@ -4741,43 +4818,6 @@ export interface TaskSummariesRequestApi {
      * @maxItems 5000
      */
     ids: string[]
-}
-
-/**
- * * `not_started` - Not Started
- * * `queued` - Queued
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- * * `cancelled` - Cancelled
- */
-export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
-
-export const TaskRunStatusEnumApi = {
-    NotStarted: 'not_started',
-    Queued: 'queued',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `local` - Local
- * * `cloud` - Cloud
- */
-export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
-
-export const TaskRunEnvironmentEnumApi = {
-    Local: 'local',
-    Cloud: 'cloud',
-} as const
-
-export interface TaskRunSummaryApi {
-    /** ID of the latest run. */
-    id: string
-    status: TaskRunStatusEnumApi | null
-    environment: TaskRunEnvironmentEnumApi | null
 }
 
 /**
