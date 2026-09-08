@@ -54,6 +54,9 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
                 disabled={bodyDisabled}
                 onClick={() => openCreateFromSuggestion(item, surface, 'card')}
                 className={cn('flex flex-col items-start gap-1.5 pr-6 text-left', !bodyDisabled && 'cursor-pointer')}
+                // A name built from the children would lead with the "Turn on" tag and then read the
+                // whole motivation, for a press that only opens the form.
+                aria-label={`${reviewActionLabel(item)}: ${item.title}`}
                 data-attr="scout-suggestion-body"
             >
                 <SuggestionTags item={item} />
@@ -66,6 +69,11 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
             <SuggestionActions item={item} surface={surface} isBusy={isBusy} />
         </div>
     )
+}
+
+/** What pressing the card does, carried by both the action button and the card body itself. */
+function reviewActionLabel(item: ScoutSuggestionItemApi): string {
+    return item.kind === 'canonical' ? 'Review scout' : 'Review draft'
 }
 
 /** What kind of offer the card makes, and how sure the producer was. */
@@ -113,7 +121,7 @@ function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps &
                 onClick={() => openCreateFromSuggestion(item, surface)}
                 data-attr={isCanonical ? 'scout-suggestion-turn-on' : 'scout-suggestion-create'}
             >
-                {isCanonical ? 'Review scout' : 'Review draft'}
+                {reviewActionLabel(item)}
             </LemonButton>
             <LemonButton
                 type="secondary"

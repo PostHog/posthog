@@ -78,4 +78,23 @@ describe('ScoutSuggestionCard', () => {
         expect(skillReads).toBe(1)
         logic.unmount()
     })
+
+    // The body wraps the tags, the title and the motivation, so a name built from its children
+    // leads with the "Turn on" tag while the press only opens the form.
+    it.each([
+        {
+            kind: 'canonical',
+            item: canonicalItem,
+            label: 'Review scout: Watch web vitals on the pricing page',
+        },
+        {
+            kind: 'custom',
+            item: mockScoutSuggestions[1],
+            label: 'Review draft: Watch signup drop-off by plan',
+        },
+    ])('names the card body after the form it opens on a $kind pick', ({ item, label }) => {
+        const { getByLabelText, getByTestId } = render(<ScoutSuggestionCard item={item} surface="strip" />)
+
+        expect(getByLabelText(label)).toBe(getByTestId('scout-suggestion-body'))
+    })
 })
