@@ -49750,6 +49750,10 @@
                     },
                     "type": "array"
                 },
+                "recommended_only": {
+                    "description": "Restrict results to recordings above the replay relevance threshold.",
+                    "type": "boolean"
+                },
                 "response": {
                     "$ref": "#/definitions/RecordingsQueryResponse"
                 },
