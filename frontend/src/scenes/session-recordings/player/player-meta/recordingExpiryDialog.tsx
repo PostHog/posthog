@@ -14,13 +14,19 @@ interface RecordingExpiryDeadline {
 }
 
 export function getRecordingExpiryDeadline(recordingTtlDays: number, expiryTime?: string): RecordingExpiryDeadline {
-    if (recordingTtlDays <= 0) {
+    const expiry = expiryTime ? dayjs(expiryTime) : null
+    // Count the days off expiry_time in the viewer's own clock, because the API counts UTC calendar days.
+    // For a viewer west of UTC that count is one day more than the date below, so the sentence would
+    // contradict itself. Fall back to the API count only when the recording has no expiry_time.
+    const daysLeft = expiry?.isValid() ? expiry.startOf('day').diff(dayjs().startOf('day'), 'day') : recordingTtlDays
+
+    if (daysLeft <= 0) {
         return { inWords: 'today', onDate: null }
     }
 
     return {
-        inWords: `in ${recordingTtlDays} ${pluralize(recordingTtlDays, 'day', undefined, false)}`,
-        onDate: expiryTime ? dayjs(expiryTime).format('MMMM D, YYYY') : null,
+        inWords: `in ${daysLeft} ${pluralize(daysLeft, 'day', undefined, false)}`,
+        onDate: expiry?.isValid() ? expiry.format('MMMM D, YYYY') : null,
     }
 }
 

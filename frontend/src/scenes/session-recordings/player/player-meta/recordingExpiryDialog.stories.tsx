@@ -21,11 +21,16 @@ const meta: Meta<typeof RecordingExpiryDialog> = {
     component: RecordingExpiryDialog,
     args: {
         recordingTtlDays: 4,
-        expiryTime: '2023-06-01T00:00:00.000000Z',
+        expiryTime: '2026-09-16T00:00:00.000000Z',
         exportsAvailable: true,
         exportDisabledReasons: {},
         onExportVideo: () => {},
         onExportJson: () => {},
+    },
+    parameters: {
+        // The dialog counts the days from now to the expiry time, so the clock has to stand still
+        // for the story to keep showing the same deadline.
+        mockDate: '2026-09-12T12:00:00.000Z',
     },
 }
 export default meta
@@ -33,7 +38,7 @@ export default meta
 export const DaysLeft: Story = {}
 
 export const ExpiresToday: Story = {
-    args: { recordingTtlDays: 0 },
+    args: { recordingTtlDays: 0, expiryTime: '2026-09-12T20:00:00.000000Z' },
 }
 
 export const VideoExportUnavailable: Story = {
