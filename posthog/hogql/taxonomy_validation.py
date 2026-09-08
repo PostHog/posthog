@@ -338,14 +338,15 @@ def _similar_names(lookup: TaxonomyLookup, names: list[str]) -> list[str]:
         name_similarity=Greatest(*similarities) if len(similarities) > 1 else similarities[0]
     )
 
+    # Both plans hold a candidate to the same constant cutoff, so the project's size does not
+    # decide how close a name must be. The `%` operator reads its own cutoff from the
+    # `pg_trgm.similarity_threshold` server setting, and stays because a GIN index can answer it.
+    matches = Q(name_similarity__gte=TRIGRAM_SIMILARITY_THRESHOLD)
     if plan == "trigram":
-        matches = Q()
+        index_matches = Q()
         for name in comparable:
-            matches |= Q(name__trigram_similar=name)
-    else:
-        # The same cutoff the `%` operator applies (pg_trgm.similarity_threshold defaults to 0.3),
-        # made explicit so results do not depend on the server setting.
-        matches = Q(name_similarity__gte=TRIGRAM_SIMILARITY_THRESHOLD)
+            index_matches |= Q(name__trigram_similar=name)
+        matches &= index_matches
     if dollar_prefixed:
         matches |= Q(name__in=dollar_prefixed)
     ranked = ranked.filter(matches)

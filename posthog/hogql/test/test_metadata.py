@@ -26,7 +26,7 @@ from posthog.hogql import taxonomy_validation
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
-from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
+from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES, TRIGRAM_SIMILARITY_THRESHOLD
 
 from posthog.api.services.query import process_query_model
 from posthog.models import EventDefinition, PropertyDefinition, Team
@@ -432,6 +432,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(candidate_reads), 1, candidate_reads)
         uses_trigram_operator = '"name" % ' in candidate_reads[0]
         self.assertEqual(uses_trigram_operator, expects_trigram_operator, candidate_reads[0])
+        # Without the constant, the `%` plan would take its cutoff from the server's
+        # pg_trgm.similarity_threshold and stop matching the project scan.
+        self.assertIn(f">= {TRIGRAM_SIMILARITY_THRESHOLD}", candidate_reads[0])
 
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
