@@ -19,7 +19,7 @@ import {
 import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { findFirstCrossing, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
+import { findFirstCrossing, findObservedBreach, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
 
 const handleChartError = makeChartErrorHandler('alerts-forecast-preview-chart')
 
@@ -32,12 +32,12 @@ function ForecastChart({
     result,
     thresholdBounds,
     forecastConfig,
-    markerIndex,
+    markerDataIndex,
 }: {
     result: ForecastSimulateResponseApi
     thresholdBounds: InsightsThresholdBounds | null
     forecastConfig: ForecastConfig
-    markerIndex: number | null
+    markerDataIndex: number | null
 }): JSX.Element {
     const theme = useChartTheme()
     const historyLength = result.data.length
@@ -62,7 +62,6 @@ function ForecastChart({
     ]
     const lower = [...result.data, ...result.forecast_lower]
     const upper = [...result.data, ...result.forecast_upper]
-    const markerDataIndex = markerIndex == null ? null : historyLength + markerIndex
     const markerValue = markerDataIndex == null ? null : values[markerDataIndex]
     const markerColor =
         forecastConfig.condition === ForecastConditionType.TARGET_BY_DATE && !result.target_projection?.misses_target
@@ -114,14 +113,19 @@ export function ForecastPreview({
     thresholdBounds: InsightsThresholdBounds | null
     forecastConfig: ForecastConfig
 }): JSX.Element {
+    const isFutureBreach = forecastConfig.condition === ForecastConditionType.FUTURE_BREACH
+    const observedBreach = isFutureBreach ? findObservedBreach(result.data, thresholdBounds) : null
     const crossingIndex =
-        forecastConfig.condition === ForecastConditionType.FUTURE_BREACH
-            ? findFirstCrossing(result.forecast_yhat, thresholdBounds)
-            : null
+        isFutureBreach && !observedBreach ? findFirstCrossing(result.forecast_yhat, thresholdBounds) : null
     const targetIndex = result.target_projection
         ? result.forecast_dates.indexOf(result.target_projection.evaluated_date)
         : null
-    const markerIndex = targetIndex != null && targetIndex >= 0 ? targetIndex : crossingIndex
+    const forecastMarkerIndex = targetIndex != null && targetIndex >= 0 ? targetIndex : crossingIndex
+    const markerDataIndex = observedBreach
+        ? observedBreach.index
+        : forecastMarkerIndex == null
+          ? null
+          : result.data.length + forecastMarkerIndex
 
     return (
         <div className="space-y-2">
@@ -129,7 +133,7 @@ export function ForecastPreview({
                 result={result}
                 thresholdBounds={thresholdBounds}
                 forecastConfig={forecastConfig}
-                markerIndex={markerIndex}
+                markerDataIndex={markerDataIndex}
             />
             <div className="text-sm">
                 {forecastConfig.condition === ForecastConditionType.TARGET_BY_DATE && result.target_projection ? (
@@ -141,6 +145,12 @@ export function ForecastPreview({
                         {humanFriendlyNumber(result.target_projection.target)} on{' '}
                         {dateLabel(result.target_projection.target_date)}.
                     </span>
+                ) : observedBreach ? (
+                    <span>
+                        The latest value on {dateLabel(result.dates[observedBreach.index])} (
+                        {humanFriendlyNumber(observedBreach.value)}) already crosses the threshold, so this alert fires
+                        on the next check.
+                    </span>
                 ) : crossingIndex != null ? (
                     <span>Predicted to cross the threshold on {dateLabel(result.forecast_dates[crossingIndex])}.</span>
                 ) : (
@@ -148,7 +158,10 @@ export function ForecastPreview({
                 )}
             </div>
             <div className="text-xs text-muted">
-                The shaded range is an uncalibrated guide to uncertainty. This alert fires from the point forecast only.
+                The shaded range is an uncalibrated guide to uncertainty.{' '}
+                {isFutureBreach
+                    ? 'This alert fires from the point forecast, or from the latest value if it already crosses the threshold.'
+                    : 'This alert fires from the point forecast only.'}
             </div>
         </div>
     )

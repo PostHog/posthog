@@ -5,7 +5,7 @@ import {
     ForecastTargetDirection,
 } from '~/queries/schema/schema-general'
 
-import { findFirstCrossing, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
+import { findFirstCrossing, findObservedBreach, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
 
 describe('findFirstCrossing', () => {
     it.each([
@@ -17,6 +17,20 @@ describe('findFirstCrossing', () => {
         ['empty forecast', [], { upper: 5 }, null],
     ] as const)('%s', (_name, values, bounds, expected) => {
         expect(findFirstCrossing([...values], bounds)).toBe(expected)
+    })
+})
+
+describe('findObservedBreach', () => {
+    it.each([
+        ['latest value past the upper bound', [1, 2, 9], { upper: 5 }, { index: 2, value: 9 }],
+        ['latest value past the lower bound', [4, 3, -2], { lower: 0 }, { index: 2, value: -2 }],
+        ['latest value inside both bounds', [1, 9, 3], { lower: 0, upper: 5 }, null],
+        // The backend only tests the last value, so an old spike must not report a breach now.
+        ['earlier point breached, latest value fine', [9, 9, 3], { upper: 5 }, null],
+        ['no bounds set', [1, 2, 9], null, null],
+        ['no history', [], { upper: 5 }, null],
+    ] as const)('%s', (_name, data, bounds, expected) => {
+        expect(findObservedBreach([...data], bounds)).toEqual(expected)
     })
 })
 
