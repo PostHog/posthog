@@ -7,7 +7,7 @@
          count() AS event_count,
          round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS total_cost_usd
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2026-08-09 12:33:01.488508', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -30,7 +30,7 @@
          round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS cost_usd,
          round(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS avg_input_tokens
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2026-08-09 12:33:01.488508', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   GROUP BY tool
   ORDER BY cost_usd DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -54,7 +54,7 @@
          count() AS event_count,
          round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS cost_usd
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2026-08-09 12:33:01.488508', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   GROUP BY product
   ORDER BY cost_usd DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -80,7 +80,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2026-08-09 12:33:01.488508', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   GROUP BY model
   ORDER BY cost_usd DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -106,7 +106,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2026-08-09 12:33:01.488508', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   GROUP BY day
   ORDER BY day ASC
   LIMIT 92 SETTINGS readonly=2,
@@ -128,7 +128,7 @@
   /* user_id:0 request:_snapshot_@me_spend_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_model'), ''), 'null'), '^"|"$', '') AS model
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2026-08-09 12:33:01.488508', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_model'), ''), 'null'), '^"|"$', '')))
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_model'), ''), 'null'), '^"|"$', '')))
   GROUP BY model
   ORDER BY sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')) DESC, model ASC
   LIMIT 6 SETTINGS readonly=2,
@@ -155,7 +155,7 @@
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens,
          count() AS generation_count
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2026-08-09 12:33:01.488508', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   GROUP BY day,
            model
   ORDER BY day ASC, cost_usd DESC,
