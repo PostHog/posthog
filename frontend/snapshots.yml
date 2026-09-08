@@ -73,9 +73,9 @@ snapshots:
     components-activitylog--feature-flag-activity--light:
         hash: v1.k794b7964.5a8358a3bb67728abcc71ec423255206af014e13d1d95aaeaf2daba16bc96b45.tMsr51f9bhJSycyXPJYsOjM-kNAGQI2hFI3CbJBoyOk
     components-activitylog--insight-activity--dark:
-        hash: v1.k794b7964.41b2c011efcf7aa3223a71cfec6444fba566bd2b39ee41166320907844b0ceae.5HLSP_ex1j65lKKvsc5brJ3sK5TNdqwoJJkJy_QGmj4
+        hash: v1.k794b7964.eeb2e5b54ba0acf05e292aba372702616dc9c6326fd8bcbf4bbf1125fcb7c637.XMwf5MqrlV-FQsYrL-4Db38vN69QQAmBms5tmbFQlSw
     components-activitylog--insight-activity--light:
-        hash: v1.k794b7964.fd12a180d82b7fdaa9656b349b6772db22db42d2c5420d278cc9a4a29ab53bd7.z80OD8wV95-cjP_d3ROg7m6u-y25eLBYY6TXZG1odVg
+        hash: v1.k794b7964.94aae0b511d11de8cf139dd502bc7170494be36e74fd517187ce37048c514447.ZOKfzkSSO6DcNPVEP0DWvmeA3hHVd35t1AYL5yrrkPk
     components-activitylog--persons-activity--dark:
         hash: v1.k794b7964.432ff34c2d8dd67ca60593d6440de2eb053e4a8ddbfcc6cbfe4a25bce324f0d9.kljasPbvnNb_HfMKLGFlj58Wgh283EQnarNEpOf8J4U
     components-activitylog--persons-activity--light:
