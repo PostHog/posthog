@@ -1,7 +1,6 @@
 import {
     AnomalyPointsLayer,
     DEFAULT_Y_AXIS_ID,
-    ReferenceLine,
     type Series,
     TimeSeriesLineChart,
     useChartTheme,
@@ -20,7 +19,7 @@ import {
 import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { findFirstCrossing, targetSummary } from './forecastPreviewUtils'
+import { findFirstCrossing, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
 
 const handleChartError = makeChartErrorHandler('alerts-forecast-preview-chart')
 
@@ -80,6 +79,7 @@ function ForecastChart({
                         startAtZero: false,
                         tickFormatter: (value) => humanFriendlyNumber(value),
                     },
+                    goalLines: forecastGoalLines(thresholdBounds, forecastConfig),
                     confidenceIntervals: [{ seriesKey: 'forecast', lower, upper }],
                     tooltip: { valueFormatter: (value) => humanFriendlyNumber(value) },
                 }}
@@ -95,33 +95,6 @@ function ForecastChart({
                                 yAxisId: DEFAULT_Y_AXIS_ID,
                             },
                         ]}
-                    />
-                ) : null}
-                {thresholdBounds?.upper != null ? (
-                    <ReferenceLine
-                        value={thresholdBounds.upper}
-                        orientation="horizontal"
-                        variant="alert"
-                        label={`More than ${humanFriendlyNumber(thresholdBounds.upper)}`}
-                        labelPosition="start"
-                    />
-                ) : null}
-                {thresholdBounds?.lower != null ? (
-                    <ReferenceLine
-                        value={thresholdBounds.lower}
-                        orientation="horizontal"
-                        variant="alert"
-                        label={`Less than ${humanFriendlyNumber(thresholdBounds.lower)}`}
-                        labelPosition="start"
-                    />
-                ) : null}
-                {forecastConfig.condition === ForecastConditionType.TARGET_BY_DATE ? (
-                    <ReferenceLine
-                        value={forecastConfig.target}
-                        orientation="horizontal"
-                        variant="goal"
-                        label={`Target ${humanFriendlyNumber(forecastConfig.target)}`}
-                        labelPosition="start"
                     />
                 ) : null}
             </TimeSeriesLineChart>

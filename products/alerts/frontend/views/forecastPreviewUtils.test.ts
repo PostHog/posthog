@@ -1,6 +1,11 @@
-import { ForecastTargetDirection } from '~/queries/schema/schema-general'
+import {
+    ForecastConditionType,
+    ForecastConfig,
+    ForecastEngineType,
+    ForecastTargetDirection,
+} from '~/queries/schema/schema-general'
 
-import { findFirstCrossing, targetSummary } from './forecastPreviewUtils'
+import { findFirstCrossing, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
 
 describe('findFirstCrossing', () => {
     it.each([
@@ -36,5 +41,39 @@ describe('targetSummary', () => {
         expect(targetSummary({ ...projection, misses_target: false }, ForecastTargetDirection.AT_LEAST)).toBe(
             'On track to reach the target'
         )
+    })
+})
+
+describe('forecastGoalLines', () => {
+    const breachConfig: ForecastConfig = {
+        type: 'ForecastConfig',
+        engine: ForecastEngineType.PROPHET,
+        condition: ForecastConditionType.FUTURE_BREACH,
+        horizon: 7,
+    }
+    const targetConfig: ForecastConfig = {
+        type: 'ForecastConfig',
+        engine: ForecastEngineType.PROPHET,
+        condition: ForecastConditionType.TARGET_BY_DATE,
+        target: 1000,
+        target_direction: ForecastTargetDirection.AT_LEAST,
+        target_date: '2026-12-01',
+    }
+
+    it('carries both threshold bounds, so the axis can stretch to reach an off-scale one', () => {
+        expect(forecastGoalLines({ lower: 10, upper: 9000 }, breachConfig)).toEqual([
+            { value: 9000, label: 'More than 9,000', labelPosition: 'start', color: 'var(--danger)' },
+            { value: 10, label: 'Less than 10', labelPosition: 'start', color: 'var(--danger)' },
+        ])
+    })
+
+    it('carries the target of a target-by-date alert', () => {
+        expect(forecastGoalLines(null, targetConfig)).toEqual([
+            { value: 1000, label: 'Target 1,000', labelPosition: 'start' },
+        ])
+    })
+
+    it('has no lines when a breach alert has no bounds yet', () => {
+        expect(forecastGoalLines(null, breachConfig)).toEqual([])
     })
 })
