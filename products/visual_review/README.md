@@ -39,10 +39,11 @@ A run counts as a PR branch only when it has a PR number, because we do not reco
 - The latest run of a group on the default branch is never deleted.
 - A PR branch with no run of any type in 90 days is finished, so its latest runs go too.
   They go after the superseded runs of the same group, because every superseded run points at the latest one.
+  That pass keeps the newest completed run of a run type on any branch, because a repo that only runs on PR branches has no other row left that names the baseline hashes committed to it.
 
 Artifacts go by reference, never by age.
 Content addressing means one upload backs every later run that renders the same pixels, so an artifact's age says nothing about whether it is in use.
-An artifact goes when no surviving snapshot points at it as its current, baseline, or diff image, no snapshot names its hash, no other artifact points at it as a thumbnail, and it is more than 7 days old.
+An artifact goes when no surviving snapshot points at it as its current, baseline, or diff image, no snapshot of the same repo names its hash, no other artifact points at it as a thumbnail, and it is more than 7 days old.
 The hash check matters because a snapshot names its images by hash at run creation and gets its artifact links later.
 The grace period covers the gap before anything names a new artifact, which is where a diff or thumbnail image sits between the write and the link.
 

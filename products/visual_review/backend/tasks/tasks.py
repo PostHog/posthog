@@ -179,7 +179,14 @@ def sweep_visual_review_retention() -> None:
     # open for its whole run.
     # nosemgrep: idor-lookup-without-team — cross-team retention sweep, no user input
     repos = list(Repo.objects.unscoped().using(READER_DB).order_by("created_at"))
-    for repo in repos:
+    for swept, repo in enumerate(repos):
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "visual_review.retention_sweep_budget_exhausted",
+                repos_swept=swept,
+                repos_total=len(repos),
+            )
+            break
         try:
             result = retention.sweep_repo(repo, deadline=deadline)
         except Exception as e:

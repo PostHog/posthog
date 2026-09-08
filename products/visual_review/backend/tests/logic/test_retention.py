@@ -6,7 +6,7 @@ import pytest
 
 from django.utils import timezone
 
-from products.visual_review.backend.facade.enums import RunType, ToleratedReason
+from products.visual_review.backend.facade.enums import RunStatus, RunType, ToleratedReason
 from products.visual_review.backend.logic import artifact_store, repos, retention
 from products.visual_review.backend.models import Artifact, QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
 from products.visual_review.backend.tasks.tasks import sweep_visual_review_retention
@@ -47,6 +47,7 @@ class TestRetentionSweep:
         run_type: str = RunType.STORYBOOK,
         pr_number: int | None = 7,
         superseded_by: Run | None = None,
+        status: str = RunStatus.COMPLETED,
     ) -> Run:
         run = Run.objects.create(
             repo=repo,
@@ -56,6 +57,7 @@ class TestRetentionSweep:
             commit_sha="abc123",
             pr_number=pr_number,
             superseded_by=superseded_by,
+            status=status,
         )
         # created_at is auto_now_add, so the age has to be written afterwards.
         Run.objects.filter(id=run.id).update(created_at=now - timedelta(days=age_days))
@@ -104,11 +106,23 @@ class TestRetentionSweep:
     def test_quiet_branch_group_goes_in_one_sweep(self, repo, now):
         latest = self._run(repo, now, age_days=91)
         superseded = self._run(repo, now, age_days=100, superseded_by=latest)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
 
         result = retention.sweep_repo(repo, now=now)
 
         assert result.runs_deleted == 2
         assert not Run.objects.filter(id__in=[latest.id, superseded.id]).exists()
+
+    def test_quiet_branch_keeps_the_newest_completed_run_of_a_run_type(self, repo, now):
+        latest = self._run(repo, now, age_days=91)
+
+        assert retention.sweep_repo(repo, now=now).runs_deleted == 0
+        assert Run.objects.filter(id=latest.id).exists()
+
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+
+        assert retention.sweep_repo(repo, now=now).runs_deleted == 1
+        assert not Run.objects.filter(id=latest.id).exists()
 
     def test_quiet_branch_kept_when_another_run_type_is_recent(self, repo, now):
         stale_latest = self._run(repo, now, age_days=91, run_type=RunType.STORYBOOK)
@@ -211,6 +225,17 @@ class TestRetentionSweep:
         assert result.artifacts_deleted == 0
         assert Artifact.objects.filter(id=artifact.id).exists()
 
+    @pytest.mark.parametrize("field", ["current_hash", "baseline_hash"])
+    def test_hash_reference_from_another_repo_does_not_keep_an_artifact(self, field, repo, other_repo, now):
+        artifact = self._artifact(repo, now, content_hash="shared1", age_days=30)
+        run = self._run(other_repo, now, age_days=1)
+        RunSnapshot.objects.create(run=run, team_id=repo.team_id, identifier="Button", **{field: artifact.content_hash})
+
+        result = retention.sweep_repo(repo, now=now)
+
+        assert result.artifacts_deleted == 1
+        assert not Artifact.objects.filter(id=artifact.id).exists()
+
     def test_thumbnail_is_collected_one_sweep_after_its_parent(self, repo, now):
         thumbnail = self._artifact(repo, now, content_hash="thumb1", age_days=30)
         parent = self._artifact(repo, now, content_hash="parent1", age_days=30, thumbnail=thumbnail)
@@ -270,3 +295,11 @@ class TestRetentionSweep:
 
         assert {call.args[0].id for call in sweep_repo.call_args_list} == {repo.id, other_repo.id}
         assert capture_exception.call_count == 1
+
+    def test_task_stops_sweeping_repos_when_the_time_budget_is_gone(self, repo, other_repo, mocker):
+        mocker.patch.object(retention, "SWEEP_TIME_BUDGET_SECONDS", 0)
+        sweep_repo = mocker.patch.object(retention, "sweep_repo")
+
+        sweep_visual_review_retention()
+
+        assert sweep_repo.call_count == 0

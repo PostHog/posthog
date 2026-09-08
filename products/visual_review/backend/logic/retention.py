@@ -16,6 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from ..db import WRITER_DB
+from ..facade.enums import RunStatus
 from ..models import Artifact, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import run_queries
@@ -65,8 +66,9 @@ _PROTECTED_HISTORY = Q(branch__in=run_queries._DEFAULT_BRANCHES) | Q(pr_number__
 # run point at an image nobody will upload again. A leaked object costs storage
 # and nothing else.
 #
-# The hash checks carry a team filter because the same image bytes hash the same
-# in every team. The id checks need none, because an id is unique on its own.
+# The hash checks are scoped to the repo, because an artifact and its storage key
+# belong to one repo, so a snapshot of another repo can never use this row. The id
+# checks need no scope, because an id is unique on its own.
 _DELETE_ARTIFACTS_SQL = """
 DELETE FROM visual_review_artifact a
 WHERE a.id = ANY(%(artifact_ids)s::uuid[])
@@ -76,11 +78,13 @@ WHERE a.id = ANY(%(artifact_ids)s::uuid[])
   AND NOT EXISTS (SELECT 1 FROM visual_review_runsnapshot s WHERE s.diff_artifact_id = a.id)
   AND NOT EXISTS (
       SELECT 1 FROM visual_review_runsnapshot s
-      WHERE s.team_id = a.team_id AND s.current_hash = a.content_hash
+      JOIN visual_review_run r ON r.id = s.run_id
+      WHERE s.team_id = a.team_id AND r.repo_id = a.repo_id AND s.current_hash = a.content_hash
   )
   AND NOT EXISTS (
       SELECT 1 FROM visual_review_runsnapshot s
-      WHERE s.team_id = a.team_id AND s.baseline_hash = a.content_hash
+      JOIN visual_review_run r ON r.id = s.run_id
+      WHERE s.team_id = a.team_id AND r.repo_id = a.repo_id AND s.baseline_hash = a.content_hash
   )
   AND NOT EXISTS (SELECT 1 FROM visual_review_artifact t WHERE t.thumbnail_id = a.id)
 RETURNING a.id, a.storage_path
@@ -144,11 +148,19 @@ class RetentionSweep:
             run_type=OuterRef("run_type"),
             superseded_by__isnull=False,
         )
+        # When the repo has no protected-history run, the snapshot rows of the
+        # newest completed run of a run type are the only thing left that names
+        # the baseline hashes committed to the repo, whatever their branch.
+        newer_completed_run = self._runs().filter(
+            run_type=OuterRef("run_type"),
+            status=RunStatus.COMPLETED,
+            created_at__gt=OuterRef("created_at"),
+        )
         return list(
             self._runs()
             .filter(superseded_by__isnull=True, created_at__lt=quiet_cutoff)
             .exclude(_PROTECTED_HISTORY)
-            .filter(~Exists(recent_run_on_branch), ~Exists(superseded_run_in_group))
+            .filter(~Exists(recent_run_on_branch), ~Exists(superseded_run_in_group), Exists(newer_completed_run))
             .order_by("created_at")
             .values_list("id", flat=True)[:limit]
         )
@@ -168,9 +180,13 @@ class RetentionSweep:
         return deleted
 
     def delete_expired_runs(self) -> int:
+        # Both candidate queries are expensive reads, so each one runs only when
+        # there is time left to act on its result.
+        if self._out_of_time():
+            return 0
         deleted = self._delete_runs(self._expired_superseded_run_ids(MAX_RUNS_PER_SWEEP))
         remaining = MAX_RUNS_PER_SWEEP - deleted
-        if remaining <= 0:
+        if remaining <= 0 or self._out_of_time():
             return deleted
         # The quiet-branch pass reads the groups the pass above has already
         # emptied, so the two cannot run in the other order.
@@ -188,8 +204,8 @@ class RetentionSweep:
                 # A snapshot names its images by hash when the run is created
                 # and gets its artifact FKs only when the link step and the
                 # classifier run, so a NULL FK does not mean the row is free.
-                ~Exists(snapshots.filter(current_hash=OuterRef("content_hash"))),
-                ~Exists(snapshots.filter(baseline_hash=OuterRef("content_hash"))),
+                ~Exists(snapshots.filter(run__repo_id=self.repo.id, current_hash=OuterRef("content_hash"))),
+                ~Exists(snapshots.filter(run__repo_id=self.repo.id, baseline_hash=OuterRef("content_hash"))),
                 # A thumbnail stays while the artifact that points at it exists.
                 # That artifact's delete leaves the thumbnail unreferenced, and
                 # the next sweep collects it.
