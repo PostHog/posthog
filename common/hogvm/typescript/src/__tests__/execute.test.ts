@@ -178,6 +178,24 @@ describe('hogvm execute', () => {
         ).toThrow('Function lower requires at most 1 arguments')
     })
 
+    // HogQL and Hog share these names, so a call written against the HogQL signature has to run in
+    // Hog too. maxArgs is checked before dispatch, so a limit below HogQL's rejects a valid call.
+    test.each([
+        ['round', [1.2345, 2]],
+        ['floor', [1.9, 1]],
+        ['toString', [123, 'UTC']],
+        ['now', ['UTC']],
+        ['position', ['abc', 'b', 1]],
+        ['positionCaseInsensitive', ['abc', 'B', 1]],
+    ])('%s accepts every argument HogQL accepts', (name, args) => {
+        const bytecode: any[] = ['_H', 1]
+        for (const arg of args) {
+            bytecode.push(typeof arg === 'string' ? op.STRING : Number.isInteger(arg) ? op.INTEGER : op.FLOAT, arg)
+        }
+        bytecode.push(op.CALL_GLOBAL, name, args.length)
+        expect(() => execSync(bytecode)).not.toThrow()
+    })
+
     test('null coercion in ordering comparisons - preserved behavior', () => {
         // This test documents the current typescript hogvm behavior where null is coerced to 0 in ordering comparisons.
         // HogVM in python/rust does not share this behavior.
