@@ -80,6 +80,8 @@ export const FixWithAi: Story = {
 }
 
 export const FixWithAiInFlight: Story = {
+    // The spinner is the point of this story, so it never settles and the runner must not wait.
+    parameters: { testOptions: { waitForLoadersToDisappear: false, viewportWidths: ['narrow', 'wide'] } },
     render: () => (
         <Row
             predicate={{ ...BLOCKED, fix: "Compare '$browser_version' against text.", quickfix: undefined }}
