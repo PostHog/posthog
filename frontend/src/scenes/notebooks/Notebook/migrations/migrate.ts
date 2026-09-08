@@ -48,8 +48,7 @@ import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent
 // is filtered through the migrate function below that ensures integrity
 export const NOTEBOOKS_VERSION = '3'
 
-// The names `migrate` reports in `notebook_legacy_migration_applied`. A name that never gets
-// reported marks a converter, and a `filtersToQueryNode` export, that no stored notebook needs.
+// The names reported in `notebook_legacy_migration_applied`. A name nothing reports marks a dead converter.
 export type NotebookLegacyMigration =
     | 'insight_to_query_node'
     | 'query_string_to_object'

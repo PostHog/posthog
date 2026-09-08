@@ -1073,8 +1073,6 @@ describe('migrate()', () => {
         await expect(migrate(prevNotebook)).resolves.toEqual(nextNotebook)
     })
 
-    // `migrate` runs on every notebook load, so a report on a load that repaired nothing, or one
-    // naming the wrong converter, would keep a dead converter alive or delete a load bearing one.
     const legacyMigrationReports: [string, JSONContent[], NotebookLegacyMigration[] | null][] = [
         ['nothing for content that holds no legacy shape', [{ type: 'paragraph' }], null],
         [
