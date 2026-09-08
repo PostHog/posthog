@@ -5,6 +5,7 @@ from typing import Any
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.facade.sandbox import SandboxBase, sandbox_repo_path
+from products.wizard.backend.logic.workers.commands import bound_command_output
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest, SignedRepositoryCommit
 
 GIT_COMMAND_TIMEOUT_SECONDS = 60
@@ -98,26 +99,36 @@ def _staged_changes(
     additions: list[tuple[str, str]] = []
     deletions: list[str] = []
     tokens = output.split("\0")
+    remaining_bytes = MAX_COMMIT_PAYLOAD_BYTES
     for index in range(0, len(tokens) - 1, 2):
         status, path = tokens[index], tokens[index + 1]
         if not status:
             continue
         if status.startswith("D"):
+            remaining_bytes -= len(path.encode("utf-8")) + 16
             deletions.append(path)
         else:
-            additions.append((path, _staged_file_contents(sandbox, repository_path, path)))
+            remaining_bytes -= len(path.encode("utf-8")) + 32
+            if remaining_bytes < 0:
+                raise RepositoryPublishingError("Staged changes exceed the GitHub commit payload limit.")
+            contents = _staged_file_contents(sandbox, repository_path, path, remaining_bytes)
+            remaining_bytes -= len(contents)
+            additions.append((path, contents))
+        if remaining_bytes < 0:
+            raise RepositoryPublishingError("Staged changes exceed the GitHub commit payload limit.")
     return additions, deletions
 
 
-def _staged_file_contents(sandbox: SandboxBase, repository_path: str, path: str) -> str:
+def _staged_file_contents(sandbox: SandboxBase, repository_path: str, path: str, remaining_bytes: int) -> str:
     contents = _run_git(
         sandbox,
         repository_path,
         f"show {shlex.quote(f':{path}')} | base64 -w 0",
         f"staged file read for '{path}'",
+        max_output_bytes=remaining_bytes,
     ).strip()
     try:
-        base64.b64decode(contents)
+        base64.b64decode(contents, validate=True)
     except ValueError as error:
         raise RepositoryPublishingError(f"Could not read staged file '{path}'.") from error
     return contents
@@ -327,9 +338,21 @@ def _repository_parts(repository: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def _run_git(sandbox: SandboxBase, repository_path: str, arguments: str, stage: str) -> str:
+def _run_git(
+    sandbox: SandboxBase,
+    repository_path: str,
+    arguments: str,
+    stage: str,
+    *,
+    max_output_bytes: int = MAX_COMMIT_PAYLOAD_BYTES,
+) -> str:
     command = f"git -C {shlex.quote(repository_path)} {arguments}"
-    result = sandbox.execute(command, timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS)
+    result = sandbox.execute(
+        bound_command_output(command, stdout_limit=max_output_bytes + 1, tail=False),
+        timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
+    )
+    if len(result.stdout.encode("utf-8")) > max_output_bytes:
+        raise RepositoryPublishingError("Staged changes exceed the GitHub commit payload limit.")
     if result.exit_code != 0:
         raise RepositoryPublishingError(f"Repository {stage} failed with exit code {result.exit_code}.")
     return result.stdout

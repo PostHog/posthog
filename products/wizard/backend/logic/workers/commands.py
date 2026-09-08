@@ -19,6 +19,21 @@ from products.wizard.backend.logic.workers.config import (
 from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
 
 _WIZARD_PROGRAM_COMMAND_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+MAX_SANDBOX_LOG_BYTES = 64 * 1024
+
+
+def bound_command_output(command: str, *, stdout_limit: int = MAX_SANDBOX_LOG_BYTES, tail: bool = True) -> str:
+    """
+    Wraps a command to limit its stdout and stderr output to a given number of bytes.
+    Helps prevent runaway commands from filling up the worker's logs and causing OOM errors.
+    """
+    stdout_reader = "tail" if tail else "head"
+    script = (
+        f"( set -o pipefail; {command} ) "
+        f"> >({stdout_reader} -c {stdout_limit}) 2> >(tail -c {MAX_SANDBOX_LOG_BYTES} >&2); "
+        'status=$?; wait; exit "$status"'
+    )
+    return f"bash -c {shlex.quote(script)}"
 
 
 def build_wizard_command(

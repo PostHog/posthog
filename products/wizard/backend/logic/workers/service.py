@@ -26,6 +26,7 @@ from products.wizard.backend.logic.artifacts.config import (
     PULL_REQUEST_TITLE,
 )
 from products.wizard.backend.logic.workers.commands import (
+    bound_command_output,
     build_git_diff_command,
     build_local_wizard_preparation_command,
     build_read_handoff_command,
@@ -206,12 +207,14 @@ def execute_wizard(request: WizardExecutionRequest) -> None:
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
 
     wizard_result = sandbox.execute(
-        build_wizard_command(
-            request.workspace_path,
-            request.team_id,
-            request.wizard_version,
-            request.program_command,
-            use_local_wizard_source=request.use_local_wizard_source,
+        bound_command_output(
+            build_wizard_command(
+                request.workspace_path,
+                request.team_id,
+                request.wizard_version,
+                request.program_command,
+                use_local_wizard_source=request.use_local_wizard_source,
+            )
         ),
         timeout_seconds=SANDBOX_EXECUTION_TIMEOUT_SECONDS,
     )
