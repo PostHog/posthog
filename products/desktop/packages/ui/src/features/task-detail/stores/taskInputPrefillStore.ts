@@ -68,7 +68,6 @@ export const useTaskInputPrefillStore = create<PrefillStoreState>((set) => ({
               initialPrompt: undefined,
               initialContent: undefined,
               recoveredFromKey: undefined,
-              requestId: undefined,
             },
           }
         : s,
