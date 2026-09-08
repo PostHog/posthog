@@ -11,14 +11,13 @@ import {
     hasInvertedThresholdBounds,
     INVERTED_THRESHOLD_BOUNDS_FORM_ERROR,
 } from 'products/alerts/frontend/logic/alertFormSchema'
-import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { getSimulationRangeOptions } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import {
     forecastTargetDateError,
     forecastTargetValueError,
+    resolveForecastSimulationRange,
     usableSimulationRanges,
 } from 'products/alerts/frontend/logic/forecastReach'
-
-import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 /** Why an upcoming-breach forecast cannot be previewed yet, or null when it can. The form rejects
  * the same bound pairs on save, but that error only shows once the user has tried to save. */
@@ -69,8 +68,7 @@ export function ForecastSimulationSection({
         getSimulationRangeOptions(alertForm.calculation_interval),
         insightInterval
     )
-    const selectedRange = simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)
-    const range = rangeOptions.some((o) => o.value === selectedRange) ? selectedRange : rangeOptions[0].value
+    const range = resolveForecastSimulationRange(simulationDateFrom, alertForm.calculation_interval, insightInterval)
     return (
         <div className="flex flex-wrap gap-2 items-center">
             <div className="flex items-center gap-1.5">

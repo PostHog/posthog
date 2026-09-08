@@ -1,11 +1,12 @@
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import {
+    getDefaultSimulationRange,
+    getSimulationRangeOptions,
+} from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { AlertSimulationResult } from 'products/alerts/frontend/types'
 import { SimulationSummary } from 'products/alerts/frontend/views/SimulationSummary'
-
-import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 interface AlertSimulationSectionProps {
     alertForm: AlertFormType

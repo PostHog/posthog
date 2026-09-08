@@ -35,7 +35,7 @@ import {
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
-import { clampHorizon } from 'products/alerts/frontend/logic/forecastReach'
+import { clampHorizon, resolveForecastSimulationRange } from 'products/alerts/frontend/logic/forecastReach'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 
 import {
@@ -252,18 +252,16 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
 
 function invalidatesForecastSimulation(name: FieldName): boolean {
     const field = Array.isArray(name) ? name[0] : name
-    return field === 'forecast_config' || field === 'threshold' || field === 'config'
+    // The cadence picks the offered history ranges, so changing it can move the range the preview ran.
+    return (
+        field === 'forecast_config' || field === 'threshold' || field === 'config' || field === 'calculation_interval'
+    )
 }
 
 /** The inputs a forecast simulation is computed from. The form stays editable while the request
  * runs, and the response echoes none of them back, so the loader compares this before and after. */
-function forecastSimulationInputs(alert: AlertFormType, simulationDateFrom: string | null): string {
-    return JSON.stringify([
-        alert.forecast_config,
-        alert.config,
-        alert.threshold,
-        simulationDateFrom ?? getDefaultSimulationRange(alert.calculation_interval),
-    ])
+function forecastSimulationInputs(alert: AlertFormType, dateFrom: string): string {
+    return JSON.stringify([alert.forecast_config, alert.config, alert.threshold, dateFrom])
 }
 
 function alertToFormType(
@@ -565,7 +563,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 setSimulationDateFrom: () => null,
                 setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
                 setAlertFormValues: (state, { values: changed }) =>
-                    'forecast_config' in changed || 'threshold' in changed || 'config' in changed ? null : state,
+                    ['forecast_config', 'threshold', 'config', 'calculation_interval'].some((field) => field in changed)
+                        ? null
+                        : state,
             },
         ],
         alertFormSubmitAttempted: [
@@ -618,20 +618,29 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         return null
                     }
                     const formConfig = values.alertForm.config
-                    const requestedInputs = forecastSimulationInputs(values.alertForm, values.simulationDateFrom)
+                    const dateFrom = resolveForecastSimulationRange(
+                        values.simulationDateFrom,
+                        values.alertForm.calculation_interval,
+                        props.insightInterval
+                    )
+                    const requestedInputs = forecastSimulationInputs(values.alertForm, dateFrom)
                     const response = await alertsSimulateForecastCreate(String(values.currentTeamId), {
                         insight: props.insightId,
                         forecast_config: forecastConfig as unknown as ForecastConfigApi,
                         series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
-                        date_from:
-                            values.simulationDateFrom ??
-                            getDefaultSimulationRange(values.alertForm.calculation_interval),
+                        date_from: dateFrom,
                     })
                     // An edit during the request already cleared the preview, so a late response
                     // must not put old forecast data back next to the new settings.
-                    return forecastSimulationInputs(values.alertForm, values.simulationDateFrom) === requestedInputs
-                        ? response
-                        : null
+                    const settledInputs = forecastSimulationInputs(
+                        values.alertForm,
+                        resolveForecastSimulationRange(
+                            values.simulationDateFrom,
+                            values.alertForm.calculation_interval,
+                            props.insightInterval
+                        )
+                    )
+                    return settledInputs === requestedInputs ? response : null
                 },
             },
         ],
@@ -1133,8 +1142,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     success: true,
                     forecast_engine: forecastConfig?.engine ?? null,
                     forecast_condition: forecastConfig?.condition ?? null,
-                    date_from:
-                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    date_from: resolveForecastSimulationRange(
+                        values.simulationDateFrom,
+                        values.alertForm.calculation_interval,
+                        props.insightInterval
+                    ),
                     forecast_points: forecastSimulationResult.forecast_dates.length,
                 })
             },
@@ -1144,8 +1156,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     success: false,
                     forecast_engine: forecastConfig?.engine ?? null,
                     forecast_condition: forecastConfig?.condition ?? null,
-                    date_from:
-                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    date_from: resolveForecastSimulationRange(
+                        values.simulationDateFrom,
+                        values.alertForm.calculation_interval,
+                        props.insightInterval
+                    ),
                     error: error ?? 'Unknown error',
                 })
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)

@@ -1,8 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
+import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
-import { INSIGHT_INTERVAL_DURATION_MINUTES } from './alertIntervalHelpers'
+import {
+    getDefaultSimulationRange,
+    getSimulationRangeOptions,
+    INSIGHT_INTERVAL_DURATION_MINUTES,
+} from './alertIntervalHelpers'
 
 export const MAX_FORECAST_REACH_DAYS = 92
 export const MAX_FORECAST_OUTPUT_POINTS = 250
@@ -111,4 +116,18 @@ export function usableSimulationRanges<T extends { value: string }>(
     const required = minForecastPoints(interval)
     const usable = options.filter((option) => pointsInSimulationRange(option.value, interval) >= required)
     return usable.length > 0 ? usable : options.slice(-1)
+}
+
+/** The history range a forecast preview runs over. The stored range can sit outside the offered
+ * list, because the cadence changed under it or because it is too short for the insight's interval.
+ * The control and the request both resolve it here, so the chart cannot answer a different window
+ * from the one on screen. */
+export function resolveForecastSimulationRange(
+    storedRange: string | null,
+    cadence: AlertCalculationInterval,
+    insightInterval: IntervalType | null | undefined
+): string {
+    const options = usableSimulationRanges(getSimulationRangeOptions(cadence), insightInterval)
+    const selected = storedRange ?? getDefaultSimulationRange(cadence)
+    return options.some((option) => option.value === selected) ? selected : options[0].value
 }

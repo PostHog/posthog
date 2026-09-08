@@ -639,6 +639,45 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResult).toBeNull()
         })
 
+        it('sends the range the control shows after a cadence change', async () => {
+            ;(alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(null)
+            const logic = mountForecastForm()
+            logic.actions.setSimulationDateFrom('-90d')
+            logic.actions.setAlertFormValue('calculation_interval', AlertCalculationInterval.WEEKLY)
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            // A weekly cadence offers -8w upwards, so the daily range cannot be sent or shown.
+            expect((alertsSimulateForecastCreate as jest.Mock).mock.calls[0][1].date_from).toBe('-8w')
+        })
+
+        it('drops the result when the cadence changes', async () => {
+            const mockResponse = {
+                data: [1, 2, 3],
+                dates: ['2026-01-01', '2026-01-02', '2026-01-03'],
+                interval: 'day',
+                forecast_dates: ['2026-01-04'],
+                forecast_yhat: [4],
+                forecast_lower: [3],
+                forecast_upper: [5],
+                target_projection: null,
+            }
+            ;(alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
+            const logic = mountForecastForm()
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            expect(logic.values.forecastSimulationResult).toEqual(mockResponse)
+
+            logic.actions.setAlertFormValue('calculation_interval', AlertCalculationInterval.WEEKLY)
+
+            expect(logic.values.forecastSimulationResult).toBeNull()
+        })
+
         it('clearSimulation resets the forecast simulation result', async () => {
             const mockResponse = {
                 data: [1, 2, 3],

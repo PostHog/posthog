@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
 import {
@@ -10,6 +11,7 @@ import {
     maxHorizonForInterval,
     minForecastPoints,
     pointsInSimulationRange,
+    resolveForecastSimulationRange,
     usableSimulationRanges,
 } from './forecastReach'
 
@@ -130,5 +132,27 @@ describe('usableSimulationRanges', () => {
 
     it('drops the monthly ranges that are too short for a monthly insight', () => {
         expect(usableSimulationRanges(monthlyOptions, 'month')).toEqual([{ value: '-24m' }])
+    })
+})
+
+describe('resolveForecastSimulationRange', () => {
+    it('keeps a stored range that the cadence still offers', () => {
+        expect(resolveForecastSimulationRange('-60d', AlertCalculationInterval.DAILY, 'day')).toBe('-60d')
+    })
+
+    it('uses the cadence default when nothing is stored', () => {
+        expect(resolveForecastSimulationRange(null, AlertCalculationInterval.DAILY, 'day')).toBe('-30d')
+    })
+
+    // Picking "Last 90d" on a daily cadence and then switching the cadence to weekly leaves a range
+    // the weekly select cannot show, so the request has to move with the control.
+    it('replaces a stored range the new cadence does not offer', () => {
+        expect(resolveForecastSimulationRange('-90d', AlertCalculationInterval.WEEKLY, 'day')).toBe('-8w')
+    })
+
+    // The monthly default is 12 months, which is under the 14 completed intervals a monthly insight
+    // needs, so the only usable option is the one the control falls back to.
+    it('replaces a default that is too short for the insight interval', () => {
+        expect(resolveForecastSimulationRange(null, AlertCalculationInterval.MONTHLY, 'month')).toBe('-24m')
     })
 })
