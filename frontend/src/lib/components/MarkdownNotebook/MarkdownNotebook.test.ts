@@ -1305,15 +1305,20 @@ Last paragraph`)
         expect(result.mergedMarkdown).toEqual(localMarkdown)
     })
 
-    it('normalizes the first rendered row into a notebook title', () => {
+    it('normalizes the first rendered row into a notebook title and places the autofocus caret there', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange, autoFocus: true })
+        )
         const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
         const body = container.querySelector('p.MarkdownNotebook__text-block') as HTMLElement
 
         expect(title).toBeInstanceOf(HTMLElement)
         expect(title.textContent).toEqual('Notebook name')
         expect(body.textContent).toEqual('Body line')
+        expect(title.contains(window.getSelection()?.anchorNode ?? null)).toBe(true)
+        expect(window.getSelection()?.isCollapsed).toBe(true)
+        expect(window.getSelection()?.anchorOffset).toBe(0)
 
         title.textContent = 'Updated name'
         fireEvent.input(title)

@@ -16,6 +16,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
 - `<Widget>` is the only notebook markdown tag for generated widgets.
+- Widget previews allow pointer lock for interactive controls such as games. Both the iframe and artifact CSP permit `allow-pointer-lock`; the preview URL varies to refresh previously cached CSP headers.
 - Organizations must approve AI data processing before a job is queued and when its worker starts.
 - Every widget endpoint requires the `notebook-generated-widgets` feature flag: creation, status, history, source, restore, cancellation, and dataframe reads. While it is disabled, existing widget nodes still render but every request they make returns 404. A generation job that is already running does not recheck the flag; it finishes model generation and the Canvas build, bounded by the 10-minute stale window and the 15-minute activity timeout. Keep the flag disabled until the generated-code data boundary and mixed-version Canvas rollout are approved.
 - Production artifact delivery requires `CANVAS_ARTIFACT_ORIGIN`, a dedicated bare HTTPS origin with no path, query, fragment, or credentials, set before rollout. A production deploy with it unset boots clean, but every widget builds and then reports its preview unavailable, because no artifact URL is minted. Artifact URLs use Django's rotating `SECRET_KEY` values for signing by default. Deployments can set `CANVAS_ARTIFACT_SIGNING_KEYS` for independent rotation.
@@ -24,6 +25,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 ## Agent access
 
+New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.

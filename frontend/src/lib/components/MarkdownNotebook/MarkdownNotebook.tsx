@@ -1108,7 +1108,10 @@ function MarkdownNotebookEditor({
 
         const firstTextNode = getRenderedNodes()[0]
         const firstElement = firstTextNode ? blockRefs.current[firstTextNode.id] : null
-        firstElement?.focus()
+        if (firstElement) {
+            firstElement.focus()
+            restoreSelection(firstElement, 0, 0)
+        }
         // oxlint-disable-next-line exhaustive-deps
     }, [autoFocus, mode])
 
