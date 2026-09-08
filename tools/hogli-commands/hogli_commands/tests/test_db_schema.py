@@ -307,7 +307,9 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
 def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The dump comes from a database that routes product apps elsewhere, so it records their
     # migrations as applied without ever creating their tables. Left in place, the next product
-    # migration is applied for real here and fails on the missing table.
+    # migration is applied for real here and fails on the missing table. The squash schema-addons
+    # rows must go too: they depend on the product apps' leaf squashes, so keeping them while the
+    # product rows are gone fails Django's migration consistency check.
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)
     commands: list[list[str]] = []
@@ -324,6 +326,7 @@ def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monk
     assert app_labels, "expected products/db_routing.yaml to route at least one app"
     for app_label in app_labels:
         assert f"'{app_label}'" in deletes[0]
+    assert r"name LIKE '%\_squash\_%\_schema\_addons'" in deletes[0]
 
 
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

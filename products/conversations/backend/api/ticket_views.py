@@ -36,7 +36,11 @@ class TicketViewFiltersField(serializers.JSONField):
 
 
 class TicketViewSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, help_text="The user who created this view.")
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Display name of the view, as it appears in the ticket views list.",
+    )
     filters = TicketViewFiltersField(
         required=False,
         default=dict,
@@ -65,6 +69,14 @@ class TicketViewSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
         ]
+        extra_kwargs = {
+            "id": {"help_text": "Internal UUID of the view."},
+            "short_id": {
+                "help_text": "Stable short identifier for the view. Use it to address the view in this API, to open "
+                "it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets."
+            },
+            "created_at": {"help_text": "When the view was created."},
+        }
 
     def _set_favorited(self, instance: TicketView, favorited: bool) -> None:
         user = self.context["request"].user
