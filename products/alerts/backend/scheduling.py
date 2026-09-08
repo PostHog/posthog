@@ -170,7 +170,7 @@ def _next_check_at_for_schedule_start_time(
             }[interval]
             earliest_allowed = next_check_at + timedelta(minutes=cadence_minutes) if next_check_at else now
             earliest_allowed = max(earliest_allowed, now)
-            if next_check_at is not None:
+            if next_check_at is not None or start_utc <= now:
                 elapsed_seconds = (earliest_allowed - start_utc).total_seconds()
                 intervals_to_advance = ceil(elapsed_seconds / (cadence_minutes * 60))
                 start_utc += timedelta(minutes=intervals_to_advance * cadence_minutes)

@@ -137,6 +137,15 @@ class TestScheduleStartTime:
             schedule_start_time={"time": "22:30"},
         ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC)
 
+    def test_hourly_alert_created_after_its_start_time_uses_the_first_future_check(self) -> None:
+        assert next_calendar_check_time(
+            CalendarInterval.HOURLY,
+            now=datetime(2026, 4, 6, 23, 50, tzinfo=UTC),
+            tz_name="UTC",
+            next_check_at=None,
+            schedule_start_time={"time": "09:35"},
+        ) == datetime(2026, 4, 7, 0, 35, tzinfo=UTC)
+
     @parameterized.expand(
         [
             (CalendarInterval.REAL_TIME, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
