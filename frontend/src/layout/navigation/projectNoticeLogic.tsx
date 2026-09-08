@@ -221,8 +221,8 @@ export interface projectNoticeLogicValues {
     memberCount: number // membersLogic
     currentOrganizationId: string // organizationLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
-    newlyRequestedVerificationCodeLoading: boolean // verifyEmailLogic
     user: UserType | null // userLogic
+    newlyRequestedVerificationCodeLoading: boolean // verifyEmailLogic
     effectiveBillingAlert: BillingAlertConfig | null
     noticeDismissedThisSession: boolean
     projectNotice: ProjectNoticeBlueprint | null
