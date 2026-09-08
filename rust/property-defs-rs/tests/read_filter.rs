@@ -1,13 +1,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 use property_defs_rs::{
-    batch_ingestion::{process_batch, EventPropertiesBatch, PropertyDefinitionsBatch},
+    batch_ingestion::{
+        process_batch, EventDefinitionsBatch, EventPropertiesBatch, PropertyDefinitionsBatch,
+    },
     config::Config,
-    read_filter::{filter_event_properties, filter_property_definitions},
-    types::{EventProperty, PropertyDefinition, PropertyParentType, PropertyValueType, Update},
+    read_filter::{filter_event_definitions, filter_event_properties, filter_property_definitions},
+    types::{
+        floor_last_seen, last_seen_jitter_seed, EventDefinition, EventProperty, PropertyDefinition,
+        PropertyParentType, PropertyValueType, Update, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS,
+    },
     update_cache::Cache,
 };
 
@@ -26,6 +32,23 @@ fn event_prop(property: &str) -> EventProperty {
         project_id: PROJECT,
         event: "$pageview".to_string(),
         property: property.to_string(),
+    }
+}
+
+fn event_def(name: &str) -> EventDefinition {
+    event_def_at(name, Utc::now())
+}
+
+fn event_def_at(name: &str, now: DateTime<Utc>) -> EventDefinition {
+    EventDefinition {
+        name: name.to_string(),
+        team_id: TEAM,
+        project_id: PROJECT,
+        last_seen_at: floor_last_seen(
+            now,
+            DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS,
+            last_seen_jitter_seed(TEAM, name),
+        ),
     }
 }
 
@@ -139,4 +162,34 @@ async fn test_process_batch_with_read_pool_writes_new_rows(db: PgPool) {
         count, 2,
         "the new row must persist alongside the seeded one"
     );
+}
+
+// The stored last_seen_at advances past the floored value as soon as one pod writes
+// the definition, so every later sighting in the same period is a no-op upsert.
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_filter_drops_event_definitions_seen_this_period(db: PgPool) {
+    seed(&db, vec![Update::Event(event_def("$pageview"))]).await;
+
+    let mut batch = EventDefinitionsBatch::new(10);
+    batch.append(event_def("$pageview"));
+    batch.append(event_def("$autocapture"));
+
+    filter_event_definitions(&db, &mut batch, BUDGET).await;
+
+    assert_eq!(batch.names, vec!["$autocapture".to_string()]);
+}
+
+// A sighting in a later period must still reach the writer, or last_seen_at freezes.
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_filter_keeps_event_definitions_in_a_new_period(db: PgPool) {
+    seed(&db, vec![Update::Event(event_def("$pageview"))]).await;
+
+    let next_period =
+        Utc::now() + Duration::from_secs(DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS as u64);
+    let mut batch = EventDefinitionsBatch::new(10);
+    batch.append(event_def_at("$pageview", next_period));
+
+    filter_event_definitions(&db, &mut batch, BUDGET).await;
+
+    assert_eq!(batch.names, vec!["$pageview".to_string()]);
 }
