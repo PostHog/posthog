@@ -4,7 +4,7 @@ import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import {
     SESSION_LOGS_WINDOW_MINUTES,
-    SessionIdMatch,
+    LogIdentityMatch,
     buildDateRangeAround,
     getSessionIdWithKey,
 } from 'products/logs/frontend/utils'
@@ -26,7 +26,7 @@ function getServiceName(log: ParsedLogMessage): string | null {
     return serviceName ? String(serviceName) : null
 }
 
-function getSessionMatch(log: ParsedLogMessage, configuredKeys?: string[]): SessionIdMatch | null {
+function getSessionMatch(log: ParsedLogMessage, configuredKeys?: string[]): LogIdentityMatch | null {
     return getSessionIdWithKey(log.attributes, log.resource_attributes, configuredKeys)
 }
 

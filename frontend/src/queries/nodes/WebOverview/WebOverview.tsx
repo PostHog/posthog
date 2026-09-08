@@ -7,7 +7,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { OverviewGrid } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -67,22 +66,8 @@ export function WebOverview(props: {
             warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
         })) || []
 
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS]) {
-        return (
-            <OverviewMetricCardGrid
-                items={overviewItems}
-                loading={responseLoading}
-                numSkeletons={numSkeletons}
-                samplingRate={samplingRate}
-                preComputeStrategy={preComputeStrategy}
-                onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
-                labelFromKey={labelFromKey}
-            />
-        )
-    }
-
     return (
-        <OverviewGrid
+        <OverviewMetricCardGrid
             items={overviewItems}
             loading={responseLoading}
             numSkeletons={numSkeletons}

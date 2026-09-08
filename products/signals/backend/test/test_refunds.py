@@ -167,8 +167,10 @@ class TestSignalReportRefundAPI(APIBaseTest):
     )
     @freeze_time(_NOW)
     def test_report_response_carries_refund_ineligibility_reason(self, _flag, case, expected):
-        # The serializer field shares the refund endpoint's eligibility decision (annotation +
+        # The serializer field shares the refund endpoint's eligibility decision (billable moment +
         # period context + helper); a wiring regression would re-enable buttons that only 400.
+        # The list resolves the billable moment from a batched map and the detail from a per-row
+        # annotation, so both paths are asserted — the inbox reads the list one.
         if case == "no_billable_pr":
             report = _make_report(self.team)
         else:
@@ -185,6 +187,12 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["refund_ineligibility_reason"] == expected
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/")
+
+        assert list_response.status_code == 200
+        listed = {row["id"]: row for row in list_response.json()["results"]}
+        assert listed[str(report.id)]["refund_ineligibility_reason"] == expected
 
     @freeze_time(_NOW)
     def test_refund_on_exempt_report_is_rejected(self, _flag):

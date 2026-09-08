@@ -7,6 +7,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     getAdvertisedOAuthScopes,
+    getFlagGatedTools,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
@@ -498,6 +499,37 @@ describe('server-minted scope matching', () => {
         expect(hasScope(['*'], 'signal_scratchpad_internal:write')).toBe(false)
         expect(hasScope(['signal_scratchpad_internal:write'], 'signal_scratchpad_internal:write')).toBe(true)
     })
+
+    // Withholding the wildcard from these objects must not also withhold write-implies-read.
+    // Scout sandbox tokens carry `signal_scout_internal:write` and never the `:read` form, so
+    // dropping that rule hid `scout-members-list` from every scout's toolset and left reports
+    // with nobody to route to. Django authorizes the same tokens with the rule applied.
+    it.each([
+        'internal_run',
+        'loop_context_internal',
+        'mcp_builtin_agent',
+        'signal_scout_internal',
+        'signal_scout_report',
+        'signal_scratchpad_internal',
+    ])('lets a %s:write token satisfy the matching :read scope', (scopeObject) => {
+        expect(hasScope([`${scopeObject}:write`], `${scopeObject}:read`)).toBe(true)
+        // The implication runs one way only.
+        expect(hasScope([`${scopeObject}:read`], `${scopeObject}:write`)).toBe(false)
+        // A wildcard still reaches neither form.
+        expect(hasScope(['*'], `${scopeObject}:read`)).toBe(false)
+        expect(hasScope(['*'], `${scopeObject}:write`)).toBe(false)
+    })
+
+    it('does not let a write on one internal object reach another', () => {
+        expect(hasScope(['signal_scout_report:write'], 'signal_scout_internal:read')).toBe(false)
+    })
+
+    it('leaves wildcard and write-implies-read intact for user-grantable scopes', () => {
+        expect(hasScope(['*'], 'insight:read')).toBe(true)
+        expect(hasScope(['*'], 'insight:write')).toBe(true)
+        expect(hasScope(['insight:write'], 'insight:read')).toBe(true)
+        expect(hasScope(['insight:read'], 'insight:write')).toBe(false)
+    })
 })
 
 describe('getAdvertisedOAuthScopes', () => {
@@ -848,6 +880,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).toContain('notebooks-retrieve')
         expect(off).not.toContain('notebooks-create-markdown')
         expect(off).not.toContain('notebooks-add-cell')
+        expect(off).not.toContain('notebooks-set-variables')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -855,6 +888,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-add-cell')
         expect(on).toContain('notebooks-update-cell')
         expect(on).toContain('notebooks-delete-cell')
+        expect(on).toContain('notebooks-set-variables')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
@@ -889,7 +923,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'revamped-py-notebooks',
                 'tasks',
                 'dashboard-widgets',
-                'heatmaps-mcp',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
@@ -911,6 +944,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-warehouse-scene',
                 'data-quality-checks',
                 'context-layer',
+                'warehouse-multi-destination',
             ])
         )
         expect(flags).toHaveLength(33)
@@ -1035,6 +1069,41 @@ describe('Tool Filtering - Feature Flags', () => {
             expect(toolsOff).toContain('old-tool-v1')
             expect(toolsOff).toContain('unrelated-tool')
         })
+    })
+})
+
+describe('getFlagGatedTools', () => {
+    it('reports a retired tool with the successor its definition declares', () => {
+        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': true } })
+
+        expect(gated.find((tool) => tool.name === 'notebooks-create')?.supersededBy).toEqual([
+            'notebooks-create-markdown',
+        ])
+    })
+
+    it('leaves out a tool the flags keep in the catalog', () => {
+        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': false } })
+
+        expect(gated.map((tool) => tool.name)).not.toContain('notebooks-create')
+    })
+
+    it('reports a tool an unset flag never enabled, so a caller learns it exists', () => {
+        const gated = getFlagGatedTools({ featureFlags: {} })
+
+        const entry = gated.find((tool) => tool.name === 'notebooks-add-cell')
+        expect(entry).not.toBeUndefined()
+        expect(entry?.supersededBy).toEqual([])
+    })
+
+    // The successor lives on the definition next to the gate that retires the tool.
+    // Without it, a call to the retired name reads to an agent as a removed capability.
+    it('every retired tool declares a successor or says why it has none', () => {
+        const undeclared = Object.entries(getToolDefinitions())
+            .filter(([_, def]) => def.feature_flag_behavior === 'disable' || def.hidden_when_flag_on)
+            .filter(([_, def]) => !def.superseded_by?.length && !def.redirect_hint)
+            .map(([name]) => name)
+
+        expect(undeclared).toEqual([])
     })
 })
 

@@ -114,8 +114,7 @@ export function TaskListView({
     (state) => state.showSidebarWorktrees,
   );
   const view = useAppView();
-  const isOnTaskInput =
-    view.type === "task-input" || view.type === "task-pending";
+  const isOnTaskInput = view.type === "task-input";
   const prefersReducedMotion = useReducedMotion();
   // A drag that starts on a selected row carries the whole selection, so a pin
   // or an unpin applies to every row the user picked, not just the grabbed one.

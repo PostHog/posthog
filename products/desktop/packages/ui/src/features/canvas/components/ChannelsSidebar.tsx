@@ -27,6 +27,7 @@ import {
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -197,7 +198,12 @@ function ChannelsSidebarImpl() {
   const archivedTaskIds = useArchivedTaskIds();
 
   // Scoping lives in ChannelRouteSync: this column is not always drawn.
-  const { currentChannelId } = useCurrentChannel({ enabled: channelsLayout });
+  useCurrentChannel({ enabled: channelsLayout });
+  // The route's space, before the space list has resolved it. That hook withholds
+  // an unresolved id so nothing files against a dead space, but the pane only has
+  // to draw one — waiting held its tabs behind the fetch, and a stale id is
+  // dropped by the same hook a tick later.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   // Browsing the list is view state, not navigation: you stay in the channel
   // (route and main pane unchanged) while you look around. With no channel to

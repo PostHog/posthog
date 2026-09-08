@@ -1,0 +1,6 @@
+{
+    "id": "VA10",
+    "real": false,
+    "source": "reused-KA5",
+    "reasoning": "Identical claim verified as KA5 in 2026-08-validator-model-sol (is_real=false, high confidence); adopted after re-checking the frozen tree. find_task_run (products/tasks/backend/webhooks.py:28-33) has no team parameter, so the implied scoped-lookup fix does not exist; every leg is repository-keyed (webhooks.py:41-42, 69-72, 86-88). Shadowing needs another team's run with the identical output.pr_url for the same repo (only the run that opened the PR writes it honestly) or a same repo+branch collision, and the outcome fails closed: facade/api.py:504-506 returns None, denying automation - the safe direction for a gate. Other-team -> None is the documented contract (facade/api.py:490-498) and is test-covered. The forgeable-linkage risk is a different finding (LA15)."
+}

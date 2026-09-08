@@ -11,7 +11,7 @@ import structlog
 from redis.asyncio import Redis
 
 from llm_gateway.config import get_settings
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT
+from llm_gateway.products.config import POSTHOG_CODE_PRODUCT
 
 logger = structlog.get_logger(__name__)
 

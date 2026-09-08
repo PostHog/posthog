@@ -18,6 +18,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             description: 'Analyze and understand your AI usage and performance.',
             iconType: 'llm_analytics',
+            docsHref: 'https://posthog.com/docs/ai-observability',
         },
         AIObservabilityTrace: {
             import: () => import('./frontend/AIObservabilityTraceScene'),
@@ -44,6 +45,7 @@ export const manifest: ProductManifest = {
             description: 'Test and experiment with LLM prompts in a sandbox environment.',
             layout: 'app-full-scene-height',
             iconType: 'llm_playground',
+            docsHref: 'https://posthog.com/docs/ai-observability/playground',
         },
         AIObservabilityDatasets: {
             import: () => import('./frontend/datasets/AIObservabilityDatasetsScene'),
@@ -52,6 +54,7 @@ export const manifest: ProductManifest = {
             description: 'Manage datasets for testing and evaluation.',
             layout: 'app-container',
             iconType: 'llm_datasets',
+            docsHref: 'https://posthog.com/docs/ai-evals/datasets',
         },
         AIObservabilityDataset: {
             import: () => import('./frontend/datasets/AIObservabilityDatasetScene'),
@@ -68,6 +71,7 @@ export const manifest: ProductManifest = {
             activityScope: 'AIObservability',
             layout: 'app-container',
             iconType: 'llm_evaluations',
+            docsHref: 'https://posthog.com/docs/ai-evals',
         },
         AIObservabilityEvaluation: {
             import: () => import('./frontend/evaluations/AIObservabilityEvaluation'),
@@ -93,6 +97,7 @@ export const manifest: ProductManifest = {
             activityScope: 'AIObservability',
             layout: 'app-container',
             iconType: 'llm_tags',
+            docsHref: 'https://posthog.com/docs/ai-evals/taggers',
         },
         AIObservabilityTag: {
             import: () => import('./frontend/tags/AIObservabilityTag'),
@@ -109,6 +114,7 @@ export const manifest: ProductManifest = {
             description: 'Track and manage your LLM prompts.',
             layout: 'app-container',
             iconType: 'llm_prompts',
+            docsHref: 'https://posthog.com/docs/prompt-management',
         },
         AIObservabilityPrompt: {
             import: () => import('./frontend/prompts/LLMPromptScene'),
@@ -124,6 +130,7 @@ export const manifest: ProductManifest = {
             description: 'Discover patterns and clusters in your AI usage.',
             layout: 'app-container',
             iconType: 'llm_clusters',
+            docsHref: 'https://posthog.com/docs/ai-observability/clusters',
         },
         AIObservabilityCluster: {
             import: () => import('./frontend/clusters/AIObservabilityClusterScene'),
@@ -310,6 +317,9 @@ export const manifest: ProductManifest = {
                 search?: string
                 tab?: string
                 msg?: string
+                // Only string values are valid query params. An object (e.g. the filters array)
+                // would stringify to "[object Object]" and corrupt the URL, so reject it at compile time.
+                [key: string]: string | undefined
             }
         ): string => {
             const encodePathSegment = (value: string): string => {
@@ -323,7 +333,13 @@ export const manifest: ProductManifest = {
                     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
                 )
             }
-            const queryParams = new URLSearchParams(params)
+            const definedParams: Record<string, string> = {}
+            for (const [key, value] of Object.entries(params ?? {})) {
+                if (value !== undefined) {
+                    definedParams[key] = value
+                }
+            }
+            const queryParams = new URLSearchParams(definedParams)
             const stringifiedParams = queryParams.toString()
             return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },

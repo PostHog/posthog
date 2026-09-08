@@ -754,7 +754,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         key,
         subscribers: existing.subscriberCount,
       });
-      void this.emitCurrentSnapshot(key);
+      // Until the first snapshot is out, the bootstrap in flight delivers it to
+      // every subscriber. Replaying here would fetch and emit the transcript a
+      // second time, and each emit is serialized once per subscription.
+      if (existing.hasEmittedSnapshot) {
+        void this.emitCurrentSnapshot(key);
+      }
       return;
     }
 
@@ -895,8 +900,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       if (!response.ok) {
         const errorText = await response.text().catch(() => "");
         let errorMessage = `Command failed with status ${response.status}`;
+        let errorCode: string | undefined;
         try {
           const errorJson = JSON.parse(errorText);
+          if (typeof errorJson.code === "string") {
+            errorCode = errorJson.code;
+          }
           if (errorJson.error?.message) {
             errorMessage = errorJson.error.message;
           } else if (errorJson.error) {
@@ -915,11 +924,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
           method: input.method,
           status: response.status,
           error: errorMessage,
+          code: errorCode,
         });
         const retryable = [400, 502, 503, 504].includes(response.status);
         return {
           success: false,
           error: errorMessage,
+          code: errorCode,
           status: response.status,
           retryable,
         };

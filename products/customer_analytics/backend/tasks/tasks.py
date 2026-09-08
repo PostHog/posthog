@@ -1,5 +1,6 @@
 from celery import shared_task
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
 
 from products.customer_analytics.backend.facade.email_matching import (
@@ -7,12 +8,16 @@ from products.customer_analytics.backend.facade.email_matching import (
     recalculate_email_thread_links,
 )
 from products.customer_analytics.backend.logic.announcements import send_pending_deliveries
-from products.customer_analytics.backend.logic.custom_property_sync import run_custom_property_sync
+from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
 
 
 @shared_task(name="customer_analytics.process_custom_property_sync", ignore_result=True)
 def process_custom_property_sync(team_id: int, saved_query_id: str) -> None:
-    run_custom_property_sync(team_id=team_id, saved_query_id=saved_query_id)
+    try:
+        sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id)
+    except Exception as error:
+        capture_exception(error)
+        raise
 
 
 @shared_task(
