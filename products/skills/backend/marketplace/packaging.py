@@ -32,7 +32,7 @@ SPEC_DESCRIPTION_MAX_LENGTH = 1024
 # context on each turn (the harness lists name and description of every discovered skill), so the
 # count is bounded by what an agent can usefully carry, not by what the user owns. The client picks
 # the count up to the ceiling.
-DEFAULT_BUNDLE_SKILLS = 20
+DEFAULT_BUNDLE_SKILLS = 50
 MAX_BUNDLE_SKILLS = 100
 
 # Zip-bomb defense for import: bound member count and per-member *decompressed* read so a small

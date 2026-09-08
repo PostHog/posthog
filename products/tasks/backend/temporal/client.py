@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -593,6 +594,7 @@ def signal_task_followup_message(
     context: dict[str, Any] | None = None,
     *,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
 ) -> None:
     """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
@@ -616,7 +618,10 @@ def signal_task_followup_message(
                 if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
                     signal_name = SEND_STEER_SIGNAL
         signal_args = [message, artifact_ids, message_id, actor_user_id, context]
-        await handle.signal(signal_name, args=signal_args)
+        if rpc_timeout is None:
+            await handle.signal(signal_name, args=signal_args)
+        else:
+            await handle.signal(signal_name, args=signal_args, rpc_timeout=rpc_timeout)
 
     asyncio.run(signal())
 

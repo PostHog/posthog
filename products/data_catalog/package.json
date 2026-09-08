@@ -12,9 +12,11 @@
     "devDependencies": {
         "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "^5.17.0",
-        "@testing-library/react": "^14.3.1"
+        "@testing-library/react": "^14.3.1",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@types/react": "*",
         "clsx": "*",

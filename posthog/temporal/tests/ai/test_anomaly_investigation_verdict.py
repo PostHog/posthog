@@ -69,7 +69,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         )
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow._prepare_insight_chart_url", return_value=None)
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.prepare_alert_insight_chart_url", return_value=None)
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
@@ -102,7 +102,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         assert self.alert_check.investigation_notebook_id is not None
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow.exports.render_png_export")
+    @patch("posthog.tasks.alerts.utils.exports.render_png_export")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
@@ -135,7 +135,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         mock_render.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow._prepare_insight_chart_url", return_value=None)
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.prepare_alert_insight_chart_url", return_value=None)
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.signals.emit_signal")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
@@ -176,7 +176,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.dispatch_alert_notification", return_value=[])
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow.exports.render_png_export")
+    @patch("posthog.tasks.alerts.utils.exports.render_png_export")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")

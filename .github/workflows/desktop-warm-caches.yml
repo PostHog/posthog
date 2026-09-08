@@ -12,8 +12,12 @@ name: Desktop Warm Caches
 on:
     push:
         branches: [master]
+        # Every cache key in this workflow hashes pnpm-lock.yaml alone, so no other file
+        # can invalidate one. A wider filter would spend a macOS runner from a fixed,
+        # shared pool on install steps that no-op when all three caches hit. Use
+        # workflow_dispatch to reseed by hand if a cache is evicted.
         paths:
-            - 'products/desktop/**'
+            - 'products/desktop/pnpm-lock.yaml'
             - '.github/workflows/desktop-warm-caches.yml'
     workflow_dispatch:
 

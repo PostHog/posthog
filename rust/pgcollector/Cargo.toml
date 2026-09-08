@@ -36,7 +36,6 @@ tokio-postgres-rustls = "0.13"
 toml = "0.8"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-webpki-roots = "1"
 
 [lints]
 workspace = true

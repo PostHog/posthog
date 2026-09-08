@@ -12,7 +12,12 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.models import Team
 
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
-from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
+from products.data_modeling.backend.logic.node_materialization import start_node_materialization
+from products.data_modeling.backend.logic.node_suspension import (
+    mark_node_suspended,
+    suspension_reset_at,
+    suspension_state,
+)
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
@@ -281,6 +286,20 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.view_node.refresh_from_db()
         self.assertEqual(suspension_state(self.view_node), {})
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_materialization_without_resume_keeps_the_node_suspended(self, mock_sync_connect):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        self._suspend(self.view_node)
+        before = suspension_state(self.view_node)
+
+        start_node_materialization(self.view_node, resume=False)
+
+        self.view_node.refresh_from_db()
+        self.assertEqual(suspension_state(self.view_node), before)
+        self.assertIsNone(suspension_reset_at(self.view_node, "clickhouse"))
+        self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_run_starts_the_execute_dag_workflow(self, mock_sync_connect):

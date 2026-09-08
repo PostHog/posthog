@@ -80,7 +80,7 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
     name = "harmonic"
 
     async def enrich_by_domain(self, domain: str) -> ProviderLookup:
-        async with AsyncHarmonicClient() as client:
+        async with AsyncHarmonicClient(source="growth_enrichment_provider") as client:
             lookup = await client.enrich_company_by_domain_strict(domain)
             company = lookup.company
             fields = transform_harmonic_company(company)
@@ -91,7 +91,7 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
     async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
         if not urns:
             return {}
-        async with AsyncHarmonicClient() as client:
+        async with AsyncHarmonicClient(source="growth_enrichment_provider") as client:
             statuses = await client.get_enrichment_status(urns)
         return {
             urn: entry["status"]
