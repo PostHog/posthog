@@ -1455,6 +1455,17 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
 
+        # timestamp - timestamp is a numeric duration, not a datetime; typing it as DateTime makes
+        # the printer wrap later references in toTimeZone(), which ClickHouse rejects (code 43).
+        node = self._select("select timestamp - timestamp as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        # timestamp shifted by an integer stays a datetime
+        node = self._select("select timestamp - 1 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.DateTimeType(nullable=False))
+
     def test_boolean_types(self):
         node: ast.SelectQuery = self._select("select true and false as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
