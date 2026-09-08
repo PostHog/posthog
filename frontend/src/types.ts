@@ -1613,6 +1613,7 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    recommended_only?: boolean
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
      * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
@@ -3731,6 +3732,7 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** query when used as ad-hoc insight */
     query?: Q
     setQuery?: (node: Q) => void
+    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -6303,8 +6305,6 @@ export interface DataModelingDAG {
     name: string
     description: string
     sync_frequency: DataModelingSyncInterval | null
-    /** True when per-model freshness targets drive scheduling, making the DAG-level frequency read-only */
-    frequency_managed_by_nodes?: boolean
     node_count: number
     created_at: string
     updated_at: string
@@ -6319,8 +6319,6 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
-    /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
-    sync_frequency_managed_by_dag?: boolean
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
     status?: string
