@@ -14,6 +14,7 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
+    KAFKA_USAGE_INGESTION,
 } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import {
@@ -24,6 +25,7 @@ import {
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
+    USAGE_INGESTION_OUTPUT,
 } from '~/common/outputs'
 import {
     AI_EVENTS_OUTPUT,
@@ -70,5 +72,6 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
         [APP_METRICS_OUTPUT]: testOutput(APP_METRICS_OUTPUT, KAFKA_APP_METRICS_2, kafkaProducer),
         [LOG_ENTRIES_OUTPUT]: testOutput(LOG_ENTRIES_OUTPUT, KAFKA_LOG_ENTRIES, kafkaProducer),
         [TOPHOG_OUTPUT]: testOutput(TOPHOG_OUTPUT, KAFKA_CLICKHOUSE_TOPHOG, kafkaProducer),
+        [USAGE_INGESTION_OUTPUT]: testOutput(USAGE_INGESTION_OUTPUT, KAFKA_USAGE_INGESTION, kafkaProducer),
     })
 }

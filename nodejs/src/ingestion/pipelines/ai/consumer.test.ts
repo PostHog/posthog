@@ -30,6 +30,7 @@ describe('createAiConsumer', () => {
             SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
             INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
             EVENT_SCHEMA_ENFORCEMENT_ENABLED: false,
+            USAGE_INGESTION_MODE: 'grpc',
             USAGE_INGESTION_ADDR: '',
             USAGE_INGESTION_TLS: false,
             USAGE_INGESTION_TIMEOUT_MS: 5000,

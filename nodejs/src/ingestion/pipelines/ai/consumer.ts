@@ -9,6 +9,7 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
+    UsageIngestionOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
@@ -74,7 +75,14 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
 /** Outputs the AI pipeline emits to. The same instance backs the hog transformer's
  * monitoring (app_metrics + log_entries), wired up server-side. */
 export type AiOutputs = IngestionOutputs<
-    EventOutput | AiEventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | AppMetricsOutput | TophogOutput
+    | EventOutput
+    | AiEventOutput
+    | IngestionWarningsOutput
+    | DlqOutput
+    | OverflowOutput
+    | AppMetricsOutput
+    | TophogOutput
+    | UsageIngestionOutput
 >
 
 /**
@@ -170,8 +178,6 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             `AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY must be a positive integer, got ${uploadMaxConcurrency}`
         )
     }
-    const createEventUsageBatch = createEventUsageBatchFactory(config, 'ai_events')
-
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
         minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
@@ -207,7 +213,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
-            createEventUsageBatch,
+            createEventUsageBatch: createEventUsageBatchFactory(config, 'ai_events', container.outputs),
         })
     )
 }

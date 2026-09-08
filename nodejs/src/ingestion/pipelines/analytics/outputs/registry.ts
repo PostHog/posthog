@@ -15,6 +15,7 @@ import {
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
+    USAGE_INGESTION_OUTPUT,
 } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
@@ -74,6 +75,10 @@ export function createOutputsRegistry() {
             .register(TOPHOG_OUTPUT, {
                 topicKey: 'INGESTION_OUTPUT_TOPHOG_TOPIC',
                 producerKey: 'INGESTION_OUTPUT_TOPHOG_PRODUCER',
+            })
+            .register(USAGE_INGESTION_OUTPUT, {
+                topicKey: 'INGESTION_OUTPUT_USAGE_INGESTION_TOPIC',
+                producerKey: 'INGESTION_OUTPUT_USAGE_INGESTION_PRODUCER',
             })
     )
 }
