@@ -845,7 +845,7 @@ export const TaskChannelsInstructionsUpdateBody = () => zod
     .describe('Request body for publishing a new instructions version.')
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass include_description=false to drop the description body from each row when a client does not render it; use the search parameter to match description text server-side.
  * @summary List tasks
  */
 export const TasksListParams = () => zod.object({
@@ -857,6 +857,7 @@ export const TasksListParams = () => zod.object({
 })
 
 export const tasksListQueryAllTeamTasksDefault = false
+export const tasksListQueryIncludeDescriptionDefault = true
 export const tasksListQueryLimitDefault = 50
 export const tasksListQueryLimitMax = 100
 
@@ -920,6 +921,12 @@ export const TasksListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe("Filter tasks to the runs spawned by this workflow's 'Create AI task' action."),
+    include_description: zod
+        .boolean()
+        .default(tasksListQueryIncludeDescriptionDefault)
+        .describe(
+            'Whether each row carries the task description body. Defaults to true. Pass false when the client does not render the description, to drop the field that dominates the list payload.'
+        ),
     internal: zod
         .enum(['true', 'false', 'all'])
         .optional()

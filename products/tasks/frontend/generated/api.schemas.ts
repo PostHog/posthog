@@ -5075,6 +5075,10 @@ export type TasksListParams = {
      */
     hog_flow_id?: string
     /**
+     * Whether each row carries the task description body. Defaults to true. Pass false when the client does not render the description, to drop the field that dominates the list payload.
+     */
+    include_description?: boolean
+    /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
      * * `true` - true
