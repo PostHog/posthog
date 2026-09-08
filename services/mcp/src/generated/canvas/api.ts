@@ -96,7 +96,6 @@ export const canvasesPartialUpdateBodyNameMax = 400
 export const CanvasesPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
-        context: zod.string().optional().describe('Updated author context markdown.'),
         description: zod
             .string()
             .optional()

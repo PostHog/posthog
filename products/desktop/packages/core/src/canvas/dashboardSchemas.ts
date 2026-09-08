@@ -33,8 +33,6 @@ export const dashboardRecordSchema = z.object({
   // For components: the head version's placement contract (size, configSchema).
   componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
-  // The live author-written context (markdown) passed to the agent.
-  context: z.string().default(""),
   // Id of the task currently generating this canvas (freeform gen runs as a
   // dedicated task, like CONTEXT.md). null/absent = no generation in flight.
   generationTaskId: z.string().nullish(),
@@ -61,6 +59,7 @@ export const canvasVersionSchema = z.object({
   prompt: z.string().nullish(),
   taskId: z.string().nullish(),
   createdBy: z.string().optional(),
+  createdByUuid: z.string().optional(),
   createdAt: z.number(),
 });
 export type CanvasVersion = z.infer<typeof canvasVersionSchema>;
@@ -138,13 +137,6 @@ export const promoteCanvasInput = z.object({
   id: z.string().min(1),
   versionId: z.string().min(1),
   expectedCurrentVersionId: z.string().nullable(),
-});
-
-// Persist the author-written context (markdown) shown in the Context tab and
-// passed to generation tasks.
-export const saveContextInput = z.object({
-  id: z.string().min(1),
-  context: z.string(),
 });
 
 // Rename a canvas (its display title).

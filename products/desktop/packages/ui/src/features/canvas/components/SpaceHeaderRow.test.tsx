@@ -8,7 +8,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
-    dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
     channelTasks: {
       list: {
         queryOptions: () => ({ queryKey: ["ct"], queryFn: async () => [] }),
