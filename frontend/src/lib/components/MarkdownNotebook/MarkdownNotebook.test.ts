@@ -477,6 +477,41 @@ function createTouchList(touches: Touch[]): TouchList {
 }
 
 describe('MarkdownNotebook', () => {
+    it('moves the focused block past its neighbour with Alt+Up and Alt+Down', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('First\n\nSecond\n\nThird'), onChange })
+        )
+
+        const secondBlock = getBodyTextBlock(container, 1)
+        secondBlock.focus()
+
+        fireEvent.keyDown(secondBlock, { key: 'ArrowDown', altKey: true })
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('First\n\nThird\n\nSecond'))
+
+        fireEvent.keyDown(secondBlock, { key: 'ArrowUp', altKey: true })
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('First\n\nSecond\n\nThird'))
+    })
+
+    it('claims Cmd+S inside a code editor, where the browser would offer to save the page', () => {
+        const onSaveRequested = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Body'), onSaveRequested })
+        )
+
+        // Monaco renders a textarea inside `.monaco-editor`, which every other notebook shortcut
+        // steps around so the editor keeps its own keys. Saving is the exception.
+        const editor = document.createElement('div')
+        editor.className = 'monaco-editor'
+        const editorInput = document.createElement('textarea')
+        editor.appendChild(editorInput)
+        getBodyTextBlock(container, 0).appendChild(editor)
+
+        fireEvent.keyDown(editorInput, { key: 's', metaKey: true })
+
+        expect(onSaveRequested).toHaveBeenCalledTimes(1)
+    })
+
     it('round-trips supported markdown blocks and inline formatting', () => {
         const markdown = `# Heading
 
