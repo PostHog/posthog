@@ -11,12 +11,11 @@ from django.shortcuts import get_object_or_404
 
 import boto3
 import structlog
-import posthoganalytics
 from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -32,7 +31,9 @@ from posthog.models import Team
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
+from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
 from products.batch_exports.backend.hogql_source import (
+    DATA_INTERVAL_START_EPOCH,
     UnsupportedHogQLQueryError,
     validate_hogql_query_for_batch_export,
 )
@@ -122,11 +123,13 @@ class FileDownloadSessionsRequestSerializer(serializers.Serializer):
 HOGQL_QUERY_HELP_TEXT = (
     "HogQL SELECT query whose results are exported. This model is in closed beta and is enabled "
     "per team; when it is not enabled, the request fails with a permission error that names HogQL "
-    "batch exports. Contact PostHog support to request access. Placeholders are not currently "
-    "supported, and every column in the SELECT clause must be a field or have an alias. It is "
-    "recommended to limit the query with a WHERE clause, for example bounding timestamp on the "
-    "events table, both to avoid exporting more rows than expected and because user queries run "
-    "under stricter resource limits than the other models."
+    "batch exports. Contact PostHog support to request access. The query may reference the "
+    "{data_interval_start} and {data_interval_end} placeholders, replaced with the interval the "
+    "run exports; without them it runs over all data at the time the export starts. Every column "
+    "in the SELECT clause must be a field or have an alias. It is recommended to limit the query "
+    "with a WHERE clause, for example bounding timestamp on the events table, both to avoid "
+    "exporting more rows than expected and because user queries run under stricter resource "
+    "limits than the other models."
 )
 
 
@@ -158,23 +161,6 @@ class FileDownloadCountRowsResponseSerializer(serializers.Serializer):
     )
 
 
-def check_hogql_batch_exports_enabled(team: Team) -> None:
-    """Raise if HogQL-powered batch exports are not enabled for the team."""
-    if not posthoganalytics.feature_enabled(
-        "hogql-batch-exports",
-        str(team.uuid),
-        groups={"organization": str(team.organization.id)},
-        group_properties={
-            "organization": {
-                "id": str(team.organization.id),
-                "created_at": team.organization.created_at,
-            }
-        },
-        send_feature_flag_events=False,
-    ):
-        raise PermissionDenied("HogQL batch exports are not enabled for this team.")
-
-
 COUNT_ROWS_TIMEOUT_MESSAGE = (
     "Timeout exceeded while counting rows. The query may be too complex, or the count may be too "
     "large to finish within a short time. Running this query in an export may take too long to "
@@ -196,15 +182,15 @@ def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int
     query_settings = get_user_hogql_batch_export_query_settings()
     query_settings.max_execution_time = timeout
 
-    # HogQL exports have no data interval: `create` runs them with a now/now interval.
-    # TODO: We should support these interval or just make it not required.
+    # On demand exports run over all data at the time the export starts, which for a query
+    # bounded by the interval placeholders means an interval from the beginning of time to now.
     now = dt.datetime.now(dt.UTC)
 
     # `execute_hogql_query` resolves modifiers differently than the batch
     # export, which could potentially affect counts.
     # TODO: How big is the difference? Is it worth aligning these two?
     query_response = execute_hogql_query(
-        query=record_batch_model.get_count_hogql_query(now, now),
+        query=record_batch_model.get_count_hogql_query(DATA_INTERVAL_START_EPOCH, now),
         team=team,
         query_type="HogQLBatchExportCountRowsQuery",
         settings=query_settings,
@@ -260,8 +246,8 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         team = self.context["get_team"]()
         check_hogql_batch_exports_enabled(team)
 
-        # not sure if we need to be this strict but probably best to be explicit
-        # TODO: can remove this once we do support data_interval_start/end
+        # The interval is not user-configurable for this model: the query runs over all data
+        # at the time the export starts, with any interval placeholders bounded accordingly.
         if data.get("data_interval_start") is not None or data.get("data_interval_end") is not None:
             raise ValidationError(
                 "'data_interval_start' and 'data_interval_end' are not supported when 'model' is 'hogql': "
@@ -294,11 +280,11 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         source = None
         if model == "hogql":
             source = BatchExportSource(team_id=team_id, hogql_query=validated_data.pop("hogql_query"))
-            # For now, HogQL exports have no data interval: the query runs as of now.
-            # We set a concrete now/now interval to keep everything downstream (eg workflow ID,
-            # staging paths) working unchanged. We should perhaps make the data interval optional in
-            # future.
-            data_interval_start = data_interval_end = dt.datetime.now(dt.UTC)
+            # The query runs over all data at the time the export starts, so if we find any
+            # interval placeholders we set them from the beginning of time to now, as we must
+            # set a value.
+            data_interval_start = DATA_INTERVAL_START_EPOCH
+            data_interval_end = dt.datetime.now(dt.UTC)
         else:
             data_interval_start = validated_data.pop("data_interval_start")
             data_interval_end = validated_data.pop("data_interval_end")

@@ -29,6 +29,7 @@ from products.batch_exports.backend.api.file_download import (
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
 )
+from products.batch_exports.backend.hogql_source import DATA_INTERVAL_START_EPOCH
 from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportFileDownload,
@@ -612,7 +613,7 @@ async def test_file_download_cancel_mocked(
 class TestFileDownloadHogQL:
     """File download batch exports created from a user-defined HogQL query."""
 
-    HOGQL_FLAG_PATCH_TARGET = "products.batch_exports.backend.api.file_download.posthoganalytics.feature_enabled"
+    HOGQL_FLAG_PATCH_TARGET = "products.batch_exports.backend.api.utils.posthoganalytics.feature_enabled"
 
     @pytest.fixture
     def enable_hogql_flag(self):
@@ -685,7 +686,7 @@ class TestFileDownloadHogQL:
             ),
             pytest.param(
                 {"hogql_query": "SELECT event AS event FROM events WHERE {filters}"},
-                "Placeholders are not supported",
+                "Unsupported placeholder",
                 id="placeholder-query",
             ),
             pytest.param(
@@ -767,8 +768,10 @@ class TestFileDownloadHogQL:
     async def test_create(self, async_client: AsyncClient, team, user, mock_start_file_download_export):
         """A hogql create request stores the query on a source and threads it to the workflow.
 
-        The run's data interval is faked as now/now: hogql exports have no interval, but
-        everything downstream formats concrete bounds.
+        The query runs over all data at the time the export starts, so the run's stored
+        interval spans from the beginning of time to now: any interval placeholders in the
+        query select the same rows an unbounded query would, and everything downstream
+        formats concrete bounds.
         """
         await async_client.aforce_login(user)
         hogql_query = "SELECT event AS event, distinct_id AS distinct_id FROM events"
@@ -792,7 +795,7 @@ class TestFileDownloadHogQL:
                 "batch_export_on_demand__source", "batch_export_on_demand__destination"
             ).aget(id=response.json()["id"])
 
-        assert run.data_interval_start == run.data_interval_end
+        assert run.data_interval_start == DATA_INTERVAL_START_EPOCH
         assert before <= run.data_interval_end <= after
         on_demand = run.batch_export_on_demand
         assert on_demand is not None
@@ -901,6 +904,12 @@ class TestFileDownloadHogQL:
                 4,
                 id="user-limit-caps-the-count",
             ),
+            pytest.param(
+                "SELECT event AS event, distinct_id AS distinct_id FROM events "
+                "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}",
+                10,
+                id="interval-placeholders-cover-everything-up-to-now",
+            ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
@@ -937,7 +946,7 @@ class TestFileDownloadHogQL:
             ),
             pytest.param(
                 {"model": "hogql", "hogql_query": "SELECT event AS event FROM events WHERE {filters}"},
-                "Placeholders are not supported",
+                "Unsupported placeholder",
                 id="placeholder-query",
             ),
             pytest.param(

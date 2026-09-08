@@ -17,9 +17,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.testing._activity import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.hogql import ast
+
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.hogql_source import parse_hogql_select_for_batch_export
 from products.batch_exports.backend.service import (
     AwsS3BatchExportInputs,
     BackfillDetails,
@@ -42,7 +45,10 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
-from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.record_batch_model import (
+    HogQLQueryRecordBatchModel,
+    SessionsRecordBatchModel,
+)
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_file_in_s3, assert_no_files_in_s3
@@ -172,6 +178,25 @@ async def assert_metrics_in_clickhouse(
         )
 
 
+def _hogql_model_column_names(hogql_query: str | None) -> list[str]:
+    """Return the column names a HogQL model query exports.
+
+    In a set operation (e.g. UNION ALL) the first SELECT names the output columns.
+    """
+    parsed = parse_hogql_select_for_batch_export(hogql_query or "")
+    select_query = parsed
+    while isinstance(select_query, ast.SelectSetQuery):
+        select_query = select_query.initial_select_query
+
+    columns: list[str] = []
+    for expr in select_query.select:
+        if isinstance(expr, ast.Alias):
+            columns.append(expr.alias)
+        elif isinstance(expr, ast.Field):
+            columns.append(str(expr.chain[-1]))
+    return columns
+
+
 async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
     clickhouse_client: ClickHouseClient,
@@ -251,6 +276,10 @@ async def assert_clickhouse_records_in_s3(
             "created_at",
             "is_deleted",
         ]
+    elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "hogql":
+        # A HogQL model exports whichever columns the query selects, so the query is the schema:
+        # the team_id check and the sort below must key off the query's own columns.
+        schema_column_names = _hogql_model_column_names(batch_export_model.hogql_query)
     else:
         schema_column_names = [field["alias"] for field in s3_default_fields()]
 
@@ -262,6 +291,16 @@ async def assert_clickhouse_records_in_s3(
     queue = RecordBatchQueue()
     if model_name == "sessions":
         producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
+    elif (
+        model_name == "hogql"
+        and isinstance(batch_export_model, BatchExportModel)
+        and batch_export_model.hogql_query is not None
+    ):
+        # Re-running the query itself yields the expected rows, with the same interval bounds
+        # substituted as the run exported with.
+        producer = ClickHouseTestProducer(
+            model=HogQLQueryRecordBatchModel(team_id=team_id, hogql_query=batch_export_model.hogql_query)
+        )
     else:
         producer = ClickHouseTestProducer()
     producer_task = await producer.start(
@@ -291,6 +330,10 @@ async def assert_clickhouse_records_in_s3(
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
                     expected_record[k] = v.isoformat()
+                elif isinstance(v, uuid.UUID):
+                    # The JSONL transformer writes non-JSON types via `default=str`, so
+                    # uuid columns land in the file as strings.
+                    expected_record[k] = str(v)
                 else:
                     expected_record[k] = v
 
