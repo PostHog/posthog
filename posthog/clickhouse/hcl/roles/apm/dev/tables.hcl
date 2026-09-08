@@ -392,10 +392,12 @@ database "posthog" {
     }
   }
 
-  # Same views as the logs role runs, with one difference a patch cannot carry:
-  # the storage tables live on the logs nodes, so these write through the writable
-  # proxies above instead of straight into local tables. patch_materialized_view has
-  # no to_table, so each is restated. See PostHog/chschema#238.
+  # Same views the logs role runs, pointed at a different destination: the storage
+  # tables live on the logs nodes, so these write through the writable proxies above
+  # rather than straight into local tables.
+  #
+  # Two of them carry a different column list as well, in an order a positioned patch
+  # does not reproduce, so those are restated in full rather than patched.
   materialized_view "kafka_logs34_avro_mv" {
     override = true
     to_table = "posthog.writable_logs34"
@@ -509,265 +511,20 @@ SQL
     }
   }
 
-  materialized_view "kafka_metrics_avro_mv" {
-    override = true
+  patch_materialized_view "kafka_metrics_avro_mv" {
     to_table = "posthog.writable_metrics1"
-    query    = <<SQL
-SELECT
-  uuid,
-  trace_id,
-  span_id,
-  ifNull(trace_flags, 0) AS trace_flags,
-  timestamp,
-  observed_timestamp,
-  ifNull(service_name, '') AS service_name,
-  ifNull(metric_name, '') AS metric_name,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  ifNull(instrumentation_scope, '') AS instrumentation_scope,
-  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
-  mapSort(
-    mapFilter(
-      (k, v) -> isNotNull(v),
-      mapApply(
-        (k, v) -> (concat(k, '__float'), toFloat64OrNull(JSONExtract(v, 'String'))),
-        attributes
-      )
-    )
-  ) AS attributes_map_float,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id
-FROM posthog.kafka_metrics_avro
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0
-SQL
-
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "metric_type" {
-      type = "String"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
-    }
-    column "unit" {
-      type = "String"
-    }
-    column "aggregation_temporality" {
-      type = "String"
-    }
-    column "is_monotonic" {
-      type = "UInt8"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(String, String)"
-    }
-    column "attributes_map_float" {
-      type = "Map(String, Nullable(Float64))"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
   }
 
-  materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
-    override = true
+  patch_materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
     to_table = "posthog.writable_metrics_kafka_metrics"
-    query    = <<SQL
-SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.kafka_metrics_avro
-GROUP BY
-  _partition, _topic
-SQL
-
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime)"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
-    }
   }
 
-  materialized_view "kafka_metrics_avro_to_metric_samples" {
-    override = true
+  patch_materialized_view "kafka_metrics_avro_to_metric_samples" {
     to_table = "posthog.writable_metric_samples1"
-    query    = <<SQL
-SELECT
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  timestamp,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-  trace_id,
-  span_id,
-  ifNull(trace_flags, 0) AS trace_flags
-FROM posthog.kafka_metrics_avro
-WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
   }
 
-  materialized_view "kafka_metrics_avro_to_metric_series" {
-    override = true
+  patch_materialized_view "kafka_metrics_avro_to_metric_series" {
     to_table = "posthog.writable_metric_series1"
-    query    = <<SQL
-SELECT
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  ifNull(service_name, '') AS service_name,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
-  timestamp AS last_seen
-FROM posthog.kafka_metrics_avro
-WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "metric_type" {
-      type = "String"
-    }
-    column "unit" {
-      type = "String"
-    }
-    column "aggregation_temporality" {
-      type = "String"
-    }
-    column "is_monotonic" {
-      type = "UInt8"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "last_seen" {
-      type = "DateTime64(6)"
-    }
   }
 
   materialized_view "kafka_trace_spans_avro_mv" {
