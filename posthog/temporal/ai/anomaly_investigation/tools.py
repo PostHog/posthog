@@ -5,8 +5,10 @@ All tools are bound to a team and enforce team isolation via the Team instance
 they hold — they do NOT accept arbitrary team IDs from the LLM.
 
 Tools return compact strings suitable for inclusion in the LLM's context. A
-rejected query comes back as an instruction to fix and retry, because the agent
-otherwise reads it as proof that the data itself cannot be read.
+failed query comes back as an instruction to act on, because the agent otherwise
+reads any failure as proof that the data itself cannot be read. A rejected
+statement says to fix and retry. A timeout or a capacity error says the engine
+failed, so that the agent does not rewrite valid SQL.
 """
 
 from __future__ import annotations
@@ -17,14 +19,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import structlog
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.models import Team
 
 from products.alerts.backend.models.alert import AlertConfiguration
+
+logger = structlog.get_logger(__name__)
 
 MAX_HOGQL_ROWS = 50
 MAX_SERIES_POINTS = 120
@@ -45,13 +51,28 @@ _DATE_UNIT_TO_DELTA = {
 }
 _DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-# Said on every rejected query. The agent reads a raw engine error as "this data is not
+# Said on a rejected query. The agent reads a raw engine error as "this data is not
 # available to me" and writes that into the report, which sends the reader to inspect the
 # pipeline behind a table that is serving rows.
 _QUERY_REJECTED_HELP = (
     "The query was rejected before it ran. This says nothing about whether the table, view or "
     "event stream exists — it is a defect in the query text. Rewrite the query and run it again. "
     "Do not report a data source as unreadable, missing or unreachable because a query failed."
+)
+
+# Said when the engine failed the query instead of rejecting it. The statement is valid, so a
+# rewrite spends one of ten tool calls and changes nothing.
+_QUERY_UNAVAILABLE_HELP = (
+    "This is a failure in the engine that ran the query, not a defect in the query text. The "
+    "same query can succeed on a later attempt. Do not rewrite it, and do not report a data "
+    "source as unreadable, missing or unreachable because a query failed."
+)
+
+# Said when the query ran and hit a limit. The fix is a smaller question, not different SQL.
+_QUERY_TOO_EXPENSIVE_HELP = (
+    "The query reached the engine and hit a resource limit, so the query text is valid. Ask for "
+    "less instead of rewriting it: a shorter window, fewer groups, or a lower limit. Do not "
+    "report a data source as unreadable, missing or unreachable because a query failed."
 )
 
 # Errors that a different alias name fixes. Both engines word it differently, and ClickHouse's
@@ -197,6 +218,22 @@ def _run_detector_simulation(
         return str(err)
 
 
+def _describe_query_failure(err: Exception, message: str) -> str:
+    """Name what failed, so the agent only rewrites SQL when the SQL is the problem.
+
+    The tool returns this text instead of raising, so nothing else records the failure. Log it
+    with its category here, or a query that fails during a cluster incident leaves no trace.
+    """
+    category = classify_query_error(err)
+    logger.warning("anomaly_investigation.query_failed", category=str(category), error=message)
+
+    if category == QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+        return f"Query hit a resource limit: {message}\n{_QUERY_TOO_EXPENSIVE_HELP}"
+    if category in (QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
+        return f"Query did not complete: {message}\n{_QUERY_UNAVAILABLE_HELP}"
+    return f"Query rejected: {message}\n{_QUERY_REJECTED_HELP}"
+
+
 @dataclass
 class InvestigationToolkit:
     """Bundles the tool implementations bound to a team and alert. Returned strings are
@@ -212,17 +249,18 @@ class InvestigationToolkit:
         try:
             return json.dumps(await self._execute(sql), default=str)
         except Exception as err:
-            message = str(err)
+            failure = err
+        message = str(failure)
 
         retried, renames = rename_shadowing_aliases(sql)
         if not renames or not _is_alias_conflict(message):
-            return f"Query rejected: {message}\n{_QUERY_REJECTED_HELP}"
+            return _describe_query_failure(failure, message)
 
         try:
             payload = await self._execute(retried)
         except Exception as retry_err:
             return (
-                f"Query rejected: {message}\n{_QUERY_REJECTED_HELP}\n"
+                f"{_describe_query_failure(failure, message)}\n"
                 "An aggregate is aliased to the column it aggregates. Renaming it "
                 f"({_format_renames(renames)}) still failed: {retry_err}"
             )

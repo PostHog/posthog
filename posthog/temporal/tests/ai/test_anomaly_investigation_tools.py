@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.caching.insight_result import InsightResult
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.temporal.ai.anomaly_investigation.tools import (
     InvestigationToolkit,
     RunHogQLQueryArgs,
@@ -142,16 +143,45 @@ async def test_alias_conflict_is_retried_and_reported_as_readable() -> None:
     assert "SELECT sum(runs) AS runs_sum FROM hourly_spend" == mock_execute.call_args.kwargs["query"]
 
 
-async def test_an_unfixable_error_tells_the_agent_the_data_is_not_the_problem() -> None:
+@parameterized.expand(
+    [
+        # An unclassified rejection is the query's own problem, so the rewrite instruction stands.
+        (
+            "unclassified_rejection",
+            Exception("Unknown table 'hourly_spend'"),
+            "Rewrite the query and run it again",
+            "Do not rewrite it",
+        ),
+        # Capacity pressure fails a valid statement, so a rewrite spends a tool call for nothing.
+        (
+            "cluster_at_capacity",
+            ClickHouseAtCapacity(),
+            "failure in the engine that ran the query",
+            "Rewrite the query and run it again",
+        ),
+        # A timeout means the query did run, so the fix is a smaller question, not new SQL.
+        (
+            "query_timed_out",
+            ClickHouseQueryTimeOut(),
+            "hit a resource limit, so the query text is valid",
+            "Rewrite the query and run it again",
+        ),
+    ]
+)
+async def test_a_failed_query_is_classified_before_the_agent_is_told_to_rewrite(
+    _name: str, error: Exception, expected: str, forbidden: str
+) -> None:
     with patch(
         "posthog.temporal.ai.anomaly_investigation.tools.execute_hogql_query",
-        side_effect=Exception("Unknown table 'hourly_spend'"),
+        side_effect=error,
     ) as mock_execute:
         result = await InvestigationToolkit(team=MagicMock()).run_hogql_query(
             RunHogQLQueryArgs(query="SELECT count() AS c FROM hourly_spend")
         )
 
-    # No retry: nothing about this error a renamed alias fixes.
+    # No retry: nothing about these errors a renamed alias fixes.
     assert mock_execute.call_count == 1
-    assert "defect in the query text" in result
-    assert "Do not report a data source as unreadable" in result
+    assert expected in result
+    assert forbidden not in result
+    # Every failure keeps the rule the agent breaks most expensively.
+    assert "do not report a data source as unreadable" in result.lower()
