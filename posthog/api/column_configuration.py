@@ -22,6 +22,8 @@ from posthog.models import ColumnConfiguration
 
 logger = structlog.get_logger(__name__)
 
+TEAM_EDITABLE_VIEW_CONTEXT_KEYS = {"customer_analytics_accounts_columns"}
+
 
 class ColumnConfigurationListQuerySerializer(serializers.Serializer):
     context_key = serializers.CharField(
@@ -140,7 +142,10 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if (
             self.request.method not in SAFE_METHODS
-            and object.visibility == ColumnConfiguration.Visibility.PRIVATE
+            and (
+                object.visibility == ColumnConfiguration.Visibility.PRIVATE
+                or object.context_key not in TEAM_EDITABLE_VIEW_CONTEXT_KEYS
+            )
             and object.created_by != self.request.user
         ):
             raise PermissionDenied("You do not have permission to change this view")

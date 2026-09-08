@@ -131,7 +131,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
         shared_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="customer_analytics_accounts_columns",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
         )
@@ -144,11 +144,30 @@ class TestColumnConfigurationAPI(APIBaseTest):
         shared_view.refresh_from_db()
         assert shared_view.name == "New name"
 
+    @parameterized.expand([("patch", {"name": "New name"}), ("delete", None)])
+    def test_team_member_cannot_change_another_shared_view_outside_accounts(
+        self, method: str, data: dict[str, str] | None
+    ) -> None:
+        shared_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            context_key="events_table",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/", data=data
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert ColumnConfiguration.objects.filter(id=shared_view.id).exists()
+
     def test_team_member_can_delete_a_shared_view(self):
         shared_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="customer_analytics_accounts_columns",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
         )
@@ -162,7 +181,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
         shared_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="customer_analytics_accounts_columns",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
         )
@@ -248,7 +267,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
         existing_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=target_visibility,
-            context_key="context-key",
+            context_key="customer_analytics_accounts_columns",
             name="Existing name",
             columns=["*"],
             created_by=self.user if target_visibility == ColumnConfiguration.Visibility.PRIVATE else self.another_user,
@@ -256,7 +275,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
         view_to_update = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="customer_analytics_accounts_columns",
             name="Original name",
             columns=["*"],
             created_by=self.another_user,

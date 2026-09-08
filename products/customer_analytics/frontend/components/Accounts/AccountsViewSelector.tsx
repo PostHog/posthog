@@ -148,7 +148,11 @@ function ViewModal(): JSX.Element {
             <Form logic={accountsViewsLogic} formKey="viewForm">
                 <div className="space-y-4">
                     <LemonField name="name" label="View name">
-                        <LemonInput placeholder="e.g. Enterprise accounts" autoFocus onPressEnter={submitViewForm} />
+                        <LemonInput
+                            placeholder="e.g. Enterprise accounts"
+                            autoFocus
+                            onPressEnter={isSaving ? undefined : submitViewForm}
+                        />
                     </LemonField>
                     <LemonField name="visibility" label="Visibility">
                         <LemonSegmentedButton
