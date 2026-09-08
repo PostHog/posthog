@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconChat } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import type { MultiQuestionFormQuestion } from '~/queries/schema/schema-assistant-messages'
 
@@ -137,15 +137,6 @@ export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.E
         return null
     }
 
-    if (respondingToPermission) {
-        return (
-            <div className="flex items-center gap-2 text-muted p-3">
-                <Spinner className="size-4" />
-                <span>Sending response…</span>
-            </div>
-        )
-    }
-
     const isLast = currentIndex === questions.length - 1
 
     return (
@@ -164,6 +155,7 @@ export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.E
             <div className="font-medium text-sm">{question.question}</div>
             <QuestionField
                 key={currentIndex}
+                disabled={respondingToPermission}
                 question={toFormQuestion(question, currentIndex)}
                 value={answers[currentIndex]}
                 onAnswer={handleAnswer}
