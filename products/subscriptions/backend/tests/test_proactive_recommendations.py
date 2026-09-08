@@ -15,13 +15,11 @@ from products.subscriptions.backend.facade.contracts import (
     RecommendationCitation,
     RecommendationGenerationHandle,
     RecommendationGenerationInput,
-    RecommendationGenerationState,
     RecommendationResult,
 )
 from products.subscriptions.backend.facade.proactive import (
     claim_recommendation_run,
     finalize_recommendation_run,
-    generate_recommendation_appendix,
     get_proactive_config,
     read_recommendation_appendix,
     recent_recommendation_memory,
@@ -264,38 +262,6 @@ def test_failed_run_is_read_without_restarting(team) -> None:
 
 
 @pytest.mark.django_db
-def test_generation_deadline_is_configurable_and_finishes_the_run(team, monkeypatch) -> None:
-    delivery_id = uuid4()
-    generation_input = RecommendationGenerationInput(
-        team_id=team.id,
-        subscription_id=123,
-        delivery_id=delivery_id,
-        actor_id=456,
-        idempotency_key=f"pulse-recommendations:{delivery_id}",
-        report_markdown="saved report",
-        prompt="find improvements",
-        contexts=(),
-        public_web_research=False,
-    )
-    handle = RecommendationGenerationHandle(staged_run_id=uuid4(), task_id=uuid4(), analysis_run_id=uuid4())
-    monkeypatch.setattr(proactive, "start_recommendation_generation", lambda _input: handle)
-    monkeypatch.setattr(
-        proactive,
-        "read_recommendation_generation",
-        lambda _input, _handle: RecommendationGenerationState(status="pending"),
-    )
-
-    appendix = generate_recommendation_appendix(
-        input=generation_input,
-        snapshot={"report_hash": "stable"},
-        timeout_seconds=0,
-    )
-
-    assert appendix.status == "failed"
-    assert appendix.failure_code == "timeout"
-
-
-@pytest.mark.django_db
 def test_generation_persists_and_reuses_its_exact_immutable_handles(team, monkeypatch) -> None:
     delivery_id = uuid4()
     binding = StagedRepositoryBinding(
@@ -334,20 +300,20 @@ def test_generation_persists_and_reuses_its_exact_immutable_handles(team, monkey
         "start_recommendation_generation",
         start,
     )
-    monkeypatch.setattr(
-        proactive,
-        "read_recommendation_generation",
-        lambda _input, _handle: RecommendationGenerationState(status="pending"),
+    claimed = claim_recommendation_run(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=delivery_id,
+        actor_id=456,
+        snapshot={"report_hash": "stable"},
     )
 
-    appendix = generate_recommendation_appendix(
-        input=generation_input,
-        snapshot={"report_hash": "stable"},
-        timeout_seconds=0,
-    )
+    first = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
+    replay = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
 
     run = proactive.ProactiveRecommendationRun.objects.for_team(team.id).get(delivery_id=delivery_id)
-    assert appendix.failure_code == "timeout"
+    assert first == handle
+    assert replay == handle
     assert (run.staged_run_id, run.task_id, run.analysis_run_id) == (
         handle.staged_run_id,
         handle.task_id,
@@ -363,14 +329,63 @@ def test_generation_persists_and_reuses_its_exact_immutable_handles(team, monkey
         "repository": "posthog/posthog",
     }
     assert run.artifact_config_hash is not None
-    assert (
-        generate_recommendation_appendix(
-            input=generation_input,
-            snapshot={"report_hash": "stable"},
-            timeout_seconds=0,
-        ).failure_code
-        == "timeout"
+    assert started_inputs == [generation_input]
+
+
+@pytest.mark.django_db
+def test_pending_generation_reuses_canonical_binding_for_mixed_case_repository_config(team, monkeypatch) -> None:
+    delivery_id = uuid4()
+    binding = StagedRepositoryBinding(
+        repository="posthog/posthog",
+        base_sha="a" * 40,
+        base_branch="master",
+        github_integration_id=123,
+        github_user_integration_id=uuid4(),
+        github_installation_id="456",
+        grant_version="stable-grant",
     )
+    generation_input = RecommendationGenerationInput(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=delivery_id,
+        actor_id=456,
+        idempotency_key=f"pulse-recommendations:{delivery_id}",
+        report_markdown="saved report",
+        prompt="find improvements",
+        contexts=(),
+        public_web_research=False,
+        create_draft_pr=True,
+        repository_name="PostHog/posthog",
+        repository_integration_id=123,
+        repository=binding,
+    )
+    claimed = claim_recommendation_run(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=delivery_id,
+        actor_id=456,
+        snapshot={"report_hash": "stable"},
+    )
+    handle = RecommendationGenerationHandle(staged_run_id=uuid4(), task_id=uuid4(), analysis_run_id=uuid4())
+    started_inputs: list[RecommendationGenerationInput] = []
+
+    def start(started_input: RecommendationGenerationInput) -> RecommendationGenerationHandle:
+        started_inputs.append(started_input)
+        return handle
+
+    monkeypatch.setattr(
+        proactive,
+        "start_recommendation_generation",
+        start,
+    )
+
+    first = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
+    replay = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
+
+    run = proactive.ProactiveRecommendationRun.objects.for_team(team.id).get(id=claimed.id)
+    assert run.status == "pending"
+    assert first == handle
+    assert replay == handle
     assert started_inputs == [generation_input]
 
 

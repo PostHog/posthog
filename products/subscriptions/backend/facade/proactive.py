@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-import time
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import cast
 from uuid import UUID
@@ -15,7 +14,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from products.subscriptions.backend.facade.api import read_recommendation_generation, start_recommendation_generation
+from products.subscriptions.backend.facade.api import start_recommendation_generation
 from products.subscriptions.backend.facade.contracts import (
     Recommendation,
     RecommendationCitation,
@@ -147,7 +146,7 @@ def resolve_draft_repository_binding(
         return None
     repositories = list_authorizable_repositories(team_id=team_id, actor_id=actor_id)
     if not any(
-        repository.repository.casefold() == config.repository.casefold()
+        _repository_identity(repository.repository) == _repository_identity(config.repository)
         and (
             config.repository_integration_id is None
             or repository.github_integration_id == config.repository_integration_id
@@ -252,53 +251,7 @@ def finalize_recommendation_run(
         return _appendix_for_run(run)
 
 
-def generate_recommendation_appendix(
-    *,
-    input: RecommendationGenerationInput,
-    snapshot: dict[str, object],
-    timeout_seconds: float,
-    poll_interval_seconds: float = 10,
-    on_wait: Callable[[], None] | None = None,
-) -> RecommendationAppendixDTO:
-    """Own one replay-safe recommendation run from claim through terminal persistence."""
-
-    run = claim_recommendation_run(
-        team_id=input.team_id,
-        subscription_id=input.subscription_id,
-        delivery_id=input.delivery_id,
-        actor_id=input.actor_id,
-        snapshot=snapshot,
-    )
-    if run.status != "pending":
-        persisted = ProactiveRecommendationRun.objects.for_team(input.team_id).get(id=run.id)
-        return _appendix_for_run(persisted)
-    try:
-        handle = _start_or_reuse_recommendation_generation(input=input, run_id=run.id)
-        deadline = time.monotonic() + max(timeout_seconds, 0)
-        state = read_recommendation_generation(input, handle)
-        while state.status == "pending" and time.monotonic() < deadline:
-            if on_wait is not None:
-                on_wait()
-            time.sleep(min(max(poll_interval_seconds, 0), max(deadline - time.monotonic(), 0)))
-            state = read_recommendation_generation(input, handle)
-
-        if state.status != "completed" or state.result is None:
-            failure_code = "timeout" if state.status == "pending" else state.failure_code
-            return finalize_recommendation_run(
-                team_id=input.team_id,
-                run_id=run.id,
-                failure_code=failure_code or "generation_failed",
-            )
-        return finalize_recommendation_run(team_id=input.team_id, run_id=run.id, result=state.result)
-    except Exception:
-        return finalize_recommendation_run(
-            team_id=input.team_id,
-            run_id=run.id,
-            failure_code="pulse_failure",
-        )
-
-
-def _start_or_reuse_recommendation_generation(
+def start_or_reuse_recommendation_generation(
     *, input: RecommendationGenerationInput, run_id: UUID
 ) -> RecommendationGenerationHandle:
     artifact_config_hash = _artifact_config_hash(input)
@@ -381,11 +334,19 @@ def _is_valid_repository_binding_payload(payload: object, input: RecommendationG
     }
     if set(payload) != expected_fields:
         return False
-    if input.repository_name is not None and payload["repository"] != input.repository_name:
+    if input.repository_name is not None and (
+        not isinstance(payload["repository"], str)
+        or _repository_identity(payload["repository"]) != _repository_identity(input.repository_name)
+    ):
         return False
     return all(
         isinstance(payload[key], str) and payload[key] for key in expected_fields - {"github_integration_id"}
     ) and isinstance(payload["github_integration_id"], int)
+
+
+def _repository_identity(repository: str) -> str:
+    """Compare repository names using GitHub's case-insensitive identity."""
+    return repository.casefold()
 
 
 def recent_recommendation_memory(*, team_id: int, subscription_id: int) -> tuple[RecommendationMemoryDTO, ...]:
