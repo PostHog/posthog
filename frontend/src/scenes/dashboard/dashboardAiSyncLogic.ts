@@ -132,6 +132,7 @@ const DASHBOARD_RESPONSE_TOOLS = new Set([
 ])
 const TILE_CREATE_TOOLS = new Set(['dashboard-create-tile', 'dashboard-create-text-tile'])
 const BATCH_ADD_TOOLS = new Set(['dashboard-widgets-batch-add', 'dashboards-widgets-batch-create'])
+const COPY_TILE_TOOLS = new Set(['dashboard-tile-copy', 'dashboards-copy-tile-create'])
 
 function asRecord(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
@@ -448,6 +449,18 @@ function resolveDashboardMutation(
             }
         }
         return candidate('dashboard', target.dashboardId, returned.tileIds)
+    }
+
+    if (COPY_TILE_TOOLS.has(toolName)) {
+        // The copy response carries the whole destination dashboard, so the copied tile is the one
+        // tile the committed dashboard does not hold yet. A stale or reduced response can leave
+        // that ambiguous, and then the reload still runs but no tile is highlighted.
+        const returned = parseDashboardTileIds(output, requestedDashboardId)
+        const committedTileIds = new Set(target.tiles.map((tile) => tile.tileId))
+        const addedTileIds = returned.tileIds.filter((tileId) => !committedTileIds.has(tileId))
+        return returned.valid && addedTileIds.length === 1
+            ? candidate('dashboard', target.dashboardId, addedTileIds)
+            : candidate('dashboard', target.dashboardId)
     }
 
     if (toolName === 'dashboard-delete') {

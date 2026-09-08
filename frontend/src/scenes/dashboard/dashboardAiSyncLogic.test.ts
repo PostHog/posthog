@@ -288,17 +288,31 @@ const dashboardStructureCases: DashboardStructureCase[] = [
         label: 'copies a tile',
         toolName: 'dashboard-tile-copy',
         input: (id) => ({ id, fromDashboardId: 6, tileId: 41 }),
-        output: (id) => ({ id }),
-        candidate: dashboardCandidate(),
-        contradictoryOutput: { id: 8 },
+        output: (id) => ({
+            id,
+            tiles: [
+                { id: 41, dashboard_id: id },
+                { id: 42, dashboard_id: id },
+                { id: '61', dashboard_id: id },
+            ],
+        }),
+        candidate: dashboardCandidate({ tileIds: [61] }),
+        contradictoryOutput: { id: 8, tiles: [{ id: 61, dashboard_id: 8 }] },
     },
     {
         label: 'keeps the generated tile copy alias',
         toolName: 'dashboards-copy-tile-create',
         input: (id) => ({ id, fromDashboardId: 6, tileId: 41 }),
-        output: (id) => ({ id }),
-        candidate: dashboardCandidate(),
-        contradictoryOutput: { id: 8 },
+        output: (id) => ({
+            id,
+            tiles: [
+                { id: 41, dashboard_id: id },
+                { id: 42, dashboard_id: id },
+                { id: '61', dashboard_id: id },
+            ],
+        }),
+        candidate: dashboardCandidate({ tileIds: [61] }),
+        contradictoryOutput: { id: 8, tiles: [{ id: 61, dashboard_id: 8 }] },
     },
     {
         label: 'adds dashboard widgets',
@@ -405,6 +419,25 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             expect(resolveFor(toolName, input(7), contradictoryOutput).candidate).toBeNull()
         }
     )
+
+    it.each([
+        ['no tile list', { id: 7 }],
+        [
+            'more than one tile the committed dashboard is missing',
+            {
+                id: 7,
+                tiles: [
+                    { id: 41, dashboard_id: 7 },
+                    { id: 61, dashboard_id: 7 },
+                    { id: 62, dashboard_id: 7 },
+                ],
+            },
+        ],
+    ])('reloads without a highlight when a tile copy response has %s', (_case, output) => {
+        expect(resolveFor('dashboard-tile-copy', { id: 7, fromDashboardId: 6, tileId: 41 }, output).candidate).toEqual(
+            dashboardCandidate()
+        )
+    })
 
     it.each(['dashboards-move-tile-create', 'dashboards-move-tile-partial-update'])(
         'recognizes the destination dashboard for %s',
