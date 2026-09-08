@@ -324,7 +324,6 @@ export interface projectNoticeLogicMeta {
             effectiveBillingAlert: BillingAlertConfig | null,
             projectNoticeDismissKey: string | null,
             currentOrganization: null | import('~/types').OrganizationType,
-            user: UserType | null,
             canAccessBilling: boolean,
             currentLocation: {
                 hash: string
@@ -554,7 +553,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.effectiveBillingAlert,
                 s.projectNoticeDismissKey,
                 organizationLogic.selectors.currentOrganization,
-                userLogic.selectors.user,
                 billingLogic.selectors.canAccessBilling,
                 router.selectors.currentLocation,
                 sceneLogic.selectors.activeSceneProductKey,
@@ -565,7 +563,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 effectiveBillingAlert: BillingAlertConfig | null,
                 dismissKey: string | null,
                 currentOrganization: null | import('~/types').OrganizationType,
-                user: UserType | null,
                 canAccessBilling: boolean,
                 currentLocation: {
                     hash: string
