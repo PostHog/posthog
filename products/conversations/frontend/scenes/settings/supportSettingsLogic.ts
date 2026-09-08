@@ -43,6 +43,7 @@ export interface EmailConfigStatus {
     connection_status: 'pending_confirmation' | 'active' | 'confirmation_expired'
     setup_expires_at: string | null
     confirmation_available: boolean
+    trusted_relay_sender: string
 }
 
 function emailConnectErrorMessage(error: unknown): string {
@@ -101,6 +102,7 @@ export interface supportSettingsLogicValues {
     notificationRecipients: number[]
     placeholderTextValue: string | null
     settingDefaultEmailConfigId: string | null
+    updatingRelaySenderConfigIds: string[]
     slackAlertChannelId: string | null
     slackBotDisplayName: string | null
     slackBotDisplayNameValue: string | null
@@ -440,6 +442,23 @@ export interface supportSettingsLogicActions {
     setDefaultEmailFailed: () => {
         value: true
     }
+    setEmailRelaySender: (
+        configId: string,
+        relaySender: string
+    ) => {
+        configId: string
+        relaySender: string
+    }
+    setEmailRelaySenderDone: (
+        configId: string,
+        relaySender: string
+    ) => {
+        configId: string
+        relaySender: string
+    }
+    setEmailRelaySenderFailed: (configId: string) => {
+        configId: string
+    }
     setDomainInputValue: (value: string) => {
         value: string
     }
@@ -660,6 +679,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setDefaultEmail: (configId: string) => ({ configId }),
         setDefaultEmailDone: (configId: string) => ({ configId }),
         setDefaultEmailFailed: true,
+        setEmailRelaySender: (configId: string, relaySender: string) => ({ configId, relaySender }),
+        setEmailRelaySenderDone: (configId: string, relaySender: string) => ({ configId, relaySender }),
+        setEmailRelaySenderFailed: (configId: string) => ({ configId }),
         verifyEmailDomain: (configId: string) => ({ configId }),
         verifyEmailDomainDone: (configId: string, verified: boolean, dnsRecords: Record<string, any> | null) => ({
             configId,
@@ -770,6 +792,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
                 setDefaultEmailDone: (state, { configId }) =>
                     state.map((c) => ({ ...c, is_default: c.id === configId })),
+                setEmailRelaySenderDone: (state, { configId, relaySender }) =>
+                    state.map((c) => (c.id === configId ? { ...c, trusted_relay_sender: relaySender } : c)),
                 verifyEmailDomainDone: (state, { configId, verified, dnsRecords }) => {
                     const targetDomain = state.find((t) => t.id === configId)?.domain
                     if (!targetDomain) {
@@ -816,6 +840,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 verifyEmailDomain: (_, { configId }) => configId,
                 verifyEmailDomainDone: () => null,
+            },
+        ],
+        updatingRelaySenderConfigIds: [
+            [] as string[],
+            {
+                setEmailRelaySender: (state, { configId }) => (state.includes(configId) ? state : [...state, configId]),
+                setEmailRelaySenderDone: (state, { configId }) => state.filter((id) => id !== configId),
+                setEmailRelaySenderFailed: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
         settingDefaultEmailConfigId: [
@@ -1433,6 +1465,29 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 })
             }
             lemonToast.success('Email address disconnected')
+        },
+        setEmailRelaySender: async ({ configId, relaySender }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/email/set-relay-sender', {
+                    config_id: configId,
+                    trusted_relay_sender: relaySender,
+                })
+            } catch (error: any) {
+                // Surface the API's reason. An invalid address is the likely one, and a blanket
+                // failure leaves the admin with nothing to act on.
+                const detail =
+                    error?.data?.trusted_relay_sender?.[0] ?? error?.data?.error ?? error?.detail ?? error?.message
+                lemonToast.error(
+                    detail
+                        ? `Couldn't save the relay address: ${detail}`
+                        : "Couldn't save the relay address. Check the address and try again."
+                )
+                actions.setEmailRelaySenderFailed(configId)
+                return
+            }
+            actions.setEmailRelaySenderDone(configId, relaySender)
+            lemonToast.success(relaySender ? 'Relay address saved' : 'Relay attribution turned off')
         },
         setDefaultEmail: async ({ configId }) => {
             try {
