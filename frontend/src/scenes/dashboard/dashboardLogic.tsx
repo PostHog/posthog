@@ -4750,14 +4750,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         setDashboardMode: async ({ mode, source }) => {
-            if (mode === null && source === DashboardEventSource.DashboardHeaderOverridesBanner) {
-                actions.resetUrlFilters()
-                actions.refreshDashboardItems({
-                    action: RefreshDashboardItemsAction.Refresh,
-                    forceRefresh: false,
-                })
-            }
-
             if (mode || source) {
                 eventUsageLogic.actions.reportDashboardModeToggled(
                     values.dashboard,
@@ -4766,10 +4758,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     values.layoutEditMode ? values.layoutZoom : null,
                     values.layoutEditMode
                 )
-            }
-
-            if (mode !== DashboardMode.Edit) {
-                actions.setLayoutZoom(1)
             }
         },
         setAutoRefresh: () => {

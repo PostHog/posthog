@@ -616,17 +616,6 @@ describe('dashboardLogic', () => {
             expect(successToast).toHaveBeenCalledWith('Dashboard changes saved')
         })
 
-        it('clears URL filter overrides without clearing URL variable overrides', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-
-            await expectLogic(logic, () => {
-                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderOverridesBanner)
-            })
-                .toDispatchActions(['resetUrlFilters'])
-                .toNotHaveDispatchedActions(['resetUrlVariables'])
-                .toFinishAllListeners()
-        })
-
         it('counts each added property filter', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -3837,16 +3826,6 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setLayoutZoom(0.75)
             }).toMatchValues({ layoutZoom: 0.75 })
-        })
-
-        it('resets layoutZoom to 1 when leaving edit mode', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setLayoutZoom(0.5)
-            }).toMatchValues({ layoutZoom: 0.5 })
-
-            await expectLogic(logic, () => {
-                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
-            }).toMatchValues({ layoutZoom: 1 })
         })
 
         it('resets layoutZoom to 1 when container becomes single-column', async () => {
