@@ -211,6 +211,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     # General settings
     name = models.CharField(max_length=64)
+    # Name this instance last saw in the DB; save() compares it to self.name to detect a rename.
+    _loaded_name: Optional[str] = None
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -371,9 +373,6 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     __repr__ = sane_repr("name")
 
-    # Name this instance last saw in the DB; save() compares it to self.name to detect a rename.
-    _loaded_name: Optional[str] = None
-
     @classmethod
     def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
         instance = super().from_db(db, field_names, values)
@@ -386,33 +385,31 @@ class Organization(ModelActivityMixin, UUIDTModel):
             self._loaded_name = self.name
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if args:
-            # Normalize deprecated positional save() arguments so the rename check sees update_fields.
-            kwargs.update(zip(("force_insert", "force_update", "using", "update_fields"), args))
         update_fields = kwargs.get("update_fields")
         name_is_written = update_fields is None or "name" in update_fields
-        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH]
         renamed = (
             not self._state.adding
             and name_is_written
             and self._loaded_name is not None
             and self._loaded_name != self.name
         )
+        # Read self.name only after a rename is known, so a deferred name costs no query.
+        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH] if renamed else ""
         if renamed and base_slug != self.slug:
             if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "slug"}
-            self._save_with_regenerated_slug(base_slug, **kwargs)
+            self._save_with_regenerated_slug(base_slug, *args, **kwargs)
         else:
-            super().save(**kwargs)
-        if name_is_written:
+            super().save(*args, **kwargs)
+        if name_is_written and "name" in self.__dict__:
             self._loaded_name = self.name
 
-    def _save_with_regenerated_slug(self, base_slug: str, **kwargs: Any) -> None:
+    def _save_with_regenerated_slug(self, base_slug: str, *args: Any, **kwargs: Any) -> None:
         for candidate in generate_slug_candidates(base_slug):
             self.slug = candidate
             try:
                 with transaction.atomic():
-                    return super().save(**kwargs)
+                    return super().save(*args, **kwargs)
             except IntegrityError:
                 continue
         raise Exception("Could not save organization with a unique slug in 10 tries!")
