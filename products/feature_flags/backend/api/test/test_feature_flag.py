@@ -9359,15 +9359,11 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
 
 
-def _create_active_person(*args, **kwargs):
-    # Flag sizing counts persons active in the recent window, so every person a sizing test relies
-    # on needs a recent event. Wrap person creation to emit one $pageview per person.
-    person = _create_person(*args, **kwargs)
-    team = kwargs.get("team")
-    team_id = kwargs.get("team_id") or (team.pk if team else None)
-    distinct_ids = kwargs.get("distinct_ids") or []
-    if distinct_ids:
-        _create_event(team_id=team_id, event="$pageview", distinct_id=distinct_ids[0])
+def _create_active_person(*, team_id: int, distinct_ids: list[str], **kwargs):
+    # Blast radius counts persons active in the recent window, so every person a blast-radius test
+    # relies on needs a recent event. Wrap person creation to emit one $pageview per person.
+    person = _create_person(team_id=team_id, distinct_ids=distinct_ids, **kwargs)
+    _create_event(team_id=team_id, event="$pageview", distinct_id=distinct_ids[0])
     return person
 
 
@@ -9407,8 +9403,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
         team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
         for i in range(3):
-            _create_active_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
-        flush_persons_and_events()
+            _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
 
         with self.capture_select_queries() as queries:
             assert team.persons_seen_so_far == 3
@@ -9420,9 +9415,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             # the assertion would always pass.
             assert "in(tuple(person.id, person.version)" not in query
 
-        # The filtered path builds one database and shares it across its numerator and denominator
-        # counts. The matched count still reads the persons table, so every query it emits must keep
-        # the pinned v1 person shape — otherwise the v2 modifier truncates the persons it matches.
+        # The filtered path builds one database and shares it between its two counts.
+        # The denominator must keep the pinned v1 shape even then.
         with patch.object(Database, "create_for", wraps=Database.create_for) as create_for_spy:
             with self.capture_select_queries() as queries:
                 result = get_user_blast_radius(
@@ -9432,17 +9426,33 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (result.affected, result.total) == (1, 3)
         assert create_for_spy.call_count == 1
-        assert queries
-        for query in queries:
+        denominator_queries = [query for query in queries if "count(DISTINCT" not in query]
+        assert denominator_queries
+        for query in denominator_queries:
             assert "in(tuple(person.id, person.version)" not in query
 
     def test_user_blast_radius_excludes_inactive_matching_persons(self):
         # A person matching the filter but with no recent activity is not reachable audience, so it
         # must not count toward "affected" — otherwise inactive matches inflate the sized audience,
         # which is the bug this fix guards against.
-        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match-1"], properties={"group": "match"})
-        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match-2"], properties={"group": "match"})
-        # Matches the filter but emits no event in the window, so it drops out of the count.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match"], properties={"group": "match"})
+        # The two window edges use fixed day offsets rather than RECENTLY_ACTIVE_DAYS +/- 1, so a
+        # typo in the constant moves the boundary past a fixture instead of moving both together.
+        _create_person(team_id=self.team.pk, distinct_ids=["edge-match"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="edge-match",
+            timestamp=now() - timedelta(days=59),
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["stale-match"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="stale-match",
+            timestamp=now() - timedelta(days=61),
+        )
+        # Matches the filter but emits no event at all, so it drops out of the count.
         _create_person(team_id=self.team.pk, distinct_ids=["inactive-match"], properties={"group": "match"})
         # Active but does not match, so it keeps the total above the matched count.
         _create_active_person(team_id=self.team.pk, distinct_ids=["active-nonmatch"], properties={"group": "other"})
@@ -9466,15 +9476,37 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Only the two active matches count; the inactive and far-future matches are excluded, and
-        # the active non-match keeps the total at three.
+        # Only the two in-window matches count; the stale, inactive, and far-future matches are
+        # excluded, and the active non-match keeps the total at three.
         self.assertLessEqual({"affected": 2, "total": 3}.items(), response.json().items())
 
         # The window is an opt-in for the flags endpoint only. The workflows audience preview calls
         # this function without it and must keep counting every matching person, because the batch
         # send it previews enumerates persons with no activity window.
         unwindowed = get_user_blast_radius(self.team, condition)
-        self.assertEqual((unwindowed.affected, unwindowed.total), (4, 5))
+        self.assertEqual((unwindowed.affected, unwindowed.total), (5, 6))
+
+    def test_user_blast_radius_caches_the_unfiltered_active_count(self):
+        # The flag editor sizes one condition group per mount, so repeat requests inside the TTL
+        # must not re-scan events each time.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active"], properties={"group": "match"})
+        flush_persons_and_events()
+
+        with self.capture_select_queries() as queries:
+            responses = [
+                self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                    {"condition": {"properties": [], "rollout_percentage": 50}},
+                )
+                for _ in range(2)
+            ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertLessEqual({"affected": 1, "total": 1}.items(), response.json().items())
+
+        events_scans = [query for query in queries if "uniq(" in query]
+        self.assertEqual(len(events_scans), 1)
 
     @parameterized.expand(
         [

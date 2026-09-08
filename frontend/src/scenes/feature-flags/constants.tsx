@@ -14,10 +14,7 @@ export const MATCHING_ESTIMATE_TOOLTIP = (
                 multiple profiles
             </Link>
         </div>
-        <div className="mt-1">
-            Estimated from persons active in the last 60 days, so people who have not been seen recently are not
-            counted.
-        </div>
+        <div className="mt-1">Estimated from persons active in the last 60 days.</div>
         <div className="mt-1">
             Conditions that filter on properties or cohorts count{' '}
             <Link to="https://posthog.com/docs/data/anonymous-vs-identified-events" target="_blank">

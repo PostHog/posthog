@@ -101,6 +101,7 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
@@ -362,6 +363,7 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
@@ -417,6 +419,7 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
@@ -478,6 +481,7 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
@@ -517,6 +521,7 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
@@ -572,6 +577,7 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
+                     timeout_overflow_mode='throw',
                      allow_experimental_object_type=1,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
