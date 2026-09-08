@@ -1038,13 +1038,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
 
             // A reload that keeps the same recording on top doesn't move the player, so it must
-            // not be reported as another open.
+            // not be reported as another open. Each reload here forces the read, because the
+            // parameters do not change and the memo would otherwise answer it.
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
                 .mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
                     ReturnType<typeof api.recordings.list>
                 >)
-            logic.actions.loadSessionRecordings()
+            logic.actions.loadSessionRecordings(undefined, undefined, true)
             await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
 
@@ -1059,7 +1060,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             listSpy.mockResolvedValueOnce({ results: [newestRecording], has_next: false } as Awaited<
                 ReturnType<typeof api.recordings.list>
             >)
-            logic.actions.loadSessionRecordings()
+            logic.actions.loadSessionRecordings(undefined, undefined, true)
             await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], ['newest']])
         })
@@ -1095,13 +1096,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             // A facet can match nothing: the player unloads into the empty state. When the next
             // reload brings the same recording back, it autoplays afresh — a new open, not a
-            // re-select of something still on screen.
+            // re-select of something still on screen. Each reload here forces the read, because
+            // the parameters do not change and the memo would otherwise answer it.
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
                 .mockResolvedValueOnce({ results: [], has_next: false } as Awaited<
                     ReturnType<typeof api.recordings.list>
                 >)
-            logic.actions.loadSessionRecordings()
+            logic.actions.loadSessionRecordings(undefined, undefined, true)
             await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             expect(logic.values.sessionRecordings).toEqual([])
             expect(logic.values.activeSessionRecordingId).toBeUndefined()
@@ -1110,7 +1112,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             listSpy.mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
                 ReturnType<typeof api.recordings.list>
             >)
-            logic.actions.loadSessionRecordings()
+            logic.actions.loadSessionRecordings(undefined, undefined, true)
             await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [aRecording.id]])
         })
