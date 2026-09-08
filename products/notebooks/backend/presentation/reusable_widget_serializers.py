@@ -1,6 +1,7 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
+from products.notebooks.backend.facade.widgets import MAX_REUSABLE_WIDGET_DEMO_ROWS
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetFrameSerializer,
     WidgetGenerateRequestSerializer,
@@ -8,7 +9,6 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetInputContractItemSerializer,
     WidgetSecurityReviewSerializer,
 )
-from products.notebooks.backend.reusable_widgets import MAX_REUSABLE_WIDGET_DEMO_ROWS
 
 
 class ReusableWidgetPublishRequestSerializer(serializers.Serializer):

@@ -5,7 +5,6 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from products.canvas.backend import notebook_integration as canvas_facade
 from products.notebooks.backend.models import GeneratedWidget, GeneratedWidgetGenerationJob, GeneratedWidgetVersion
 from products.notebooks.backend.reusable_widgets import (
     ReusableWidgetDetail,
@@ -27,6 +26,9 @@ class ReusableWidgetVersionPage:
 def list_reusable_widget_versions(
     *, team_id: int, widget_id: UUID, offset: int = 0, limit: int = 25
 ) -> ReusableWidgetVersionPage:
+    # Keep Canvas build dependencies off notebook startup.
+    from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
+
     widget = _published_widgets(team_id).filter(id=widget_id).first()
     if widget is None:
         raise WidgetError("This reusable widget does not exist.", "widget_not_found")
@@ -75,6 +77,9 @@ def _check_restore_available(widget: GeneratedWidget, expected_current_version_i
 def restore_reusable_widget_version(
     *, team_id: int, widget_id: UUID, version_id: UUID, expected_current_version_id: UUID, user_id: int
 ) -> ReusableWidgetDetail:
+    # Keep Canvas build dependencies off notebook startup.
+    from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
+
     widget = _published_widgets(team_id).select_related("current_version").filter(id=widget_id).first()
     if widget is None or widget.current_version is None:
         raise WidgetError("This reusable widget does not exist.", "widget_not_found")

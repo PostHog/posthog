@@ -1,4 +1,9 @@
+import gzip
+import json
+import hashlib
+
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -6,10 +11,11 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.models import Canvas, CanvasSourceVersion
 from products.canvas.backend.notebook_integration import (
     NotebookCanvasNotFoundError,
     create_notebook_canvas,
+    get_notebook_canvas_source,
     validate_notebook_canvas_source,
 )
 from products.tasks.backend.models import Channel
@@ -36,6 +42,53 @@ class TestNotebookCanvasSourceValidation(SimpleTestCase):
 
 
 class TestNotebookCanvasCreation(APIBaseTest):
+    @parameterized.expand([("published", False), ("draft", True)])
+    def test_reads_source_without_publishing_a_draft(self, _name: str, request_draft: bool) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team=self.team, name="Widget previews")
+        canvas = Canvas.objects.for_team(self.team.id).create(
+            team=self.team,
+            channel=channel,
+            name="Revenue widget",
+            source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
+        )
+        source_objects: dict[str, bytes] = {}
+        source_versions = []
+        for is_draft in [False, True]:
+            source = f"export default function Widget() {{ return <div>{'Draft' if is_draft else 'Published'}</div> }}"
+            canonical = json.dumps({"files": {"src/canvas.tsx": source}}).encode()
+            object_key = f"canvas_source/test-{'draft' if is_draft else 'published'}.json.gz"
+            source_objects[object_key] = gzip.compress(canonical)
+            source_versions.append(
+                CanvasSourceVersion.objects.for_team(self.team.id).create(
+                    team=self.team,
+                    canvas=canvas,
+                    draft=is_draft,
+                    source_hash=hashlib.sha256(canonical).hexdigest(),
+                    source_object_key=object_key,
+                    source_size=len(canonical),
+                )
+            )
+        canvas.current_source_version = source_versions[0]
+        canvas.save(update_fields=["current_source_version"])
+
+        if request_draft:
+            with self.assertRaises(NotebookCanvasNotFoundError):
+                get_notebook_canvas_source(team_id=self.team.id, canvas_id=canvas.id, version_id=source_versions[1].id)
+        with patch("products.canvas.backend.build_service.object_storage.read_bytes", side_effect=source_objects.get):
+            result = get_notebook_canvas_source(
+                team_id=self.team.id,
+                canvas_id=canvas.id,
+                version_id=source_versions[1].id if request_draft else None,
+                allow_draft=request_draft,
+            )
+
+        expected_label = "Draft" if request_draft else "Published"
+        assert result == f"export default function Widget() {{ return <div>{expected_label}</div> }}"
+        canvas.refresh_from_db()
+        source_versions[1].refresh_from_db()
+        assert canvas.current_source_version_id == source_versions[0].id
+        assert source_versions[1].draft
+
     def test_rejects_another_users_personal_channel(self) -> None:
         other_user = self._create_user("notebook-widget-channel-owner@example.com")
         with team_scope(self.team.id):

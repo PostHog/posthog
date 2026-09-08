@@ -21,11 +21,14 @@ from products.notebooks.backend.facade.widgets import (
     get_reusable_widget,
     get_reusable_widget_status,
     is_notebook_widget_enabled,
+    list_reusable_widget_versions,
     list_reusable_widgets,
     read_reusable_widget_demo_frame,
     read_reusable_widget_source,
+    restore_reusable_widget_version,
     save_reusable_widget_version,
     start_reusable_widget_generation,
+    update_reusable_widget_demo_data,
 )
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetCatalogQuerySerializer,
@@ -45,11 +48,6 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetStatusSerializer,
     WidgetVersionQuerySerializer,
 )
-from products.notebooks.backend.reusable_widget_versions import (
-    list_reusable_widget_versions,
-    restore_reusable_widget_version,
-)
-from products.notebooks.backend.reusable_widgets import update_reusable_widget_demo_data
 
 
 class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

@@ -1,4 +1,9 @@
+from products.notebooks.backend.reusable_widget_versions import (
+    list_reusable_widget_versions,
+    restore_reusable_widget_version,
+)
 from products.notebooks.backend.reusable_widgets import (
+    MAX_REUSABLE_WIDGET_DEMO_ROWS,
     attach_reusable_widget,
     discard_reusable_widget_version,
     fork_reusable_widget,
@@ -11,6 +16,7 @@ from products.notebooks.backend.reusable_widgets import (
     reusable_widget_catalog_context,
     save_reusable_widget_version,
     start_reusable_widget_generation,
+    update_reusable_widget_demo_data,
 )
 from products.notebooks.backend.widget_models import (
     DEFAULT_WIDGET_MODEL,
@@ -38,6 +44,7 @@ from products.notebooks.backend.widgets import (
 
 __all__ = [
     "DEFAULT_WIDGET_MODEL",
+    "MAX_REUSABLE_WIDGET_DEMO_ROWS",
     "MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH",
     "MAX_WIDGET_PROMPT_LENGTH",
     "WIDGET_LIFECYCLE_STATUS_CHOICES",
@@ -62,10 +69,13 @@ __all__ = [
     "get_reusable_widget",
     "get_reusable_widget_status",
     "list_reusable_widgets",
+    "list_reusable_widget_versions",
     "publish_reusable_widget",
     "read_reusable_widget_demo_frame",
     "read_reusable_widget_source",
+    "restore_reusable_widget_version",
     "reusable_widget_catalog_context",
     "save_reusable_widget_version",
     "start_reusable_widget_generation",
+    "update_reusable_widget_demo_data",
 ]
