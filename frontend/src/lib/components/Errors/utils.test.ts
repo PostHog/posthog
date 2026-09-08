@@ -281,12 +281,27 @@ describe('Error Display', () => {
         ['a raw stack trace line', ['at handleRequest (file:///srv/app/server.js:42:9)'], []],
         ['a null frame', [null], []],
         ['a valid frame next to a string', [{ raw_id: 'abc' }, '[TRUNCATED]'], [{ raw_id: 'abc/0' }]],
-    ])('drops stack frames that are not objects, given %s', (_name, frames, expected) => {
+        ['a non-string raw id', [{ raw_id: 1234 }], [{ raw_id: 1234 }]],
+    ])('survives malformed stack frames, given %s', (_name, frames, expected) => {
         const properties = {
             $exception_list: [{ type: 'Error', value: 'boom', stacktrace: { frames } }],
         } as unknown as ErrorEventProperties
 
-        expect(getExceptionList(properties)[0].stacktrace?.frames).toEqual(expected)
+        expect(getExceptionList(properties)[0]?.stacktrace?.frames).toEqual(expected)
+    })
+
+    it.each<[string, unknown[], unknown[]]>([
+        ['a null exception', [null], []],
+        ['an exception replaced by a truncation marker', ['[TRUNCATED]'], []],
+        [
+            'a valid exception next to a null',
+            [{ type: 'Error', value: 'boom' }, null],
+            [{ type: 'Error', value: 'boom' }],
+        ],
+    ])('drops exception entries that are not objects, given %s', (_name, $exception_list, expected) => {
+        const properties = { $exception_list } as unknown as ErrorEventProperties
+
+        expect(getExceptionList(properties)).toEqual(expected)
     })
 
     it('leaves the event properties it reads unchanged', () => {

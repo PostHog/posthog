@@ -1,5 +1,7 @@
 import { P, match } from 'ts-pattern'
 
+import { isObject } from 'lib/utils/guards'
+
 import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import {
@@ -183,14 +185,18 @@ function ensureFrameIdFormat(exceptionList: ErrorTrackingException[]): ErrorTrac
         }
         const frames = stacktrace.frames.filter(isFrameObject).map((frame) => ({
             ...frame,
-            raw_id: frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id,
+            raw_id: typeof frame.raw_id === 'string' && frame.raw_id ? coerceLegacyRawId(frame.raw_id) : frame.raw_id,
         }))
         return { ...exception, stacktrace: { ...stacktrace, frames } }
     })
 }
 
 function isFrameObject(frame: unknown): frame is ErrorTrackingStackFrame {
-    return !!frame && typeof frame === 'object' && !Array.isArray(frame)
+    return isObject(frame)
+}
+
+function isExceptionObject(exception: unknown): exception is ErrorTrackingException {
+    return isObject(exception)
 }
 
 function coerceLegacyRawId(rawId: string): string {
@@ -263,7 +269,7 @@ function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): E
         return []
     }
 
-    return exceptionList.map((exception) => ({
+    return exceptionList.filter(isExceptionObject).map((exception) => ({
         ...exception,
         value: stringify(exception.value),
     }))
