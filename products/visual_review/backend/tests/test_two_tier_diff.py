@@ -235,18 +235,22 @@ class TestRowShiftClassification:
         assert classify_compare_result(result) == expected_kind
 
     @pytest.mark.parametrize(
-        "moved_rows, expected_kind",
+        "page_height, moved_rows, expected_kind",
         [
-            pytest.param(SHIFT_ABSORB_MAX_ROWS, None, id="cap_still_absorbed"),
-            pytest.param(SHIFT_ABSORB_MAX_ROWS + 1, ChangeKind.LAYOUT, id="past_cap_is_layout"),
+            pytest.param(3000, SHIFT_ABSORB_MAX_ROWS, None, id="cap_still_absorbed"),
+            pytest.param(3000, SHIFT_ABSORB_MAX_ROWS + 1, ChangeKind.LAYOUT, id="past_cap_is_layout"),
+            # On a short page the doubled band area alone would cross the pixel threshold.
+            pytest.param(100, SHIFT_ABSORB_MAX_ROWS, None, id="cap_on_a_short_page"),
         ],
     )
-    def test_same_height_translation_counts_the_movement_once(self, moved_rows: int, expected_kind: ChangeKind | None):
+    def test_same_height_translation_counts_the_movement_once(
+        self, page_height: int, moved_rows: int, expected_kind: ChangeKind | None
+    ):
         # A page that keeps its height while its content moves down shows up
         # as the same number of inserted and deleted rows. Summing both sides
         # would double the movement and push a cap-sized shift into layout.
-        baseline = _make_tall_settings_page()
-        grown = open_png(_insert_rows(baseline, y=200, rows=moved_rows))
+        baseline = _make_tall_settings_page(height=page_height)
+        grown = open_png(_insert_rows(baseline, y=page_height // 2, rows=moved_rows))
         current = to_png(grown.crop((0, 0, grown.width, grown.height - moved_rows)))
 
         result = compare_images(baseline, current, with_thumbnail=False)

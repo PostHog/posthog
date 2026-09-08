@@ -143,8 +143,9 @@ def compare_images(
         # The rows a shift added or removed have no counterpart, so the residual
         # does not see them. They still are a change the size of their area:
         # two rows on a tall page is nothing, two rows on a small component is
-        # a bar across it.
-        band_pixel_count = (alignment.inserted_rows + alignment.deleted_rows) * width
+        # a bar across it. A same-height move shows as both an insert and a
+        # delete of the same rows, so the larger side is the area, not the sum.
+        band_pixel_count = max(alignment.inserted_rows, alignment.deleted_rows) * width
         aligned_diff_pixel_count = alignment.residual_count + band_pixel_count
         aligned_diff_percentage = (aligned_diff_pixel_count / total_pixels * 100) if total_pixels > 0 else 0.0
         residual_percentage = (alignment.residual_count / total_pixels * 100) if total_pixels > 0 else 0.0
