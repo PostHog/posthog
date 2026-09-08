@@ -5,6 +5,7 @@ import type {
   CloudRunSource,
   ExecutionMode,
   McpServerConnection,
+  ModelAccess,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -1080,6 +1081,7 @@ export interface CloudRunOptions {
   autoPublish?: boolean;
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
+  claudeModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1229,6 +1231,9 @@ function buildCloudRunRequestBody(
   }
   if (options?.rtkEnabled === false) {
     body.rtk_enabled = false;
+  }
+  if (!options?.piRuntime && options?.claudeModelAccess) {
+    body.claude_model_access = options.claudeModelAccess;
   }
   if (options?.runSource) {
     body.run_source = options.runSource;
@@ -4064,6 +4069,7 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     reason?: string,
+    onlyIfAwaitingFirstMessage = false,
   ): Promise<{ status?: string }> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/cancel/`;
@@ -4072,7 +4078,12 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${path}`),
       path,
       overrides: {
-        body: JSON.stringify(reason ? { reason } : {}),
+        body: JSON.stringify({
+          ...(reason ? { reason } : {}),
+          ...(onlyIfAwaitingFirstMessage
+            ? { only_if_awaiting_first_message: true }
+            : {}),
+        }),
       },
     });
     return (await response.json().catch(() => ({}))) as { status?: string };
