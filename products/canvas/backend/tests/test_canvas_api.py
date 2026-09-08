@@ -642,13 +642,12 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         canvas_id = self._create_canvas()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
-            {"name": "Renamed", "context": "notes", "pinned": True},
+            {"name": "Renamed", "pinned": True},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["name"] == "Renamed"
-        assert body["context"] == "notes"
         assert body["pinned"] is True
 
         response = self.client.patch(
