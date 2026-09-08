@@ -27,6 +27,7 @@ import {
     LIST_MEMO_WINDOW_MS,
     type SessionRecordingPlaylistLogicProps,
     asUniversalFilters,
+    clearMemoizedListResponses,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
@@ -170,6 +171,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
+        // The list memo is module state, so it survives the kea context these tests reset
+        clearMemoizedListResponses()
     })
 
     afterEach(() => {
@@ -1390,6 +1393,84 @@ describe('sessionRecordingsPlaylistLogic', () => {
             )
         })
 
+        it('drops a persisted absolute date_to when the caller passes a relative date_from', async () => {
+            const scopedProps = {
+                logicKey: 'caller_scoped_dates',
+                updateSearchParams: false,
+                filters: {
+                    date_from: '-7d',
+                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                    filter_group: DEFAULT_RECORDING_FILTERS.filter_group,
+                },
+            }
+            // Every key the caller sets already matches, so only the transform `setFilters` runs on
+            // a relative date_from makes this mount differ from what is stored.
+            persistFilters(scopedProps, {
+                ...DEFAULT_RECORDING_FILTERS,
+                date_from: '-7d',
+                date_to: '2024-01-01',
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            logic = sessionRecordingsPlaylistLogic(scopedProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ date_from: '-7d', date_to: null }))
+        })
+
+        it('applies the caller filters and the pinned ones in one load, as no viewer edit', async () => {
+            const pinnedFilters = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: 'events',
+                        name: 'All events',
+                        properties: [{ key: "$group_0 = 'scoped-group'", type: 'hogql' }],
+                    } as ActionFilter,
+                ],
+            }
+            const scopedProps = {
+                logicKey: 'caller_scoped_pinned',
+                updateSearchParams: false,
+                pinnedFilters,
+                filters: {
+                    date_from: '-7d',
+                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                    filter_group: DEFAULT_RECORDING_FILTERS.filter_group,
+                },
+            }
+            // The stored group holds no pinned filter, so the pinned merge is pending at mount
+            persistFilters(scopedProps, { ...DEFAULT_RECORDING_FILTERS, date_from: '-30d' })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            logic = sessionRecordingsPlaylistLogic(scopedProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ date_from: '-7d' }))
+            // props applied at mount are not viewer edits, so the read carries no filter edit
+            expect(listSpy.mock.calls[0][0]).not.toHaveProperty('user_modified_filters')
+            const firstGroup = logic.values.filters.filter_group.values[0] as any
+            expect(firstGroup.values).toContainEqual(pinnedFilters.values[0])
+        })
+
         it('reads the persisted filters once when the caller sets none', async () => {
             persistFilters(props, { ...DEFAULT_RECORDING_FILTERS, date_from: '-14d' })
             const listSpy = jest
@@ -1725,6 +1806,55 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(listSpy).toHaveBeenCalledTimes(1)
 
             refreshLogic.unmount()
+        })
+
+        // An embedded playlist unmounts with its tab, so most repeats arrive on a fresh logic
+        // instance. The memo has to outlive the one that issued the read.
+        it('reads once when a remount inside the memo window repeats the request', async () => {
+            const advanceClock = mockClock()
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
+                )
+
+            const firstMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount' })
+            firstMount.mount()
+            await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            firstMount.unmount()
+
+            advanceClock(LIST_MEMO_WINDOW_MS - 1)
+            const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount' })
+            secondMount.mount()
+            await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(secondMount.values.sessionRecordings).toEqual([aRecording])
+
+            secondMount.unmount()
+        })
+
+        it('reads again when a remount repeats a request the memo window no longer covers', async () => {
+            const advanceClock = mockClock()
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
+                )
+
+            const firstMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
+            firstMount.mount()
+            await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            firstMount.unmount()
+
+            advanceClock(LIST_MEMO_WINDOW_MS + 1)
+            const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
+            secondMount.mount()
+            await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(2)
+
+            secondMount.unmount()
         })
 
         it('reads again for a changed filter inside the memo window', async () => {
