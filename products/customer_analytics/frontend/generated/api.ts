@@ -108,8 +108,10 @@ import type {
     PatchedFeatureRequestProductAreaApi,
     PatchedFeatureRequestUpdateApi,
     PatchedGroupUsageMetricApi,
+    PatchedUserCustomerAnalyticsConfigUpdateApi,
     QueryStatusResponseApi,
     SupportTicketApi,
+    UserCustomerAnalyticsConfigApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -2339,5 +2341,46 @@ export const groupsTypesMetricsDestroy = async (
     return apiMutator<void>(getGroupsTypesMetricsDestroyUrl(projectId, groupTypeIndex, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_customer_analytics_config/${id}/`
+}
+
+/**
+ * Get the requesting user's account sidebar configuration for this project. The first read creates an empty configuration row.
+ * @summary Get account sidebar configuration
+ */
+export const userCustomerAnalyticsConfigRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UserCustomerAnalyticsConfigApi> => {
+    return apiMutator<UserCustomerAnalyticsConfigApi>(getUserCustomerAnalyticsConfigRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_customer_analytics_config/${id}/`
+}
+
+/**
+ * Replace the requesting user's ordered account sidebar properties for this project. At most 50 account custom properties and relationships can be pinned.
+ * @summary Update account sidebar configuration
+ */
+export const userCustomerAnalyticsConfigPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUserCustomerAnalyticsConfigUpdateApi?: PatchedUserCustomerAnalyticsConfigUpdateApi,
+    options?: RequestInit
+): Promise<UserCustomerAnalyticsConfigApi> => {
+    return apiMutator<UserCustomerAnalyticsConfigApi>(getUserCustomerAnalyticsConfigPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserCustomerAnalyticsConfigUpdateApi),
     })
 }

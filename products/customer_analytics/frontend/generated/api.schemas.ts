@@ -3928,6 +3928,38 @@ export interface PatchedGroupUsageMetricApi {
     math_property?: string | null
 }
 
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type PinnedAccountPropertyKindEnumApi =
+    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+
+export const PinnedAccountPropertyKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface PinnedAccountPropertyApi {
+    /** Definition type for this pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: PinnedAccountPropertyKindEnumApi
+    /** Team-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
+export interface UserCustomerAnalyticsConfigApi {
+    /** Account properties pinned in sidebar display order. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
+    /** Complete ordered list of account properties to pin. Pass an empty list to clear it. */
+    pinned_properties?: PinnedAccountPropertyApi[]
+}
+
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {
     /**
      * When true, return only accounts with at least one active relationship assignment to a current member of the project's organization.
