@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from uuid import UUID
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.models import (
     AccountRelationshipDefinition,
@@ -20,8 +22,12 @@ class InvalidPinnedAccountProperties(ValueError):
 
 
 def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalyticsConfig:
-    config, _ = UserCustomerAnalyticsConfig.objects.for_team(team_id).get_or_create(
-        team_id=team_id,
+    # Resolve an environment (child team) id to its root team once. `for_team` canonicalizes its
+    # filter but not the create kwargs, so a raw id makes the lookup never match, and the unique
+    # constraint then rejects every call after the first.
+    canonical_team_id = resolve_effective_team_id(team_id)
+    config, _ = UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True).get_or_create(
+        team_id=canonical_team_id,
         user_id=user_id,
         defaults={"properties": {PINNED_PROPERTIES_KEY: []}},
     )
