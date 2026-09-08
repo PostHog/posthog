@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
     ProcessTaskError,
+    ProcessTaskFatalError,
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
@@ -50,7 +51,7 @@ from .agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache, snapshot_local_task_skills
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -477,7 +478,19 @@ class DockerSandbox(SandboxBase):
 
     @staticmethod
     def create(config: SandboxConfig) -> DockerSandbox:
+        skills_snapshot: tempfile.TemporaryDirectory[str] | None = None
         try:
+            skill_source = DockerSandbox._local_skill_source(config)
+            if skill_source == "local":
+                skills_snapshot = tempfile.TemporaryDirectory(prefix="posthog-task-skills-")
+                try:
+                    snapshot_local_task_skills(Path(skills_snapshot.name))
+                except Exception as error:
+                    raise ProcessTaskFatalError(
+                        "Failed to build local task skills. Fix the skill error before starting another task.",
+                        {"config_name": config.name, "error": _truncate_output(str(error))},
+                        cause=error,
+                    ) from error
             image = DockerSandbox._get_image(config)
             DockerSandbox._verify_image_available(image, config)
             container_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
@@ -512,7 +525,7 @@ class DockerSandbox(SandboxBase):
             # the baked-in rendered skills in the image stay visible — only
             # the specific skills the user has on disk get overlaid.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
-            if local_skills_host and os.path.isdir(local_skills_host):
+            if skill_source != "local" and local_skills_host and os.path.isdir(local_skills_host):
                 for entry in sorted(os.listdir(local_skills_host)):
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
@@ -555,6 +568,17 @@ class DockerSandbox(SandboxBase):
             container_id = result.stdout.strip()
 
             sandbox = DockerSandbox(container_id=container_id, config=config, host_port=host_port)
+            if skill_source is not None:
+                try:
+                    sandbox._install_local_skills(Path(skills_snapshot.name) if skills_snapshot else None)
+                except Exception as error:
+                    sandbox.destroy()
+                    raise SandboxProvisionError(
+                        "Failed to install local task skills",
+                        {"config_name": config.name, "error": _truncate_output(str(error))},
+                        cause=error,
+                    ) from error
+                logger.info("Docker task skill source: %s", skill_source)
             logger.info(f"Created Docker sandbox {sandbox.id} for {config.name} (port {host_port})")
 
             return sandbox
@@ -577,6 +601,43 @@ class DockerSandbox(SandboxBase):
                 {"config_name": config.name, "error": _truncate_output(str(e))},
                 cause=e,
             )
+        finally:
+            if skills_snapshot is not None:
+                skills_snapshot.cleanup()
+
+    @staticmethod
+    def _local_skill_source(config: SandboxConfig) -> str | None:
+        if not settings.DEBUG or config.template not in {
+            SandboxTemplate.DEFAULT_BASE,
+            SandboxTemplate.VM_BASE,
+            SandboxTemplate.PI_BASE,
+        }:
+            return None
+        source = os.environ.get("POSTHOG_DESKTOP_SKILLS")
+        if source not in {None, "local", "production"}:
+            raise ValueError("POSTHOG_DESKTOP_SKILLS must be local or production")
+        return source
+
+    def _install_local_skills(self, skills_dir: Path | None) -> None:
+        container_dir = "/tmp/posthog-local-skills"
+        if skills_dir is not None:
+            self._run(["docker", "cp", str(skills_dir), f"{self._container_id}:{container_dir}"], check=True)
+        script = (Path(__file__).parents[2] / "sandbox" / "images" / "install-local-skills.sh").read_text()
+        self._run(
+            [
+                "docker",
+                "exec",
+                self._container_id,
+                "bash",
+                "-c",
+                script,
+                "install-local-skills",
+                container_dir if skills_dir is not None else "--restore",
+            ],
+            check=True,
+        )
+        if skills_dir is not None:
+            self._run(["docker", "exec", self._container_id, "rm", "-rf", container_dir], check=True)
 
     @staticmethod
     def _recover_published_host_port(container_id: str) -> int | None:
