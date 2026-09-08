@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     will_hit_billing_limit,
 )
 
+_READ_ONLY_REPLICA_ERROR = redis_exceptions.ReadOnlyError("You can't write against a read only replica.")
+
 
 class _CacheReadFailsClient:
     def __init__(self, inner):
@@ -90,31 +92,68 @@ class TestRowTrackingRedisUnavailable(BaseTest):
         unreachable_client.hset.assert_not_called()
         mock_capture_exception.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "misconf_error",
+                redis_exceptions.ResponseError(
+                    "MISCONF Redis is configured to save RDB snapshots, but it's currently "
+                    "unable to persist to disk. Commands that may modify the data set are "
+                    "disabled, because this instance is configured to report errors during "
+                    "writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). "
+                    "Please check the Redis logs for details about the RDB error."
+                ),
+            ),
+            ("read_only_replica_error", _READ_ONLY_REPLICA_ERROR),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_setup_row_tracking_does_not_raise_when_redis_rejects_writes(self):
+    async def test_setup_row_tracking_does_not_raise_or_capture_when_redis_rejects_writes(self, _name, exception):
         # A successful ping doesn't guarantee the following command succeeds - e.g. Redis
-        # can refuse writes (MISCONF) if it can't persist an RDB snapshot to disk. That
-        # must fail open like the unreachable-at-ping case above, not crash the sync.
+        # can refuse writes (MISCONF, or a replica redirect during failover). That must
+        # fail open like the unreachable-at-ping case above: no crash, and (since it's a
+        # transient infra blip the caller already tolerates) no error-tracking report.
         read_only_client = mock.AsyncMock()
         read_only_client.ping.return_value = True
-        read_only_client.hset.side_effect = redis_exceptions.ResponseError(
-            "MISCONF Redis is configured to save RDB snapshots, but it's currently "
-            "unable to persist to disk. Commands that may modify the data set are "
-            "disabled, because this instance is configured to report errors during "
-            "writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). "
-            "Please check the Redis logs for details about the RDB error."
-        )
+        read_only_client.hset.side_effect = exception
 
         with (
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
                 return_value=read_only_client,
             ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
             override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
         ):
             await setup_row_tracking(self.team.pk, str(uuid.uuid4()))
 
         read_only_client.expire.assert_not_called()
+        mock_capture_exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_finish_row_tracking_does_not_raise_or_capture_when_redis_rejects_writes(self):
+        # Regression test: finish_row_tracking's hdel used to report a read-only-replica
+        # error (e.g. during a Redis failover) to error tracking instead of failing open
+        # like the rest of row tracking already does.
+        read_only_client = mock.AsyncMock()
+        read_only_client.ping.return_value = True
+        read_only_client.hdel.side_effect = _READ_ONLY_REPLICA_ERROR
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+                return_value=read_only_client,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        ):
+            await finish_row_tracking(self.team.pk, str(uuid.uuid4()))
+
+        mock_capture_exception.assert_not_called()
 
 
 @pytest.mark.timeout(600)
