@@ -4,6 +4,8 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -20,6 +22,8 @@ from posthog.schema import (
     HogLanguage,
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
+    HogQLMetadata,
+    HogQLMetadataResponse,
     HogQLQuery,
 )
 
@@ -28,6 +32,7 @@ from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.language_service import LanguageServiceResult
 
 from posthog.api.services.query import process_query_model
 from posthog.exceptions import DatabaseSchemaUnavailable
@@ -38,6 +43,70 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+
+class TestLanguageServiceRouting(SimpleTestCase):
+    @patch("posthog.api.services.query._language_service_call")
+    def test_hogql_autocomplete_uses_language_service_response(self, mock_language_service_call: MagicMock):
+        mock_language_service_call.return_value = LanguageServiceResult(
+            body={
+                "suggestions": [{"label": "events", "kind": "table", "detail": "posthog"}],
+                "durationMicros": 250,
+                "nextCursor": "next",
+            },
+            duration_seconds=0.001,
+            response_size_bytes=128,
+        )
+
+        response = process_query_model(
+            SimpleNamespace(),
+            HogQLAutocomplete(
+                query="SELECT * FROM ",
+                language=HogLanguage.HOG_QL,
+                startPosition=14,
+                endPosition=14,
+            ),
+            user=SimpleNamespace(),
+        )
+
+        assert isinstance(response, HogQLAutocompleteResponse)
+        assert response.suggestions[0].label == "events"
+        assert response.incomplete_list is True
+        assert [timing.model_dump() for timing in response.timings or []] == [
+            {"k": "language_service_http", "t": 0.001},
+            {"k": "language_service_go", "t": 0.00025},
+        ]
+
+    @patch("posthog.api.services.query._language_service_call")
+    def test_hogql_metadata_uses_language_service_diagnostics(self, mock_language_service_call: MagicMock):
+        mock_language_service_call.return_value = LanguageServiceResult(
+            body={
+                "valid": False,
+                "diagnostics": [
+                    {
+                        "message": 'Unknown table "evnts"',
+                        "start": 14,
+                        "end": 19,
+                        "suggestions": [{"label": "events", "distance": 1}],
+                    }
+                ],
+                "tableNames": ["evnts"],
+            },
+            duration_seconds=0.001,
+            response_size_bytes=128,
+        )
+
+        response = process_query_model(
+            SimpleNamespace(),
+            HogQLMetadata(query="SELECT * FROM evnts", language=HogLanguage.HOG_QL),
+            user=SimpleNamespace(),
+        )
+
+        assert isinstance(response, HogQLMetadataResponse)
+        assert response.isValid is False
+        assert response.errors[0].message == 'Unknown table "evnts"'
+        assert response.errors[0].fix == "events"
+        assert response.table_names == ["evnts"]
 
 
 class TestQueryService(APIBaseTest):
