@@ -360,6 +360,9 @@ class RelaySlackMessageInput:
     # Id of the user message this relay answers (agent-server echo), used to
     # tag the exact sender; None falls back to the run-state/mapping actors.
     message_id: str | None = None
+    # Gateway trace id of the turn that produced this answer. Trailing and defaulted so a
+    # relay enqueued before this field existed still decodes.
+    trace_id: str | None = None
 
 
 @activity.defn
@@ -448,7 +451,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         or mapping.mentioning_slack_user_id
     )
 
-    handler = SlackThreadHandler(context, actor_slack_user_id=target)
+    handler = SlackThreadHandler(context, actor_slack_user_id=target, turn_trace_id=input.trace_id)
     handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
 
