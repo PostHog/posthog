@@ -16,7 +16,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 
 ADD_SNAPSHOT_MODE = """
 ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS snapshot_mode AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+ADD COLUMN IF NOT EXISTS snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
 """
 
 operations = [

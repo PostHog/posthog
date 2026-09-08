@@ -4273,7 +4273,7 @@ database "posthog" {
       type = "Nullable(String)"
     }
     column "snapshot_mode" {
-      type = "Nullable(String)"
+      type = "LowCardinality(Nullable(String))"
     }
     column "retention_period_days" {
       type = "Nullable(Int64)"
@@ -9387,7 +9387,7 @@ SQL
       type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "snapshot_mode" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -13525,7 +13525,7 @@ SQL
       type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "snapshot_mode" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_events"
@@ -18094,7 +18094,7 @@ SQL
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_mode" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
@@ -23137,7 +23137,7 @@ SQL
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_mode" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

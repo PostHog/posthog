@@ -67,7 +67,7 @@ database "posthog" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_mode" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
