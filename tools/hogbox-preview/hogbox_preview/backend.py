@@ -137,12 +137,17 @@ class PreviewBackend(abc.ABC):
         return job
 
     def join_long(self, job: LongJob, *, timeout: int = 1800, interval: int = 3) -> ExecResult:
-        """Wait for a ``launch_long`` job, with the same success / failure /
-        timeout contract as ``run_long``.
+        """Wait for a ``launch_long`` job, with the same success and failure
+        contract as ``run_long``.
+
+        ``timeout`` bounds the wait at the join, not the whole life of the job:
+        the clock starts here, so whatever the job already spent under the steps
+        which ran in between does not count against it. A hung job is reported
+        at its join, the first point where the control side reads its state.
 
         The recorded span is the RESIDUAL wait only: the part of the job that
-        did not fit under the steps which ran in between. A span near zero means
-        the overlap paid for the whole job, which is the point.
+        did not fit under those steps. A span near zero means the overlap paid
+        for the whole job, which is the point.
         """
         with timing.span(f"{job.name}-wait"):
             return self._join(job, timeout=timeout, interval=interval)
