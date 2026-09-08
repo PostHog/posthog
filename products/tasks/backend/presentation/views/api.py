@@ -655,6 +655,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         validated_data = dict(serializer.validated_data)
         relationship = validated_data.get("signal_report_task_relationship")
         discussion_question = validated_data.pop("signal_report_discussion_question", None)
+
+        # Inbox "Discuss" runs repo-less so the generally-available Inbox never 403s a caller the
+        # Desktop gate refuses. An entitled caller gets the shape a normal cloud task has instead: a
+        # resolved repository and the team's GitHub credential, so the sandbox can clone a private
+        # repository and update the report's PR. Only the request layer can evaluate the gate, so it
+        # runs here and the outcome travels into the facade. A resolution error (503) counts as
+        # refused, which keeps the discussion starting repo-less.
+        code_access_allowed = False
+        if (
+            relationship not in (None, "implementation")
+            and validated_data.get("signal_report") is not None
+            and validated_data.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+        ):
+            code_access_allowed = code_access_required_response(request, self.organization) is None
+
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
             ReportTaskCapExceeded,
         )
@@ -665,6 +680,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self._user_id(),
                 validated_data=validated_data,
                 client_provenance=get_task_client_provenance(request),
+                code_access_allowed=code_access_allowed,
             )
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)

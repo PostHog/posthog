@@ -4504,6 +4504,7 @@ export interface RepositoryReadinessResponseApi {
  * * `pull_request` - pull_request
  * * `artifact` - artifact
  * * `channel` - channel
+ * * `canvas` - canvas
  */
 export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
 
@@ -4512,7 +4513,50 @@ export const TaskSearchResultKindEnumApi = {
     PullRequest: 'pull_request',
     Artifact: 'artifact',
     Channel: 'channel',
+    Canvas: 'canvas',
 } as const
+
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `local` - Local
+ * * `cloud` - Cloud
+ */
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
+
+export const TaskRunEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
+export interface TaskRunSummaryApi {
+    /** ID of the latest run. */
+    id: string
+    status: TaskRunStatusEnumApi | null
+    environment: TaskRunEnvironmentEnumApi | null
+    /** Execution mode of the latest run.
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
+    mode: TaskExecutionModeEnumApi
+}
 
 export interface TaskSearchResultApi {
     /** Search document identifier. */
@@ -4522,7 +4566,8 @@ export interface TaskSearchResultApi {
      * * `task` - task
      * * `pull_request` - pull_request
      * * `artifact` - artifact
-     * * `channel` - channel */
+     * * `channel` - channel
+     * * `canvas` - canvas */
     kind: TaskSearchResultKindEnumApi
     /** Primary result label. */
     title: string
@@ -4543,6 +4588,17 @@ export interface TaskSearchResultApi {
      * @nullable
      */
     channel_id: string | null
+    /** Who created the containing task, when the match has one. */
+    created_by: TaskUserBasicInfoApi | null
+    /**
+     * What created the containing task, for example 'slack'.
+     * @nullable
+     */
+    origin_product: string | null
+    /** Status of the containing task's most recent run. */
+    latest_run: TaskRunSummaryApi | null
+    /** When the matched resource last changed. */
+    updated_at: string
     /** Resource-specific navigation metadata. */
     metadata: unknown
 }
@@ -4725,48 +4781,6 @@ export interface TaskSummariesRequestApi {
      * @maxItems 5000
      */
     ids: string[]
-}
-
-/**
- * * `not_started` - Not Started
- * * `queued` - Queued
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- * * `cancelled` - Cancelled
- */
-export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
-
-export const TaskRunStatusEnumApi = {
-    NotStarted: 'not_started',
-    Queued: 'queued',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `local` - Local
- * * `cloud` - Cloud
- */
-export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
-
-export const TaskRunEnvironmentEnumApi = {
-    Local: 'local',
-    Cloud: 'cloud',
-} as const
-
-export interface TaskRunSummaryApi {
-    /** ID of the latest run. */
-    id: string
-    status: TaskRunStatusEnumApi | null
-    environment: TaskRunEnvironmentEnumApi | null
-    /** Execution mode of the latest run.
-     *
-     * * `interactive` - interactive
-     * * `background` - background */
-    mode: TaskExecutionModeEnumApi
 }
 
 /**

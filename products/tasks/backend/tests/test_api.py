@@ -1874,10 +1874,19 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["repository"], expected_repository)
 
-    def test_discussion_from_no_repo_report_stays_repo_less_and_exempt(self):
-        # A "Discuss" kickoff must not resolve a repository, even on a one-repo team with a NO_REPO
-        # selection artefact. A repository-backed report task loses the code-access exemption, so a
-        # caller without Desktop access would 403 on the discussion — the dead-end this path removes.
+    @parameterized.expand(
+        [
+            ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, "acme/web"),
+            ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, None),
+            ("unresolvable", DesktopAccessResolutionError("cannot verify"), None),
+        ]
+    )
+    def test_discussion_repository_and_credential_follow_the_desktop_gate(self, _name, decision, expected_repository):
+        # A "Discuss" kickoff is repo-less and credential-less for a caller the gate refuses, so the
+        # generally-available Inbox never 403s on the click this path exists to unblock. An
+        # unverifiable gate degrades to that same shape rather than failing the click. An entitled
+        # caller gets a repository and the team credential instead, which is what lets the sandbox
+        # clone a private repository and update the report's pull request.
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         Integration.objects.create(
@@ -1897,6 +1906,48 @@ class TestTaskAPI(BaseTaskAPITest):
             content=RepoSelectionResult(repository=None, reason="test").model_dump_json(),
         )
 
+        gate = {"side_effect": decision} if isinstance(decision, Exception) else {"return_value": decision}
+        with patch("products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision", **gate):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Discuss report",
+                    "description": "Let's discuss this report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                    "signal_report_task_relationship": "discussion",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["repository"], expected_repository)
+        entitled = expected_repository is not None
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.github_integration is not None, entitled)
+        self.assertEqual(tasks_facade.task_exempt_from_code_access(data["id"], self.team.id), not entitled)
+
+    def test_entitled_discussion_with_no_resolvable_repository_still_carries_the_credential(self):
+        # Ambiguous repositories resolve to nothing, and a discussion that stopped there used to
+        # start credential-less, so the agent could not clone the private repository it names mid
+        # conversation. The credential follows the entitlement, not the repository.
+        from products.signals.backend.models import SignalReport
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-ambiguous",
+            config={"installation_id": "gh-ambiguous"},
+            sensitive_config={},
+            repository_cache=[
+                {"full_name": "acme/web", "name": "web", "id": 1},
+                {"full_name": "acme/api", "name": "api", "id": 2},
+            ],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        report = SignalReport.objects.create(team=self.team)
+
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
@@ -1910,8 +1961,11 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIsNone(response.json()["repository"])
-        self.assertTrue(tasks_facade.task_exempt_from_code_access(response.json()["id"], self.team.id))
+        data = response.json()
+        self.assertIsNone(data["repository"])
+        task = Task.objects.get(id=data["id"])
+        self.assertIsNotNone(task.github_integration)
+        self.assertFalse(tasks_facade.task_exempt_from_code_access(data["id"], self.team.id))
 
     def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
