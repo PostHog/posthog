@@ -3092,7 +3092,7 @@ SQL
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     column "snapshot_mode" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"

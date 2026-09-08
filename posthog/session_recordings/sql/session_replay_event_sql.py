@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
     snapshot_library Nullable(String),
-    snapshot_mode Nullable(String),
+    snapshot_mode LowCardinality(Nullable(String)),
     retention_period_days Nullable(Int64),
     is_deleted UInt8,
     ai_tags_fixed Array(String),
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-    snapshot_mode AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+    snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
     retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -184,7 +184,7 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 {",`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags_freeform" not in exclude_columns else ""}
 {",`ai_highlighted` SimpleAggregateFunction(max, UInt8)" if "ai_highlighted" not in exclude_columns else ""}
 {",`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))" if "surfacing_score" not in exclude_columns else ""}
-{",`snapshot_mode` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))" if "snapshot_mode" not in exclude_columns else ""}
+{",`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))" if "snapshot_mode" not in exclude_columns else ""}
 )"""
 
     return f"""
@@ -333,7 +333,7 @@ def SESSION_REPLAY_EVENTS_WS_MV_SQL(on_cluster=False, exclude_columns=None):
 {",`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags_freeform" not in exclude_columns else ""}
 {",`ai_highlighted` SimpleAggregateFunction(max, UInt8)" if "ai_highlighted" not in exclude_columns else ""}
 {",`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))" if "surfacing_score" not in exclude_columns else ""}
-{",`snapshot_mode` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))" if "snapshot_mode" not in exclude_columns else ""}
+{",`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))" if "snapshot_mode" not in exclude_columns else ""}
 )"""
 
     return f"""
