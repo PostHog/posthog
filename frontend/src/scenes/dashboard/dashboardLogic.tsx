@@ -153,7 +153,6 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
-    dashboardFilterOverrideChangesFilters,
     encodeURLVariables,
     getDashboardWidgetType,
     getEffectiveDateOverride,
@@ -354,7 +353,6 @@ export interface dashboardLogicValues {
     hasInvalidDashboardId: boolean
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
-    hasUrlFilters: boolean
     hasVariables: boolean
     highlightedInsightId: any
     initialDashboardSettingsOverride: DashboardSettings
@@ -1106,11 +1104,6 @@ export interface dashboardLogicMeta {
         layoutEditMode: (dashboardEditing: DashboardEditing | null) => boolean
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
-        hasUrlFilters: (
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-            externalFilters: DashboardFilter,
-            urlFilters: DashboardFilter
-        ) => boolean
         savedDashboardSettings: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => DashboardSettings
@@ -2706,21 +2699,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // so count insight tiles only — not text, button, or widget tiles.
                 return insightTiles.length < limit
             },
-        ],
-        // An override that constrains nothing still has keys — clearing the last property filter leaves
-        // `{"properties":[]}` in the URL. Counting keys reads that as an active override, so the dashboard
-        // announces overrides while showing exactly its saved state.
-        hasUrlFilters: [
-            (s) => [s.dashboard, s.externalFilters, s.urlFilters],
-            (
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                externalFilters: DashboardFilter,
-                urlFilters: DashboardFilter
-            ) =>
-                dashboardFilterOverrideChangesFilters(
-                    urlFilters,
-                    combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters)
-                ),
         ],
         savedDashboardSettings: [
             (s) => [s.dashboard],

@@ -1684,24 +1684,6 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
             }
 
-            // The overrides banner renders off hasUrlFilters. An override that constrains nothing still
-            // has keys, so testing for key presence announces overrides on a dashboard that is showing
-            // exactly its saved state. A back link from an insight writes the saved filters into the url,
-            // which is that same state.
-            const activeOverrideCases: [string, Record<string, any>, number, boolean][] = [
-                ['a date override is active', { date_from: '-7d', date_to: null }, 5, true],
-                ['a property override is active', { properties: PROPERTY_OVERRIDE }, 5, true],
-                ['properties cleared to empty is not active', { properties: [] }, 5, false],
-                ['a url that repeats the saved filters is not active', { date_from: '-24h' }, 12, false],
-                ['a url that changes a saved filter is active', { date_from: '-7d' }, 12, true],
-            ]
-
-            it.each(activeOverrideCases)('%s', async (_name, urlFilters, dashboardId, expected) => {
-                await openWithUrlFilters(urlFilters, dashboardId)
-
-                expect(logic.values.hasUrlFilters).toBe(expected)
-            })
-
             it('drops the url param when the last filter is cleared', async () => {
                 await openWithUrlFilters({ properties: PROPERTY_OVERRIDE })
                 expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).not.toBeUndefined()

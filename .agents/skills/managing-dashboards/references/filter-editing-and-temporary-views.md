@@ -83,7 +83,6 @@ Discard behavior:
 
 - Do not use `saveDashboardFilters` for combined changes.
 - Do not use `saveEditModeChanges` for SQL-variable-only changes.
-- Do not use `DashboardHeaderOverridesBanner` to clear dashboard configuration overrides.
 - Filter and variable controls always update their URL parameters after the draft exists.
 - Remove a URL variable when the selected value equals its default.
 - Map action payload field names to URL filter field names explicitly. Date actions use camel case. URL filters use snake case.
