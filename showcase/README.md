@@ -10,13 +10,14 @@ This directory contains executable implementations of three foundational Develop
 
 ## 📊 Executive Benchmark Matrix
 
-| Pipeline Component                    | Upstream Monorepo Baseline             | Showcase Implementation                   | Measured Speedup | Primary Mechanism                                                                                                                  |
-| :------------------------------------ | :------------------------------------- | :---------------------------------------- | :--------------: | :--------------------------------------------------------------------------------------------------------------------------------- |
-| **Multi-Arch Container Build (Cold)** | 193m (QEMU multi-arch) / 25m (CI)      | **43.87s – 52.72s**                       | **~25x – 250x**  | Native arch wheels, ahead-of-time bytecode compilation, enve zstd multi-threading, 5-point slimming (~1.98 GB reduction)           |
-| **Typical PR Container Build**        | 25m 00s (invalidates all layers)       | **1.30s – 1.67s** (Total: 9.14s w/ gate)  |    **~800x**     | 4-layer volatility DAG: 100% cache hits on Layers 1–3; synthesizes 44 MB Layer 4 delta via zstd                                    |
-| **Docker BuildKit (`Dockerfile.v2`)** | 25m 00s (invalidates on `COMMIT_HASH`) | **~5–8s** (Python) / **~69s** (FE Dep)    | **~20x – 200x**  | Layer volatility re-ordering, BuildKit cache mounts (`pnpm`, `turbo`, `uv`), OpenBLAS-safe `.so` strip                             |
-| **Merge Queue Migration Gate**        | 22m 00s (DB replay in Trunk)           | **4.24s** (0 DB connections)              |    **~310x**     | In-memory DAG reachability (2,395 nodes) + AST hashed signature verification (624 symbols)                                         |
-| **Backend Test Shards (100% Matrix)** | 3m – 5m (Compose / VM seed boot)       | **< 200ms** clone / **~1.6s** golden dump |     **~30x**     | Rootless tmpfs microservices (Postgres RAM clone, ClickHouse, Redis, Tansu Kafka, SeaweedFS S3); 5/5 shards validated on 6 workers |
+| Pipeline Component                      | Upstream Monorepo Baseline             | Showcase Implementation                   | Measured Speedup | Primary Mechanism                                                                                                                       |
+| :-------------------------------------- | :------------------------------------- | :---------------------------------------- | :--------------: | :-------------------------------------------------------------------------------------------------------------------------------------- |
+| **Multi-Arch Container Build (Cold)**   | 193m (QEMU multi-arch) / 25m (CI)      | **43.87s – 52.72s**                       | **~25x – 250x**  | Native arch wheels, ahead-of-time bytecode compilation, enve zstd multi-threading, 5-point slimming (~1.98 GB reduction)                |
+| **Typical PR Container Build**          | 25m 00s (invalidates all layers)       | **1.30s – 1.67s** (Total: 9.14s w/ gate)  |    **~800x**     | 4-layer volatility DAG: 100% cache hits on Layers 1–3; synthesizes 44 MB Layer 4 delta via zstd                                         |
+| **Docker BuildKit (`Dockerfile.v2`)**   | 25m 00s (invalidates on `COMMIT_HASH`) | **~5–8s** (Python) / **~69s** (FE Dep)    | **~20x – 200x**  | Layer volatility re-ordering, BuildKit cache mounts (`pnpm`, `turbo`, `uv`), OpenBLAS-safe `.so` strip                                  |
+| **Merge Queue Migration Gate**          | 22m 00s (DB replay in Trunk)           | **4.24s** (0 DB connections)              |    **~310x**     | In-memory DAG reachability (2,395 nodes) + AST hashed signature verification (624 symbols)                                              |
+| **Backend Test Shards (100% Matrix)**   | 3m – 5m (Compose / VM seed boot)       | **< 200ms** clone / **~1.6s** golden dump |     **~30x**     | Rootless tmpfs microservices (Postgres RAM clone, ClickHouse, Redis, Tansu Kafka, SeaweedFS S3); 5/5 shards validated on 6 workers      |
+| **Typical PR CI Job (Docker Overhead)** | 3m 06s – 5m 20s (~88s Docker setup)    | **45s – 2m 25s** (~2.8s enve startup)     |  **50% – 75%**   | Eliminates 80–100s Docker Compose setup tax per runner; saves ~36.7 runner-minutes across 25 matrix jobs per PR (`compare-ci-overhead`) |
 
 ---
 
@@ -117,9 +118,30 @@ When a shared dependency (e.g. [`packages/quill/packages/charts/src/index.ts`](.
    - Injects immediate fail-fast hook (`fail_fast_plugin.py`) that aborts all workers on first failure (`pytest.exit`).
    - `PYTHONHASHSEED=0` and deterministic collection ensure 100% identical item IDs across workers.
 
+#### Direct CI Comparison: Docker Service Overhead vs. In-Process enve
+
+Empirical timing data extracted from PostHog's production CI ([`workflows/ci-backend.yml`](../.github/workflows/ci-backend.yml), PR #95897, Run `34257945157`):
+
+| Product Test Matrix Job    | Total CI Job Time | Docker Setup Overhead | Actual Pytest Time | Setup Overhead % | Time with In-Process Services (~3s setup) | Wall-Clock Cut |
+| :------------------------- | :---------------: | :-------------------: | :----------------: | :--------------: | :---------------------------------------: | :------------: |
+| **`ai-gateway, replay`**   | **186s** (3m 06s) |   **86s** (1m 26s)    |      **23s**       |    **46.2%**     |                 **~45s**                  | **75% faster** |
+| **`batch-exports (9/10)`** | **256s** (4m 16s) |   **77s** (1m 17s)    |  **93s** (1m 33s)  |    **30.1%**     |            **~115s** (1m 55s)             | **55% faster** |
+| **`tasks (3/5)`**          | **320s** (5m 20s) |   **95s** (1m 35s)    | **125s** (2m 05s)  |    **29.7%**     |            **~145s** (2m 25s)             | **54% faster** |
+| **`replay-vision (3/3)`**  | **312s** (5m 12s) |   **83s** (1m 23s)    | **144s** (2m 24s)  |    **26.6%**     |            **~165s** (2m 45s)             | **47% faster** |
+| **`field-notes, apm`**     | **379s** (6m 19s) |   **93s** (1m 33s)    | **170s** (2m 50s)  |    **24.5%**     |            **~190s** (3m 10s)             | **50% faster** |
+
+**Docker Setup Tax per Runner (Upstream CI):**
+
+- `Start services` (`docker compose up -d`): **5s**
+- `Wait for Docker services` (`bin/ci-wait-for-docker wait`): **25s – 30s**
+- `Prime test_posthog` (`schema.sql.gz` restore into Docker container): **38s – 45s**
+- `Register Temporal search attributes` in Docker: **13s – 15s**
+- **Total Overhead:** **~80s – 100s per runner** before the first test runs.
+- **Fleet Impact:** Across 25 parallel matrix jobs per PR, Docker spinup burns **~36.7 runner-minutes per run**. With in-process `enve` services on tmpfs (~2.8s startup + restore), setup overhead is virtually eliminated, cutting typical 4-minute jobs down to ~2 minutes.
+
 #### Tradeoffs & Design Decisions
 
-- **Pros:** Total service tier memory footprint is **~500–670 MB RSS** (vs. 4–8 GB for Docker Compose); instantaneous lifecycle (<1s boot/shutdown); 100% reproducible on local developer laptops without root or container daemons.
+- **Pros:** Total service tier memory footprint is **~500–670 MB RSS** (vs. 4–8 GB for Docker Compose); instantaneous lifecycle (<1s boot/shutdown); 100% reproducible on local developer laptops without root or container daemons; eliminates ~1.5 to 2 minutes of setup per CI runner.
 - **Cons:** Storage is ephemeral by design—all test state disappears when services stop.
 
 ---
@@ -154,6 +176,9 @@ just -f showcase/Justfile gate-migrations
 just -f showcase/Justfile test-shard 1 6          # Run Shard 1 with 6 workers (fail-fast)
 just -f showcase/Justfile test-all-shards 6       # Run Shards 1-5 sequentially on 6 workers
 
-# 5. Full Showcase Suite (Runs all 3 with scorecard)
+# 5. Direct CI Docker Overhead Comparison
+just -f showcase/Justfile compare-ci-overhead      # Compare CI Docker setup tax vs in-process enve
+
+# 6. Full Showcase Suite (Runs all with scorecard)
 just -f showcase/Justfile showcase-all
 ```

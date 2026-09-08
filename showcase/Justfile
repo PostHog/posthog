@@ -132,6 +132,14 @@ test-all-shards WORKERS="6" FAIL_FAST="true":
     echo "✅ All 5 Backend CI Shards Passed Successfully!"
     echo "======================================================================="
 
+# Compare upstream Docker Compose CI overhead with in-process enve services
+compare-ci-overhead TARGET="posthog/api/test/test_user.py":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{REPO_ROOT}}"
+    "{{SHOWCASE_DIR}}/scripts/compare_ci_overhead.sh" "{{TARGET}}"
+
+
 # ------------------------------------------------------------------------------
 # MICROSERVICE CONTROLS (enve + SeaweedFS S3 on tmpfs)
 # ------------------------------------------------------------------------------

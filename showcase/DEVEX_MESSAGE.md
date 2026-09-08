@@ -21,11 +21,14 @@ We put together an exploratory showcase under `showcase/` prototyping three high
 - **Idea:** An in-memory topological DAG traversal of all 2,395 migrations paired with static AST signature hashing (`migration_contract.json`) across 624 historical symbols.
 - **Result:** Evaluates branch reachability, leaf validity (81 leaves), and sibling collisions (<1 µs set intersection) in **4.24s with zero database connections**.
 
-### 3. Hermetic Rootless CI Sharding & Test Matrix (100% Shards Validated)
+### 3. Eliminating Docker Service Overhead in CI (~50% Job Speedup)
 
-- **Root cause:** Docker Compose dev-stacks consume 4–8 GB RAM with heavy daemon boot overhead; concurrent worker migrations stall runs.
-- **Idea:** Daemonless, rootless user-space microservices on ephemeral tmpfs (`/dev/shm`): Postgres (`schema-latest.sql.gz` restores all 2,699 migrations in 1.6s; RAM-cloned workers in <200ms), ClickHouse 26.7, Redis, SeaweedFS S3, and Tansu (pure-Rust Kafka in <20MB RSS, <15ms boot).
-- **Result:** 100% of the monorepo backend matrix (**all 5 shards**) validated on 6 workers with fail-fast mechanics. Total tier footprint: **~500–670 MB RSS**.
+- **Root cause:** In upstream CI matrix jobs (`.github/workflows/ci-backend.yml`), every runner pays an unavoidable **80s to 100s Docker setup tax** before tests even start (`Start services`: 5s, `Wait for Docker services`: 25–30s, `Prime test_posthog` schema restore in container: 38–45s, `Register Temporal search attributes`: 13–15s). On shorter test suites (~2–4 minutes), Docker setup accounts for **30% to 50% of the entire CI run time**.
+- **Idea:** Replace Docker Compose with in-process, rootless `enve` services on ephemeral tmpfs (`/dev/shm`): Postgres (`schema-latest.sql.gz` restores all 2,699 migrations in 1.6s; RAM-cloned workers in <200ms), ClickHouse 26.7, Redis, SeaweedFS S3, and Tansu (pure-Rust Kafka in <20MB RSS, <15ms boot). Entire test stack ready in **~2.8s total**.
+- **Result:**
+  - Fast suites (e.g. `ai-gateway, replay`): Total job drops from 186s (3m 06s) to **~45s (75% faster / 4.1x)**.
+  - Medium suites (e.g. `tasks 3/5`, `batch-exports 9/10`): Drops from 320s (5m 20s) to **~145s (2m 25s, 54% faster, saving ~2 minutes per runner)**.
+  - Fleet impact: Across 25 parallel matrix jobs per PR, Docker spinup burns **~36.7 runner-minutes per run** that can be eliminated. Total tier footprint: **~500–670 MB RSS** (vs. 4–8 GB for Docker Compose). 100% of the monorepo backend matrix (**all 5 shards**) validated on 6 workers.
 
 ### 4. AI Agent Developer Experience (`enve handbook` & `enve schema`)
 
@@ -37,6 +40,7 @@ Everything is runnable locally on Linux and macOS:
 
 ```bash
 just -f showcase/Justfile showcase-all
+just -f showcase/Justfile compare-ci-overhead
 ```
 
 Full technical breakdowns and tradeoff analysis are documented in `showcase/README.md`. Would love your thoughts and feedback on these concepts!
