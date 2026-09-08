@@ -1,7 +1,6 @@
 import hashlib
 import datetime as dt
 import itertools
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,13 +11,19 @@ from temporalio import activity
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.models.person.util import get_person_by_distinct_id
+from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.queries.session_group_keys import (
     fetch_group_display_names,
     fetch_session_group_keys,
+)
+from products.replay_vision.backend.queries.session_identity import (
+    fetch_session_person_properties,
+    person_display_name,
+    person_email,
+    person_organization,
 )
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -77,11 +82,6 @@ _MAX_NAVIGATION_ENTRIES = 30
 _MAX_NAVIGATION_URL_LEN = 200
 _MAX_NAVIGATION_TOTAL_URL_CHARS = 3000
 
-# Person properties that conventionally hold the employer of the person recorded, most specific first. This is the
-# person's own company, which is not always the account the session belongs to — an agency user working in a client's
-# workspace carries their own employer here while the session's groups name the client.
-_PERSON_ORGANIZATION_KEYS = ("org__name", "organization_name", "organization", "company_name", "company")
-
 
 @activity.defn
 @track_activity()
@@ -116,7 +116,7 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
     )
 
 
-def _resolve_group_keys(team: Team, session_id: str, metadata: Any) -> dict[int, str]:
+def _resolve_group_keys(team: Team, session_id: str, metadata: RecordingMetadata) -> dict[int, str]:
     """Group keys for the recorded session, or empty when they can't be read.
 
     Best-effort: a scan that produced a real observation must not fail over missing group attribution.
@@ -133,59 +133,35 @@ def _resolve_group_keys(team: Team, session_id: str, metadata: Any) -> dict[int,
         return {}
 
 
-def _resolve_identity(team: Team, distinct_id: str | None, group_keys: dict[int, str]) -> SessionIdentity:
+def _resolve_identity(
+    team: Team, session_id: str, metadata: RecordingMetadata, group_keys: dict[int, str]
+) -> SessionIdentity:
     """The recorded person and the groups their session belongs to, as far as each can be read.
 
     Every lookup is independent and best-effort: a scanner that only needs the video must not fail because
-    a person row is missing or the groups query errored.
+    the person query returned nothing or the groups query errored.
     """
-    properties = _person_properties(team, distinct_id)
+    properties = _resolve_person_properties(team, session_id, metadata)
     return SessionIdentity(
-        person_email=_clean(properties.get("email")),
-        person_name=_person_display_name(properties),
-        person_organization=_person_organization(properties),
+        person_email=person_email(properties),
+        person_name=person_display_name(properties),
+        person_organization=person_organization(properties),
         groups=_resolve_groups(team, group_keys),
     )
 
 
-def _person_properties(team: Team, distinct_id: str | None) -> dict[str, Any]:
-    """The recorded person's properties, or empty when there is no distinct id, no person, or the lookup failed."""
-    if not distinct_id:
-        return {}
+def _resolve_person_properties(team: Team, session_id: str, metadata: RecordingMetadata) -> dict[str, Any]:
+    """The recorded person's identity properties, or empty when they can't be read."""
     try:
-        person = get_person_by_distinct_id(team.id, distinct_id)
+        return fetch_session_person_properties(
+            team=team,
+            session_id=session_id,
+            start=metadata["start_time"],
+            end=metadata["end_time"],
+        )
     except Exception:
-        logger.warning("replay_vision.fetch.subject_person_lookup_failed", team_id=team.id, exc_info=True)
+        logger.warning("replay_vision.fetch.person_identity_lookup_failed", session_id=session_id, exc_info=True)
         return {}
-    return person.properties if person is not None else {}
-
-
-def _person_display_name(properties: dict[str, Any]) -> str | None:
-    """`name`, else first and last name joined; None when the person carries neither."""
-    name = _first_property(properties, ("name", "full_name"))
-    if name:
-        return name
-    parts = [part for key in ("first_name", "last_name") if (part := _clean(properties.get(key)))]
-    return " ".join(parts) or None
-
-
-def _person_organization(properties: dict[str, Any]) -> str | None:
-    """The employer the recorded person carries, or None when they carry none of the conventional keys."""
-    return _first_property(properties, _PERSON_ORGANIZATION_KEYS)
-
-
-def _first_property(properties: dict[str, Any], keys: Sequence[str]) -> str | None:
-    """The first of `keys` the person carries as a non-empty string, in the order given."""
-    for key in keys:
-        value = _clean(properties.get(key))
-        if value:
-            return value
-    return None
-
-
-def _clean(value: Any) -> str | None:
-    """A trimmed non-empty string, or None — person properties hold blanks and non-strings alike."""
-    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _resolve_groups(team: Team, group_keys: dict[int, str]) -> list[SessionGroup]:
@@ -194,16 +170,26 @@ def _resolve_groups(team: Team, group_keys: dict[int, str]) -> list[SessionGroup
         return []
     try:
         names = fetch_group_display_names(team=team, group_keys=group_keys)
-        labels = {
+    except Exception:
+        logger.warning("replay_vision.fetch.group_names_lookup_failed", team_id=team.id, exc_info=True)
+        return []
+    # Labels are cosmetic, so a group-type outage falls back to the index rather than dropping resolved names.
+    labels = _group_type_labels(team)
+    return [
+        SessionGroup(label=str(labels.get(index, f"group_{index}")), name=name) for index, name in sorted(names.items())
+    ]
+
+
+def _group_type_labels(team: Team) -> dict[int, str]:
+    """Display label per group type index (`Organization`, `Project`), or empty when they can't be read."""
+    try:
+        return {
             int(group_type["group_type_index"]): (group_type.get("name_singular") or group_type["group_type"])
             for group_type in get_group_types_for_project(team.project_id, caller_tag="replay_vision_scan")
         }
     except Exception:
-        logger.warning("replay_vision.fetch.group_names_lookup_failed", team_id=team.id, exc_info=True)
-        return []
-    return [
-        SessionGroup(label=str(labels.get(index, f"group_{index}")), name=name) for index, name in sorted(names.items())
-    ]
+        logger.warning("replay_vision.fetch.group_types_lookup_failed", team_id=team.id, exc_info=True)
+        return {}
 
 
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
@@ -299,7 +285,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         navigation_dropped=processed.navigation_dropped,
         events_truncated=events_truncated,
         distinct_id=distinct_id,
-        identity=_resolve_identity(team, distinct_id, group_keys),
+        identity=_resolve_identity(team, session_id, metadata, group_keys),
         group_keys=group_keys,
         metadata=SessionMetadata(
             start_time=metadata["start_time"],

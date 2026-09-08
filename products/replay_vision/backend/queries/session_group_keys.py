@@ -9,6 +9,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 
+from products.replay_vision.backend.queries.session_identity import clean_identity_value
+
 logger = structlog.get_logger(__name__)
 
 # The five `$group_N` columns every event carries; the team's own group types occupy a prefix of these.
@@ -69,6 +71,7 @@ def fetch_group_display_names(*, team: Team, group_keys: dict[int, str]) -> dict
     response = execute_hogql_query(query=query, team=team)
     names: dict[int, str] = {}
     for index, _key, name in response.results or []:
-        if isinstance(name, str) and name.strip():
-            names[int(index)] = name.strip()
+        cleaned = clean_identity_value(name)
+        if cleaned:
+            names[int(index)] = cleaned
     return names
