@@ -2268,10 +2268,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            // Keep conversation and thread in sync to avoid empty thread after history updates.
+            // Keep conversation and thread in sync.
             actions.setConversation(conversation)
-            if (conversation.messages?.length && !values.threadRaw.length) {
-                actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
+            const serverMessages = newerMessages(conversation, values.threadMessageCount)
+            if (serverMessages) {
+                actions.setThread(updateMessagesWithCompletedStatus(serverMessages))
+            }
+            // The turn is still running server-side, but this device has no stream, so pick it back up.
+            if (conversation.status === ConversationStatus.InProgress && conversation.agent_runtime !== 'sandbox') {
+                actions.reconnectToStream()
             }
         },
         selectCommand: ({ command }) => {
@@ -2986,8 +2991,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             return
         }
 
-        // Fetch message history if threadRaw is empty (may already be populated by cross-tab sync)
-        if (values.threadRaw.length === 0) {
+        // Fetch message history unless the cache already holds it. threadRaw may be populated by
+        // cross-tab sync, but the cached conversation also carries the status the reconnect below
+        // reads, so a populated thread alone is not enough to skip the load.
+        const cachedConversation = maxGlobalLogic.values.conversationHistory.find((c) => c.id === parentConversationId)
+        if (values.threadRaw.length === 0 || cachedConversation?.messages === undefined) {
             await maxGlobalLogic.asyncActions.loadConversation(parentConversationId)
         }
 
@@ -3028,8 +3036,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
 
         // Ensure threadRaw is hydrated before streaming, so setThread doesn't overwrite stream tokens.
-        if (values.threadRaw.length === 0 && conversation.messages.length > 0) {
-            actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
+        const serverMessages = newerMessages(conversation, values.threadMessageCount)
+        if (serverMessages) {
+            actions.setThread(updateMessagesWithCompletedStatus(serverMessages))
         }
 
         // 4. Reconnect to in-progress stream if needed; setThread here is a no-op due to message count guard.
@@ -3394,6 +3403,16 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
+}
+
+/**
+ * The server's messages, when it holds more of them than the screen does, else null. A dropped
+ * stream leaves a stale thread behind, so the server copy wins on message count rather than only
+ * on an empty thread.
+ */
+function newerMessages(conversation: ConversationDetail, threadMessageCount: number): RootAssistantMessage[] | null {
+    const { messages } = conversation
+    return messages && messages.length > threadMessageCount ? messages : null
 }
 
 /**
