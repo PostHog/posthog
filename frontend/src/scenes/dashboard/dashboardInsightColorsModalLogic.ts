@@ -122,7 +122,10 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
                 } else if (mountedDashboardLogic.values.dashboardEditing !== null) {
                     // The modal entered edit mode itself, so the color edits are the only unsaved
                     // changes and a full discard both reverts them and exits edit mode.
-                    mountedDashboardLogic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                    mountedDashboardLogic.actions.setDashboardEditing(
+                        null,
+                        DashboardEventSource.DashboardHeaderDiscardChanges
+                    )
                 }
             }
             actions.hideInsightColorsModal()

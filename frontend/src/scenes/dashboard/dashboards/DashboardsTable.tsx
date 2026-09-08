@@ -24,12 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardBasicType,
-    DashboardType,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardBasicType, DashboardType } from '~/types'
 
 import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'

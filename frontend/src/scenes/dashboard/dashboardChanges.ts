@@ -93,7 +93,9 @@ export function getDashboardVariableChanges(
     })
 }
 
-const DASHBOARD_FILTER_TYPE_LABELS: Partial<Record<PropertyFilterType | BreakdownType | MultipleBreakdownType, string>> = {
+const DASHBOARD_FILTER_TYPE_LABELS: Partial<
+    Record<PropertyFilterType | BreakdownType | MultipleBreakdownType, string>
+> = {
     [PropertyFilterType.Cohort]: 'cohort',
     [PropertyFilterType.DataWarehouse]: 'data warehouse property',
     [PropertyFilterType.DataWarehousePersonProperty]: 'data warehouse person property',

@@ -107,7 +107,10 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                             explicitDate={effectiveEditBarFilters.explicitDate}
                             onChange={(from_date, to_date, explicitDate) => {
                                 if (!dashboardEditing?.filters) {
-                                    setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                                    setDashboardEditing(
+                                        { filters: true, layout: false },
+                                        DashboardEventSource.DashboardFilters
+                                    )
                                 }
                                 setDates(from_date, to_date, explicitDate)
                             }}
@@ -163,7 +166,10 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         showLabel={false}
                         updateBreakdownFilter={(breakdown_filter) => {
                             if (!dashboardEditing?.filters) {
-                                setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                                setDashboardEditing(
+                                    { filters: true, layout: false },
+                                    DashboardEventSource.DashboardFilters
+                                )
                             }
                             let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
                             // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object

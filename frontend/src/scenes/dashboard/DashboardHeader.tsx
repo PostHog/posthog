@@ -54,7 +54,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
         if (dashboardEditing) {
             actions = <EditModeActions />
         } else if (dashboardMode === DashboardMode.Fullscreen) {
-                actions = <FullscreenModeActions />
+            actions = <FullscreenModeActions />
         } else {
             actions = <ViewModeActions />
         }

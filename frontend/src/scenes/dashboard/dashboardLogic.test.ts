@@ -726,7 +726,10 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
                 logic.actions.setDates('-7d', null)
                 logic.actions.saveLayout()
             }).toFinishAllListeners()
@@ -742,7 +745,10 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
                 logic.actions.saveLayout()
             }).toFinishAllListeners()
 
@@ -766,7 +772,10 @@ describe('dashboardLogic', () => {
 
             try {
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
                     logic.actions.setInterval('week')
                 }).toFinishAllListeners()
 
@@ -790,7 +799,10 @@ describe('dashboardLogic', () => {
 
             try {
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                     logic.actions.setInterval('week')
                     logic.actions.saveDashboardChanges()
                 }).toFinishAllListeners()
@@ -807,8 +819,14 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
-                logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardFilters
+                )
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
             }).toFinishAllListeners()
 
             await expectLogic(logic, () => {
@@ -834,7 +852,10 @@ describe('dashboardLogic', () => {
             expect(logic.values.canAutoPreview).toBe(false)
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
             }).toFinishAllListeners()
 
             await expectLogic(logic, () => {
@@ -1020,7 +1041,10 @@ describe('dashboardLogic', () => {
             expect(logic.values.currentDashboardSettings.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
             }).toFinishAllListeners()
 
             const firstTile = logic.values.dashboard!.tiles[0]
@@ -1041,7 +1065,10 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
             }).toFinishAllListeners()
             await expectLogic(logic, () => {
                 logic.actions.updateLayouts(changedLayouts)
@@ -1154,7 +1181,10 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardInsightColorsModal)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardInsightColorsModal
+                )
                 logic.actions.setBreakdownColorConfig({
                     breakdownValue: 'x',
                     breakdownType: 'event',
@@ -1465,7 +1495,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
@@ -1478,7 +1511,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
@@ -1491,7 +1527,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 }).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
@@ -1515,7 +1554,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
                 }).toFinishAllListeners()
 
                 expect(reportLayoutEditEntered).not.toHaveBeenCalled()
@@ -1536,7 +1578,10 @@ describe('dashboardLogic', () => {
                 reportModeToggled.mockClear()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 }).toFinishAllListeners()
 
                 expect(reportLayoutEditEntered).toHaveBeenCalledWith(
@@ -1556,7 +1601,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
@@ -1564,7 +1612,10 @@ describe('dashboardLogic', () => {
                     })
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.DashboardFilters
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
@@ -1888,7 +1939,10 @@ describe('dashboardLogic', () => {
             it('opens the modal without confirming when there are no unsaved layout changes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 }).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
@@ -1908,7 +1962,10 @@ describe('dashboardLogic', () => {
                     confirmSpy.mockReturnValue(accepted)
                     await expectLogic(logic).toFinishAllListeners()
                     await expectLogic(logic, () => {
-                        logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                        logic.actions.setDashboardEditing(
+                            { filters: true, layout: true },
+                            DashboardEventSource.SceneCommonButtons
+                        )
                     }).toFinishAllListeners()
                     await expectLogic(logic, moveFirstTile)
                         .toFinishAllListeners()
@@ -1935,7 +1992,10 @@ describe('dashboardLogic', () => {
 
                 await expectLogic(logic, () => {
                     dashboardInsightColorsModalLogic.actions.showInsightColorsModal(5)
-                    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardInsightColorsModal)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardInsightColorsModal
+                    )
                     logic.actions.setBreakdownColorConfig({
                         breakdownValue: 'x',
                         breakdownType: 'event',
@@ -1960,7 +2020,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
                     logic.actions.setDates('-7d', null)
                     logic.actions.setBreakdownColorConfig({
                         breakdownValue: 'x',
@@ -3068,7 +3131,10 @@ describe('dashboardLogic', () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardFilters
+                )
                 logic.actions.setDates('-7d', null)
             }).toFinishAllListeners()
 

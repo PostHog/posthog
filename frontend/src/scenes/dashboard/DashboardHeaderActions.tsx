@@ -261,7 +261,10 @@ export function EditModeActions(): JSX.Element {
                         type="secondary"
                         data-attr="dashboard-edit-mode-button"
                         onClick={() =>
-                            setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                            setDashboardEditing(
+                                { filters: true, layout: true },
+                                DashboardEventSource.SceneCommonButtons
+                            )
                         }
                         size="small"
                         icon={<IconGridMasonry fontSize="16" />}
@@ -370,7 +373,10 @@ export function ViewModeActions(): JSX.Element {
                         type="secondary"
                         data-attr="dashboard-edit-mode-button"
                         onClick={() =>
-                            setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                            setDashboardEditing(
+                                { filters: true, layout: true },
+                                DashboardEventSource.SceneCommonButtons
+                            )
                         }
                         size="small"
                         icon={<IconGridMasonry fontSize="16" />}

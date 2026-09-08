@@ -34,7 +34,8 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
  * breakdown color override.
  */
 export function DashboardEditBarAdvancedFilters(): JSX.Element {
-    const { dashboard, dashboardEditing, placement, canEditDashboard, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { dashboard, dashboardEditing, placement, canEditDashboard, effectiveEditBarFilters } =
+        useValues(dashboardLogic)
     const { setFilterTestAccounts, setDashboardEditing } = useActions(dashboardLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -84,7 +85,10 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
                         value={choice}
                         onChange={(next) => {
                             if (!dashboardEditing?.filters) {
-                                setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                                setDashboardEditing(
+                                    { filters: true, layout: false },
+                                    DashboardEventSource.DashboardFilters
+                                )
                             }
                             setFilterTestAccounts(CHOICE_TO_FILTER[next])
                         }}

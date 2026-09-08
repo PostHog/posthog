@@ -292,8 +292,14 @@ describe('DashboardItems', () => {
         const { container } = render(<DashboardItems />)
 
         expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-drag-enabled', 'false')
-        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-resize-enabled', 'false')
-        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute('data-show-resize-handles', 'false')
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+            'data-resize-enabled',
+            'false'
+        )
+        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute(
+            'data-show-resize-handles',
+            'false'
+        )
     })
 
     it.each([
