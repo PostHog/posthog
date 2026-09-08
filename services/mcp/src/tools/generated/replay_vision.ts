@@ -489,6 +489,7 @@ const visionScannersList = (): ToolBase<
                     'credit_limit',
                     'credits_per_observation',
                     'estimated_monthly_credits',
+                    'estimated_at',
                     'credits_this_month',
                     'limit_reached',
                     'last_swept_at',
