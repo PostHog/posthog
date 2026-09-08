@@ -6,9 +6,10 @@ import type { codeEditorLogicType } from './codeEditorLogic'
 export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => ({
     provideCodeActions: (model, range, context) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
-        // While a reload is in flight the markers still describe the SQL the server last saw, so their
-        // ranges can point at text the reader has already changed. Offer nothing until they catch up.
-        if (logic?.isMounted() && !logic.values.metadataLoading) {
+        // The markers describe the SQL the server last analyzed. While a reload is in flight, and after
+        // one fails, their ranges can point at text the reader has already changed. Monaco applies
+        // these edits directly, so withhold them until the markers describe the current text.
+        if (logic?.isMounted() && !logic.values.metadataLoading && !logic.values.markersAreStale) {
             // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
             const markersFromMonaco = context.markers
             // We have a list of _all_ markers returned from the HogQL metadata query

@@ -60,9 +60,12 @@ class SimilarSubqueryHeuristic(MetadataHeuristic):
 
 
 class UnprunedEventsScanHeuristic(MetadataHeuristic):
+    def __init__(self, query_text: str) -> None:
+        self.query_text = query_text
+
     def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
         warnings: list[HogQLNotice] = []
-        for scan in find_unpruned_events_scans(query):
+        for scan in find_unpruned_events_scans(query, query_text=self.query_text):
             if scan.start is None:
                 continue
             warnings.append(
@@ -87,9 +90,12 @@ class UnprunedEventsScanHeuristic(MetadataHeuristic):
 
 
 def run_metadata_heuristics(
-    query: ast.SelectQuery | ast.SelectSetQuery, *, is_posthog_source: bool = True
+    query: ast.SelectQuery | ast.SelectSetQuery, *, query_text: str, is_posthog_source: bool = True
 ) -> list[HogQLNotice]:
     """Run the metadata heuristics over `query`.
+
+    `query_text` is the source `query` was parsed from, which the partition heuristic checks its
+    generated fix against.
 
     `is_posthog_source` is False for a direct external connection, where a table named `events` is the
     customer's own Postgres or Snowflake table. The partition heuristic reasons about PostHog's
@@ -97,7 +103,7 @@ def run_metadata_heuristics(
     """
     heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
     if is_posthog_source:
-        heuristics.append(UnprunedEventsScanHeuristic())
+        heuristics.append(UnprunedEventsScanHeuristic(query_text))
     warnings: list[HogQLNotice] = []
 
     for heuristic in heuristics:

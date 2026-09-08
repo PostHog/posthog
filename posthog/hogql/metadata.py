@@ -137,7 +137,9 @@ def get_hogql_metadata(
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
-            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast, is_posthog_source=source is None))
+            heuristic_warnings.extend(
+                run_metadata_heuristics(hogql_ast, query_text=query.query, is_posthog_source=source is None)
+            )
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
@@ -174,7 +176,7 @@ def get_hogql_metadata(
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
-                _attach_unpruned_scans(response, hogql_ast)
+                _attach_unpruned_scans(response, hogql_ast, query.query)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -300,6 +302,7 @@ def _attach_index_usage(
 def _attach_unpruned_scans(
     response: HogQLMetadataResponse,
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
+    query_text: str,
 ) -> None:
     """Report every events scan the query cannot narrow to a subset of partitions.
 
@@ -324,7 +327,7 @@ def _attach_unpruned_scans(
             start=scan.start,
             end=scan.end,
         )
-        for scan in find_unpruned_events_scans(hogql_ast)
+        for scan in find_unpruned_events_scans(hogql_ast, query_text=query_text)
     ]
 
 

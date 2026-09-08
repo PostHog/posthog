@@ -74,12 +74,12 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
         ]
     )
     def test_scan_classification(self, _name: str, query: str, expected: int) -> None:
-        self.assertEqual(len(find_unpruned_events_scans(parse_select(query))), expected)
+        self.assertEqual(len(find_unpruned_events_scans(parse_select(query), query_text=query)), expected)
 
     def test_reports_the_position_of_the_events_reference(self) -> None:
         query = "SELECT count() FROM events"
 
-        scans = find_unpruned_events_scans(parse_select(query))
+        scans = find_unpruned_events_scans(parse_select(query), query_text=query)
 
         self.assertEqual(len(scans), 1)
         self.assertEqual(query[scans[0].start : scans[0].end], "events")
@@ -91,22 +91,22 @@ class TestUnprunedScanQuickFix(SimpleTestCase):
             (
                 "no where clause",
                 "SELECT count() FROM events",
-                "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 30 DAY",
+                "SELECT count() FROM events WHERE events.timestamp > now() - INTERVAL 30 DAY",
             ),
             (
                 "existing where clause",
                 "SELECT count() FROM events WHERE event = 'x'",
-                "SELECT count() FROM events WHERE (event = 'x') AND timestamp > now() - INTERVAL 30 DAY",
+                "SELECT count() FROM events WHERE (event = 'x') AND events.timestamp > now() - INTERVAL 30 DAY",
             ),
             (
                 "or keeps its own grouping",
                 "SELECT count() FROM events WHERE a = 1 OR b = 2",
-                "SELECT count() FROM events WHERE (a = 1 OR b = 2) AND timestamp > now() - INTERVAL 30 DAY",
+                "SELECT count() FROM events WHERE (a = 1 OR b = 2) AND events.timestamp > now() - INTERVAL 30 DAY",
             ),
             (
                 "clause after the from",
                 "SELECT count() FROM events GROUP BY event",
-                "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 30 DAY GROUP BY event",
+                "SELECT count() FROM events WHERE events.timestamp > now() - INTERVAL 30 DAY GROUP BY event",
             ),
             (
                 "join writes past the constraint and qualifies the column",
@@ -117,9 +117,19 @@ class TestUnprunedScanQuickFix(SimpleTestCase):
             (
                 "subquery holding the scan",
                 "SELECT count() FROM (SELECT * FROM events)",
-                "SELECT count() FROM (SELECT * FROM events WHERE timestamp > now() - INTERVAL 30 DAY)",
+                "SELECT count() FROM (SELECT * FROM events WHERE events.timestamp > now() - INTERVAL 30 DAY)",
             ),
             ("prewhere has no unambiguous insertion point", "SELECT count() FROM events PREWHERE event = 'x'", None),
+            (
+                "a select alias cannot capture the qualified column",
+                "SELECT max(timestamp) AS timestamp FROM events",
+                "SELECT max(timestamp) AS timestamp FROM events WHERE events.timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "a parenthesized from source has no reachable insertion point",
+                "SELECT count() FROM (events)",
+                None,
+            ),
             (
                 "left join writes into the on clause, not the where",
                 "SELECT count() FROM persons LEFT JOIN events ON persons.id = events.person_id",
@@ -161,7 +171,7 @@ class TestUnprunedScanQuickFix(SimpleTestCase):
         ]
     )
     def test_quick_fix_edits(self, _name: str, query: str, expected: str | None) -> None:
-        [scan] = find_unpruned_events_scans(parse_select(query))
+        [scan] = find_unpruned_events_scans(parse_select(query), query_text=query)
 
         if expected is None:
             self.assertEqual(scan.bound_edits, ())
@@ -170,7 +180,7 @@ class TestUnprunedScanQuickFix(SimpleTestCase):
         fixed = _apply_edits(query, scan)
         self.assertEqual(fixed, expected)
         parse_select(fixed)
-        self.assertEqual(find_unpruned_events_scans(parse_select(fixed)), [])
+        self.assertEqual(find_unpruned_events_scans(parse_select(fixed), query_text=fixed), [])
 
 
 def _apply_edits(query: str, scan: UnprunedEventsScan) -> str:

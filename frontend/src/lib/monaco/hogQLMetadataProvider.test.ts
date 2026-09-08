@@ -18,12 +18,15 @@ describe('hogQLMetadataProvider', () => {
     const codeActionsAt = (
         markers: ModelMarker[],
         activeMarker: ModelMarker,
-        metadataLoading = false
+        { metadataLoading = false, markersAreStale = false } = {}
     ): languagesCodeAction[] => {
         const starts = lineStarts(SCRIPT)
         const model = {
             uri: 'inmemory://model/1',
-            codeEditorLogic: { isMounted: () => true, values: { modelMarkers: markers, metadataLoading } },
+            codeEditorLogic: {
+                isMounted: () => true,
+                values: { modelMarkers: markers, metadataLoading, markersAreStale },
+            },
             getVersionId: () => 7,
             getOffsetAt: ({ lineNumber, column }: { lineNumber: number; column: number }) =>
                 starts[lineNumber - 1] + column - 1,
@@ -66,7 +69,17 @@ describe('hogQLMetadataProvider', () => {
         const marker = taxonomyMarker()
 
         // The markers still describe the previous query text, so their ranges may be stale.
-        const actions = codeActionsAt([marker], marker, true)
+        const actions = codeActionsAt([marker], marker, { metadataLoading: true })
+
+        expect(actions).toEqual([])
+    })
+
+    it('offers nothing when the markers describe text the editor has moved past', () => {
+        const marker = taxonomyMarker()
+
+        // A failed reload keeps the previous markers while metadataLoading returns to false. Monaco
+        // applies a code action's edits directly, so the provider is the only place to stop them.
+        const actions = codeActionsAt([marker], marker, { markersAreStale: true })
 
         expect(actions).toEqual([])
     })

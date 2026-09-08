@@ -19,10 +19,13 @@ silent rather than warn. Attributing bounds to tables needs the analysis to run 
 which would cost it the cheap pre-resolution property this relies on.
 """
 
+from dataclasses import replace
+
 from posthog.hogql import ast
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
+from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -113,12 +116,42 @@ class UnprunedEventsScan:
     bound_edits: tuple[QueryTextEdit, ...] = ()
 
 
-def find_unpruned_events_scans(query: ast.SelectQuery | ast.SelectSetQuery) -> list[UnprunedEventsScan]:
+def find_unpruned_events_scans(
+    query: ast.SelectQuery | ast.SelectSetQuery, *, query_text: str
+) -> list[UnprunedEventsScan]:
+    """Report every unbounded `events` scan in `query`.
+
+    `query_text` is the source `query` was parsed from. The edits index it, and it is what the
+    generated fix is checked against.
+    """
     scans: list[UnprunedEventsScan] = []
     # The root starts capped because HogQLQueryExecutor._apply_limit gives every top-level select a
     # default LIMIT when the query does not write one.
     _collect_scans(query, bounded=False, capped=True, shadowed=frozenset(), scans=scans)
-    return scans
+    return [_without_unparseable_edits(scan, query_text) for scan in scans]
+
+
+def _without_unparseable_edits(scan: UnprunedEventsScan, query_text: str) -> UnprunedEventsScan:
+    """Drop a fix that does not produce a parseable query, keeping the warning.
+
+    The AST keeps no trace of parentheses around a FROM source, so `FROM (events)` gives the same
+    offsets as `FROM events` and the insertion point lands before the closing parenthesis. Rather
+    than enumerate the shapes where an offset can mislead, confirm the edited text still parses.
+    """
+    if not scan.bound_edits or _edits_reparse(scan.bound_edits, query_text):
+        return scan
+    return replace(scan, bound_edits=())
+
+
+def _edits_reparse(edits: tuple[QueryTextEdit, ...], query_text: str) -> bool:
+    patched = query_text
+    for edit in sorted(edits, key=lambda edit: edit.start, reverse=True):
+        patched = patched[: edit.start] + edit.text + patched[edit.end :]
+    try:
+        parse_select(patched)
+    except Exception:
+        return False
+    return True
 
 
 def _collect_scans(
@@ -178,7 +211,7 @@ def _collect_scans(
 
 def _bound_edits(query: ast.SelectQuery, events_join: ast.JoinExpr) -> tuple[QueryTextEdit, ...]:
     """Edits that add a timestamp bound to `query`, or nothing when the shape makes that ambiguous."""
-    predicate = f"{_timestamp_column(query, events_join)} > {_BOUND_EXPRESSION}"
+    predicate = f"{_timestamp_column(events_join)} > {_BOUND_EXPRESSION}"
 
     join_type = (events_join.join_type or "").upper()
     if join_type.startswith("LEFT"):
@@ -206,13 +239,17 @@ def _bound_edits(query: ast.SelectQuery, events_join: ast.JoinExpr) -> tuple[Que
     return (QueryTextEdit(start=insert_at, end=insert_at, text=f" WHERE {predicate}"),)
 
 
-def _timestamp_column(query: ast.SelectQuery, events_join: ast.JoinExpr) -> str:
-    """How to name the events timestamp so it stays unambiguous next to any joined table."""
+def _timestamp_column(events_join: ast.JoinExpr) -> str:
+    """How to name the events timestamp so nothing else in scope can capture the reference.
+
+    The name is always qualified. A bare `timestamp` binds to a SELECT alias of the same name, so
+    `SELECT max(timestamp) AS timestamp FROM events` would filter on the aggregate, and
+    `SELECT now() AS timestamp, count() FROM events` would filter on `now()` and leave the scan
+    unbounded.
+    """
     if events_join.alias:
         return f"{escape_hogql_identifier(events_join.alias)}.timestamp"
-    if query.select_from is not None and query.select_from.next_join is not None:
-        return f"{EVENTS_TABLE_NAME}.timestamp"
-    return "timestamp"
+    return f"{EVENTS_TABLE_NAME}.timestamp"
 
 
 def _conjunct_edits(constraint: ast.JoinConstraint | None, predicate: str) -> tuple[QueryTextEdit, ...]:

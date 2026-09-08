@@ -111,6 +111,11 @@ export function noticeToMarker(notice: HogQLNotice, severity: MarkerSeverity, pl
     }
 }
 
+/** The text a metadata request analyzes: one statement of the script when the caller marks one. */
+function analyzedQueryFor(props: CodeEditorLogicProps): string {
+    return props.metadataQuery ?? props.query
+}
+
 export interface CodeEditorLogicProps {
     key: string
     query: string
@@ -137,6 +142,7 @@ export interface codeEditorLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     error: string | null
     hasErrors: boolean
+    markersAreStale: boolean
     metadata: [string, HogQLMetadataResponse] | null
     metadataLoading: boolean
     modelMarkers: ModelMarker[]
@@ -200,6 +206,7 @@ export interface codeEditorLogicActions {
 export interface codeEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        markersAreStale: (metadata: [string, HogQLMetadataResponse] | null, arg: string) => boolean
         hasErrors: (modelMarkers: ModelMarker[]) => boolean
         error: (hasErrors: boolean, modelMarkers: ModelMarker[]) => string | null
     }
@@ -234,7 +241,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         return null
                     }
                     await breakpoint(300)
-                    const query = props.metadataQuery ?? props.query
+                    const query = analyzedQueryFor(props)
                     if (query === '') {
                         props.onMetadata?.(null, null)
                         return null
@@ -336,6 +343,14 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         ],
     }),
     selectors({
+        // The markers and their fix actions carry ranges into the text the server last analyzed. A
+        // failed reload keeps that response while metadataLoading returns to false, so the text can
+        // move on without the markers following it. Offering those ranges edits the wrong span.
+        markersAreStale: [
+            (s) => [s.metadata, (_, props: CodeEditorLogicProps) => analyzedQueryFor(props)],
+            (metadata: [string, HogQLMetadataResponse] | null, currentQuery: string) =>
+                metadata === null || metadata[0] !== currentQuery,
+        ],
         hasErrors: [
             (s) => [s.modelMarkers],
             (modelMarkers: ModelMarker[]) =>
