@@ -104,13 +104,10 @@ export const manifest: ProductManifest = {
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
-        dataOps: (tab?: string, dagId?: string): string => {
+        dataOps: (tab?: string): string => {
             const params = new URLSearchParams()
             if (tab) {
                 params.set('tab', tab)
-            }
-            if (dagId) {
-                params.set('dag', dagId)
             }
             const query = params.toString()
             return query ? `/data-ops?${query}` : '/data-ops'

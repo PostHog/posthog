@@ -1142,13 +1142,10 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
-    dataOps: (tab?: string, dagId?: string): string => {
+    dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
             params.set('tab', tab)
-        }
-        if (dagId) {
-            params.set('dag', dagId)
         }
         const query = params.toString()
         return query ? `/data-ops?${query}` : '/data-ops'
