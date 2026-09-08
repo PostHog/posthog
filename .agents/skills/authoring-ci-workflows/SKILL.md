@@ -142,6 +142,10 @@ The gate job's own conclusion changed on 2026-09-04: a superseded gate recorded 
 A metric that drops the superseded rows from the numerator and the denominator stays comparable across that date.
 One that filters on the gate job's conclusion alone does not.
 Reuse the canonical predicates instead of writing a new denominator: `CONCLUSIVE_RUN_CONDITION` in `products/engineering_analytics/backend/logic/queries/_workflow_filters.py`, and `computeHealthSummary` in `products/engineering_analytics/frontend/lib/runHealth.ts`.
+That run-level key identifies superseded runs only where the workflow never cancels its own run.
+Where it does (the rule above), a deterministic failure records run conclusion `cancelled` too, so the canonical predicates drop that honest `failure` together with the superseded rows.
+Measured on Backend CI [run 34204389260](https://github.com/PostHog/posthog/actions/runs/34204389260): the run recorded `cancelled` while the `Django Tests Pass` gate recorded `failure`.
+Keep those rows in the numerator and the denominator, and find them through the cancel jobs: each one dispatches only on its deterministic-failure signal, so a `success` from any of them marks that population on both sides of 2026-09-04.
 
 Four rules for the gate body:
 
