@@ -846,15 +846,15 @@ function handleMissingCapabilityCall(
     missingCapability: NonNullable<ExecToolOptions['missingCapability']>,
     jsonBody: string
 ): string {
-    let input: Record<string, unknown>
+    let input: Record<string, unknown> | null
     try {
-        input = jsonBody ? (JSON.parse(jsonBody) as Record<string, unknown>) : {}
+        input = jsonBody ? (JSON.parse(jsonBody) as Record<string, unknown> | null) : {}
     } catch (err) {
         const detail = err instanceof Error ? err.message : String(err)
         throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
     }
 
-    const context = typeof input.context === 'string' ? input.context.trim() : ''
+    const context = typeof input?.context === 'string' ? input.context.trim() : ''
     if (!context) {
         throw new ExecCommandError(
             `Usage: call ${missingCapability.toolName} {"context": "<what you wanted to do and could not>"}`,

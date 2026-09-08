@@ -102,6 +102,7 @@ describe('exec tool', () => {
         it.each([
             { label: 'no arguments', command: 'call get_more_tools' },
             { label: 'a blank description', command: 'call get_more_tools {"context":"   "}' },
+            { label: 'a null body', command: 'call get_more_tools null' },
         ])('rejects $label without recording a report', async ({ command }) => {
             const reported: string[] = []
             const exec = createExecWithReporter(reported)
