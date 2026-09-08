@@ -239,6 +239,29 @@ describe('supportTicketsSceneLogic', () => {
             expect(lastArchivedParam).toBe('only')
         })
 
+        it('hides the archive again for a view saved before the archive existed', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setArchivedFilter('only')
+            }).toFinishAllListeners()
+
+            // Views saved before this feature carry no `archived` key. Opening one must not
+            // inherit the scope the agent happens to be on, or the view shows the archive.
+            await expectLogic(logic, () => {
+                logic.actions.applyView(makeSavedView('legacy-view', { status: ['open'] }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.archivedFilter).toBe('hide')
+            expect(lastArchivedParam).toBeNull()
+        })
+
+        it('ignores an archived value from the URL that is not one of the three scopes', async () => {
+            router.actions.push(urls.supportTickets(), { archived: 'everything' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.archivedFilter).toBe('hide')
+            expect(lastArchivedParam).toBeNull()
+        })
+
         it('drops back to hiding the archive when the filters are cleared', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setArchivedFilter('only')

@@ -120,6 +120,10 @@ function decodeAssignee(value: unknown): AssigneeFilterEntry[] {
     return normalizeAssigneeFilter(entries.filter((entry): entry is AssigneeFilterEntry => entry !== null))
 }
 
+function toArchivedFilter(value: unknown): TicketArchivedFilter {
+    return value === 'only' || value === 'all' ? value : 'hide'
+}
+
 // Canonical URL representation of the filters. Only non-default values are
 // emitted so shared links stay readable.
 function filtersToUrlParams(filters: TicketViewFilters): Record<string, any> {
@@ -176,7 +180,7 @@ function urlParamsToFilters(searchParams: Record<string, any>): TicketViewFilter
         tags: toStringArray(searchParams.tags),
         tagsMatch: searchParams.tags_match === 'all' ? 'all' : 'any',
         tagsExclude: toStringArray(searchParams.tags_exclude),
-        archived: (searchParams.archived as TicketArchivedFilter) ?? 'hide',
+        archived: toArchivedFilter(searchParams.archived),
         search: '',
         sorting: searchParams.order_by ? orderByToSorting(String(searchParams.order_by)) : { ...DEFAULT_SORTING },
     }
@@ -546,7 +550,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             { persist: true },
             {
                 setArchivedFilter: (_, { archived }) => archived,
-                applyViewFilters: (state, { filters }) => filters.archived ?? state,
+                // Unlike its siblings, an absent value resets instead of keeping the current
+                // scope. Views saved before the archive existed hold no `archived` key, so
+                // keeping a persisted 'only' would silently filter such a view to the archive.
+                applyViewFilters: (_, { filters }) => toArchivedFilter(filters.archived),
             },
         ],
         searchQuery: [
