@@ -146,6 +146,55 @@ def _calendar_anchor_utc(
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
 
 
+def _next_check_at_for_schedule_start_time(
+    interval: CalendarInterval,
+    *,
+    now: datetime,
+    team_timezone: BaseTzInfo,
+    local_now: datetime,
+    next_check_at: datetime | None,
+    schedule_start_time: dict[str, str],
+) -> datetime:
+    start_minutes = _parse_hhmm(schedule_start_time["time"])
+    start_hour, start_minute = divmod(start_minutes, 60)
+    start_local = local_now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+    start_utc = _localize_wall_time(team_timezone, start_local.replace(tzinfo=None)).astimezone(UTC)
+
+    match interval:
+        case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
+            cadence_minutes = {
+                CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
+                CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
+                CalendarInterval.HOURLY: 60,
+            }[interval]
+            earliest_allowed = next_check_at + timedelta(minutes=cadence_minutes) if next_check_at else now
+            earliest_allowed = max(earliest_allowed, now)
+            if start_utc < earliest_allowed:
+                elapsed_seconds = (earliest_allowed - start_utc).total_seconds()
+                intervals_to_advance = int((elapsed_seconds - 1) // (cadence_minutes * 60)) + 1
+                start_utc += timedelta(minutes=intervals_to_advance * cadence_minutes)
+            if start_utc <= now:
+                start_utc += timedelta(minutes=cadence_minutes)
+            return start_utc
+        case CalendarInterval.DAILY:
+            if start_utc <= now:
+                start_utc = _localize_wall_time(
+                    team_timezone, (start_local + timedelta(days=1)).replace(tzinfo=None)
+                ).astimezone(UTC)
+            return start_utc
+        case CalendarInterval.WEEKLY:
+            days_until_monday = (7 - start_local.weekday()) % 7
+            candidate_local = start_local + timedelta(days=days_until_monday)
+            if candidate_local <= local_now:
+                candidate_local += timedelta(days=7)
+            return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+        case CalendarInterval.MONTHLY:
+            candidate_local = start_local.replace(day=1)
+            if candidate_local <= local_now:
+                candidate_local = (candidate_local + relativedelta(months=1)).replace(day=1)
+            return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+
+
 def next_calendar_check_time(
     interval: CalendarInterval,
     *,
@@ -163,46 +212,16 @@ def next_calendar_check_time(
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
-    anchor_minutes = _parse_hhmm(schedule_start_time["time"]) if schedule_start_time else None
 
-    if anchor_minutes is not None:
-        anchor_hour, anchor_minute = divmod(anchor_minutes, 60)
-        anchor_local = local_now.replace(hour=anchor_hour, minute=anchor_minute, second=0, microsecond=0)
-        anchor_utc = _localize_wall_time(team_timezone, anchor_local.replace(tzinfo=None)).astimezone(UTC)
-
-        match interval:
-            case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
-                cadence_minutes = {
-                    CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
-                    CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
-                    CalendarInterval.HOURLY: 60,
-                }[interval]
-                earliest_allowed = next_check_at + timedelta(minutes=cadence_minutes) if next_check_at else now
-                earliest_allowed = max(earliest_allowed, now)
-                if anchor_utc < earliest_allowed:
-                    elapsed_seconds = (earliest_allowed - anchor_utc).total_seconds()
-                    intervals_to_advance = int((elapsed_seconds - 1) // (cadence_minutes * 60)) + 1
-                    anchor_utc += timedelta(minutes=intervals_to_advance * cadence_minutes)
-                if anchor_utc <= now:
-                    anchor_utc += timedelta(minutes=cadence_minutes)
-                return anchor_utc
-            case CalendarInterval.DAILY:
-                if anchor_utc <= now:
-                    anchor_utc = _localize_wall_time(
-                        team_timezone, (anchor_local + timedelta(days=1)).replace(tzinfo=None)
-                    ).astimezone(UTC)
-                return anchor_utc
-            case CalendarInterval.WEEKLY:
-                days_until_monday = (7 - anchor_local.weekday()) % 7
-                candidate_local = anchor_local + timedelta(days=days_until_monday)
-                if candidate_local <= local_now:
-                    candidate_local += timedelta(days=7)
-                return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
-            case CalendarInterval.MONTHLY:
-                candidate_local = anchor_local.replace(day=1)
-                if candidate_local <= local_now:
-                    candidate_local = (candidate_local + relativedelta(months=1)).replace(day=1)
-                return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+    if schedule_start_time is not None:
+        return _next_check_at_for_schedule_start_time(
+            interval,
+            now=now,
+            team_timezone=team_timezone,
+            local_now=local_now,
+            next_check_at=next_check_at,
+            schedule_start_time=schedule_start_time,
+        )
 
     match interval:
         case CalendarInterval.REAL_TIME:
