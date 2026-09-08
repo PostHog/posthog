@@ -1,11 +1,14 @@
 import json
 import dataclasses
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Generic
 
 from django.conf import settings
 
 import orjson
+from redis import Redis
+from redis.exceptions import ReadOnlyError
 from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
@@ -81,12 +84,26 @@ class ResumableSourceManager(Generic[ResumableData]):
             self._logger.debug(f"Dropping unknown resumable state fields. key={self._key}, fields={unknown}")
         return self._data_class(**{name: value for name, value in parsed_data.items() if name in known})
 
+    def _write_with_readonly_retry(self, client: Redis, write: Callable[[], object]) -> None:
+        """Retry a write once after `ReadOnlyError`.
+
+        A connection held open across a Redis failover keeps talking to what is now a demoted
+        replica, so a write on it fails until the client reconnects — the same stale-connection
+        failure mode Postgres writes hit after a failover (see `is_stale_connection_read_only_error`).
+        Disconnecting the pool forces the retry onto a fresh connection to the current primary.
+        """
+        try:
+            write()
+        except ReadOnlyError:
+            client.connection_pool.disconnect()
+            write()
+
     def save_state(self, data: ResumableData) -> None:
         with self._get_redis() as redis:
             json_data = self._dump_json(data)
             self._logger.debug(f"Saving resumable source state. key={self._key}, data={json_data}")
 
-            redis.set(self._key, json_data, ex=60 * 60 * 24)  # 24 hours expiration
+            self._write_with_readonly_retry(redis, lambda: redis.set(self._key, json_data, ex=60 * 60 * 24))
 
     def clear_state(self) -> None:
         """Drop any saved resume state so a subsequent attempt starts from scratch.
@@ -96,7 +113,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         """
         with self._get_redis() as redis:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
-            redis.delete(self._key)
+            self._write_with_readonly_retry(redis, lambda: redis.delete(self._key))
 
     def can_resume(self) -> bool:
         with self._get_redis() as redis:
