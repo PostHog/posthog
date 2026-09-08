@@ -57,6 +57,9 @@ export interface ticketViewsLogicActions {
     setActiveView: (view: SavedTicketView | null) => {
         view: SavedTicketView | null
     } // supportTicketsSceneLogic
+    clearActiveView: () => {
+        value: true
+    } // supportTicketsSceneLogic
     closeModal: () => {
         value: true
     }
@@ -162,7 +165,7 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
 
     connect((props: TicketViewsLogicProps) => ({
         values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic(props), ['currentFilters', 'activeView']],
-        actions: [supportTicketsSceneLogic(props), ['applyView', 'setActiveView']],
+        actions: [supportTicketsSceneLogic(props), ['applyView', 'setActiveView', 'clearActiveView']],
     })),
 
     actions({
@@ -294,6 +297,11 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
         deleteView: async ({ shortId }) => {
             try {
                 await conversationsViewsDestroy(String(values.currentTeamId), shortId)
+                // A deleted view can no longer be the list's attachment. Left set, it stays in
+                // the picker as the selected option and keeps a dead id in the shareable URL.
+                if (values.activeView?.short_id === shortId) {
+                    actions.clearActiveView()
+                }
                 lemonToast.success('View deleted')
             } catch {
                 lemonToast.error('Failed to delete view')

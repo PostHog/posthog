@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from '../../components/Assignee'
+import { ticketViewsLogic } from '../../components/SavedViews/ticketViewsLogic'
 import { normalizeAssigneeFilter, type SavedTicketView, type Ticket, type TicketViewFilters } from '../../types'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -319,6 +320,40 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.sorting).toEqual({ columnKey: 'sla_due_at', order: -1 })
             expect(logic.values.statusFilter).toEqual(['open'])
             expect(lastOrderBy).toBe('-sla_due_at')
+        })
+
+        it('detaches the active view when that view is deleted', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/views/': () => [200, { count: 0, results: [] }],
+                },
+                delete: {
+                    '/api/projects/:team_id/conversations/views/:short_id/': () => [204, {}],
+                },
+            })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            const viewsLogic = ticketViewsLogic()
+            viewsLogic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.applyView(makeSavedView('view-a', { status: ['open'] }))
+            }).toFinishAllListeners()
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+
+            await expectLogic(viewsLogic, () => {
+                viewsLogic.actions.deleteView('view-a')
+            }).toFinishAllListeners()
+
+            // The filters the person is looking at stay; only the attachment to the view goes,
+            // so the URL stops handing out an id that no longer resolves.
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBeUndefined()
+            expect(router.values.searchParams).toMatchObject({ status: ['open'] })
+
+            viewsLogic.unmount()
         })
 
         it('resets stale view filters when a linked view is missing', async () => {
