@@ -102,13 +102,15 @@ export const UI_APP_RENDER_NOTE =
  * smaller than JSON for tabular results, so measuring the raw object would
  * over-count. `structuredContent` is normally excluded because it duplicates the
  * text for UI tools; when the text is only the `STRUCTURED_CONTENT_ONLY_TEXT`
- * pointer (possibly followed by the UI render note) it duplicates nothing, so
- * the structured payload is what gets counted.
+ * pointer (possibly followed by the UI render note) the pointer itself
+ * duplicates nothing, so it's dropped from the count, but any footer appended
+ * after it (the render note) still reaches the client and is counted.
  */
 export function estimateResponseTokens(response: ToolResultPayload): number {
     const text = response.content.map((part) => part.text).join('')
     if (response.structuredContent && text.startsWith(STRUCTURED_CONTENT_ONLY_TEXT)) {
-        return estimateTokens(response.structuredContent)
+        const footer = text.slice(STRUCTURED_CONTENT_ONLY_TEXT.length)
+        return estimateTokens(response.structuredContent) + estimateTokens(footer)
     }
     return estimateTokens(text)
 }
