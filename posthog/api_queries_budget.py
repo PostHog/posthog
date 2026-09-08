@@ -6,8 +6,8 @@ refill API_QUERIES_BUDGET_PAID_MULTIPLIER times faster. The ClickHouse client de
 chargeable query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
 reads the balance before admitting one. Refill is lazy: the balance is only brought up to date
 when it is read, so a debit never needs to know the team's rate. The balance floors at minus one
-capacity, so a burst can never lock a team out for longer than the capacity window. Everything
-fails open.
+hour of refill, so the query that crosses the line can never lock a team out for longer than an
+hour. Everything fails open.
 
 Exports:
 * BudgetSpec, budget_spec_for, budget_enabled
@@ -58,53 +58,60 @@ def budget_enabled() -> bool:
     return float(settings.API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR) > 0
 
 
-def budget_spec_for(organization: Any) -> BudgetSpec:
-    bytes_per_hour = float(settings.API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR)
-    # NULL means the subscription state was never synced, and an organization is not refused
-    # on a number we do not have.
-    if organization.has_active_subscription is not False:
-        bytes_per_hour *= float(settings.API_QUERIES_BUDGET_PAID_MULTIPLIER)
+def _spec(bytes_per_hour: float) -> BudgetSpec:
     return BudgetSpec(
         bytes_per_hour=bytes_per_hour,
         capacity_bytes=bytes_per_hour * float(settings.API_QUERIES_BUDGET_CAPACITY_HOURS),
     )
 
 
-def _free_capacity_bytes() -> float:
-    return float(settings.API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR) * float(settings.API_QUERIES_BUDGET_CAPACITY_HOURS)
+def _free_spec() -> BudgetSpec:
+    return _spec(float(settings.API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR))
+
+
+def budget_spec_for(organization: Any) -> BudgetSpec:
+    bytes_per_hour = float(settings.API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR)
+    # NULL means the subscription state was never synced, and an organization is not refused
+    # on a number we do not have.
+    if organization.has_active_subscription is not False:
+        bytes_per_hour *= float(settings.API_QUERIES_BUDGET_PAID_MULTIPLIER)
+    return _spec(bytes_per_hour)
 
 
 def _bucket_key(team_id: str) -> str:
     return f"{BUDGET_KEY_PREFIX}team/{team_id}"
 
 
-# KEYS[1] bucket, ARGV[1] now in seconds, ARGV[2] bytes per second, ARGV[3] capacity, ARGV[4] ttl.
-# A missing bucket starts full. The capacity is stored so a debit that arrives before any read
-# (a chargeable query that did not go through the query runner) can initialize from it.
+# KEYS[1] bucket, ARGV[1] now in seconds, ARGV[2] bytes per hour, ARGV[3] capacity, ARGV[4] ttl.
+# A missing bucket starts full. The floor is one hour of refill. Capacity and floor are stored so
+# a debit that arrives before any read (a chargeable query that did not go through the query
+# runner) can use them.
 _REFILL_AND_READ = """
 local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
 local refilled_at = tonumber(redis.call('HGET', KEYS[1], 'refilled_at'))
 local now = tonumber(ARGV[1])
-local rate = tonumber(ARGV[2])
+local floor = tonumber(ARGV[2])
 local capacity = tonumber(ARGV[3])
 if tokens == nil then tokens = capacity end
 if refilled_at == nil then refilled_at = now end
-tokens = math.min(capacity, tokens + math.max(0, now - refilled_at) * rate)
-tokens = math.max(tokens, -capacity)
-redis.call('HSET', KEYS[1], 'tokens', tokens, 'refilled_at', now, 'capacity', capacity)
+tokens = math.min(capacity, tokens + math.max(0, now - refilled_at) / 3600 * floor)
+tokens = math.max(tokens, -floor)
+redis.call('HSET', KEYS[1], 'tokens', tokens, 'refilled_at', now, 'capacity', capacity, 'floor', floor)
 redis.call('EXPIRE', KEYS[1], ARGV[4])
 return tostring(tokens)
 """
 
-# KEYS[1] bucket, ARGV[1] bytes, ARGV[2] fallback capacity, ARGV[3] ttl.
+# KEYS[1] bucket, ARGV[1] bytes, ARGV[2] fallback capacity, ARGV[3] fallback floor, ARGV[4] ttl.
 _DEBIT = """
 local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
 local capacity = tonumber(redis.call('HGET', KEYS[1], 'capacity'))
+local floor = tonumber(redis.call('HGET', KEYS[1], 'floor'))
 if capacity == nil then capacity = tonumber(ARGV[2]) end
+if floor == nil then floor = tonumber(ARGV[3]) end
 if tokens == nil then tokens = capacity end
-tokens = math.max(tokens - tonumber(ARGV[1]), -capacity)
-redis.call('HSET', KEYS[1], 'tokens', tokens, 'capacity', capacity)
-redis.call('EXPIRE', KEYS[1], ARGV[3])
+tokens = math.max(tokens - tonumber(ARGV[1]), -floor)
+redis.call('HSET', KEYS[1], 'tokens', tokens, 'capacity', capacity, 'floor', floor)
+redis.call('EXPIRE', KEYS[1], ARGV[4])
 return tostring(tokens)
 """
 
@@ -116,7 +123,7 @@ def refill_and_read(team_id: str, spec: BudgetSpec, now: Optional[float] = None)
             1,
             _bucket_key(team_id),
             now if now is not None else time.time(),
-            spec.bytes_per_hour / 3600.0,
+            spec.bytes_per_hour,
             spec.capacity_bytes,
             BUDGET_TTL_SECONDS,
         )
@@ -132,9 +139,16 @@ def debit(team_id: str, bytes_read: int) -> Optional[float]:
     is disabled or Redis failed."""
     if not budget_enabled() or bytes_read <= 0:
         return None
+    free = _free_spec()
     try:
         result = get_client().eval(
-            _DEBIT, 1, _bucket_key(team_id), int(bytes_read), _free_capacity_bytes(), BUDGET_TTL_SECONDS
+            _DEBIT,
+            1,
+            _bucket_key(team_id),
+            int(bytes_read),
+            free.capacity_bytes,
+            free.bytes_per_hour,
+            BUDGET_TTL_SECONDS,
         )
         return float(result)
     except Exception as e:

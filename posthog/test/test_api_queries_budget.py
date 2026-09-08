@@ -63,14 +63,16 @@ class TestTokenBucket(BaseTest):
         assert seconds_until_positive(5.0, SPEC) == 0
         assert seconds_until_positive(0.0, SPEC) == 1
 
-    def test_balance_floors_at_minus_capacity(self):
+    def test_balance_floors_at_minus_one_hour_of_refill(self):
         refill_and_read("team-a", SPEC, now=1000.0)
-        assert debit("team-a", 50_000) == -7200.0
-        assert seconds_until_positive(-7200.0, SPEC) == 7200
+        assert debit("team-a", 50_000) == -3600.0
+        assert seconds_until_positive(-3600.0, SPEC) == 3600
+        assert refill_and_read("team-a", SPEC, now=1000.0 + 3600) == 0.0
 
-    def test_debit_before_any_read_starts_from_the_free_capacity(self):
+    def test_debit_before_any_read_uses_the_free_capacity_and_floor(self):
         assert debit("team-new", 100) == 1580.0
         assert debit("team-new", 100) == 1480.0
+        assert debit("team-new", 5000) == -70.0
 
     @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=0)
     def test_disabled_budget_does_not_debit(self):
