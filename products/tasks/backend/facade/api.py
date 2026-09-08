@@ -2693,9 +2693,11 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation or only_if_non_terminal:
+        if has_output_merge or has_state_mutation or only_if_non_terminal or "status" in validated_data:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_non_terminal and run.is_terminal:
+            if validated_data.get("status") == run.status:
+                transaction.on_commit(lambda: resume_workflow_step_for_run(run))
             return _task_run_detail_to_dto(run)
         old_status = run.status
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
@@ -2748,6 +2750,15 @@ def update_task_run(
             update_fields.add("state")
 
         new_status = validated_data.get("status")
+        if (
+            caller_is_agent
+            and new_status == TaskRun.Status.COMPLETED
+            and old_status != new_status
+            and run.task.origin_product == Task.OriginProduct.WORKFLOW
+            and (run.state or {}).get("end_run_when_done")
+        ):
+            run.output = {key: value for key, value in (run.output or {}).items() if key != "final_message"}
+            update_fields.add("output")
         if new_status in _TERMINAL_TASK_RUN_STATUSES:
             if not run.completed_at:
                 run.completed_at = django_timezone.now()
@@ -2763,7 +2774,6 @@ def update_task_run(
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         handle_loop_run_terminal(run)
-        resume_workflow_step_for_run(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
@@ -2815,6 +2825,9 @@ def update_task_run(
     new_commit_head = _commit_push_head_sha(run.output)
     if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
         post_commits_pushed_thread_update(run, run.output["commit_push"])
+
+    if new_status in _TERMINAL_TASK_RUN_STATUSES:
+        resume_workflow_step_for_run(run)
 
     return _task_run_detail_to_dto(run)
 

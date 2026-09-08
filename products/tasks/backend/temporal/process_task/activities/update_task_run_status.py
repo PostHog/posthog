@@ -118,6 +118,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         )
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
+    if input.status in _TERMINAL_STATUSES:
+        resume_workflow_step_for_run(task_run)
+
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 
@@ -152,10 +155,6 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             handle_loop_run_terminal(task_run, error_type=input.error_type)
         except Exception:
             activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
-
-    # Only on the actual transition, so a late duplicate status write cannot wake a step twice.
-    if input.status in _TERMINAL_STATUSES and old_status != input.status:
-        resume_workflow_step_for_run(task_run)
 
     log_with_activity_context(
         "Task run status updated",

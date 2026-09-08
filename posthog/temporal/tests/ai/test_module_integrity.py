@@ -168,6 +168,7 @@ class TestSignalsProductModuleIntegrity:
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
             "run_signals_scout_activity",
+            "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
             "run_scout_suggestions_activity",
             "stamp_requested_scout_suggestions_activity",

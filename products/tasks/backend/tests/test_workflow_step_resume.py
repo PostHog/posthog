@@ -1,10 +1,12 @@
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.tasks.backend.facade.api import update_task_run
 from products.tasks.backend.logic.services.workflow_step_resume import (
     DEFERRED_RESUME_TASK,
     FINAL_MESSAGE_GRACE_SECONDS,
@@ -13,6 +15,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import (
     resume_workflow_step_for_run_id,
 )
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import _persist_final_message
 
 _RESUME = "products.tasks.backend.logic.services.workflow_step_resume.resume_workflow_step"
 _SEND_TASK = "products.tasks.backend.logic.services.workflow_step_resume.current_app.send_task"
@@ -124,3 +127,42 @@ class TestResumeWorkflowStepForRun(BaseTest):
         assert resume.call_count == (1 if wakes else 0)
         if wakes:
             assert resume.call_args.kwargs["result"]["final_message"] == "Collected 3 PRs"
+
+    def test_agent_completion_waits_for_the_current_turn_and_recovers_a_broker_failure(self) -> None:
+        run = self._run(status=TaskRun.Status.IN_PROGRESS, final_message="Previous turn")
+        run.state = {"end_run_when_done": True}
+        run.save(update_fields=["state"])
+
+        with (
+            patch(_RESUME) as resume,
+            patch(_SEND_TASK, side_effect=[RuntimeError("broker down"), None]) as send_task,
+            patch("products.tasks.backend.facade.api.signal_workflow_completion"),
+            patch("products.tasks.backend.logic.services.loop_runs.handle_loop_run_terminal") as bookkeeping,
+        ):
+            with pytest.raises(RuntimeError, match="broker down"):
+                update_task_run(
+                    run.id,
+                    run.task_id,
+                    self.team.id,
+                    validated_data={"status": "completed"},
+                    only_if_non_terminal=True,
+                    caller_is_agent=True,
+                )
+            run.refresh_from_db()
+            assert run.status == TaskRun.Status.COMPLETED
+            assert "final_message" not in run.output
+            assert run.output["pr_url"] == "https://example.com/pr/1"
+            with self.captureOnCommitCallbacks(execute=True):
+                update_task_run(
+                    run.id,
+                    run.task_id,
+                    self.team.id,
+                    validated_data={"status": "completed"},
+                    only_if_non_terminal=True,
+                    caller_is_agent=True,
+                )
+            assert send_task.call_count == 2
+            bookkeeping.assert_called_once()
+            resume.assert_not_called()
+            _persist_final_message(str(run.id), "Current turn")
+            assert resume.call_args.kwargs["result"]["final_message"] == "Current turn"

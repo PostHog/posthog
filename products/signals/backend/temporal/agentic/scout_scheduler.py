@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -12,6 +14,7 @@ import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, resume_workflow_step
 from posthog.dataclasses import frozen
@@ -51,6 +54,7 @@ class RunSignalsScoutInput:
     triggered_by: str = TRIGGERED_BY_SCHEDULE
     # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
+    workflow_managed_resume: bool = False
 
 
 @frozen
@@ -78,7 +82,9 @@ def _to_output(result: RunResult) -> RunSignalsScoutOutput:
     )
 
 
-def _resume_workflow_step(input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
+def _resume_workflow_step(
+    input: RunSignalsScoutInput, output: RunSignalsScoutOutput, *, raise_on_error: bool = False
+) -> None:
     if not input.workflow_origin_key:
         return
     # A skipped run reads as a failure with the skip reason attached.
@@ -90,15 +96,23 @@ def _resume_workflow_step(input: RunSignalsScoutInput, output: RunSignalsScoutOu
         origin_key=input.workflow_origin_key,
         status=status,
         result={"run_id": output.run_id, "summary": output.last_message, "error_message": output.skip_reason},
+        raise_on_error=raise_on_error,
     )
 
 
 @temporalio.activity.defn
 @close_db_connections
+def resume_signals_scout_workflow_step(input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
+    _resume_workflow_step(input, output, raise_on_error=True)
+
+
+@temporalio.activity.defn
+@close_db_connections
 async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
-    """One scout run for a (team, skill) pair; a workflow-triggered run wakes its step on every exit."""
+    """Run one scout, retaining activity-owned delivery for older workflow histories."""
     output = await _run_signals_scout(input)
-    await database_sync_to_async(_resume_workflow_step, thread_sensitive=False)(input, output)
+    if not input.workflow_managed_resume:
+        await database_sync_to_async(_resume_workflow_step, thread_sensitive=False)(input, output)
     return output
 
 
@@ -218,15 +232,41 @@ class RunSignalsScoutWorkflow:
 
     @temporalio.workflow.run
     async def run(self, input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
-        return await temporalio.workflow.execute_activity(
-            run_signals_scout_activity,
-            input,
-            start_to_close_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S),
-            heartbeat_timeout=timedelta(minutes=2),
-            # No retries: failures are persisted as `status='failed'` on the run row and
-            # we don't want a bad skill / prompt to spin retry loops. The next scheduled
-            # tick will try again.
-            retry_policy=RetryPolicy(maximum_attempts=1),
+        managed_resume = bool(input.workflow_origin_key) and temporalio.workflow.patched("scout-workflow-step-resume")
+        if managed_resume:
+            input = replace(input, workflow_managed_resume=True)
+        try:
+            output = await temporalio.workflow.execute_activity(
+                run_signals_scout_activity,
+                input,
+                start_to_close_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except (ActivityError, asyncio.CancelledError) as error:
+            if managed_resume:
+                output = RunSignalsScoutOutput(
+                    run_id=None,
+                    task_run_id=None,
+                    status="cancelled" if is_cancelled_exception(error) else "failed",
+                    runtime_s=0,
+                    skill_name=input.skill_name,
+                    skill_version=input.skill_version or 0,
+                    skip_reason="Scout activity did not complete.",
+                )
+                await asyncio.shield(self._resume_step(input, output))
+            raise
+        if managed_resume:
+            await self._resume_step(input, output)
+        return output
+
+    async def _resume_step(self, input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
+        await temporalio.workflow.execute_activity(
+            resume_signals_scout_workflow_step,
+            args=[input, output],
+            start_to_close_timeout=timedelta(seconds=30),
+            schedule_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=5),
         )
 
 
