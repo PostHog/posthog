@@ -86,9 +86,12 @@ def get_batch_audience_count(
         ]
 
         # uniqCombined, not count(DISTINCT ...): the latter compiles to uniqExact, which holds
-        # every distinct email of the team in memory and runs the query out of memory on large
-        # person tables. uniqCombined keeps an exact set below its threshold and switches to a
-        # fixed-size sketch above it, so peak memory stays flat however many persons match.
+        # every distinct email of the matching audience in memory and runs the query out of memory
+        # on large person tables. uniqCombined keeps an exact set below its threshold and switches
+        # to a fixed-size sketch above it, so the aggregate state stops growing with the audience.
+        # The persons expansion still holds one entry per matching person, in the id set it pushes
+        # the filter into and in the group-by that picks the latest version, so this drops one term
+        # from peak memory instead of making it flat.
         select_query = ast.SelectQuery(
             select=[ast.Call(name="uniqCombined", args=[group_expr])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
