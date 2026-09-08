@@ -108,6 +108,38 @@ describe("McpAppsService config resolver", () => {
     expect(createConnection).toHaveBeenCalledTimes(1);
   });
 
+  it("reconnects instead of reusing a connection whose config changed (regression)", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const firstClient = makeClient();
+    const secondClient = makeClient();
+    let nextClient = firstClient;
+    vi.spyOn(internals(service), "createConnection").mockImplementation(
+      async (c) => ({
+        name: c.name,
+        client: nextClient,
+        transport: {},
+        config: c,
+      }),
+    );
+
+    await internals(service).getOrCreateConnection("posthog");
+    expect(firstClient.close).not.toHaveBeenCalled();
+
+    // Re-registering the same config must not tear down a working connection.
+    await internals(service).getOrCreateConnection("posthog");
+    expect(firstClient.close).not.toHaveBeenCalled();
+
+    nextClient = secondClient;
+    service.addServerConfigs([
+      { ...config("posthog"), headers: { "X-PostHog-Project-Id": "2" } },
+    ]);
+    const conn = (await internals(service).getOrCreateConnection(
+      "posthog",
+    )) as { client: ReturnType<typeof makeClient> };
+    expect(firstClient.close).toHaveBeenCalled();
+    expect(conn.client).toBe(secondClient);
+  });
+
   it("addServerConfigs merges without clearing existing configs", async () => {
     service.setServerConfigs([config("posthog")]);
     service.addServerConfigs([config("installation")]);
@@ -170,7 +202,7 @@ function makeClient(metaOn: "list" | "read" = "list") {
 
 function connectClient(service: McpAppsService, client = makeClient()) {
   vi.spyOn(internals(service), "createConnection").mockImplementation(
-    async (c) => ({ name: c.name, client, transport: {} }),
+    async (c) => ({ name: c.name, client, transport: {}, config: c }),
   );
   return client;
 }
@@ -180,7 +212,12 @@ function connectClients(
   clients: Record<string, ReturnType<typeof makeClient>>,
 ) {
   vi.spyOn(internals(service), "createConnection").mockImplementation(
-    async (c) => ({ name: c.name, client: clients[c.name], transport: {} }),
+    async (c) => ({
+      name: c.name,
+      client: clients[c.name],
+      transport: {},
+      config: c,
+    }),
   );
 }
 
