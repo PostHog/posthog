@@ -412,6 +412,45 @@ class TestPersistReplyActivity:
         assert comment.item_context["citations"] == ["chunk-1", "chunk-2"]
         assert comment.item_context["confidence"] == 0.85
 
+    def test_public_email_reply_rolls_back_when_outbox_create_fails(self):
+        from posthog.models.comment import Comment
+
+        from products.conversations.backend.models import EmailOutboxMessage
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(
+            organization=org,
+            name="Test Team",
+            conversations_settings={"ai_reply_modes": {"email": {"how_to": "bot_reply"}}},
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            channel_source="email",
+            widget_session_id="",
+            distinct_id="customer@example.com",
+            email_from="customer@example.com",
+        )
+
+        with patch(
+            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            side_effect=RuntimeError("outbox write failed"),
+        ):
+            with pytest.raises(RuntimeError, match="outbox write failed"):
+                _persist_reply_sync(
+                    PersistReplyInput(
+                        team_id=team.id,
+                        ticket_id=str(ticket.id),
+                        reply="Here is the fix.",
+                        citations=["c1"],
+                        confidence=0.9,
+                        ticket_type="how_to",
+                        allow_bot_reply=True,
+                    )
+                )
+
+        assert not Comment.objects.filter(team_id=team.id, item_id=str(ticket.id)).exists()
+        assert not EmailOutboxMessage.objects.filter(ticket=ticket).exists()
+
     @parameterized.expand(
         [
             (
