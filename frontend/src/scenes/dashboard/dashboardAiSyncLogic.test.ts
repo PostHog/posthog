@@ -1404,7 +1404,116 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             routerPushSpy.mockRestore()
         })
 
-        it('continues with a queued successor after the active dashboard reload fails', async () => {
+        it('emits exact privacy-safe telemetry for an active batch and its merged successor', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            const firstReload = deferred<void>()
+            const successorReload = deferred<void>()
+            mockLoadDashboard
+                .mockReset()
+                .mockReturnValueOnce(firstReload.promise)
+                .mockReturnValueOnce(successorReload.promise)
+            jest.mocked(posthog.capture).mockClear()
+            let now = 1_000
+            const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update',
+                    { id: dashboardId, name: 'private-dashboard-title@example.com' },
+                    { id: dashboardId, name: 'private-dashboard-title@example.com' }
+                ),
+                { id: dashboardId, name: 'private-dashboard-title@example.com' }
+            )
+
+            now = 1_100
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update-text-tile',
+                    { id: dashboardId, tile_id: 42, body: 'private tile copy' },
+                    { id: 42, dashboard_id: dashboardId, body: 'private tile copy' }
+                ),
+                { id: dashboardId, tile_id: 42, body: 'private tile copy' }
+            )
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update',
+                    { id: dashboardId, recipient: 'test@example.com' },
+                    { id: dashboardId, recipient: 'test@example.com' }
+                ),
+                { id: dashboardId, recipient: 'test@example.com' }
+            )
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'insight-create',
+                    { dashboards: [dashboardId], name: 'private insight name' },
+                    {
+                        id: 303,
+                        short_id: 'private-insight-short-id',
+                        name: 'private insight name',
+                        dashboard_tiles: [{ id: 61, dashboard_id: dashboardId, deleted: false }],
+                    }
+                ),
+                { dashboards: [dashboardId], name: 'private insight name' }
+            )
+
+            now = 1_200
+            firstReload.resolve()
+            await waitFor(() => expect(mockLoadDashboard).toHaveBeenCalledTimes(2))
+
+            mockCommittedDashboard = {
+                ...committedDashboard(),
+                tiles: [
+                    committedDashboard().tiles[0],
+                    dashboardWithInsight(42, 202, 'beta').tiles[0],
+                    dashboardWithInsight(61, 303, 'private-insight-short-id').tiles[0],
+                ],
+            }
+            now = 1_350
+            successorReload.resolve()
+            await waitFor(() => expect(logic.values.activeBatch).toBeNull())
+
+            expect(jest.mocked(posthog.capture).mock.calls).toEqual([
+                [
+                    'dashboard ai sync completed',
+                    {
+                        tool_families: ['dashboard'],
+                        queued_event_count: 1,
+                        highlighted_tile_count: 0,
+                        duration_ms: 200,
+                        success: true,
+                    },
+                ],
+                [
+                    'dashboard ai sync completed',
+                    {
+                        tool_families: ['dashboard', 'insight'],
+                        queued_event_count: 3,
+                        highlighted_tile_count: 2,
+                        duration_ms: 250,
+                        success: true,
+                    },
+                ],
+            ])
+            const serializedCalls = JSON.stringify(jest.mocked(posthog.capture).mock.calls)
+            for (const privateValue of [
+                'private-dashboard-title@example.com',
+                'private tile copy',
+                'test@example.com',
+                'dashboard-update-text-tile',
+                'private insight name',
+                'private-insight-short-id',
+            ]) {
+                expect(serializedCalls).not.toContain(privateValue)
+            }
+
+            logic.unmount()
+            dateNowSpy.mockRestore()
+        })
+
+        it('continues with a queued successor and emits failure telemetry after the active dashboard reload fails', async () => {
             initKeaTests()
             const committed = committedDashboard()
             mockCommittedDashboard = committed
@@ -1414,23 +1523,139 @@ describe('resolveDashboardAiMutation candidate classification', () => {
                 .mockReset()
                 .mockReturnValueOnce(firstReload.promise)
                 .mockReturnValueOnce(successorReload.promise)
+            jest.mocked(posthog.capture).mockClear()
+            let now = 2_000
+            const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
             const logic = dashboardAiSyncLogic({ dashboardId })
             logic.mount()
 
             logic.actions.applyToolCompletion(eventFor('dashboard-update', { id: 7 }, { id: 7 }), { id: 7 })
+            now = 2_050
             logic.actions.applyToolCompletion(
                 eventFor('dashboard-update-text-tile', { id: 7, tile_id: 41 }, { id: 41, dashboard_id: 7 }),
                 { id: 7, tile_id: 41 }
             )
+            now = 2_125
             firstReload.reject(new Error('reload failed'))
 
             await waitFor(() => expect(mockLoadDashboard).toHaveBeenCalledTimes(2))
             expect(mockCommittedDashboard).toBe(committed)
             expect(logic.values.activeBatch?.tileIds).toEqual([41])
+            expect(jest.mocked(posthog.capture).mock.calls).toEqual([
+                [
+                    'dashboard ai sync completed',
+                    {
+                        tool_families: ['dashboard'],
+                        queued_event_count: 1,
+                        highlighted_tile_count: 0,
+                        duration_ms: 125,
+                        success: false,
+                    },
+                ],
+            ])
+            now = 2_300
             successorReload.resolve()
             await waitFor(() => expect(logic.values.activeBatch).toBeNull())
             expect(logic.values.queuedBatch).toBeNull()
+            expect(jest.mocked(posthog.capture).mock.calls).toEqual([
+                [
+                    'dashboard ai sync completed',
+                    {
+                        tool_families: ['dashboard'],
+                        queued_event_count: 1,
+                        highlighted_tile_count: 0,
+                        duration_ms: 125,
+                        success: false,
+                    },
+                ],
+                [
+                    'dashboard ai sync completed',
+                    {
+                        tool_families: ['dashboard'],
+                        queued_event_count: 1,
+                        highlighted_tile_count: 1,
+                        duration_ms: 250,
+                        success: true,
+                    },
+                ],
+            ])
             logic.unmount()
+            dateNowSpy.mockRestore()
+        })
+
+        it('clamps a backwards-clock telemetry duration to zero', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            const reload = deferred<void>()
+            mockLoadDashboard.mockReset().mockReturnValue(reload.promise)
+            jest.mocked(posthog.capture).mockClear()
+            let now = 3_000
+            const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(eventFor('dashboard-update', { id: dashboardId }, { id: dashboardId }), {
+                id: dashboardId,
+            })
+            now = 2_999
+            reload.resolve()
+            await waitFor(() => expect(logic.values.activeBatch).toBeNull())
+
+            expect(jest.mocked(posthog.capture).mock.calls).toEqual([
+                [
+                    'dashboard ai sync completed',
+                    {
+                        tool_families: ['dashboard'],
+                        queued_event_count: 1,
+                        highlighted_tile_count: 0,
+                        duration_ms: 0,
+                        success: true,
+                    },
+                ],
+            ])
+            logic.unmount()
+            dateNowSpy.mockRestore()
+        })
+
+        it('does not emit telemetry for an invalid candidate, a third-party origin, or disposed work', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            const reload = deferred<void>()
+            mockLoadDashboard.mockReset().mockReturnValue(reload.promise)
+            jest.mocked(posthog.capture).mockClear()
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(eventFor('dashboard-update', { id: 8 }, { id: 8 }), { id: 8 })
+            const directInvocation = {
+                ...eventFor('dashboard-update', { id: dashboardId }, { id: dashboardId }).invocation,
+                rawServerName: 'third_party',
+                rawToolName: 'dashboard-update',
+                input: { id: dashboardId },
+            }
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update',
+                    { id: dashboardId },
+                    { id: dashboardId },
+                    { rawToolName: 'dashboard-update', invocation: directInvocation }
+                ),
+                { id: dashboardId }
+            )
+            expect(mockLoadDashboard).not.toHaveBeenCalled()
+            expect(posthog.capture).not.toHaveBeenCalled()
+
+            logic.actions.applyToolCompletion(eventFor('dashboard-update', { id: dashboardId }, { id: dashboardId }), {
+                id: dashboardId,
+            })
+            expect(mockLoadDashboard).toHaveBeenCalledTimes(1)
+            logic.unmount()
+            reload.resolve()
+            await reload.promise
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(posthog.capture).not.toHaveBeenCalled()
         })
 
         it('ignores a direct third-party same-name event without any side effect', () => {

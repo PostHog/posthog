@@ -1,5 +1,6 @@
 import { LogicWrapper, MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
@@ -941,6 +942,24 @@ function confirmedHighlightTileIds(
     )
 }
 
+function captureDashboardAiSyncCompleted(
+    batch: DashboardAiSyncBatch,
+    highlightedTileCount: number,
+    success: boolean
+): void {
+    try {
+        posthog.capture('dashboard ai sync completed', {
+            tool_families: [...new Set(batch.families)].sort(),
+            queued_event_count: batch.queuedEventCount,
+            highlighted_tile_count: highlightedTileCount,
+            duration_ms: Math.max(0, Date.now() - batch.startedAt),
+            success,
+        })
+    } catch {
+        // Telemetry must not interrupt dashboard synchronization or a queued successor.
+    }
+}
+
 function refreshMountedInsightAlerts(
     dashboardId: number,
     dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1078,6 +1097,8 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
         },
         syncDashboard: async ({ batch }) => {
             const disposables = cache.disposables
+            let confirmedTileIds: number[] = []
+            let success = false
             try {
                 await dashboardLogic({ id: props.dashboardId }).asyncActions.loadDashboard({
                     action: DashboardLoadAction.BackgroundUpdate,
@@ -1087,7 +1108,8 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
                     return
                 }
                 const committedDashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
-                const confirmedTileIds = confirmedHighlightTileIds(batch, committedDashboard)
+                confirmedTileIds = confirmedHighlightTileIds(batch, committedDashboard)
+                success = true
                 if (confirmedTileIds.length > 0) {
                     actions.setTransientHighlightedTileIds(
                         sortedUniqueNumbers([...values.transientHighlightedTileIds, ...confirmedTileIds])
@@ -1111,6 +1133,7 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
                 // The dashboard loader keeps the last committed dashboard visible on failure.
             } finally {
                 if (!disposables.isDisposed) {
+                    captureDashboardAiSyncCompleted(batch, confirmedTileIds.length, success)
                     const successor = values.queuedBatch
                     actions.setActiveBatch(null)
                     if (successor) {
