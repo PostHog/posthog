@@ -344,7 +344,9 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # precisely, but it admits every historical row rather than the rare event
     # rows, which is the shape `baseline_overview` documents as ~7s and an OOM
     # on the web pod. This uses the `snapshot_run_result` index the same way its
-    # neighbour does.
+    # neighbour does. The history it reads reaches back only as far as retention
+    # keeps default-branch runs, which is
+    # `retention.DEFAULT_BRANCH_RUN_RETENTION_DAYS`.
     baseline_moved_at_by_key: dict[_SnapshotKey, datetime] = {}
     for identifier, run_type, moved_at in (
         RunSnapshot.objects.filter(
