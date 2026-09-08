@@ -979,6 +979,7 @@ export function DataTable({
                 query={query}
                 setQuery={setQuery}
                 fileNameForExport={context?.fileNameForExport}
+                excludedColumns={context?.dataTableExportExcludedColumns}
             />
         ) : null,
         showExport && showOpenEditorButton ? (

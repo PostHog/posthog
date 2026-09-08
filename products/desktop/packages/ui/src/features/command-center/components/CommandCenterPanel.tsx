@@ -102,7 +102,8 @@ function CellStatusBadge({
     taskRunEnvironment: task.latest_run?.environment,
   });
 
-  const label = STATUS_LABEL[status];
+  const displayStatus = cell.hasUnseenCompletion ? "completed" : status;
+  const label = STATUS_LABEL[displayStatus];
   if (label === null) return null;
 
   const taskRunStatus = isCloud
@@ -110,7 +111,9 @@ function CellStatusBadge({
     : undefined;
 
   return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-gray-3 px-1 py-0.5 text-[10px] text-gray-11">
+    <span
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] ${cell.hasUnseenCompletion ? "bg-primary text-primary-foreground" : "bg-gray-3 text-gray-11"}`}
+    >
       <TaskIcon
         workspaceMode={workspaceMode ?? undefined}
         isGenerating={status === "running"}
@@ -622,7 +625,9 @@ function PopulatedCell({
   }, [clearCell, cell.cellIndex]);
 
   return (
-    <Flex direction="column" height="100%">
+    <div
+      className={`flex h-full flex-col ${cell.hasUnseenCompletion ? "ring-2 ring-primary ring-inset" : ""}`}
+    >
       <Flex
         align="center"
         gap="2"
@@ -674,7 +679,7 @@ function PopulatedCell({
           isActiveSession={isActiveSession}
         />
       </Flex>
-    </Flex>
+    </div>
   );
 }
 
