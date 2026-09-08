@@ -2,6 +2,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -193,6 +195,30 @@ class TestAITrainingOptInHistory(APIBaseTest):
         self.assertIn("Currently opted in", html)
         self.assertIn("opted out → opted in", html)
         self.assertIn(self.user.email, html)
+
+    def test_admin_organization_list_does_not_read_the_baa_per_row(self) -> None:
+        for _ in range(3):
+            Organization.objects.bootstrap(self.user)
+        self.user.is_staff = True
+        self.user.save()
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get("/admin/posthog/organization/")
+
+        self.assertEqual(response.status_code, 200)
+        legal_document_queries = [q for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
+        self.assertEqual(legal_document_queries, [])
+
+    def test_admin_change_form_reads_the_baa_once(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get(f"/admin/posthog/organization/{self.organization.id}/change/")
+
+        self.assertEqual(response.status_code, 200)
+        legal_document_queries = [q for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
+        self.assertEqual(len(legal_document_queries), 1)
 
     def test_admin_panel_is_blank_on_the_add_form(self) -> None:
         html = OrganizationAdmin(Organization, AdminSite()).ai_training_opt_in_history_display(Organization())
