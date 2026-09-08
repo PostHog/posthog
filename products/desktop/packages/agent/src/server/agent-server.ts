@@ -2314,7 +2314,6 @@ export class AgentServer {
       payload,
       preTaskRun,
     );
-    await logAgentshRuntimeInfo(this.logger);
 
     this.shutdownController.signal.throwIfAborted();
     this.initializingConnection = null;
@@ -2354,6 +2353,11 @@ export class AgentServer {
     });
     this.logger.debug(
       `Agent version: ${this.config.version ?? packageJson.version}`,
+    );
+    // The version probe spawns a process, so it runs beside the startup turn. Its records reach
+    // the run log through the session logger installed above.
+    void logAgentshRuntimeInfo(this.logger).catch((error) =>
+      this.logger.debug("Failed to read agentsh runtime info", error),
     );
     this.logger.debug(`Initial permission mode: ${initialPermissionMode}`);
 
