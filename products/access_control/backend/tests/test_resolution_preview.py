@@ -9,6 +9,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.resolution_preview import build_resolution_preview
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.tests.test_user_access_control import BaseUserAccessControlTest
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -80,6 +81,21 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         assert change.scope == "resource"
         assert change.subject.type == "member"
         assert (change.current.access_level, change.proposed.access_level) == ("editor", "none")
+
+    def test_preview_is_the_same_after_the_organization_switched(self):
+        self._create_access_control(
+            resource="dashboard", access_level="none", organization_member=self.other_membership
+        )
+        self._create_access_control(resource="dashboard", access_level="editor", role=self.role_b)
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
+        before = self._changes()
+        assert {change.scope for change in before} == {"resource", "object"}
+
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+
+        assert self._changes() == before
 
     def test_member_row_on_one_object_adds_no_records_for_other_objects(self):
         # The everyone record already describes objects the member holds no rule on; a
