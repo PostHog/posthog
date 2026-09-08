@@ -1713,7 +1713,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             // still edits normally.
             rebuildExperimentContext: async () => {
                 const targeting = values.scanner?.experiment_targeting
-                if (!targeting?.experiment_id || values.experimentContext) {
+                if (!targeting?.experiment_id) {
+                    // A card left over from earlier targeting would keep offering variants of an
+                    // experiment this scanner no longer watches, and the picker would re-persist it.
+                    if (values.experimentContext) {
+                        actions.setExperimentContext(null)
+                    }
+                    return
+                }
+                if (values.experimentContext?.experiment.id === targeting.experiment_id) {
                     return
                 }
                 try {
@@ -1723,7 +1731,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // response restores a card for targeting the scanner no longer carries, which a later
                     // variant change would then re-persist.
                     const current = values.scanner?.experiment_targeting
-                    if (current?.experiment_id !== targeting.experiment_id || values.experimentContext) {
+                    if (
+                        current?.experiment_id !== targeting.experiment_id ||
+                        values.experimentContext?.experiment.id === targeting.experiment_id
+                    ) {
                         return
                     }
                     actions.setExperimentContext({ experiment, variantKey: current.variant ?? null })
@@ -1823,7 +1834,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     ...(goalDraft.credit_limit != null
                         ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
                         : {}),
+                    // The experiment the goal named, if any. It watches that experiment's
+                    // participants, which the query itself can't express — the backend derives the
+                    // exposure filter from this field at scan time.
+                    experiment_targeting: goalDraft.experiment_targeting ?? null,
                 })
+                // Loads the targeted experiment so the Triggers step shows its card and variant
+                // picker, the same way it does for a scanner started from the experiment itself.
+                actions.rebuildExperimentContext()
                 // Solved dials mark a goal-flow draft, which reviews on the overview; legacy drafts
                 // open the details step. The goal flow is already on the overview (pushed on request),
                 // so this only navigates the legacy path.
