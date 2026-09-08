@@ -85972,7 +85972,7 @@ export namespace Schemas {
     }
 
     /**
-     * Error details on failure
+     * JSON-RPC error details, including failures returned with HTTP 200
      */
     export type TaskRunCommandResponseError = { [key: string]: unknown };
 
@@ -85984,9 +85984,9 @@ export namespace Schemas {
       jsonrpc: string;
       /** Request ID echoed back (string or number) */
       id?: unknown;
-      /** Command result on success */
+      /** Command result. Permission responses confirm acceptance only with resolved=true. */
       result?: unknown;
-      /** Error details on failure */
+      /** JSON-RPC error details, including failures returned with HTTP 200 */
       error?: TaskRunCommandResponseError;
     }
 
@@ -98616,7 +98616,7 @@ export namespace Schemas {
      */
     content?: LlmSkillsBundleRetrieveContent;
     /**
-     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * Maximum number of skills in the zip, newest first; default 50, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
      * @minimum 1
      * @maximum 100
      */
