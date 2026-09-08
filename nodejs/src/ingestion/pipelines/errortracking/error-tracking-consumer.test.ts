@@ -234,7 +234,8 @@ describe('ErrorTrackingConsumer', () => {
     // scheduled side-effect flush) has settled, matching the consumer loop.
     const handleBatch = async (messages: Message[]): Promise<void> => {
         const result = await consumer.handleKafkaBatch(messages)
-        await result?.backgroundTask
+        expect(result.backgroundTask).toBeDefined()
+        await result.backgroundTask
     }
 
     beforeEach(async () => {
