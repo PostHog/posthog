@@ -44,6 +44,20 @@ describe('ticketActivityDescriber', () => {
         before: '2026-06-25T10:00:00Z',
         after: null,
     }
+    const archiveSet: ActivityChange = {
+        type: ActivityScope.TICKET,
+        action: 'changed',
+        field: 'archived_at',
+        before: null,
+        after: '2026-06-25T10:00:00Z',
+    }
+    const archiveCleared: ActivityChange = {
+        type: ActivityScope.TICKET,
+        action: 'changed',
+        field: 'archived_at',
+        before: '2026-06-25T10:00:00Z',
+        after: null,
+    }
     const reopened: ActivityChange = {
         type: ActivityScope.TICKET,
         action: 'changed',
@@ -123,48 +137,33 @@ describe('ticketActivityDescriber', () => {
         const result = ticketActivityDescriber(
             ticketLogItem({
                 user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
-                detail: {
-                    merge: null,
-                    trigger: null,
-                    name: 'Ticket #2043',
-                    changes: [
-                        {
-                            type: ActivityScope.TICKET,
-                            action: 'changed',
-                            field: 'archived_at',
-                            before: null,
-                            after: '2026-06-25T10:00:00Z',
-                        },
-                    ],
-                },
+                detail: { merge: null, trigger: null, name: 'Ticket #2043', changes: [archiveSet] },
             })
         )
-        const text = getTextContent(result)
-        expect(text).toContain('Max AI')
-        expect(text).toContain('archived this ticket')
+        expect(getTextContent(result)).toBe('Max AI archived Ticket #2043')
     })
 
     it('describes clearing the archive stamp as a restore', () => {
         const result = ticketActivityDescriber(
             ticketLogItem({
                 user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
-                detail: {
-                    merge: null,
-                    trigger: null,
-                    name: 'Ticket #2043',
-                    changes: [
-                        {
-                            type: ActivityScope.TICKET,
-                            action: 'changed',
-                            field: 'archived_at',
-                            before: '2026-06-25T10:00:00Z',
-                            after: null,
-                        },
-                    ],
-                },
+                detail: { merge: null, trigger: null, name: 'Ticket #2043', changes: [archiveCleared] },
             })
         )
-        expect(getTextContent(result)).toContain('restored this ticket from the archive')
+        expect(getTextContent(result)).toBe('Max AI restored Ticket #2043 from the archive')
+    })
+
+    it('keeps the archive line in the bullet list when the same update changed other fields', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
+                detail: { merge: null, trigger: null, name: 'Ticket #2043', changes: [statusChange, archiveSet] },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('made changes to Ticket #2043')
+        expect(text).toContain('changed status from new to open')
+        expect(text).toContain('archived this ticket')
     })
 
     it('describes a system snooze-expiry with no status change as "snooze expired" (not reopened)', () => {
