@@ -4,8 +4,10 @@ Harmonic bills one account-wide rate limit — there is one ``HARMONIC_API_KEY``
 instance, not one per installation or team — so every call anywhere in the codebase draws from a
 single shared budget under the constant key ``harmonic:account:default``.
 
-Harmonic publishes no rate limit, so the budget is an operator ceiling to tune against the
-rate-limit headers this domain records.
+Harmonic documents a per-second limit for most endpoints and answers 429 above it, reporting the
+current limit and remaining allowance in ``X-Ratelimit-Limit-Second`` and
+``X-Ratelimit-Remaining-Second`` on every response. The budget is an operator ceiling tuned against
+the values this domain records from those headers.
 
 Two very different consumers share this budget, so the priority lanes matter:
 - CRITICAL (interactive): signup enrichment and the ICP re-enrichment sweep run inside a
@@ -30,6 +32,8 @@ HARMONIC_ACCOUNT_KEY = f"{HARMONIC_DOMAIN}:account:{_ACCOUNT_SCOPE_ID}"
 
 _DEFAULT_PER_SECOND_BUDGET = 15
 
+HARMONIC_WINDOW_SECONDS = 1.0
+
 # Same reserved-floor ladder as the other egress domains: BATCH is denied first as the budget
 # fills, then NORMAL, so the interactive lane (CRITICAL) can never be starved by the weekly bulk
 # enrichment job saturating the shared counter.
@@ -41,7 +45,7 @@ _RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30, Priority.NORMAL: 0.10}
 def _harmonic_policy(_key: str) -> RatePolicy:
     per_second = int(getattr(settings, "HARMONIC_EGRESS_PER_SECOND_BUDGET", _DEFAULT_PER_SECOND_BUDGET))
     return RatePolicy(
-        limits=((per_second, 1.0),),
+        limits=((per_second, HARMONIC_WINDOW_SECONDS),),
         in_memory_divider=4,
         reserve=_RESERVE,
     )

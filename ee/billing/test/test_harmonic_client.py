@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Collection
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,18 +6,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 from parameterized import parameterized
 
+from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 
-from ee.billing.salesforce_enrichment.harmonic_client import _ENRICH_WAVE_SIZE, AsyncHarmonicClient
+from ee.billing.salesforce_enrichment.harmonic_client import _ENRICH_MAX_IN_FLIGHT, AsyncHarmonicClient
 
 HARMONIC_REQUEST = "ee.billing.salesforce_enrichment.harmonic_client.harmonic_request"
 PACE_SECONDS_HARMONIC = "ee.billing.salesforce_enrichment.harmonic_client.pace_seconds_harmonic"
 ASYNCIO_SLEEP = "ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep"
+ASYNCIO_TO_THREAD = "ee.billing.salesforce_enrichment.harmonic_client.asyncio.to_thread"
 
 # Captured at import time, before any test patches asyncio.sleep, so the fake sleeps below always
 # yield to the real event loop rather than recursing into whichever mock is active when they run.
 _REAL_SLEEP = asyncio.sleep
+
+
+# Bypasses the real thread pool so pacing stays single-threaded and deterministic under test.
+async def _fake_to_thread(func, *args, **kwargs):
+    return func(*args, **kwargs)
 
 
 def _response(*, json_data=None, raise_status=None, status=200):
@@ -61,74 +67,6 @@ def _graphql_errors():
 def _http_500():
     error = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=500, message="Server Error")
     return _response(raise_status=error)
-
-
-# Shared by the patched pace and sleep, so a wave that waits sees the budget refill without the
-# test costing wall-clock time.
-class _FakeClock:
-    def __init__(self) -> None:
-        self.now = 0.0
-
-
-# Stands in for the Harmonic egress limiter. always_deny and not_found are keyed by the bare
-# domain, so both HARMONIC_DOMAIN_VARIATIONS of one domain share a fate, as they do against the
-# account-wide budget.
-class _FakeGate:
-    def __init__(
-        self,
-        clock: _FakeClock,
-        *,
-        budget: int,
-        window: float = 1.0,
-        always_deny: Collection[str] = frozenset(),
-        not_found: Collection[str] = frozenset(),
-    ) -> None:
-        self.clock = clock
-        self.budget = budget
-        self.window = window
-        self.always_deny = always_deny
-        self.not_found = not_found
-        self.window_start = clock.now
-        self.used = 0
-
-    def _refill(self) -> None:
-        if self.clock.now - self.window_start >= self.window:
-            self.window_start = self.clock.now
-            self.used = 0
-
-    def _admit(self, bare_domain: str) -> bool:
-        self._refill()
-        if bare_domain in self.always_deny:
-            return False
-        if self.used >= self.budget:
-            return False
-        self.used += 1
-        return True
-
-    def pace_seconds(self, _priority=None) -> float:
-        self._refill()
-        if self.used < self.budget:
-            return 0.0
-        return max(0.0, self.window - (self.clock.now - self.window_start))
-
-    async def request(self, session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
-        website_url = json["variables"]["identifiers"]["websiteUrl"]
-        bare_domain = website_url.removeprefix("https://").removeprefix("www.")
-        if not self._admit(bare_domain):
-            raise HarmonicEgressBudgetExhausted("degrading")
-        if bare_domain in self.not_found:
-            return _not_found()
-        return _found({"name": bare_domain})
-
-
-# Awaits the real asyncio.sleep(0) so the call stays an event-loop suspension point that a
-# pending cancellation can land on.
-def _clock_advancing_sleep(clock: _FakeClock):
-    async def fake_sleep(seconds: float) -> None:
-        clock.now += seconds
-        await _REAL_SLEEP(0)
-
-    return fake_sleep
 
 
 @pytest.mark.asyncio
@@ -372,64 +310,121 @@ async def test_get_enrichment_status_reraises_on_http_error():
 
 
 @pytest.mark.asyncio
-@patch(PACE_SECONDS_HARMONIC)
+@patch(PACE_SECONDS_HARMONIC, return_value=0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
-async def test_enrich_companies_batch_repaces_before_each_wave(mock_sleep, mock_pace):
-    # A single pace for the whole batch lets a later wave burst past a budget an earlier wave
-    # already drew down, so this asserts a pace per wave against live limiter state.
-    clock = _FakeClock()
-    gate = _FakeGate(clock, budget=_ENRICH_WAVE_SIZE)  # exactly one wave's worth per window
-    mock_pace.side_effect = gate.pace_seconds
-    mock_sleep.side_effect = _clock_advancing_sleep(clock)
-
-    domains = [f"d{i}.com" for i in range(_ENRICH_WAVE_SIZE + 5)]  # spans two waves
-    client = _client(priority=Priority.BATCH)
-    with patch(HARMONIC_REQUEST, new=AsyncMock(side_effect=gate.request)):
+@patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
+async def test_enrich_companies_batch_paces_once_per_request(mock_sleep, mock_pace):
+    # A single pace for the whole batch lets a later request burst past a budget an earlier one
+    # already drew down, so this asserts a pace per request against live limiter state.
+    domains = ["a.com", "b.com", "c.com"]
+    client = _client(priority=Priority.NORMAL)
+    mock_request = AsyncMock(side_effect=[_found({"name": d}) for d in domains])
+    with patch(HARMONIC_REQUEST, new=mock_request):
         results = await client.enrich_companies_batch(domains)
 
     assert results == [{"name": d} for d in domains]
-    assert mock_pace.call_count > 1
-    mock_sleep.assert_awaited_once_with(pytest.approx(1.0))
+    assert mock_pace.call_count == 3
+    mock_sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-@patch(PACE_SECONDS_HARMONIC)
+@patch(PACE_SECONDS_HARMONIC, return_value=0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
+@patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
+async def test_enrich_companies_batch_backs_off_a_full_window_after_a_shed_before_retrying(mock_sleep, mock_pace):
+    # A shed domain must wait out a full budget window before its retry, not just the pace (which
+    # this test sets to 0). Otherwise every attempt fits inside the same instant and none of them
+    # land after the budget actually frees.
+    shed = HarmonicEgressBudgetExhausted("degrading")
+    mock_request = AsyncMock(side_effect=[shed, shed, _found({"name": "a.com"})])
+    client = _client(priority=Priority.BATCH)
+    with patch(HARMONIC_REQUEST, new=mock_request):
+        results = await client.enrich_companies_batch(["a.com"])
+
+    assert results == [{"name": "a.com"}]
+    mock_sleep.assert_awaited_once_with(HARMONIC_WINDOW_SECONDS)
+
+
+@pytest.mark.asyncio
+@patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
+async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot_frees(mock_pace):
+    # With one more domain than the in-flight cap, the extra lookup must start once any slot
+    # frees, without waiting on the slowest of the first _ENRICH_MAX_IN_FLIGHT.
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    started_domains: list[str] = []
+
+    domains = [f"d{i}.com" for i in range(_ENRICH_MAX_IN_FLIGHT + 1)]
+
+    async def request(session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
+        website_url = json["variables"]["identifiers"]["websiteUrl"]
+        bare_domain = website_url.removeprefix("https://").removeprefix("www.")
+        started_domains.append(bare_domain)
+        if bare_domain == "d0.com":
+            first_started.set()
+            await release_first.wait()
+        return _found({"name": bare_domain})
+
+    client = _client(priority=Priority.BATCH)
+    with patch(HARMONIC_REQUEST, new=request):
+        task = asyncio.create_task(client.enrich_companies_batch(domains))
+        await first_started.wait()
+        for _ in range(10):
+            await _REAL_SLEEP(0)
+
+        assert "d10.com" in started_domains
+
+        release_first.set()
+        results = await task
+
+    assert results == [{"name": d} for d in domains]
+
+
+@pytest.mark.asyncio
+@patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
+@patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 async def test_enrich_companies_batch_retries_a_denied_domain_in_a_later_attempt(mock_sleep, mock_pace):
-    clock = _FakeClock()
-    gate = _FakeGate(clock, budget=2)  # only the first two of three domains admit on attempt 1
-    mock_pace.side_effect = gate.pace_seconds
-    mock_sleep.side_effect = _clock_advancing_sleep(clock)
+    deny_count = {"c.com": 0}
+
+    async def request(session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
+        website_url = json["variables"]["identifiers"]["websiteUrl"]
+        bare_domain = website_url.removeprefix("https://").removeprefix("www.")
+        if bare_domain == "c.com" and deny_count["c.com"] < 2:
+            deny_count["c.com"] += 1
+            raise HarmonicEgressBudgetExhausted("degrading")
+        return _found({"name": bare_domain})
 
     domains = ["a.com", "b.com", "c.com"]
     client = _client(priority=Priority.BATCH)
-    with patch(HARMONIC_REQUEST, new=AsyncMock(side_effect=gate.request)):
+    with patch(HARMONIC_REQUEST, new=request):
         results = await client.enrich_companies_batch(domains)
 
-    # c.com was shed on attempt 1 and must come back with a result once the budget refills,
-    # not silently become the same None a genuine miss returns.
+    # c.com was shed on attempt 1 and must come back with a result once it is retried, not
+    # silently become the same None a genuine miss returns.
     assert results == [{"name": "a.com"}, {"name": "b.com"}, {"name": "c.com"}]
-    assert mock_pace.call_count > 1
-    mock_sleep.assert_awaited_once_with(pytest.approx(1.0))
+    mock_sleep.assert_awaited_once_with(HARMONIC_WINDOW_SECONDS)
 
 
 @pytest.mark.asyncio
-@patch(PACE_SECONDS_HARMONIC)
+@patch(PACE_SECONDS_HARMONIC, return_value=0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
+@patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 @patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
 async def test_enrich_companies_batch_reports_denied_forever_distinctly_from_a_not_found(
     mock_capture, mock_sleep, mock_pace
 ):
-    clock = _FakeClock()
-    # Budget stays generous throughout: denied.com is denied by always_deny, never by the shared
-    # budget, so this isolates "denied on every attempt" from "the budget never had headroom".
-    gate = _FakeGate(clock, budget=100, always_deny={"denied.com"}, not_found={"miss.com"})
-    mock_pace.side_effect = gate.pace_seconds
-    mock_sleep.side_effect = _clock_advancing_sleep(clock)
+    async def request(session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
+        website_url = json["variables"]["identifiers"]["websiteUrl"]
+        bare_domain = website_url.removeprefix("https://").removeprefix("www.")
+        if bare_domain == "denied.com":
+            raise HarmonicEgressBudgetExhausted("degrading")
+        return _not_found()
 
     domains = ["denied.com", "miss.com"]
     client = _client(priority=Priority.BATCH)
-    with patch(HARMONIC_REQUEST, new=AsyncMock(side_effect=gate.request)):
+    with patch(HARMONIC_REQUEST, new=request):
         results = await client.enrich_companies_batch(domains)
 
     # Both look the same in the return value, since enrich_companies_batch keeps its list
@@ -443,7 +438,7 @@ async def test_enrich_companies_batch_reports_denied_forever_distinctly_from_a_n
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=5.0)
-async def test_enrich_companies_batch_propagates_cancellation_during_inter_wave_sleep(mock_pace):
+async def test_enrich_companies_batch_propagates_cancellation_during_pacing_sleep(mock_pace):
     sleep_started = asyncio.Event()
 
     async def blocking_sleep(seconds: float) -> None:
@@ -502,7 +497,7 @@ async def test_enrich_companies_batch_names_the_domain_of_an_operational_failure
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 async def test_enrich_companies_batch_with_a_single_domain(mock_sleep, mock_pace):
     # _enrich_specific_domain_debug calls enrich_companies_batch with exactly one domain; the
-    # wave/retry slicing must not misbehave at that boundary.
+    # concurrency and retry machinery must not misbehave at that boundary.
     client = _client(priority=Priority.BATCH)
     mock_request = AsyncMock(side_effect=[_found({"name": "PostHog"})])
     with patch(HARMONIC_REQUEST, new=mock_request):
