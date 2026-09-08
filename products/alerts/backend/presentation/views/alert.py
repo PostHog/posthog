@@ -59,17 +59,6 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.destination_configs import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-    validate_destination_data,
-)
-from products.alerts.backend.destinations import (
-    count_active_alert_destinations,
-    create_alert_destination_hog_functions,
-    soft_delete_alert_destinations,
-)
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -77,12 +66,19 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
-from products.alerts.backend.insight_alert_destinations import (
+from products.alerts.backend.facade.api import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
     build_insight_alert_slack_config,
+    count_active_alert_destinations,
+    create_alert_destination_hog_functions,
+    soft_delete_alert_destinations,
+    validate_destination_data,
 )
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,

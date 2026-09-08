@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT
+from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 from products.alerts.backend.destination_configs import (
     DESTINATION_SPECS,
@@ -21,19 +21,19 @@ from products.alerts.backend.destination_configs import (
     destination_filter,
 )
 
-INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (INSIGHT_ALERT_FIRING_EVENT,)
+# The event an insight alert check emits, named legacy where it is defined because it predates the
+# managed-alert event boundary. Do not take it from `posthog.tasks.alerts.utils` instead, because
+# that module imports this product's facade, which imports this one.
+INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
 
-# Slack only. Every other transport this alert could post to is a URL the caller supplies, and the
-# API is reachable with `alert:write`, which is grantable to a sandboxed agent. A Slack workspace
-# somebody already connected is a destination an admin chose; a webhook URL is arbitrary egress.
+# Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
+# destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
 
-# Past a handful, extra destinations on one alert are a mistake repeating rather than a plan, and
-# each one is another message every time the alert fires.
+# Each destination is another message every time the alert fires, so a caller in a loop is capped.
 MAX_DESTINATIONS_PER_ALERT: Final = 5
 
-# One insight-alert destination is one HogFunction, so a delete never needs more than a couple of
-# IDs. The cap is only there to keep a malformed request from turning into a huge query.
+# One destination is one HogFunction, so this only stops a malformed request becoming a huge query.
 MAX_DESTINATION_IDS_PER_DELETE_REQUEST: Final = 100
 
 SLACK_TEMPLATE_ID: Final = DESTINATION_SPECS[DestinationType.SLACK].template_id
@@ -84,8 +84,8 @@ def _slack_blocks() -> list[Any]:
         INSIGHT_CHART_BLOCK,
         {
             "type": "actions",
-            # The alert id in the block_id is what lets the datetimepicker action identify its
-            # alert — unlike select options, datetimepicker elements carry no value.
+            # A datetimepicker element carries no value, unlike a select option, so the alert id
+            # in the block_id is the only way the snooze action can identify its alert.
             "block_id": "insight_alert_snooze:{event.properties.alert_id}",
             "elements": [
                 {
@@ -127,7 +127,7 @@ def build_insight_alert_slack_config(
         payload={
             "type": "internal_destination",
             "enabled": True,
-            "filters": destination_filter(alert_id, INSIGHT_ALERT_FIRING_EVENT),
+            "filters": destination_filter(alert_id, LEGACY_INSIGHT_ALERT_EVENT),
             "name": clip_hog_function_name(f"{alert_name or 'Alert'}: Slack #{channel_name}"),
             "template_id": SLACK_TEMPLATE_ID,
             "inputs": {

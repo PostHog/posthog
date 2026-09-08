@@ -561,8 +561,6 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
-    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destination_configs",
-    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destinations",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.validation",

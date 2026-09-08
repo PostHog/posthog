@@ -2504,22 +2504,13 @@ class TestAlertRealTimeInterval(APIBaseTest):
 class TestAlertDestinations(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # Destination creation runs the full HogFunctionSerializer pipeline, which looks the
-        # template up by id.
+        # Destination creation looks the template up by id through the HogFunction serializer.
         sync_template_to_db(template_slack)
-        self.insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "BoldNumber"},
-                },
-            },
-        ).json()
+        # No query on the insight, so this module does not drive another product's query runner.
+        self.insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
         self.alert = AlertConfiguration.objects.create(
             team=self.team,
-            insight_id=self.insight["id"],
+            insight_id=self.insight.id,
             name="Signups dropped",
             created_by=self.user,
         )
@@ -2574,8 +2565,7 @@ class TestAlertDestinations(APIBaseTest):
         assert (hog_function.filters or {})["properties"] == [
             {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
         ]
-        # The Slack snooze handler finds its alert through these two ids, so a message posted
-        # without them can be read but not acted on.
+        # The Slack snooze handler finds its alert through these two ids.
         actions = next(block for block in (hog_function.inputs or {})["blocks"]["value"] if _is_actions_block(block))
         assert actions["block_id"] == "insight_alert_snooze:{event.properties.alert_id}"
         assert any(element.get("action_id") == "insight_alert_snooze" for element in actions["elements"])
