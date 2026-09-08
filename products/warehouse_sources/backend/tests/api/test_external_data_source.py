@@ -10183,7 +10183,7 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         assert schema1.deleted is True
         assert schema2.deleted is False
         assert shared_table.deleted is False
-        assert shared_table.external_data_source_id == source2.pk
+        assert shared_table.external_data_source_id == source1.pk
         assert DataWarehouseTable.objects.queryable().filter(pk=shared_table.pk).exists()
 
         # Deleting source2 now deletes shared_table since no other active schema remains
@@ -10237,7 +10237,7 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
             deleted_at=timezone.now(),
         )
         # Schema on source2 is still active
-        schema2 = ExternalDataSchema.objects.create(
+        ExternalDataSchema.objects.create(
             name="active_orders",
             team_id=self.team.pk,
             source_id=source2.pk,
@@ -10251,7 +10251,7 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
 
         shared_table.refresh_from_db()
         assert shared_table.deleted is False
-        assert shared_table.external_data_source_id == source2.pk
+        assert shared_table.external_data_source_id == source1.pk
         assert DataWarehouseTable.objects.queryable().filter(pk=shared_table.pk).exists()
 
 

@@ -1,6 +1,10 @@
+import re
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 from uuid import UUID
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
@@ -381,3 +385,128 @@ def is_managed_warehouse_connection_ready(team_id: int, connection_id: str | Non
         .first()
     )
     return source is not None and source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
+
+
+@dataclass(frozen=True)
+class DataSourceTeardownResult:
+    schemas: list[Any]
+    shared_table_ids: set[Any]
+    s3_folders_to_cleanup: set[str]
+
+
+def extract_team_folder_from_url_pattern(url_pattern: str | None, team_id: int) -> str | None:
+    if not url_pattern:
+        return None
+    try:
+        parsed = urlparse(url_pattern)
+        path = parsed.path or parsed.netloc
+    except Exception:
+        path = str(url_pattern)
+
+    expected_prefix = f"team_{team_id}_"
+    match = re.search(rf"({expected_prefix}[a-zA-Z0-9_]+)", path)
+    if match:
+        folder = match.group(1)
+        if "/" not in folder and ".." not in folder and "\\" not in folder:
+            return folder
+    return None
+
+
+def teardown_external_data_source(
+    instance: ExternalDataSource,
+    team_id: int,
+) -> DataSourceTeardownResult:
+    """Transactionally soft-delete source, schemas, and unshared tables.
+
+    Serializes concurrent deletions across sources by locking candidate table rows
+    ordered by id (preventing deadlock SQLSTATE 40P01) with raw_objects.select_for_update()
+    (avoiding Postgres outer-join FOR UPDATE rejection).
+    Unshared tables and schemas are soft-deleted; shared tables (referenced by other
+    active schemas) preserve their deleted=False state and original source ownership
+    without reparenting.
+    """
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema  # noqa: PLC0415
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable  # noqa: PLC0415
+
+    with transaction.atomic():
+        schemas = list(ExternalDataSchema.objects.filter(source=instance, team_id=team_id))
+        schema_ids = [schema.id for schema in schemas]
+
+        # Candidate tables: tables referenced by this source's schemas, plus any
+        # tables belonging to this source directly (companion CDC tables or tables from
+        # schemas deleted earlier).
+        candidate_table_ids = set(
+            DataWarehouseTable.raw_objects.filter(
+                models.Q(external_data_source_id=instance.id)
+                | models.Q(id__in=[s.table_id for s in schemas if s.table_id is not None]),
+                team_id=team_id,
+                deleted=False,
+            ).values_list("id", flat=True)
+        )
+
+        # Lock candidate table rows with deterministic ordering to prevent deadlocks across concurrent requests
+        locked_tables = (
+            list(
+                DataWarehouseTable.raw_objects.filter(id__in=candidate_table_ids)
+                .order_by("id")
+                .select_for_update()
+            )
+            if candidate_table_ids
+            else []
+        )
+
+        # Map candidate tables to surviving active schemas outside the source being destroyed
+        surviving_schemas_by_table: dict[Any, ExternalDataSchema] = {}
+        if candidate_table_ids:
+            surviving_schemas = (
+                ExternalDataSchema.objects.filter(
+                    table_id__in=candidate_table_ids,
+                    deleted=False,
+                )
+                .exclude(id__in=schema_ids)
+                .select_related("source")
+            )
+            for s in surviving_schemas:
+                if s.table_id not in surviving_schemas_by_table:
+                    surviving_schemas_by_table[s.table_id] = s
+
+        shared_table_ids = set(surviving_schemas_by_table.keys())
+        s3_folders_to_cleanup: set[str] = set()
+
+        for table in locked_tables:
+            if table.id in shared_table_ids:
+                # Shared with another active schema: preserve table.deleted=False and
+                # original source ownership (do NOT reparent by changing external_data_source_id,
+                # which would compromise ACL fallback and physical cleanup).
+                pass
+            else:
+                table.soft_delete()
+                # If this table has a url_pattern in our S3 storage, clean up that folder too
+                table_folder = extract_team_folder_from_url_pattern(table.url_pattern, team_id=team_id)
+                if table_folder:
+                    s3_folders_to_cleanup.add(table_folder)
+
+        for schema in schemas:
+            if schema.table_id and schema.table_id in shared_table_ids:
+                continue
+            s3_folders_to_cleanup.add(schema.folder_path())
+
+        # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
+        # runs a SELECT + UPDATE + activity-log write each, which does not scale to
+        # sources with thousands of schemas (e.g. a Slack workspace with thousands of
+        # channels).
+        deleted_at = timezone.now()
+        ExternalDataSchema.objects.filter(team_id=team_id, id__in=schema_ids).update(
+            deleted=True, deleted_at=deleted_at
+        )
+        for schema in schemas:
+            schema.deleted = True
+            schema.deleted_at = deleted_at
+
+        instance.soft_delete()
+
+    return DataSourceTeardownResult(
+        schemas=schemas,
+        shared_table_ids=shared_table_ids,
+        s3_folders_to_cleanup=s3_folders_to_cleanup,
+    )

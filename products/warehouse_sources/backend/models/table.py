@@ -179,7 +179,18 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
 class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
     def queryable(self) -> "DataWarehouseTableQuerySet":
         # A table you can actually query: not soft-deleted, and not orphaned by a soft-deleted source.
-        return self.exclude(deleted=True).exclude(external_data_source__deleted=True)
+        # Tables whose source is soft-deleted are kept if an active schema still references them
+        # (e.g. shared-table states where another active source/schema shares the table).
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema  # noqa: PLC0415
+
+        has_active_schema = ExternalDataSchema.objects.filter(
+            deleted=False,
+            team_id=models.OuterRef("team_id"),
+            table_id=models.OuterRef("id"),
+        )
+        return self.exclude(deleted=True).exclude(
+            models.Q(external_data_source__deleted=True) & ~models.Exists(has_active_schema)
+        )
 
 
 # `Manager.from_queryset(...)` can't be used as a base class here because it also overrides

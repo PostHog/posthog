@@ -4113,6 +4113,49 @@ class TestFanoutParentSelection(APIBaseTest):
         assert reloaded_table.deleted is False
         assert DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
 
+    @mock.patch("products.data_warehouse.backend.facade.api.get_s3_client")
+    def test_delete_table_preserves_shared_table_and_cleans_up_on_last_owner(self, mock_get_s3_client):
+        mock_s3 = mock.MagicMock()
+        mock_get_s3_client.return_value = mock_s3
+
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="shared_delete_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern=f"https://bucket.s3/team_{self.team.pk}_table_folder/*",
+        )
+        schema1 = ExternalDataSchema.objects.create(
+            name="schema1",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+        schema2 = ExternalDataSchema.objects.create(
+            name="schema2",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        # Deleting table from schema1 when schema2 is still an active owner
+        schema1.delete_table()
+        schema1.refresh_from_db()
+        table.refresh_from_db()
+
+        assert schema1.table_id is None
+        assert table.deleted is False
+        assert mock_s3.delete.call_count == 0
+
+        # Now deleting table from schema2 (last active owner)
+        schema2.delete_table()
+        schema2.refresh_from_db()
+        table.refresh_from_db()
+
+        assert schema2.table_id is None
+        assert table.deleted is True
+        assert mock_s3.delete.call_count > 0
+
 class TestSchemaDisplayStatus(SimpleTestCase):
     @parameterized.expand(
         [
