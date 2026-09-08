@@ -322,7 +322,7 @@ Cancellation or replacement of the owning run or approval stops retries.
 Transport errors, unrelated 503 responses, and JSON-RPC errors inside HTTP 200 do not qualify for automatic readiness
 retries. An ambiguous transport failure could follow successful execution; replaying it could execute a tool twice.
 
-## Coverage and remaining flows
+## Regression coverage
 
 The startup and approvals layer adds these five regression flows:
 
@@ -354,7 +354,19 @@ It reproduces queued text remaining in the composer after submission; this test 
 The other queue cases advance that debounce with the browser clock so they independently exercise their delivery transitions.
 These are browser interaction checks with held task commands, not real agent-delivery checks.
 
-The browser suite runs three cases for each of Claude and Codex:
+The cancellation and history layer adds the last five flows in `flows-cancellation-history.spec.ts`:
+
+11. Startup Stop waits for the current agent and prompt. Navigating away clears the pending cancellation intent.
+12. Pending cancellation blocks duplicate Escape, steering, and approvals; a failed cancellation allows an explicit retry.
+13. Context pickers and queue editors retain Escape. Main chat handles Escape while reading; the sidebar requires composer focus.
+14. Sidebar attachment preserves the startup draft and focus at normal and narrow viewport widths.
+15. Reload, stream reconnect, and resolution from another client leave only the current run's unresolved approval actionable.
+
+These cases use controlled task commands and stream events. They currently reproduce two additional regressions:
+late task creation redirects back after navigation, and clicking the main transcript leaves focus outside its Escape boundary.
+Both assertions remain enabled.
+
+The original recovery browser suite runs three cases for each of Claude and Codex:
 
 - Submit from the new-chat composer while a seeded warm workflow waits for registration, recover on the original run,
   send a follow-up, and reload without duplicate messages.
