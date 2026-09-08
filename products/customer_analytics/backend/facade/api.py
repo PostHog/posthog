@@ -72,6 +72,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
@@ -100,6 +101,7 @@ from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
+    customer_tasks as _customer_tasks_logic,
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
@@ -137,6 +139,10 @@ from products.customer_analytics.backend.models import (
     Announcement,
     CustomerJourney,
     CustomerProfileConfig,
+    CustomerTask,
+    CustomerTaskActivity,
+    CustomerTaskActivityType,
+    CustomerTaskStatus,
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertySyncRun,
@@ -187,7 +193,6 @@ _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.customer_analytics.backend.models import CustomPropertyValue
     from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
@@ -793,12 +798,13 @@ def set_external_account_custom_properties(
     created_by_id: int | None = None,
     workflow_id: str | None = None,
 ) -> contracts.ExternalAccountCustomPropertiesResult:
-    """Set custom property values on an account by definition id, for the external API.
+    """Set or clear custom property values on an account by definition id, for the external API.
 
     Resolves the account by external id, then applies every ``{definition_id: value}`` pair
-    transactionally — a bad value or unknown definition rolls the whole batch back. Returns a result
-    the view maps to the exact HTTP status/body: account not found, unknown definition, invalid
-    value, a concurrent-write conflict, a generic write failure, or success carrying the set values.
+    transactionally. A null value clears an active value. A bad value or unknown definition rolls
+    the whole batch back. Returns a result the view maps to the exact HTTP status/body: account not
+    found, unknown definition, invalid value, a concurrent-write conflict, a generic write failure,
+    or success carrying only the set values.
     """
     account = _get_external_account_by_external_id(team_id, external_id)
     if account is None:
@@ -3170,10 +3176,15 @@ def query_accounts_table(
         for definition_id, window_days in history_windows.items():
             history_filter |= Q(definition_id=definition_id, created_at__gte=now - timedelta(days=window_days))
             history_filter |= Q(definition_id=definition_id, is_deleted=False)
+        active_values = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id=OuterRef("account_id"),
+            definition_id=OuterRef("definition_id"),
+            is_deleted=False,
+        )
         history_point_count = 0
         history_values = (
             CustomPropertyValue.objects.for_team(team_id)
-            .filter(history_filter, account_id__in=account_ids, value_num__isnull=False)
+            .filter(history_filter, Exists(active_values), account_id__in=account_ids, value_num__isnull=False)
             .order_by("created_at", "id")
             .iterator(chunk_size=2_000)
         )
@@ -3560,6 +3571,7 @@ def delete_account_for_view(
         # linger in a Slack destination filter.
         streams = _event_streams_containing_account(account)
         team = account.team
+        _customer_tasks_logic.remove_customer_task_assignee_access_for_account(team=team, account_id=account.id)
         account.delete()
         schedule_email_thread_link_recalculation(team_id)
         for stream in streams:
@@ -4537,6 +4549,239 @@ def delete_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return False
     return True
+
+
+def _to_customer_task_user_view(user: "User | None") -> contracts.CustomerTaskUserView | None:
+    if user is None:
+        return None
+    return contracts.CustomerTaskUserView(
+        id=user.id,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+
+
+def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessControl") -> contracts.CustomerTaskView:
+    account = (
+        contracts.CustomerTaskAccountView(id=task.account.id, name=task.account.name)
+        if task.account is not None
+        else None
+    )
+    return contracts.CustomerTaskView(
+        id=task.id,
+        account=account,
+        name=task.name,
+        description=task.description,
+        status=task.status,
+        assigned_to=_to_customer_task_user_view(task.assigned_to),
+        due_at=task.due_at,
+        completed_at=task.completed_at,
+        completed_by=_to_customer_task_user_view(task.completed_by),
+        created_by=_to_customer_task_user_view(task.created_by),
+        archived_at=task.archived_at,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
+        can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+    )
+
+
+def _to_customer_task_change_value(
+    *,
+    field: str,
+    value: object | None,
+    account_context_present: bool,
+    account_context_id: object | None,
+    visible_account_ids: frozenset[str],
+) -> object | None:
+    if field == "account":
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            account_id = value.get("id")
+            account_name = value.get("name")
+            if isinstance(account_id, str) and isinstance(account_name, str):
+                try:
+                    normalized_account_id = str(UUID(account_id))
+                except ValueError:
+                    pass
+                else:
+                    if normalized_account_id in visible_account_ids:
+                        return {"id": account_id, "name": account_name}
+        return {"id": None, "name": "Restricted account"}
+    if not account_context_present:
+        return None
+    if account_context_id is None:
+        return value
+    if isinstance(account_context_id, str):
+        try:
+            normalized_account_id = str(UUID(account_context_id))
+        except ValueError:
+            return None
+        if normalized_account_id in visible_account_ids:
+            return value
+    return None
+
+
+def _to_customer_task_activity_view(
+    activity: CustomerTaskActivity, visible_account_ids: frozenset[str]
+) -> contracts.CustomerTaskActivityView:
+    changes = []
+    for change in activity.changes:
+        if not isinstance(change, dict):
+            continue
+        field = str(change.get("field", ""))
+        changes.append(
+            contracts.CustomerTaskChange(
+                field=field,
+                before=_to_customer_task_change_value(
+                    field=field,
+                    value=change.get("before"),
+                    account_context_present="before_account_id" in change,
+                    account_context_id=change.get("before_account_id"),
+                    visible_account_ids=visible_account_ids,
+                ),
+                after=_to_customer_task_change_value(
+                    field=field,
+                    value=change.get("after"),
+                    account_context_present="after_account_id" in change,
+                    account_context_id=change.get("after_account_id"),
+                    visible_account_ids=visible_account_ids,
+                ),
+            )
+        )
+    return contracts.CustomerTaskActivityView(
+        id=activity.id,
+        activity_type=activity.activity_type,
+        changes=changes,
+        actor=_to_customer_task_user_view(activity.actor),
+        created_at=activity.created_at,
+    )
+
+
+CUSTOMER_TASK_ACTIVITY_TYPE_CHOICES = CustomerTaskActivityType.choices
+CUSTOMER_TASK_STATUS_CHOICES = CustomerTaskStatus.choices
+
+
+def list_customer_tasks(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: contracts.CustomerTaskListFilters,
+    offset: int,
+    limit: int,
+) -> tuple[list[contracts.CustomerTaskView], int]:
+    tasks, count = _customer_tasks_logic.list_customer_tasks(
+        team_id=team_id,
+        user_access_control=user_access_control,
+        filters=filters,
+        offset=offset,
+        limit=limit,
+    )
+    return [_to_customer_task_view(task, user_access_control) for task in tasks], count
+
+
+def get_customer_task(
+    *, team_id: int, task_id: UUID | str, user_access_control: "UserAccessControl"
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.get_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def create_customer_task(
+    *,
+    team: Team,
+    input: contracts.CreateCustomerTaskInput,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView:
+    task = _customer_tasks_logic.create_customer_task(
+        team=team,
+        input=input,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control)
+
+
+def update_customer_task(
+    *,
+    team: Team,
+    task_id: UUID | str,
+    input: contracts.UpdateCustomerTaskInput,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.update_customer_task(
+        team=team,
+        task_id=task_id,
+        input=input,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    if task is None:
+        return None
+    fresh_user_access_control = UserAccessControl(user=user_access_control.user, team=team)
+    return _to_customer_task_view(task, fresh_user_access_control)
+
+
+def archive_customer_task(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.archive_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def restore_customer_task(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.restore_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def list_customer_task_activities(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    user_access_control: "UserAccessControl",
+    offset: int,
+    limit: int,
+) -> tuple[list[contracts.CustomerTaskActivityView], int] | None:
+    result = _customer_tasks_logic.list_customer_task_activities(
+        team_id=team_id,
+        task_id=task_id,
+        user_access_control=user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+    if result is None:
+        return None
+    return [
+        _to_customer_task_activity_view(activity, result.visible_account_ids) for activity in result.activities
+    ], result.total_count
 
 
 # --- EventStream ---

@@ -172,9 +172,9 @@ export interface SettingsStore {
   setLastUsedWorkspaceMode: (mode: WorkspaceMode) => void;
   setLastUsedAgentRuntime: (runtime: AgentRuntime) => void;
   setLastUsedAdapter: (adapter: AgentAdapter) => void;
-  setLastUsedModel: (model: string) => void;
+  setLastUsedModel: (model: string | null) => void;
   setLastUsedPiModel: (model: string) => void;
-  setLastUsedReasoningEffort: (effort: string) => void;
+  setLastUsedReasoningEffort: (effort: string | null) => void;
   setLastUsedContextWindow: (value: "200k" | "1m") => void;
   setLastUsedFastMode: (enabled: boolean) => void;
   setLastUsedCloudRepository: (repo: string | null) => void;

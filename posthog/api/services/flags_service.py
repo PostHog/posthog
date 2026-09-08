@@ -34,6 +34,10 @@ class FlagVersionConflictError(Exception):
     """The feature flag changed while a static cohort was being generated from it."""
 
 
+class PropertyMatchingVersionConflictError(Exception):
+    """Property matching semantics changed during static cohort generation."""
+
+
 def get_flags_from_service(
     token: str,
     distinct_id: str,
@@ -155,6 +159,7 @@ def batch_evaluate_flag_for_team(
     expected_version: int,
     cursor: int,
     limit: int,
+    expected_property_matching_version: int = 1,
 ) -> dict[str, Any]:
     """
     Request one page of batch flag evaluation from the Rust flags service.
@@ -172,13 +177,15 @@ def batch_evaluate_flag_for_team(
         limit: Page size; the service rejects (400) any value above its configured
             maximum (BATCH_FLAG_EVAL_MAX_LIMIT, default 10000) rather than clamping it,
             so keep this at or below that maximum
+        expected_property_matching_version: Matching semantics pinned for every page in the run
 
     Returns:
-        The page as a dict: {"matched_person_uuids": [...], "next_cursor": int | None, "errors_count": int}
+        The page as a dict with matched_person_uuids, next_cursor, errors_count, and property_matching_version
 
     Raises:
         ImproperlyConfigured: `INTERNAL_REQUEST_TOKEN` is not set
         FlagVersionConflictError: The flag's version no longer matches `expected_version`
+        PropertyMatchingVersionConflictError: The service cannot use the pinned matching version
         requests.RequestException: If the HTTP request fails (timeout, connection error, etc.)
         requests.HTTPError: If the service returns a non-2xx status code
     """
@@ -198,6 +205,7 @@ def batch_evaluate_flag_for_team(
             "project_id": project_id,
             "flag_key": flag_key,
             "expected_version": expected_version,
+            "expected_property_matching_version": expected_property_matching_version,
             "cursor": cursor,
             "limit": limit,
         },
@@ -205,9 +213,21 @@ def batch_evaluate_flag_for_team(
         timeout=BATCH_FLAG_EVALUATION_TIMEOUT_SECONDS,
     )
     if response.status_code == 409:
+        error = response.json().get("error")
+        if error == "property_matching_version_conflict":
+            raise PropertyMatchingVersionConflictError(
+                f"Property matching semantics changed while generating a cohort from feature flag '{flag_key}'. "
+                "Re-run cohort generation with the current matching version."
+            )
         raise FlagVersionConflictError(
             f"Feature flag '{flag_key}' changed while generating the cohort (expected version "
             f"{expected_version}). Re-run cohort generation to use the latest flag definition."
         )
     response.raise_for_status()
-    return response.json()
+    response_data = response.json()
+    if response_data.get("property_matching_version", 1) != expected_property_matching_version:
+        raise PropertyMatchingVersionConflictError(
+            f"Feature flags service did not use property matching version {expected_property_matching_version} "
+            f"while generating a cohort from feature flag '{flag_key}'."
+        )
+    return response_data

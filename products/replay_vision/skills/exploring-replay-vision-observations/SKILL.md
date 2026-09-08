@@ -20,8 +20,7 @@ and doing something useful with it. For creating or sizing scanners, use [[creat
   - `classifier` → one or more `tags` from the scanner's label set, plus `tags_freeform` when the scanner
     allows freeform tags, and the `reasoning`.
   - `scorer` → a numeric `score` on the scanner's `scale`, and the `reasoning`.
-  - `summarizer` → a `title` and free-text `summary`, plus the facets that get embedded for search
-    (`intent`, `outcome`, `friction_points`, `keywords`).
+  - `summarizer` → a `title` and free-text `summary`.
 - **Only `succeeded` observations carry a finding.** Triage the rest by `status`/`error_reason` (see below).
 - **Observations are LLM judgments, not ground truth.** One observation is one model's read of one session —
   corroborate before you act on it.
@@ -52,9 +51,11 @@ know it's a monitor; a score only means something against the scorer's `scale`).
 Pick the axis that matches the question:
 
 - **What has this scanner found, over time?** → `vision-scanners-observations-list` (the workhorse). Filter to
-  `status=succeeded` to get only sessions with a finding, then narrow by `verdict` (monitors) or `tags`
-  (classifiers). Scorers aren't filtered by score — rank them with `order_by=-result_score` instead. Use
-  `order_by` (e.g. `-result_score`, `-completed_at`) to surface the strongest hits first.
+  `status=succeeded` to get only sessions with a finding, then narrow by `verdict` (monitors), `tags`
+  (classifiers), or `min_score` / `max_score` (scorers). Use `order_by` (e.g. `-result_score`,
+  `-completed_at`) to rank the matching set and surface the strongest hits first. Bound the window with
+  `date_from` / `date_to`, which take ISO 8601, a relative date like `-7d`, or `now`; omit `date_to` to
+  read through the current time.
 - **What did every scanner find about one session?** → `vision-observations-list` (the `session_id` query
   parameter is REQUIRED). Use this while investigating a single recording.
 - **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
@@ -63,9 +64,12 @@ Pick the axis that matches the question:
 - **Has something already summarized this?** → if the scanner has scout digests attached, read their inbox
   reports instead of re-deriving the pattern (`inbox-reports-list`, filtered to the scout named after the
   scanner).
-- **The full detail of one finding** → `vision-scanners-observations-get` or `vision-observations-retrieve` —
-  returns the frozen `scanner_snapshot` (config at run time) and the complete `scanner_result`, including any
-  event citations that link the finding back to specific events in the recording.
+- **The full detail of one finding** → `vision-scanners-observations-get` (`scanner_id` + `id`) or
+  `vision-observations-retrieve` (`id`) — returns the frozen `scanner_snapshot` (config at run time) and the
+  complete `scanner_result`, including any event citations that link the finding back to specific events in the
+  recording. Both need the _observation_ id. A `$recording_observed` row's `uuid` is that id, so pass
+  `toString(uuid)`; if all you have is a session id, call `vision-observations-list` (`session_id`) first and
+  take the `id` off the matching row.
 
 Triage `status` so you don't mistake a non-result for "nothing wrong":
 

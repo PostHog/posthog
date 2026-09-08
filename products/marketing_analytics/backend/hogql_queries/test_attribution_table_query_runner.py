@@ -28,6 +28,7 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -129,6 +130,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         date_to: str = "2023-01-31",
         lookback_days: int | None = None,
         allow_multiple_conversions: bool | None = None,
+        filter_test_accounts: bool | None = False,
     ):
         flush_persons_and_events()
         query = MarketingAnalyticsAttributionQuery(
@@ -139,6 +141,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             excludeUnattributed=exclude_unattributed,
             lookbackWindowDays=lookback_days,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
+            filterTestAccounts=filter_test_accounts,
             properties=[],
         )
         return MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
@@ -147,6 +150,57 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     def _by_breakdown(response) -> dict[str, dict[AttributionMode, float]]:
         """{breakdown value: {model: conversions}} — the shape every weight assertion needs."""
         return {row.breakdownValue: {cell.model: cell.conversions for cell in row.models} for row in response.results}
+
+    @parameterized.expand(
+        [
+            ("query says off", False, False, 2.0),
+            ("query says on", True, False, 1.0),
+            # A query that says nothing takes the project's answer, which is also the one the warmer
+            # materializes. Disagreeing here would read a job nothing warms.
+            ("query silent, project on", None, True, 1.0),
+        ]
+    )
+    def test_filter_test_accounts_drops_internal_traffic(
+        self, _name, filter_test_accounts, project_setting, expected_conversions
+    ):
+        # The conversion count catches either arm being missed: filtering only the conversion scan leaves
+        # the internal person's touchpoints diluting the weights, only the touchpoint scan leaves their
+        # conversion unattributed.
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+        self.team.marketing_analytics_config.filter_test_accounts = project_setting
+        self.team.marketing_analytics_config.save()
+        create_person(team=self.team, distinct_ids=["customer"], properties={"email": "buyer@example.com"})
+        create_person(team=self.team, distinct_ids=["staff"], properties={"email": "qa@internal.example.com"})
+        for distinct_id in ("customer", "staff"):
+            self._session(distinct_id, "2023-01-10T12:00:00Z", utm_source="google")
+            self._conversion(distinct_id, "2023-01-11T12:00:00Z")
+
+        rows = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, filter_test_accounts=filter_test_accounts)
+        )
+
+        self.assertEqual(rows["google"][AttributionMode.LAST_TOUCH], expected_conversions)
+
+    def test_a_cohort_test_account_filter_does_not_make_the_query_ambiguous(self):
+        # A cohort filter resolves to a bare `person_id`, and the touchpoint scan joins the converters
+        # subquery, which has one too. Unqualified, that combination fails to resolve at all.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            groups=[{"properties": [{"key": "email", "value": "@internal.example.com", "type": "person"}]}],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        self.team.save()
+        create_person(team=self.team, distinct_ids=["customer"], properties={"email": "buyer@example.com"})
+        self._session("customer", "2023-01-10T12:00:00Z", utm_source="google")
+        self._conversion("customer", "2023-01-11T12:00:00Z")
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, filter_test_accounts=True)
+
+        self.assertIsNotNone(response.results)
 
     def test_visitors_include_lookback_arrivals_that_can_earn_credit(self):
         # Credit looks back attribution_window_days before the date range, so reach must too: a visitor

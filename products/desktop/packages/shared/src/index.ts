@@ -15,6 +15,7 @@ export type {
   AgentToolCallLocation,
   AgentToolCallStatus,
   AgentToolKind,
+  AgentTurnUsage,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
@@ -120,6 +121,7 @@ export {
   isSkillBundleArtifactMetadata,
   isTerminalStatus,
   type PendingFollowupMessage,
+  type StoreSkillStub,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
@@ -209,8 +211,10 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
   isRestrictedModelOption,
   modelHarnessMeta,
@@ -273,6 +277,7 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  CLOUD_REGIONS,
   type CloudRegion,
   REGION_LABELS,
 } from "./regions";
@@ -344,6 +349,7 @@ export {
   getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
+export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
   parseMcpToolName,

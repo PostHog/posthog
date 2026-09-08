@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from django.db import models
@@ -48,6 +49,16 @@ MAX_VARIABLE_NAME_CHARS = 200
 MAX_VARIABLE_VALUE_CHARS = 1_000
 
 
+def _is_absolute_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value.strip())
+    except ValueError:
+        return False
+    return True
+
+
 class NotebookVariableSerializer(serializers.Serializer):
     """One notebook-level variable. Shared by the notebook's own `variables` field and a run body."""
 
@@ -64,16 +75,32 @@ class NotebookVariableSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "The variable's current value. A 'date' accepts an absolute date or a relative "
-            "expression ('-7d', 'mStart'), resolved against the project timezone."
+            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form "
+            "('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
         ),
     )
 
     def validate_value(self, value: Any) -> Any:
-        # Only scalars are ever bound, so anything longer than this is not a value someone typed.
-        if isinstance(value, str) and len(value) > MAX_VARIABLE_VALUE_CHARS:
+        if value is None:
+            return value
+        # Only scalars are ever bound. A dict or a list binds as its Python repr, which the
+        # state endpoint prints again for every cell that reads the name.
+        if not isinstance(value, str | int | float | bool):
+            raise serializers.ValidationError("Use a string, a number, a boolean, or null.")
+        # The printed form is what a run and a state read carry, so bound that rather than the
+        # string alone. A long number reaches the engine the same way a long string does.
+        if len(str(value)) > MAX_VARIABLE_VALUE_CHARS:
             raise serializers.ValidationError(f"A variable value can be at most {MAX_VARIABLE_VALUE_CHARS} characters.")
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The editor's date picker only writes absolute dates, and a relative one would re-resolve
+        # against the clock on every read, so a cell reading it could never compare equal to the
+        # value its last run bound.
+        value = attrs.get("value")
+        if attrs.get("type") == "date" and value is not None and not _is_absolute_date(value):
+            raise serializers.ValidationError({"value": "Use an absolute date, like 2025-01-31."})
+        return attrs
 
     def validate_name(self, value: str) -> str:
         name = value.strip()
@@ -326,6 +353,20 @@ class NotebookSQLV2RunResponseSerializer(serializers.Serializer):
     run_id = serializers.UUIDField(
         help_text="Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal."
     )
+    starts_sandbox = serializers.BooleanField(
+        help_text=(
+            "True when this run has to provision a sandbox because none is live for the caller, checked here "
+            "rather than inferred from a client's cached kernel status. Tell the user what that costs."
+        )
+    )
+    sandbox_hourly_price = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the sandbox this run provisions costs per hour in USD. Null when the run needs no new "
+            "sandbox, or when the backend is not charged."
+        ),
+    )
 
 
 class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):
@@ -443,6 +484,13 @@ class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
         ),
     )
     kernel = NotebookKernelStateSerializer(help_text="The notebook's kernel runtime state and compute config.")
+    variables = NotebookVariableSerializer(
+        many=True,
+        help_text=(
+            "The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` "
+            "placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run."
+        ),
+    )
     cells = NotebookCellStateSerializer(
         many=True,
         help_text="Every cell in document order, with its dependency edges and derived run state.",
@@ -484,6 +532,49 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
     )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. "
+            "Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the "
+            "kernel config endpoint restarts a live kernel, so this tracks the running sandbox."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Compute preset for the shape hourly_price describes: the running sandbox while a kernel is "
+            "live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset."
+        ),
+    )
+
+
+class NotebookComputePresetSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Stable identifier for the preset, e.g. 'balanced'.")
+    name = serializers.CharField(help_text="Preset name as a person reads it, e.g. 'Balanced'.")
+    description = serializers.CharField(help_text="What this preset suits, in one sentence.")
+    cpu_cores = serializers.FloatField(help_text="CPU cores the preset provisions.")
+    memory_gb = serializers.FloatField(help_text="Memory in GB the preset provisions.")
+    hourly_price = serializers.FloatField(help_text="What this preset costs per hour in USD while it is alive.")
+
+
+class NotebookComputeOptionsResponseSerializer(serializers.Serializer):
+    currency = serializers.CharField(help_text="Currency of every price in this response. Always 'USD'.")
+    cpu_rate_per_core_hour = serializers.FloatField(help_text="Price of one CPU core for one hour, in USD.")
+    memory_rate_per_gb_hour = serializers.FloatField(help_text="Price of one GB of memory for one hour, in USD.")
+    default_preset_key = serializers.CharField(
+        help_text="Preset a sandbox starts with when the notebook sets no compute config."
+    )
+    presets = NotebookComputePresetSerializer(many=True, help_text="Sandbox shapes offered as one-click options.")
+    allowed_cpu_cores = serializers.ListField(
+        child=serializers.FloatField(), help_text="CPU core counts the kernel config endpoint accepts."
+    )
+    allowed_memory_gb = serializers.ListField(
+        child=serializers.FloatField(), help_text="Memory sizes in GB the kernel config endpoint accepts."
+    )
+    allowed_idle_timeout_seconds = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Idle timeouts in seconds the kernel config endpoint accepts."
+    )
 
 
 class NotebookKernelConfigResponseSerializer(serializers.Serializer):
@@ -496,11 +587,30 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Configured idle timeout in seconds; null means the default."
     )
+    restarted = serializers.BooleanField(
+        help_text=(
+            "True when this call restarted a live kernel to apply a new size. Restarting discards every "
+            "materialized dataframe, so cells that referenced one must run again."
+        )
+    )
     restart_required = serializers.BooleanField(
         help_text=(
-            "True when a kernel is currently active: config applies at sandbox provision time, so the "
-            "running kernel keeps its old resources until restarted (restarting loses materialized dataframes)."
+            "True when a kernel is live and this call did not restart it, so the running sandbox may not "
+            "match the saved config. A resize restarts the kernel and reports False on success, or True if "
+            "that restart fails. An idle-timeout change and a no-op on a live kernel also report True."
         )
+    )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It "
+            "tracks the running sandbox while a kernel is live, otherwise the configured shape. After a "
+            "failed resize this stays the running sandbox's rate, not the size that failed to apply."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Compute preset the configured shape matches, or null when it was tuned by hand.",
     )
 
 

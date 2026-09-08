@@ -134,6 +134,8 @@ class WidgetStatus:
     has_versions: bool
     active_job: WidgetJobState | None
     security_review: WidgetSecurityReviewState | None
+    error_code: str | None = None
+    failure_phase: str | None = None
     build_hash: str | None = None
 
 
@@ -854,7 +856,7 @@ def _materialize_effective_prompt(version: GeneratedWidgetVersion) -> str:
     return _materialize_prompt_history(_prompt_history(version))
 
 
-def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError) -> None:
+def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError, failure_phase: str | None = None) -> None:
     GeneratedWidgetGenerationJob.objects.for_team(team_id).filter(
         id=job_id, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES
     ).update(
@@ -863,11 +865,54 @@ def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError) -> None:
             if error.code == "generation_canceled"
             else GeneratedWidgetGenerationJob.Status.FAILED
         ),
-        phase="canceled" if error.code == "generation_canceled" else "failed",
+        phase=(
+            "canceled"
+            if error.code == "generation_canceled"
+            else f"failed_{failure_phase}"
+            if failure_phase
+            else "failed"
+        ),
         error_code=error.code,
         error_detail=error.detail,
         finished_at=timezone.now(),
         heartbeat_at=timezone.now(),
+    )
+
+
+def _record_job_step_failure(
+    job: GeneratedWidgetGenerationJob,
+    *,
+    failure_phase: str,
+    error: Exception,
+    error_code: str,
+    error_detail: str,
+) -> None:
+    logger.warning(
+        "notebook_widget_generation_step_failed",
+        extra={
+            "job_id": str(job.id),
+            "team_id": job.team_id,
+            "failure_phase": failure_phase,
+            "error_code": error_code,
+            "exception_type": type(error).__name__,
+            "upstream_status_code": getattr(error, "status_code", None),
+            "upstream_request_id": getattr(error, "request_id", None),
+        },
+    )
+    _mark_job_failed(
+        job.id,
+        job.team_id,
+        WidgetError(error_detail, error_code),
+        failure_phase=failure_phase,
+    )
+
+
+def _job_failure_phase(job: GeneratedWidgetGenerationJob | None) -> str | None:
+    if job is None or job.status != GeneratedWidgetGenerationJob.Status.FAILED:
+        return None
+    failure_phase = job.phase.removeprefix("failed_")
+    return (
+        failure_phase if failure_phase in {"generating_source", "reviewing_source", "publishing_source"} else "unknown"
     )
 
 
@@ -1028,6 +1073,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
         )
         if not reviewing:
             raise WidgetError("This generation is no longer active.", "generation_abandoned")
+        job.phase = "reviewing_source"
         security_review = review_widget_source(
             team_id=job.team_id,
             trace_id=f"notebook-widget-security-review-{job.id}",
@@ -1055,6 +1101,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
         )
         if not publishing:
             raise WidgetError("This generation is no longer active.", "generation_abandoned")
+        job.phase = "publishing_source"
         prepared_source = canvas_facade.prepare_notebook_canvas_source(
             team_id=job.team_id,
             canvas_id=job.widget.canvas_id,
@@ -1136,40 +1183,90 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             locked_job.save(update_fields=["status", "phase", "result_version", "finished_at", "heartbeat_at"])
     except WidgetSourceGenerationCancelled:
         _mark_job_failed(job.id, job.team_id, WidgetError("Widget generation was canceled.", "generation_canceled"))
-    except WidgetSourceGenerationTimedOut:
+    except WidgetSourceGenerationTimedOut as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="generating_source",
+            error=error,
+            error_code="source_generation_timed_out",
+            error_detail="Source generation took too long. Try a faster model or a more focused request.",
+        )
+    except WidgetSourceGenerationError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="generating_source",
+            error=error,
+            error_code=error.code,
+            error_detail=error.detail,
+        )
+    except WidgetSecurityReviewError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="reviewing_source",
+            error=error,
+            error_code=error.code,
+            error_detail=error.detail,
+        )
+    except canvas_facade.NotebookCanvasVersionConflictError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="publishing_source",
+            error=error,
+            error_code="generation_conflict",
+            error_detail="The widget changed before its generated source could be published. Generate it again.",
+        )
+    except canvas_facade.NotebookCanvasBuildCapacityError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="publishing_source",
+            error=error,
+            error_code="build_capacity",
+            error_detail="The source was generated and reviewed, but build capacity is full. Try again shortly.",
+        )
+    except canvas_facade.NotebookCanvasError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="publishing_source",
+            error=error,
+            error_code="build_failed",
+            error_detail="The source was generated and reviewed, but the widget build failed. Try again.",
+        )
+    except WidgetError as error:
+        failure_phase = (
+            job.phase if job.phase in {"generating_source", "reviewing_source", "publishing_source"} else None
+        )
+        if failure_phase:
+            _record_job_step_failure(
+                job,
+                failure_phase=failure_phase,
+                error=error,
+                error_code=error.code,
+                error_detail=error.detail,
+            )
+        else:
+            _mark_job_failed(job.id, job.team_id, error)
+    except Exception:
+        failure_phase = (
+            job.phase if job.phase in {"generating_source", "reviewing_source", "publishing_source"} else "unknown"
+        )
+        failure_step = {
+            "generating_source": "source generation",
+            "reviewing_source": "security review",
+            "publishing_source": "publishing",
+            "unknown": "an unknown step",
+        }[failure_phase]
+        logger.exception(
+            "notebook_widget_generation_failed",
+            extra={"job_id": str(job.id), "team_id": job.team_id, "failure_phase": failure_phase},
+        )
         _mark_job_failed(
             job.id,
             job.team_id,
             WidgetError(
-                "Widget generation took too long. Try a faster model or a more focused request.", "generation_timed_out"
+                f"The widget failed during {failure_step}. Try again, and contact support if it keeps happening.",
+                "generation_unexpected_error",
             ),
-        )
-    except WidgetSourceGenerationError:
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("The widget could not be generated. Try again.", "generation_failed")
-        )
-    except WidgetSecurityReviewError:
-        _mark_job_failed(
-            job.id,
-            job.team_id,
-            WidgetError("The widget security review could not be completed. Try again.", "security_review_failed"),
-        )
-    except canvas_facade.NotebookCanvasVersionConflictError:
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("This widget changed during generation.", "generation_conflict")
-        )
-    except canvas_facade.NotebookCanvasBuildCapacityError:
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("Widget build capacity is full. Try again shortly.", "build_capacity")
-        )
-    except canvas_facade.NotebookCanvasError:
-        _mark_job_failed(job.id, job.team_id, WidgetError("The widget could not be built. Try again.", "build_failed"))
-    except WidgetError as error:
-        _mark_job_failed(job.id, job.team_id, error)
-    except Exception:
-        logger.exception("notebook_widget_generation_failed", extra={"job_id": str(job.id)})
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("The widget could not be generated. Try again.", "generation_failed")
+            failure_phase=failure_phase,
         )
     finally:
         cache.delete(_cancellation_key(job.team_id, job.id))
@@ -1209,6 +1306,8 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             has_versions=False,
             active_job=None,
             security_review=None,
+            error_code=None,
+            failure_phase=None,
             build_hash=None,
         )
     job = _latest_job(instance)
@@ -1246,6 +1345,8 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             has_versions=False,
             active_job=active_job,
             security_review=None,
+            error_code=job.error_code if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None,
+            failure_phase=_job_failure_phase(job),
             build_hash=None,
         )
     state = canvas_facade.get_canvas_generation_state(team_id=notebook.team_id, canvas_id=instance.widget.canvas_id)
@@ -1264,38 +1365,51 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     build_hash: str | None = None
     lifecycle = "building"
     error_detail = job.error_detail if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None
+    error_code = job.error_code if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None
+    failure_phase = _job_failure_phase(job)
     if state is None:
         lifecycle = "failed"
-        error_detail = "The widget preview is unavailable. Generate a new version."
+        error_detail = error_detail or "The widget preview is unavailable. Generate a new version."
     elif state.current_source_version_id == current_version.canvas_source_version_id:
         if state.build_status == "ready" and state.artifact_url:
             lifecycle = "generating" if active_job is not None else "ready"
             artifact_url = state.artifact_url
             build_hash = state.build_hash
             error_detail = None
+            error_code = None
+            failure_phase = None
         elif state.build_status == "ready":
             lifecycle = "failed"
-            error_detail = "The widget preview is unavailable. Reload it, or generate a new version."
+            error_detail = error_detail or "The widget preview is unavailable. Reload it, or generate a new version."
         elif state.build_status == "failed":
             lifecycle = "failed"
-            error_detail = "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+            error_detail = (
+                error_detail
+                or "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+            )
     elif selected_canvas_version is None:
         lifecycle = "failed"
-        error_detail = "The widget preview is unavailable. Generate a new version."
+        error_detail = error_detail or "The widget preview is unavailable. Generate a new version."
     elif selected_canvas_version.build_status == "ready" and selected_canvas_version.artifact_url:
         lifecycle = "generating" if active_job is not None else "ready"
         artifact_url = selected_canvas_version.artifact_url
         build_hash = selected_canvas_version.build_hash
         error_detail = None
+        error_code = None
+        failure_phase = None
     elif selected_canvas_version.build_status == "ready":
         lifecycle = "failed"
-        error_detail = "The widget preview is unavailable. Reload it, or generate a new version."
+        error_detail = error_detail or "The widget preview is unavailable. Reload it, or generate a new version."
     elif selected_canvas_version.build_status == "failed":
         lifecycle = "failed"
-        error_detail = "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+        error_detail = (
+            error_detail or "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+        )
     if active_job is not None:
         lifecycle = "generating"
         error_detail = None
+        error_code = None
+        failure_phase = None
     return WidgetStatus(
         lifecycle_status=lifecycle,
         error_detail=error_detail,
@@ -1307,6 +1421,8 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         has_versions=True,
         active_job=active_job,
         security_review=_security_review_state(current_version),
+        error_code=error_code,
+        failure_phase=failure_phase,
         build_hash=build_hash,
     )
 
