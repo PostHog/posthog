@@ -56,6 +56,7 @@ import { template as geoipTemplate } from './_transformations/geoip/geoip.templa
 import { template as hashPropertiesTemplate } from './_transformations/hash-properties/hash-properties.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
+import { template as remapPropertyValuesTemplate } from './_transformations/remap-property-values/remap-property-values.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
@@ -122,6 +123,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     filterPropertiesTemplate,
     hashPropertiesTemplate,
     urlNormalizationTemplate,
+    remapPropertyValuesTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [
