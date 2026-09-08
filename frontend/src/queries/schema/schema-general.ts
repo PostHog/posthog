@@ -7867,6 +7867,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    filter_test_accounts?: boolean
     campaign_name_mappings?: Record<string, Record<string, string[]>>
     custom_source_mappings?: Record<string, string[]>
     campaign_field_preferences?: Record<string, CampaignFieldPreference>

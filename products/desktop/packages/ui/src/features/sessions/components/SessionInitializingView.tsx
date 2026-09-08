@@ -1,59 +1,22 @@
-import type { TaskRunStatus } from "@posthog/shared/domain-types";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import zenHedgehog from "../../../assets/images/zen.png";
 
 interface SessionInitializingViewProps {
   executionTarget: "cloud" | "local";
-  cloudStatus?: TaskRunStatus | null;
-  heading?: string;
-  subtitle?: string;
 }
 
 const REVEAL_DELAY_MS = 2000;
 
-export function sessionInitializingCopy(
-  executionTarget: "cloud" | "local",
-  cloudStatus: TaskRunStatus | null | undefined,
-): { heading: string; subtitle: string } {
-  if (executionTarget === "local") {
-    return {
-      heading: "Starting Pi…",
-      subtitle: "Connecting to Pi on this device.",
-    };
-  }
-
-  switch (cloudStatus) {
-    case "queued":
-      return {
-        heading: "Waiting in the queue…",
-        subtitle: "Reserving a cloud sandbox — this can take a few seconds.",
-      };
-    case "in_progress":
-      return {
-        heading: "Starting the sandbox…",
-        subtitle: "Connecting to your cloud runner.",
-      };
-    default:
-      return {
-        heading: "Getting things ready…",
-        subtitle: "Connecting to your cloud runner.",
-      };
-  }
-}
-
 export function SessionInitializingView({
   executionTarget,
-  cloudStatus,
-  heading,
-  subtitle,
 }: SessionInitializingViewProps) {
-  const copy = sessionInitializingCopy(executionTarget, cloudStatus);
-  const visibleHeading = heading ?? copy.heading;
-  const visibleSubtitle = subtitle ?? copy.subtitle;
-
+  const subtitle =
+    executionTarget === "local"
+      ? "Connecting to Pi on this device."
+      : "Connecting to your cloud runner.";
   const [revealed, setRevealed] = useState(false);
+
   useEffect(() => {
     const timer = setTimeout(() => setRevealed(true), REVEAL_DELAY_MS);
     return () => clearTimeout(timer);
@@ -61,36 +24,25 @@ export function SessionInitializingView({
 
   if (!revealed) {
     return (
-      <Flex
-        align="center"
-        justify="center"
-        className="absolute inset-0 bg-background"
-      >
-        <Spinner size={32} className="text-gray-9" />
-      </Flex>
+      <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background">
+        <Spinner size={16} className="text-gray-9" />
+        <span className="font-medium text-base">Loading</span>
+      </div>
     );
   }
 
   return (
-    <Flex
-      align="center"
-      justify="center"
-      direction="column"
-      gap="5"
-      className="absolute inset-0 bg-background"
-    >
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-background">
       <div className="zen-float">
         <img src={zenHedgehog} alt="" className="block w-[160px]" />
       </div>
-      <Flex direction="column" align="center" gap="2">
-        <Flex align="center" gap="2">
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex items-center gap-2">
           <Spinner size={16} className="text-gray-9" />
-          <Text className="font-medium text-base">{visibleHeading}</Text>
-        </Flex>
-        <Text color="gray" className="text-sm">
-          {visibleSubtitle}
-        </Text>
-      </Flex>
-    </Flex>
+          <span className="font-medium text-base">Loading</span>
+        </div>
+        <span className="text-gray-11 text-sm">{subtitle}</span>
+      </div>
+    </div>
   );
 }

@@ -82,9 +82,23 @@ tools:
         title: Create insight
         description: >
             Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /
+
             query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.
+
             Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if
+
             you want to see the computed results.
+
+
+            Put the insight definition in `query.source`:
+
+
+            ```json
+
+            { "name": "Example", "query": { "kind": "InsightVizNode", "source": { "kind": "HogQLQuery", "query": "SELECT
+            1" } } }
+
+            ```
         exclude_params:
             - query
         include_params:

@@ -540,18 +540,23 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("enabled", "disabled", 1),
-            ("enabled", "enabled,disabled", 2),
-            ("enabled", "true", 1),
-            ("enabled", "false", 1),
-            ("enabled", "1", 1),
-            ("enabled", "0", 1),
-            ("scanner_type", ScannerType.CLASSIFIER, 1),
-            ("scanner_type", f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}", 2),
-            ("emits_signals", "true", 1),
+            ("enabled", "enabled", ["enabled-scanner"]),
+            ("enabled", "disabled", ["disabled-scanner"]),
+            ("enabled", "enabled,disabled", ["disabled-scanner", "enabled-scanner"]),
+            ("enabled", "true", ["enabled-scanner"]),
+            ("enabled", "false", ["disabled-scanner"]),
+            ("enabled", "1", ["enabled-scanner"]),
+            ("enabled", "0", ["disabled-scanner"]),
+            ("scanner_type", ScannerType.CLASSIFIER, ["classifier-scanner"]),
+            (
+                "scanner_type",
+                f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}",
+                ["classifier-scanner", "monitor-scanner"],
+            ),
+            ("emits_signals", "true", ["loud"]),
         ]
     )
-    def test_filterset(self, field: str, value: str, expected_count: int) -> None:
+    def test_filterset(self, field: str, value: str, expected_names: list[str]) -> None:
         if field == "enabled":
             self._create_scanner(name="enabled-scanner")
             self._create_scanner(name="disabled-scanner", enabled=False)
@@ -563,7 +568,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             self._create_scanner(name="loud", emits_signals=True)
         resp = self.client.get(f"{self.scanners_url}?{field}={value}")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["results"]), expected_count)
+        self.assertEqual(sorted(r["name"] for r in resp.json()["results"]), expected_names)
 
     @parameterized.expand(
         [
@@ -1444,6 +1449,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_to=-1h")
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
+
+        # `now` is an accepted upper bound, so a caller can bound a query at the current time.
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["recent"])
 
     def test_list_date_range_bounds_use_project_timezone(self) -> None:
         self.team.timezone = "US/Pacific"
@@ -3243,6 +3253,12 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertIsNotNone(filters.date_from)
         # A date-only upper bound covers its whole day, like the observation list filter.
         self.assertEqual((filters.date_to.hour, filters.date_to.minute, filters.date_to.second), (23, 59, 59))
+
+        # `now` is an accepted upper bound here too, and reaches the filters as the current time.
+        before = timezone.now()
+        resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertGreaterEqual(mock_rank.call_args[0][5].date_to, before)
 
     @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
     @patch("products.replay_vision.backend.search.generate_embedding")

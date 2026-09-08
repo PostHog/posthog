@@ -1495,10 +1495,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # doesn't bake it in (most callers don't need it).
     all_teams = models.Manager()  # noqa: DJ012
 
+    # No single-column index: the constraint and index below both lead with team_id,
+    # so a team-scoped read is already served.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="signal_scout_configs",
+        db_index=False,
     )
     # The LLMSkill this row references (controlling only its scheduling /
     # enablement, not the skill itself). The coordinator auto-creates a
