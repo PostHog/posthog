@@ -20,7 +20,11 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
-from products.tasks.backend.logic.services.agent_command import sandbox_transport_token, validate_sandbox_url
+from products.tasks.backend.logic.services.agent_command import (
+    is_hogland_sandbox_url,
+    sandbox_transport_token,
+    validate_sandbox_url,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
@@ -427,7 +431,8 @@ async def _relay_loop(
                         read=SSE_READ_TIMEOUT_SECONDS,
                         write=30.0,
                         pool=30.0,
-                    )
+                    ),
+                    trust_env=not is_hogland_sandbox_url(events_url),
                 ) as client:
                     async with httpx_sse.aconnect_sse(
                         client,

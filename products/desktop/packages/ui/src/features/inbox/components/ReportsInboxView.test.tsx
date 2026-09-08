@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
   setupStatusLoading: false,
   setupConfigured: true,
-  navigateToAgents: vi.fn(),
+  navigateToSettings: vi.fn(),
   navigateToInboxReportDetail: vi.fn(),
   prefetchReport: vi.fn(),
   prefetchRoute: vi.fn(),
@@ -149,7 +149,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToAgents: mocks.navigateToAgents,
+  navigateToSettings: mocks.navigateToSettings,
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
 }));
 
@@ -266,7 +266,7 @@ describe("ReportsInboxView", () => {
     expect(screen.getByText("Ship fixes while you sleep")).toBeTruthy();
     expect(screen.getAllByText("Configure agents")).toHaveLength(1);
     await userEvent.click(screen.getByText("Configure agents"));
-    expect(mocks.navigateToAgents).toHaveBeenCalledOnce();
+    expect(mocks.navigateToSettings).toHaveBeenCalledWith("agents");
   });
 
   it("shows the plain empty state instead of the welcome when something is configured", () => {

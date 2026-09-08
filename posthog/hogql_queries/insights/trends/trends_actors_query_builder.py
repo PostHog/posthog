@@ -132,6 +132,7 @@ class TrendsActorsQueryBuilder:
                 now=datetime.now(),
                 compare_to=typing.cast(str, typing.cast(CompareFilter, self.trends_query.compareFilter).compare_to),
                 exact_timerange=self.exact_timerange,
+                full_comparison_period=True,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.trends_query.dateRange,
@@ -139,6 +140,7 @@ class TrendsActorsQueryBuilder:
             interval=self.trends_query.interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
+            full_comparison_period=True,
         )
 
     @cached_property

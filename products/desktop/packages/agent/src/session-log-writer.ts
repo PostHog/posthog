@@ -6,6 +6,7 @@ import type { PostHogAPIClient } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
+import { redactClaudeTokens } from "./utils/redact-claude-tokens";
 
 /**
  * Session context for a registered session.
@@ -80,7 +81,7 @@ function redactAuthorizationHeaders(value: unknown): unknown {
     return value.map(redactAuthorizationHeaders);
   }
   if (value === null || typeof value !== "object") {
-    return value;
+    return redactClaudeTokens(value);
   }
 
   const record = value as Record<string, unknown>;
@@ -268,6 +269,7 @@ export class SessionLogWriter {
         this.emitCoalescedMessage(sessionId, session);
       }
 
+      message = redactAuthorizationHeaders(message) as Record<string, unknown>;
       const nonChunkAgentText = this.extractAgentMessageText(message);
       if (nonChunkAgentText) {
         session.lastAgentMessage = nonChunkAgentText;
@@ -282,9 +284,7 @@ export class SessionLogWriter {
         ...(supersededChunks?.firstEventId
           ? { first_event_id: supersededChunks.firstEventId }
           : {}),
-        notification: redactAuthorizationHeaders(
-          message,
-        ) as StoredNotification["notification"],
+        notification: message as StoredNotification["notification"],
       };
 
       this.emitToSinks(sessionId, entry);
@@ -592,8 +592,8 @@ export class SessionLogWriter {
   private emitCoalescedMessage(sessionId: string, session: SessionState): void {
     if (!session.chunkBuffer) return;
 
-    const { text, firstTimestamp, firstEventId, lastEventId } =
-      session.chunkBuffer;
+    const { firstTimestamp, firstEventId, lastEventId } = session.chunkBuffer;
+    const text = redactClaudeTokens(session.chunkBuffer.text);
     session.chunkBuffer = undefined;
     session.lastAgentMessage = text;
     session.currentTurnMessages.push(text);

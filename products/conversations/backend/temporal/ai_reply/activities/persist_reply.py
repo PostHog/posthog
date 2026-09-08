@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from django.db import transaction
+
 from temporalio import activity
 
 from posthog.models.comment import Comment
@@ -35,15 +37,17 @@ def _persist_reply_sync(input: PersistReplyInput) -> None:
             if mode == "bot_reply":
                 is_private = False
 
-    Comment.objects.create(
-        team_id=input.team_id,
-        scope="conversations_ticket",
-        item_id=input.ticket_id,
-        content=input.reply,
-        item_context={
-            "author_type": "AI",
-            "is_private": is_private,
-            "citations": input.citations,
-            "confidence": input.confidence,
-        },
-    )
+    # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+    with transaction.atomic():
+        Comment.objects.create(
+            team_id=input.team_id,
+            scope="conversations_ticket",
+            item_id=input.ticket_id,
+            content=input.reply,
+            item_context={
+                "author_type": "AI",
+                "is_private": is_private,
+                "citations": input.citations,
+                "confidence": input.confidence,
+            },
+        )

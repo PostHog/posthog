@@ -11,39 +11,30 @@ describe("SessionInitializingView", () => {
   it.each([
     {
       executionTarget: "local" as const,
-      heading: "Starting Pi…",
       subtitle: "Connecting to Pi on this device.",
     },
     {
       executionTarget: "cloud" as const,
-      heading: "Getting things ready…",
-      subtitle: "Connecting to your cloud runner.",
-    },
-    {
-      executionTarget: "cloud" as const,
-      cloudStatus: "in_progress" as const,
-      heading: "Starting the sandbox…",
       subtitle: "Connecting to your cloud runner.",
     },
   ])(
-    "shows $executionTarget connection copy",
-    ({ executionTarget, cloudStatus, heading, subtitle }) => {
+    "shows Loading through $executionTarget startup",
+    ({ executionTarget, subtitle }) => {
       vi.useFakeTimers();
 
       render(
         <Theme>
-          <SessionInitializingView
-            executionTarget={executionTarget}
-            cloudStatus={cloudStatus}
-          />
+          <SessionInitializingView executionTarget={executionTarget} />
         </Theme>,
       );
+
+      expect(screen.getByText("Loading")).toBeInTheDocument();
 
       act(() => {
         vi.advanceTimersByTime(2000);
       });
 
-      expect(screen.getByText(heading)).toBeInTheDocument();
+      expect(screen.getByText("Loading")).toBeInTheDocument();
       expect(screen.getByText(subtitle)).toBeInTheDocument();
     },
   );

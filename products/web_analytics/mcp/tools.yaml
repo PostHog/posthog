@@ -27,7 +27,6 @@ tools:
             JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from
             `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you
             can open the session recordings that produced a hotspot.
-        feature_flag: heatmaps-mcp
     heatmaps-list:
         operation: heatmaps_list
         enabled: true
@@ -56,7 +55,6 @@ tools:
             distinct coordinates, so the default page plus the `fold` summary is usually enough for analysis — raise
             `limit` or page with `offset` only if you need more, and check `has_more` to know when the list is
             truncated.
-        feature_flag: heatmaps-mcp
     heatmaps-saved-create:
         operation: saved_create
         enabled: true
@@ -75,7 +73,6 @@ tools:
             wildcards are not allowed.
         exclude_params:
             - deleted
-        feature_flag: heatmaps-mcp
     heatmaps-saved-get:
         operation: saved_retrieve
         enabled: true
@@ -90,7 +87,6 @@ tools:
             Get a single saved heatmap by its `short_id`, including per-width render `status`. Poll this after
             `heatmaps-saved-create` until `status` is 'completed'; the rendered page is then viewable by the user in the
             PostHog UI.
-        feature_flag: heatmaps-mcp
     heatmaps-saved-list:
         operation: saved_list
         enabled: true
@@ -107,7 +103,6 @@ tools:
             type 'screenshot') renders the page so heatmap data can be overlaid on it. Filter by `type`, `status`,
             `created_by`, or a `search` substring on URL/name. The rendered page (screenshot with data overlaid) is
             viewable by the user in the PostHog UI.
-        feature_flag: heatmaps-mcp
     heatmaps-saved-regenerate:
         operation: saved_regenerate_create
         enabled: true
@@ -122,7 +117,6 @@ tools:
             Re-run screenshot generation for a saved heatmap of type 'screenshot' by its `short_id`. Clears the existing
             renders and re-renders at every target width; `status` returns to 'processing'. Use when a page has changed
             or a render failed.
-        feature_flag: heatmaps-mcp
     heatmaps-saved-update:
         operation: saved_partial_update
         enabled: true
@@ -137,7 +131,6 @@ tools:
             Update a saved heatmap by its `short_id`. Send only the fields to change — rename via `name`, change
             `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call).
             Changing the `url` of a 'screenshot' heatmap triggers a fresh render.
-        feature_flag: heatmaps-mcp
     saved-capture-create:
         operation: saved_capture_create
         enabled: false

@@ -27378,6 +27378,7 @@ class MarketingAnalyticsConfig(BaseModel):
     campaign_name_mappings: dict[str, dict[str, list[str]]] | None = None
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
+    filter_test_accounts: bool | None = None
     sources_map: dict[str, SourceMap] | None = None
 
 
@@ -27881,6 +27882,10 @@ class RecordingsQuery(BaseModel):
     )
     person_uuid: str | None = None
     properties: list[AnyPropertyFilterDiscriminated] | None = None
+    recommended_only: bool | None = Field(
+        default=None,
+        description=("Restrict results to recordings above the replay relevance threshold."),
+    )
     response: RecordingsQueryResponse | None = None
     session_ids: list[str] | None = None
     session_recording_id: str | None = Field(
