@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,7 +31,12 @@ from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
-from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
+from products.tasks.backend.logic.stream.agent_events import (
+    is_agent_command_dispatched,
+    is_agent_generation_event,
+    is_agent_prompt_event,
+    is_agent_turn_activity_event,
+)
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -444,24 +450,33 @@ async def _relay_loop(
                         event_source.response.raise_for_status()
                         last_event_time[0] = time.monotonic()
 
-                        async for sse_event in event_source.aiter_sse():
-                            if not sse_event.data:
+                        async for sse_data, is_transport_keepalive in _iter_sse_data(event_source):
+                            if is_transport_keepalive:
+                                await _record_relay_activity_best_effort(redis_stream, run_id)
+                                last_event_time[0] = time.monotonic()
+                                continue
+                            if not sse_data:
                                 continue
 
                             try:
-                                event_data = json.loads(sse_event.data)
+                                event_data = json.loads(sse_data)
                             except json.JSONDecodeError:
                                 logger.warning(
                                     "relay_sandbox_events_invalid_json",
                                     run_id=run_id,
-                                    data=sse_event.data[:200],
+                                    data=sse_data[:200],
                                 )
                                 continue
 
                             if _is_keepalive_event(event_data):
+                                await _record_relay_activity_best_effort(redis_stream, run_id)
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if is_agent_turn_activity_event(event_data):
+                                await _record_relay_activity_best_effort(
+                                    redis_stream, run_id, force=is_agent_prompt_event(event_data)
+                                )
                             if workflow_handle is not None:
                                 if (
                                     is_agent_command_dispatched(event_data)
@@ -573,6 +588,7 @@ async def _relay_loop(
                         reconnect_count=reconnect_count,
                     )
                     if reconnect_count <= MAX_RECONNECT_ATTEMPTS:
+                        await _record_relay_activity_best_effort(redis_stream, run_id)
                         await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.ReadTimeout:
@@ -587,6 +603,7 @@ async def _relay_loop(
                     run_id=run_id,
                     reconnect_count=reconnect_count,
                 )
+                await _record_relay_activity_best_effort(redis_stream, run_id)
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.HTTPStatusError as e:
@@ -613,6 +630,7 @@ async def _relay_loop(
                     error=_sanitize_httpx_error(e),
                     reconnect_count=reconnect_count,
                 )
+                await _record_relay_activity_best_effort(redis_stream, run_id)
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
@@ -627,6 +645,7 @@ async def _relay_loop(
                     error=str(e),
                     reconnect_count=reconnect_count,
                 )
+                await _record_relay_activity_best_effort(redis_stream, run_id)
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
         # Exhausted reconnect attempts
@@ -654,6 +673,63 @@ async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_
             run_id=run_id,
             error=str(error),
         )
+
+
+async def _record_relay_activity_best_effort(
+    redis_stream: TaskRunRedisStream, run_id: str, *, force: bool = False
+) -> None:
+    try:
+        await redis_stream.record_relay_activity(force=force)
+    except Exception as error:
+        logger.warning("relay_sandbox_events_record_activity_failed", run_id=run_id, error=str(error))
+
+
+async def _iter_sse_data(event_source: Any) -> AsyncIterator[tuple[str, bool]]:
+    """Yield SSE data and expose comment keepalives that httpx-sse normally discards."""
+    text_iterator = getattr(event_source.response, "aiter_text", None)
+    if not callable(text_iterator):
+        async for sse_event in event_source.aiter_sse():
+            yield sse_event.data, False
+        return
+
+    data_lines: list[str] = []
+    async for line in _iter_sse_lines(text_iterator()):
+        if line.startswith(":"):
+            if line[1:].strip() == "keepalive":
+                yield "", True
+            continue
+        if not line:
+            if data_lines:
+                yield "\n".join(data_lines), False
+                data_lines = []
+            continue
+        field, separator, value = line.partition(":")
+        if field == "data" and separator:
+            data_lines.append(value[1:] if value.startswith(" ") else value)
+    if data_lines:
+        yield "\n".join(data_lines), False
+
+
+async def _iter_sse_lines(text_chunks: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Split SSE text only on CR, LF, or CRLF. Unicode separators stay inside event data."""
+    buffer = ""
+    async for chunk in text_chunks:
+        buffer += chunk
+        while True:
+            cr = buffer.find("\r")
+            lf = buffer.find("\n")
+            boundaries = [index for index in (cr, lf) if index >= 0]
+            if not boundaries:
+                break
+            boundary = min(boundaries)
+            if buffer[boundary] == "\r" and boundary == len(buffer) - 1:
+                break
+            line = buffer[:boundary]
+            separator_size = 2 if buffer[boundary : boundary + 2] == "\r\n" else 1
+            buffer = buffer[boundary + separator_size :]
+            yield line
+    if buffer:
+        yield buffer[:-1] if buffer.endswith("\r") else buffer
 
 
 def _is_session_update(event_data: dict) -> bool:

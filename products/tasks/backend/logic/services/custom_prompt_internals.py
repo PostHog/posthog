@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
@@ -19,7 +20,9 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -47,6 +50,22 @@ MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
+# No-output floor. It arms only once the turn has started — the relay has echoed the user prompt into
+# the log (see `_PROMPT_ECHO_UPDATES`), so the agent has the request and turn-relevant output is now
+# expected. Once armed, if the turn produces zero turn-relevant lines and the log then stays fully
+# silent for this long, the agent got the prompt and stalled; waiting out the rest of the poll budget
+# cannot recover it (the error class's own docstring says as much), so the loop fails fast with
+# stage=no_turn_output and lets the retry begin now instead of after the wall.
+#
+# Gating on turn start is what keeps the floor off the sandbox provisioning phase: `poll_for_turn`
+# covers provisioning too, and a healthy clone or sandbox build can run for minutes with no log write
+# between the workflow's boundary progress events — longer than any floor below the poll budget. No
+# prompt echo lands until provisioning finishes, so the floor cannot fire there. The window then
+# measures silence in both the durable log and the relay activity marker. The marker includes chunks
+# that the durable log writer buffers and relay reconnect attempts, so this floor cannot stop a live
+# or recoverable turn.
+NO_TURN_OUTPUT_FLOOR_SECONDS = 5 * 60 + POLL_INTERVAL_SECONDS
+
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
 # errors) via classifyAgentError() and writes the category + raw message here, so
@@ -62,8 +81,12 @@ AGENT_ERROR_METHOD = "_posthog/error"
 TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
     {
         "_posthog/console",
+        "_posthog/agent_command_dispatched",
         "_posthog/progress",
+        "_posthog/run_started",
         "_posthog/sandbox_output",
+        "_posthog/sdk_session",
+        "_posthog/usage_update",
     }
 )
 
@@ -77,6 +100,24 @@ FAILED_PROGRESS_STATUS = "failed"
 # input, not agent output, so the turn-relevant growth counting discounts them like the transient
 # side-channels above.
 _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
+_TURN_RELEVANT_SESSION_UPDATES = frozenset(
+    {
+        "agent_message",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "plan",
+        "tool_call",
+        "tool_call_update",
+    }
+)
+_TURN_RELEVANT_PI_EVENTS = frozenset(
+    {
+        "assistant_message_chunk",
+        "assistant_thought_chunk",
+        "tool_call_started",
+        "tool_call_updated",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -183,6 +224,37 @@ POLL_TIMEOUT_STALLED_AFTER_OUTPUT = "stalled_after_output"
 POLL_TIMEOUT_ACTIVE_AT_BUDGET = "active_at_budget"
 
 
+def _raise_poll_timeout(
+    task_run: TaskRun,
+    *,
+    stage: str,
+    elapsed: int,
+    stale_seconds: int,
+    high_water_lines: int,
+    turn_relevant_lines: int,
+) -> NoReturn:
+    logger.warning(
+        "custom_prompt - poll_for_turn: timed out after %ds, run=%s, stage=%s, stale_for=%ds, "
+        "total_lines=%d, turn_relevant_lines=%d",
+        elapsed,
+        task_run.id,
+        stage,
+        stale_seconds,
+        high_water_lines,
+        turn_relevant_lines,
+    )
+    # `stage` is in the message as well as the diagnostics so the cause survives everywhere the
+    # error string is the only thing that gets persisted (TaskRun.error_message, Temporal).
+    raise TurnPollTimeout(
+        f"custom_prompt - poll_for_turn: timed out after {elapsed}s (stage={stage})",
+        stage=stage,
+        elapsed=elapsed,
+        stale_seconds=stale_seconds,
+        total_lines=high_water_lines,
+        turn_relevant_lines=turn_relevant_lines,
+    )
+
+
 def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> str:
     if turn_relevant_lines == 0:
         return POLL_TIMEOUT_NO_TURN_OUTPUT
@@ -192,6 +264,25 @@ def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> s
     if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
         return POLL_TIMEOUT_STALLED_AFTER_OUTPUT
     return POLL_TIMEOUT_ACTIVE_AT_BUDGET
+
+
+async def _relay_activity_is_stale(task_run: TaskRun, stale_seconds: int) -> bool:
+    state = getattr(task_run, "state", None)
+    # Sequenced ingest has no transport keepalive while a provider waits for its first token. Its
+    # prompt marker can become stale during a healthy request, so this transport keeps the normal
+    # poll budget until it exposes a definitive liveness signal.
+    if isinstance(state, dict) and state.get("sandbox_event_ingest_enabled") is True:
+        return False
+    use_dedicated = run_uses_dedicated_stream(state)
+    streams = [TaskRunRedisStream(get_task_run_stream_key(str(task_run.id)), use_dedicated)]
+    if use_dedicated:
+        streams.append(TaskRunRedisStream(get_task_run_stream_key(str(task_run.id))))
+    try:
+        activity_times = [activity_at for stream in streams if (activity_at := await stream.get_relay_activity_at())]
+    except Exception:
+        logger.warning("custom_prompt - poll_for_turn: failed to read relay activity", exc_info=True)
+        return False
+    return bool(activity_times) and time.time() - max(activity_times) >= stale_seconds
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -321,8 +412,16 @@ async def poll_for_turn(
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
-    # Elapsed time when we last saw new log lines
+    # Elapsed time when we last saw new turn-relevant log lines
     last_new_lines_at = 0
+    # Elapsed time when we last saw ANY new log line, turn-relevant or a transient side-channel. The
+    # no-output floor measures silence against this so a live agent still emitting side-channel lines
+    # never trips it.
+    last_activity_at = 0
+    # Whether the turn has started: the relay has echoed the user prompt, so the agent has the request
+    # and turn-relevant output is now expected. The no-output floor arms only after this, so it never
+    # fires during the preceding sandbox provisioning phase (which produces no prompt echo).
+    turn_started = False
     # Running tally of turn-relevant lines this turn produced. Zero at the wall means the agent
     # never got going at all, which `last_new_lines_at` alone can't distinguish from "went quiet
     # on the very first poll" — see `_classify_poll_timeout`.
@@ -369,11 +468,17 @@ async def poll_for_turn(
         # mirrors the side-channel discounting the tail check already does in
         # _ended_on_pending_finalization.
         if log_state.total_lines > skip_lines:
+            last_activity_at = elapsed
             new_lines = (log_state.full_log or "").strip().split("\n")[skip_lines:]
             relevant_growth = (log_state.total_lines - skip_lines) - _transient_growth(new_lines)
             if relevant_growth > 0:
                 turn_relevant_lines += relevant_growth
                 last_new_lines_at = elapsed
+            # Arm the no-output floor once the turn is under way: either the relay echoed the prompt or
+            # the agent already produced turn-relevant output. Before this the loop is still watching
+            # sandbox provisioning, where long silence is normal and must not be failed.
+            if not turn_started and (relevant_growth > 0 or _has_prompt_echo(new_lines)):
+                turn_started = True
         stale_seconds = elapsed - last_new_lines_at
         # Warn once per minute of silence (not every poll) so stalls surface without flooding logs.
         if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:
@@ -460,6 +565,26 @@ async def poll_for_turn(
                 verbose=verbose,
                 output_fn=output_fn,
             )
+        # No-output floor: the turn started (the agent has the prompt) but produced no turn-relevant
+        # line and the log has since gone fully silent. Grinding to the wall cannot recover an agent
+        # that received the prompt and stalled, so fail fast now with the stage the wall would assign,
+        # releasing the sandbox and starting the retry sooner. last_new_lines_at is still 0 here, so
+        # the reported turn-relevant silence is the whole elapsed time.
+        durable_log_stale_seconds = elapsed - last_activity_at
+        if (
+            turn_started
+            and turn_relevant_lines == 0
+            and durable_log_stale_seconds >= NO_TURN_OUTPUT_FLOOR_SECONDS
+            and await _relay_activity_is_stale(refreshed, NO_TURN_OUTPUT_FLOOR_SECONDS)
+        ):
+            _raise_poll_timeout(
+                task_run,
+                stage=POLL_TIMEOUT_NO_TURN_OUTPUT,
+                elapsed=elapsed,
+                stale_seconds=elapsed - last_new_lines_at,
+                high_water_lines=skip_lines,
+                turn_relevant_lines=turn_relevant_lines,
+            )
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
     refreshed = await _refresh_task_run(task_run.id)
@@ -499,24 +624,12 @@ async def poll_for_turn(
         if salvaged is not None:
             return salvaged
     stage = _classify_poll_timeout(turn_relevant_lines=turn_relevant_lines, stale_seconds=stale_seconds)
-    logger.warning(
-        "custom_prompt - poll_for_turn: timed out after %ds, run=%s, stage=%s, stale_for=%ds, "
-        "total_lines=%d, turn_relevant_lines=%d",
-        elapsed,
-        task_run.id,
-        stage,
-        stale_seconds,
-        skip_lines,
-        turn_relevant_lines,
-    )
-    # `stage` is in the message as well as the diagnostics so the cause survives everywhere the
-    # error string is the only thing that gets persisted (TaskRun.error_message, Temporal).
-    raise TurnPollTimeout(
-        f"custom_prompt - poll_for_turn: timed out after {elapsed}s (stage={stage})",
+    _raise_poll_timeout(
+        task_run,
         stage=stage,
         elapsed=elapsed,
         stale_seconds=stale_seconds,
-        total_lines=skip_lines,
+        high_water_lines=skip_lines,
         turn_relevant_lines=turn_relevant_lines,
     )
 
@@ -602,7 +715,9 @@ async def _salvage_dropped_finalization(
     # alongside the late usage_update would push raw growth past the threshold and wrongly decline the
     # very dropped-finalization case this path recovers.
     new_lines = (log_state.full_log or "").strip().split("\n")[max_total_lines_seen:]
-    relevant_growth = (log_state.total_lines - max_total_lines_seen) - _transient_growth(new_lines)
+    relevant_growth = (log_state.total_lines - max_total_lines_seen) - _transient_growth(
+        new_lines, discount_usage_updates=False
+    )
     if relevant_growth > 1:
         logger.warning(
             "custom_prompt - salvage_dropped_finalization: reread grew %d turn-relevant line(s) past "
@@ -898,9 +1013,37 @@ def _is_failed_progress(notification: dict) -> bool:
     return isinstance(params, dict) and params.get("status") == FAILED_PROGRESS_STATUS
 
 
-def _transient_growth(lines: list[str]) -> int:
+def _has_prompt_echo(lines: list[str]) -> bool:
+    """True when any of `lines` is the relay's echo of the user prompt (`user_message` /
+    `user_message_chunk`). That echo is written once the agent session receives the turn, so it marks
+    the point where turn-relevant output becomes expected. The no-output floor arms on it and so never
+    fires during the preceding sandbox provisioning, where minutes can pass between the workflow's
+    boundary progress events."""
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("type") == "pi_event":
+            event = payload.get("event")
+            if isinstance(event, dict) and event.get("type") == "user_message":
+                return True
+            continue
+        notification = payload.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != "session/update":
+            continue
+        update = (notification.get("params") or {}).get("update")
+        if isinstance(update, dict) and update.get("sessionUpdate") in _PROMPT_ECHO_UPDATES:
+            return True
+    return False
+
+
+def _transient_growth(lines: list[str], *, discount_usage_updates: bool = True) -> int:
     """Count how many of `lines` carry no agent turn-state: transient relay side-channels (network
-    audits, credential refreshes, sandbox stdout, informational progress) and echoed prompts. The
+    audits, credential refreshes, sandbox stdout, informational progress), setup updates, and echoed prompts. The
     relay echoes the user's own message into the turn log, so without discounting it every turn
     counts at least one "turn-relevant" line and the `no_turn_output` timeout classification —
     the agent never got going at all — could never fire. A failed progress line is not transient —
@@ -911,15 +1054,29 @@ def _transient_growth(lines: list[str]) -> int:
         if not line:
             continue
         try:
-            notification = json.loads(line).get("notification")
+            payload = json.loads(line)
         except json.JSONDecodeError:
             continue
+        payload_type = payload.get("type")
+        if payload_type == "pi_event":
+            event = payload.get("event")
+            subtype = event.get("type") if isinstance(event, dict) else None
+            if subtype not in _TURN_RELEVANT_PI_EVENTS:
+                count += 1
+            continue
+        if payload_type == "pi_run_started":
+            count += 1
+            continue
+        notification = payload.get("notification")
         if not isinstance(notification, dict):
             continue
         method = notification.get("method")
         if method == "session/update":
             update = (notification.get("params") or {}).get("update")
-            if isinstance(update, dict) and update.get("sessionUpdate") in _PROMPT_ECHO_UPDATES:
+            subtype = update.get("sessionUpdate") if isinstance(update, dict) else None
+            if subtype == "usage_update" and not discount_usage_updates:
+                continue
+            if isinstance(update, dict) and subtype not in _TURN_RELEVANT_SESSION_UPDATES:
                 count += 1
             continue
         if method not in TRANSIENT_SIDE_CHANNEL_METHODS:

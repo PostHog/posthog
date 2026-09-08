@@ -21,7 +21,12 @@ from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
 )
-from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
+from products.tasks.backend.logic.stream.agent_events import (
+    is_agent_command_dispatched,
+    is_agent_generation_event,
+    is_agent_prompt_event,
+    is_agent_turn_activity_event,
+)
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
@@ -132,10 +137,16 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         thin_tail=claims.thin_tail,
         origin_product=claims.origin_product,
     )
+    activity_stream = (
+        TaskRunRedisStream(get_task_run_stream_key(claims.run_id), True)
+        if claims.use_dedicated_stream
+        else redis_stream
+    )
 
     try:
         result = await _ingest_event_lines(
             redis_stream,
+            activity_stream,
             claims,
             receive,
         )
@@ -175,6 +186,7 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
 
 async def _ingest_event_lines(
     redis_stream: TaskRunRedisStream,
+    activity_stream: TaskRunRedisStream,
     claims: SandboxEventIngestTokenPayload,
     receive: ASGIReceive,
 ) -> EventIngestResult:
@@ -216,6 +228,11 @@ async def _ingest_event_lines(
 
             result.accepted += 1
             result.last_accepted_seq = sequence
+            if is_agent_turn_activity_event(event):
+                try:
+                    await activity_stream.record_relay_activity(force=is_agent_prompt_event(event))
+                except Exception as error:
+                    logger.warning("event_ingest_record_activity_failed", run_id=claims.run_id, error=str(error))
             await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
     except EventIngestPayloadTooLarge as error:
         if result.last_accepted_seq and error.last_accepted_seq == 0:

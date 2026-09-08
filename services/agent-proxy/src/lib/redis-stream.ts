@@ -57,6 +57,10 @@ export function getHeartbeatKey(streamKey: string): string {
     return `${streamKey}:ingest-heartbeat`
 }
 
+export function getRelayActivityKey(streamKey: string): string {
+    return `${streamKey}:relay-activity`
+}
+
 export function getFirstCommandKey(streamKey: string): string {
     return `${streamKey}:ingest-first-agent-command`
 }
@@ -129,6 +133,9 @@ function sleep(ms: number): Promise<void> {
 // unsafe in Node. 100 iterations is far beyond what real contention
 // requires — if a slot is genuinely that contested something is wrong.
 const MAX_WATCH_RETRIES = 100
+const RELAY_ACTIVITY_REFRESH_INTERVAL_MS = 10_000
+const RELAY_ACTIVITY_CACHE_MAX_SIZE = 10_000
+const relayActivityRefreshedAt = new Map<string, number>()
 
 export class TaskRunRedisStream {
     private readonly streamKey: string
@@ -408,6 +415,30 @@ export class TaskRunRedisStream {
         return raw === '1'
     }
 
+    async recordRelayActivity(force = false): Promise<void> {
+        const now = Date.now()
+        const lastActivityAt = relayActivityRefreshedAt.get(this.streamKey)
+        if (!force && lastActivityAt !== undefined && now - lastActivityAt < RELAY_ACTIVITY_REFRESH_INTERVAL_MS) {
+            return
+        }
+        relayActivityRefreshedAt.delete(this.streamKey)
+        relayActivityRefreshedAt.set(this.streamKey, now)
+        try {
+            await this.redis.set(getRelayActivityKey(this.streamKey), String(now / 1000), 'EX', this.timeout)
+        } catch (err: unknown) {
+            if (relayActivityRefreshedAt.get(this.streamKey) === now) {
+                relayActivityRefreshedAt.delete(this.streamKey)
+            }
+            throw err
+        }
+        while (relayActivityRefreshedAt.size > RELAY_ACTIVITY_CACHE_MAX_SIZE) {
+            const oldestKey = relayActivityRefreshedAt.keys().next().value
+            if (oldestKey !== undefined) {
+                relayActivityRefreshedAt.delete(oldestKey)
+            }
+        }
+    }
+
     // EXISTS completed-key -> bool
     async isComplete(): Promise<boolean> {
         return (await this.redis.exists(getCompletedKey(this.streamKey))) > 0
@@ -610,6 +641,8 @@ export class TaskRunRedisStream {
             const completedKey = getCompletedKey(this.streamKey)
             const agentActiveKey = getAgentActiveKey(this.streamKey)
             const heartbeatKey = getHeartbeatKey(this.streamKey)
+            const relayActivityKey = getRelayActivityKey(this.streamKey)
+            relayActivityRefreshedAt.delete(this.streamKey)
             const firstCommandKey = getFirstCommandKey(this.streamKey)
             const firstActivityKey = getFirstActivityKey(this.streamKey)
             const watchedKey = getWatchedKey(this.streamKey)
@@ -619,6 +652,7 @@ export class TaskRunRedisStream {
                 completedKey,
                 agentActiveKey,
                 heartbeatKey,
+                relayActivityKey,
                 firstCommandKey,
                 firstActivityKey,
                 watchedKey

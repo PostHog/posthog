@@ -466,6 +466,23 @@ describe('ingest-handler', () => {
         expect(body).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
     })
 
+    it('records relay activity for the user prompt', async () => {
+        const config = makeConfig()
+        const event = {
+            type: 'notification',
+            notification: {
+                method: 'session/update',
+                params: { update: { sessionUpdate: 'user_message', content: { text: 'prompt' } } },
+            },
+        }
+        const ctx = makeContext({ body: makeStringBody(JSON.stringify({ seq: 1, event }) + '\n') })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        expect(await fakeRedis.get(`task-run-stream:${RUN_ID}:relay-activity`)).not.toBeNull()
+    })
+
     // -----------------------------------------------------------------------
     // Presence gating
     // -----------------------------------------------------------------------

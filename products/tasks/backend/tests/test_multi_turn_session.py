@@ -1,6 +1,7 @@
 import json
 import asyncio
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -22,6 +23,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     TurnPollResult,
     TurnPollTimeout,
     _extract_agent_error,
+    _relay_activity_is_stale,
     create_task_and_trigger,
     poll_for_turn,
 )
@@ -822,6 +824,129 @@ class TestPollForTurnTimeoutDiagnosis:
 
         assert exc_info.value.stage == "active_at_budget"
         assert exc_info.value.turn_relevant_lines == 3
+
+    @pytest.mark.asyncio
+    async def test_no_turn_output_fails_fast_before_the_wall(self):
+        lifecycle_updates = [
+            json.dumps(
+                {
+                    "notification": {
+                        "method": "session/update",
+                        "params": {"update": {"sessionUpdate": subtype}},
+                    }
+                }
+            )
+            for subtype in ("available_commands_update", "config_option_update", "current_mode_update")
+        ]
+        log = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "pi_event",
+                        "event": {"type": "user_message", "content": "scan the project"},
+                    }
+                ),
+                json.dumps({"type": "pi_run_started"}),
+                json.dumps({"notification": {"method": "_posthog/sdk_session", "params": {}}}),
+                json.dumps({"notification": {"method": "_posthog/run_started", "params": {}}}),
+                json.dumps({"notification": {"method": "_posthog/agent_command_dispatched", "params": {}}}),
+                json.dumps({"notification": {"method": "_posthog/usage_update", "params": {"input_tokens": 1}}}),
+                *lifecycle_updates,
+                _usage_update_line(),
+                _console_line("agentsh network events"),
+            ]
+        )
+        fake = FakeTaskRun()
+        refreshed = FakeTaskRun()
+        cast(Any, refreshed).state = {"sandbox_event_ingest_enabled": False}
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals._relay_activity_is_stale",
+                new=AsyncMock(return_value=True),
+            ) as relay_stale,
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=refreshed),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+
+        assert exc_info.value.stage == "no_turn_output"
+        assert exc_info.value.elapsed == 40
+        relay_stale.assert_awaited_once_with(refreshed, 30)
+
+    @pytest.mark.asyncio
+    async def test_live_relay_activity_keeps_a_buffered_response_alive(self):
+        prompt_only = _user_message_line("scan the project")
+        completed = "\n".join([prompt_only, _agent_message_line("done"), _end_turn_line()])
+        logs = [prompt_only] * 5 + [completed]
+        poll_iter = iter(logs)
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda *a, **k: next(poll_iter, completed)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals._relay_activity_is_stale",
+                new=AsyncMock(return_value=False),
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            result = await poll_for_turn(fake, skip_lines=0)
+
+        assert result.last_message == "done"
+
+    @pytest.mark.asyncio
+    async def test_sequenced_ingest_does_not_claim_a_stale_transport(self):
+        fake = FakeTaskRun()
+        cast(Any, fake).state = {"sandbox_event_ingest_enabled": True}
+
+        assert await _relay_activity_is_stale(cast(TaskRun, fake), 30) is False
+
+    @pytest.mark.asyncio
+    async def test_provisioning_silence_does_not_trip_the_floor(self):
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=_progress_line(status="in_progress")),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 90),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+
+        assert exc_info.value.elapsed == 90
+        assert exc_info.value.stage == "no_turn_output"
+
+    @pytest.mark.asyncio
+    async def test_ongoing_activity_does_not_trip_the_floor(self):
+        base = [_user_message_line("scan the project")]
+        logs: list[str] = []
+        for i in range(6):
+            base = [*base, _console_line(f"audit {i}")]
+            logs.append("\n".join(base))
+        logs.append("\n".join([*base, _agent_message_line("done"), _end_turn_line()]))
+        poll_iter = iter(logs)
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda *a, **k: next(poll_iter, logs[-1])),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            result = await poll_for_turn(fake, skip_lines=0)
+
+        assert result.last_message == "done"
 
 
 class TestPollForTurnTerminalDrain:

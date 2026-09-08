@@ -584,6 +584,7 @@ class TestRelaySandboxEventsErrorHandling:
     async def test_keepalive_events_are_transport_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
+            record_relay_activity=AsyncMock(),
             mark_complete=AsyncMock(),
             mark_error=AsyncMock(),
         )
@@ -593,17 +594,24 @@ class TestRelaySandboxEventsErrorHandling:
         }
 
         class SuccessfulEventSource:
-            response = SimpleNamespace(raise_for_status=lambda: None)
+            class Response:
+                @staticmethod
+                def raise_for_status() -> None:
+                    return None
+
+                @staticmethod
+                async def aiter_text():
+                    terminal_json = json.dumps(terminal_event | {"text": "before\u2028after"}, ensure_ascii=False)
+                    yield ": keepalive\r\n\r\ndata: "
+                    yield f"{terminal_json}\n\n"
+
+            response = Response()
 
             async def __aenter__(self) -> "SuccessfulEventSource":
                 return self
 
             async def __aexit__(self, *_args: object) -> None:
                 return None
-
-            async def aiter_sse(self):
-                yield SimpleNamespace(data='{"type":"keepalive"}')
-                yield SimpleNamespace(data=json.dumps(terminal_event))
 
         def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
             return SuccessfulEventSource()
@@ -623,7 +631,8 @@ class TestRelaySandboxEventsErrorHandling:
             task_id="task-id",
         )
 
-        redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        redis_stream.write_event.assert_awaited_once_with(terminal_event | {"text": "before\u2028after"})
+        redis_stream.record_relay_activity.assert_awaited_once_with(force=False)
         assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
