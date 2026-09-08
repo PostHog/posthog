@@ -12,10 +12,11 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
 # table). The column set is the events table's, narrowed to what a flag evaluation
-# actually carries: no elements_chain, no person_mode, no *_created_at companions
-# to the person and group properties. It keeps the full properties JSON as the
-# source of truth, so queries and integrations built on event properties survive
-# the routing switch. The 90-day TTL is what makes rows that wide affordable.
+# actually carries: no elements_chain, no person_mode, and no person or group
+# property blobs, since no Insight or Hog function breaks down or filters on them.
+# It keeps the full properties JSON as the source of truth, so queries and
+# integrations built on event properties survive the routing switch. The 90-day
+# TTL is what makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
@@ -83,12 +84,6 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     distinct_id String,
     created_at DateTime64(6, 'UTC'),
     person_id UUID,
-    person_properties String,
-    group0_properties String,
-    group1_properties String,
-    group2_properties String,
-    group3_properties String,
-    group4_properties String,
     inserted_at DateTime64(6, 'UTC'){ts_default}
 """.strip()
 
@@ -264,6 +259,7 @@ SETTINGS kafka_skip_broken_messages = 100
 """
 )
 
+DROP_KAFKA_FLAG_EVALUATIONS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_FLAG_EVALUATIONS_TABLE}"
 
 # The Kafka JSONEachRow parser fills missing fields with the type's zero value, so
 # a DateTime64 column reads as epoch when a producer omits it.
@@ -282,12 +278,6 @@ AS SELECT
     distinct_id,
     created_at,
     person_id,
-    person_properties,
-    group0_properties,
-    group1_properties,
-    group2_properties,
-    group3_properties,
-    group4_properties,
     -- Fall back to the Kafka message timestamp, which is stable across replays
     -- (inserted_at checkpoints the sync_feature_flag_last_called task, and an
     -- epoch-stamped row would stay invisible to it forever).
@@ -298,3 +288,5 @@ AS SELECT
 FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}
 """
 )
+
+DROP_FLAG_EVALUATIONS_MV_SQL = f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_MV_TABLE}"

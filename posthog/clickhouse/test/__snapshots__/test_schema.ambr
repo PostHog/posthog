@@ -324,12 +324,6 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      person_properties String,
-      group0_properties String,
-      group1_properties String,
-      group2_properties String,
-      group3_properties String,
-      group4_properties String,
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
@@ -1968,12 +1962,6 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      person_properties String,
-      group0_properties String,
-      group1_properties String,
-      group2_properties String,
-      group3_properties String,
-      group4_properties String,
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
       
       , $group_0 String COMMENT 'column_materializer::$group_0'
@@ -2010,12 +1998,6 @@
       distinct_id,
       created_at,
       person_id,
-      person_properties,
-      group0_properties,
-      group1_properties,
-      group2_properties,
-      group3_properties,
-      group4_properties,
       -- Fall back to the Kafka message timestamp, which is stable across replays
       -- (inserted_at checkpoints the sync_feature_flag_last_called task, and an
       -- epoch-stamped row would stay invisible to it forever).
@@ -2628,12 +2610,6 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      person_properties String,
-      group0_properties String,
-      group1_properties String,
-      group2_properties String,
-      group3_properties String,
-      group4_properties String,
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
@@ -7374,12 +7350,6 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      person_properties String,
-      group0_properties String,
-      group1_properties String,
-      group2_properties String,
-      group3_properties String,
-      group4_properties String,
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
       
       , $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
@@ -9708,12 +9678,6 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      person_properties String,
-      group0_properties String,
-      group1_properties String,
-      group2_properties String,
-      group3_properties String,
-      group4_properties String,
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
       
       
@@ -12623,12 +12587,6 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      person_properties String,
-      group0_properties String,
-      group1_properties String,
-      group2_properties String,
-      group3_properties String,
-      group4_properties String,
       inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
       
       , $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
