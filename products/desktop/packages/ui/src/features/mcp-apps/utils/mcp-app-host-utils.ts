@@ -47,8 +47,6 @@ export function toCallToolResult(raw: unknown): CallToolResult {
   if (raw != null && typeof raw === "object" && "content" in raw) {
     const obj = raw as { content: unknown };
     if (Array.isArray(obj.content)) {
-      // Explicit nulls fail the app-side zod schema; strip them (see
-      // omitNullCallToolResultFields).
       return omitNullCallToolResultFields(raw as CallToolResult);
     }
     // content exists but isn't an array — normalize to text block array
