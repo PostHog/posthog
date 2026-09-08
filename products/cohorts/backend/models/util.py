@@ -1216,8 +1216,12 @@ def insert_cohort_people_into_ch(cohort: Cohort, *, team_id: int) -> int:
     The mirror of ``insert_cohort_people_into_pg``. Postgres membership backs the cohort count,
     the membership check and flag evaluation, while ClickHouse backs HogQL ``IN COHORT``. A cohort
     that lost its ClickHouse rows therefore matches nothing in HogQL, with no error. This repairs
-    that cohort. A member that ClickHouse already holds costs nothing lasting, because
-    ``insert_static_cohort`` derives the row id from the person UUID.
+    that cohort. It writes every Postgres member, and ``insert_static_cohort`` derives the row id
+    from the person UUID, so ReplacingMergeTree collapses a repeat of a member that a deterministic
+    id already covers. A row written before the id became deterministic carries a random id, which
+    puts it under a different sort key, so it stays as one extra row for that member. Every reader
+    deduplicates and the cohort count comes from Postgres, so those extra rows cost storage and
+    scan width only.
 
     Returns the number of member rows written to ClickHouse.
     """
