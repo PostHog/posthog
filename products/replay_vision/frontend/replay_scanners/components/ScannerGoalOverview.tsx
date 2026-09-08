@@ -115,6 +115,45 @@ export interface EligibleFilterGroup {
     values: string[]
 }
 
+/** The targeted experiment and variant, named so the row stands alone before the experiment loads. */
+function experimentValues(scanner: ReplayScanner, experimentName?: string): string[] {
+    const targeting = scanner.experiment_targeting
+    if (!targeting?.experiment_id) {
+        return []
+    }
+    const variant = targeting.variant ? `${targeting.variant} variant` : 'all variants'
+    return [`${experimentName ?? `Experiment ${targeting.experiment_id}`} (${variant})`]
+}
+
+/** The pages a session must have visited.
+ *
+ * Read by key, not by position: the properties list can hold a cohort alongside the pages, and
+ * taking whichever came first would render a cohort id as a page.
+ */
+function pageValues(scanner: ReplayScanner): string[] {
+    const property = scanner.query?.properties?.find(
+        (candidate) => 'key' in candidate && candidate.key === 'visited_page'
+    )
+    if (!property || !('value' in property) || !Array.isArray(property.value)) {
+        return []
+    }
+    return property.value.map(String)
+}
+
+/** The names of the query's events or actions, whichever list is asked for. */
+function namedQueryEntities(scanner: ReplayScanner, key: 'events' | 'actions'): string[] {
+    const query = scanner.query
+    const entities = (query && key in query ? query[key] : null) ?? []
+    return entities.map((entity) => String(entity.name ?? entity.id)).filter(Boolean)
+}
+
+/** The cohorts the scan is limited to. The query carries only ids, so the name is looked up. */
+function cohortValues(scanner: ReplayScanner, cohortNames?: Record<string, string>): string[] {
+    return (scanner.query?.properties ?? [])
+        .filter((property) => property.type === PropertyFilterType.Cohort)
+        .map((property) => String(cohortNames?.[String(property.value)] ?? `Cohort ${property.value}`))
+}
+
 /** What the drafted scanner watches, grouped by the kind of filter each value came from.
  *
  * Each kind narrows differently. An experiment picks the people, a page picks where they went, an
@@ -126,46 +165,19 @@ export function eligibleFilterGroups(
     scanner: ReplayScanner,
     { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
 ): EligibleFilterGroup[] {
-    const groups: EligibleFilterGroup[] = []
-    const targeting = scanner.experiment_targeting
-    if (targeting?.experiment_id) {
-        // The experiment loads separately, so name the variant either way rather than waiting for it.
-        const variant = targeting.variant ? `${targeting.variant} variant` : 'all variants'
-        groups.push({
-            label: 'Experiment',
-            values: [`${experimentName ?? `Experiment ${targeting.experiment_id}`} (${variant})`],
-        })
-    }
-
-    const properties = scanner.query?.properties ?? []
-    // Read by key, not by position: the properties list can hold a cohort alongside the pages, and
-    // taking whichever came first would render a cohort id as a page.
-    const pageProperty = properties.find((property) => 'key' in property && property.key === 'visited_page')
-    const pageValues =
-        pageProperty && 'value' in pageProperty && Array.isArray(pageProperty.value) ? pageProperty.value : []
-    if (pageValues.length > 0) {
-        groups.push({ label: pluralize(pageValues.length, 'Page', 'Pages', false), values: pageValues.map(String) })
-    }
-
-    const events = (scanner.query && 'events' in scanner.query ? scanner.query.events : null) ?? []
-    const eventValues = events.map((event) => String(event.name ?? event.id)).filter(Boolean)
-    if (eventValues.length > 0) {
-        groups.push({ label: pluralize(eventValues.length, 'Event', 'Events', false), values: eventValues })
-    }
-
-    const actions = (scanner.query && 'actions' in scanner.query ? scanner.query.actions : null) ?? []
-    const actionValues = actions.map((action) => String(action.name ?? action.id)).filter(Boolean)
-    if (actionValues.length > 0) {
-        groups.push({ label: pluralize(actionValues.length, 'Action', 'Actions', false), values: actionValues })
-    }
-
-    const cohortValues = properties
-        .filter((property) => property.type === PropertyFilterType.Cohort)
-        .map((property) => String(cohortNames?.[String(property.value)] ?? `Cohort ${property.value}`))
-    if (cohortValues.length > 0) {
-        groups.push({ label: pluralize(cohortValues.length, 'Cohort', 'Cohorts', false), values: cohortValues })
-    }
-    return groups
+    const kinds: [singular: string, plural: string, values: string[]][] = [
+        ['Experiment', 'Experiments', experimentValues(scanner, experimentName)],
+        ['Page', 'Pages', pageValues(scanner)],
+        ['Event', 'Events', namedQueryEntities(scanner, 'events')],
+        ['Action', 'Actions', namedQueryEntities(scanner, 'actions')],
+        ['Cohort', 'Cohorts', cohortValues(scanner, cohortNames)],
+    ]
+    return kinds
+        .filter(([, , values]) => values.length > 0)
+        .map(([singular, plural, values]) => ({
+            label: pluralize(values.length, singular, plural, false),
+            values,
+        }))
 }
 
 /** The landing step after a goal-based draft: the whole drafted config, ordered by comprehension,
