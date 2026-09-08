@@ -43,8 +43,8 @@ describe('dataModelingLogic', () => {
         logic?.unmount()
     })
 
-    // The Models scene's DagsTab links here with ?dag=<id> to open a specific DAG's graph — a
-    // regression here would silently send that link to the wrong (or persisted) DAG instead.
+    // ?dag=<id> opens a specific DAG's graph; a regression here would silently show the wrong
+    // (or persisted) DAG instead.
     it('selects the DAG from a ?dag= URL param and filters node/edge loads by it', async () => {
         const nodesSpy = jest.spyOn(api.dataModelingNodes, 'list')
         const edgesSpy = jest.spyOn(api.dataModelingEdges, 'list')
