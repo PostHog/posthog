@@ -51,7 +51,7 @@ The alert accepts a target value, an `at least` or `at most` direction, and a ta
 
 The target applies to the insight value at that bucket, not to a sum accumulated between alert creation and the target date. A cumulative business goal must use an insight whose series is already cumulative.
 
-The alert is an early-warning monitor, not a final target-attainment check. It expires without a notification when the target date arrives in the project timezone. The UI makes that expiry behavior explicit before save. No final actual-value evaluation is performed.
+The alert is an early-warning monitor, not a final target-attainment check. It expires without a notification at its first check on or after the target date in the project timezone, and it never evaluates past that date. Weekend, quiet-hours, and snooze skips do not delay that expiry, but the calculation interval does: a monthly alert with a mid-month target stays enabled until its next monthly check. The UI makes that expiry behavior explicit before save. No final actual-value evaluation is performed.
 
 ## Preview and copy
 

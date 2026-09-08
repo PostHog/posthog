@@ -293,7 +293,7 @@ class TestPrepareAlert:
 
         assert result.action == PrepareAction.EVALUATE
 
-    async def _finished_target_alert(self, ateam, target_date: str):
+    async def _finished_target_alert(self, ateam, target_date: str, **alert_kwargs):
         return await _create_alert(
             ateam,
             forecast_config={
@@ -304,6 +304,7 @@ class TestPrepareAlert:
                 "target_direction": "at_least",
                 "target_date": target_date,
             },
+            **alert_kwargs,
         )
 
     async def _assert_finished_cleanly(self, alert) -> None:
@@ -326,6 +327,17 @@ class TestPrepareAlert:
     @freeze_time("2024-06-03T10:00:00Z")
     async def test_target_alert_finishes_cleanly_after_its_date(self, ateam) -> None:
         await self._assert_finished_cleanly(await self._finished_target_alert(ateam, "2024-06-01"))
+
+    @pytest.mark.parametrize(
+        "frozen_now,alert_kwargs",
+        [
+            ("2024-06-03T10:00:00Z", {"snoozed_until": datetime(2024, 7, 1, tzinfo=UTC), "state": AlertState.SNOOZED}),
+            ("2024-06-02T10:00:00Z", {"skip_weekend": True}),
+        ],
+    )
+    async def test_target_alert_finishes_despite_schedule_restrictions(self, ateam, frozen_now, alert_kwargs) -> None:
+        with freeze_time(frozen_now):
+            await self._assert_finished_cleanly(await self._finished_target_alert(ateam, "2024-06-01", **alert_kwargs))
 
     @freeze_time("2024-06-02T10:30:00Z")
     async def test_target_alert_expiry_uses_the_project_timezone(self, ateam) -> None:

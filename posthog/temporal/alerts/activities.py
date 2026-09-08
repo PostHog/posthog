@@ -176,6 +176,14 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_DUE)
 
+        # Runs ahead of the weekend, quiet-hours, and snooze guards. A target alert whose date has
+        # passed is finished, so a schedule restriction must not keep it enabled for another cadence.
+        project_today = datetime.now(UTC).astimezone(ZoneInfo(alert.team.timezone)).date()
+        finished_fields = disable_if_target_date_passed(alert, project_today)
+        if finished_fields:
+            alert.save(update_fields=finished_fields)
+            return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.TARGET_DATE_PASSED)
+
         if skip_because_of_weekend(alert):
             logger.info("Skipping alert check because weekend checking is disabled", alert=alert)
             alert.next_check_at = next_check_time(alert)
@@ -202,12 +210,6 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         try:
             insight = alert.insight
-            project_today = datetime.now(UTC).astimezone(ZoneInfo(alert.team.timezone)).date()
-            finished_fields = disable_if_target_date_passed(alert, project_today)
-            if finished_fields:
-                alert.save(update_fields=finished_fields)
-                return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.TARGET_DATE_PASSED)
-
             with upgrade_insight(insight):
                 if insight.query is None:
                     raise ValueError("Alert's insight has no valid query")
