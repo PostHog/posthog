@@ -89,4 +89,19 @@ describe("usage command", () => {
   it("does not claim prompts that include another visible block", () => {
     expect(isUsageCommand(promptOf("/usage", "for this task"))).toBe(false);
   });
+
+  // The PostHog AI composer sends the resources a person is looking at ahead of what they typed.
+  it.each([
+    ["<posthog_context>\ndashboard 3\n</posthog_context>\n\n/usage", true],
+    [
+      "<posthog_trusted_context>\ninsight 7\n</posthog_trusted_context>\n<posthog_untrusted_context>\nrows\n</posthog_untrusted_context>\n\n/usage",
+      true,
+    ],
+    [
+      "<posthog_context>\ndashboard 3\n</posthog_context>\n\nwhat did I spend",
+      false,
+    ],
+  ])("reads the command after attached context: %s", (text, claimed) => {
+    expect(isUsageCommand(promptOf(text))).toBe(claimed);
+  });
 });

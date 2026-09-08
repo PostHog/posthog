@@ -38,12 +38,29 @@ export function usageCommandConfig(
   };
 }
 
+/**
+ * One `<posthog_context>` / `<posthog_trusted_context>` / `<posthog_untrusted_context>` block.
+ * The PostHog AI composer prefixes the resources a person is looking at as these blocks, so the
+ * command they typed sits after them and an exact match on the whole text would miss it.
+ */
+const CONTEXT_BLOCK =
+  /^\s*<posthog_(trusted_|untrusted_)?context>[\s\S]*?<\/posthog_\1context>\s*/;
+
+function typedCommand(text: string): string {
+  let rest = text;
+  for (let stripped = rest.replace(CONTEXT_BLOCK, ""); stripped !== rest; ) {
+    rest = stripped;
+    stripped = rest.replace(CONTEXT_BLOCK, "");
+  }
+  return rest.trim().toLowerCase();
+}
+
 export function isUsageCommand(params: PromptRequest): boolean {
   const visible = visiblePromptBlocks(params.prompt);
   return (
     visible.length === 1 &&
     visible[0]?.type === "text" &&
-    visible[0].text.trim().toLowerCase() === "/usage"
+    typedCommand(visible[0].text) === "/usage"
   );
 }
 
