@@ -1,0 +1,107 @@
+"""Firecrawl egress telemetry.
+
+Every Firecrawl call funnels through these recorders so request volume lands on one metric set
+whichever subsystem made the call, attributed by the ``source`` label. Firecrawl meters each
+endpoint separately, so the gauges' ``resource`` is the endpoint the observed headers describe.
+"""
+
+from collections.abc import Mapping
+
+import requests
+from prometheus_client import Counter, Gauge
+
+from posthog.egress.observability.observability import (
+    EgressMetrics,
+    EgressObservability,
+    RateLimitSnapshot,
+    default_normalize_endpoint,
+    register_egress_observability,
+    unpack_requests_response,
+)
+
+FIRECRAWL_DOMAIN = "firecrawl"
+
+_metrics = EgressMetrics(
+    request_counter=Counter(
+        "firecrawl_api_requests",
+        "Number of Firecrawl API requests made through the Firecrawl egress client.",
+        labelnames=["account", "method", "endpoint", "status_code", "source"],
+    ),
+    remaining_gauge=Gauge(
+        "firecrawl_api_rate_limit_remaining",
+        "Most recently observed Firecrawl rate limit remaining count by endpoint.",
+        labelnames=["account", "resource"],
+    ),
+    limit_gauge=Gauge(
+        "firecrawl_api_rate_limit_limit",
+        "Most recently observed Firecrawl rate limit by endpoint.",
+        labelnames=["account", "resource"],
+    ),
+    reset_gauge=Gauge(
+        "firecrawl_api_rate_limit_reset_timestamp_seconds",
+        "Most recently observed Firecrawl rate limit reset timestamp by endpoint "
+        "(unset: Firecrawl does not document the encoding of its reset header).",
+        labelnames=["account", "resource"],
+    ),
+)
+
+
+def _float_header(headers: Mapping[str, str] | None, name: str) -> float | None:
+    if headers is None:
+        return None
+    value = headers.get(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_firecrawl_rate_limit(headers: Mapping[str, str] | None, url: str | None) -> RateLimitSnapshot:
+    """Read Firecrawl's rate-limit headers when the response carries them. ``reset_at`` is left unset
+    because Firecrawl does not document whether its reset header is an epoch or a number of seconds,
+    and a gauge that could be either is worse than an unset one. ``resource`` comes from the request
+    url, not a curated endpoint label, because Firecrawl meters each endpoint separately."""
+    return RateLimitSnapshot(
+        resource=default_normalize_endpoint(url),
+        remaining=_float_header(headers, "X-RateLimit-Remaining"),
+        limit=_float_header(headers, "X-RateLimit-Limit"),
+    )
+
+
+firecrawl_egress = EgressObservability(FIRECRAWL_DOMAIN, _metrics, _parse_firecrawl_rate_limit)
+register_egress_observability(firecrawl_egress)
+
+
+def record_firecrawl_api_response(
+    response: requests.Response,
+    *,
+    source: str,
+    method: str | None = None,
+    endpoint: str | None = None,
+) -> None:
+    """Record one Firecrawl API response. The scope is always the instance's single account,
+    because Firecrawl meters per API key and each instance holds exactly one."""
+    primitives = unpack_requests_response(response)
+    firecrawl_egress.record_response(
+        primitives.status_code,
+        primitives.headers,
+        source=source,
+        scope="default",
+        method=method,
+        endpoint=endpoint,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
+    )
+
+
+def record_firecrawl_api_exception(
+    *,
+    source: str,
+    method: str,
+    endpoint: str | None = None,
+    url: str | None = None,
+) -> None:
+    """Record a request that raised before a response (timeout, connection error)."""
+    firecrawl_egress.record_exception(source=source, scope="default", method=method, endpoint=endpoint, url=url)

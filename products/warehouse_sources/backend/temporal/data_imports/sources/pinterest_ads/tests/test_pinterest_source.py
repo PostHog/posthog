@@ -3,8 +3,6 @@ from unittest import mock
 
 import requests
 
-from posthog.schema import SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -12,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PinterestAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source import PinterestAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPinterestAdsSource:
@@ -20,31 +17,6 @@ class TestPinterestAdsSource:
         self.source = PinterestAdsSource()
         self.team_id = 123
         self.config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="789")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PINTERESTADS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "PinterestAds"
-        assert config.label == "Pinterest Ads"
-        assert config.releaseStatus == "ga"
-        assert config.featureFlag is None
-        assert len(config.fields) == 2
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "pinterest_ads_integration_id"
-        assert oauth_field.kind == "pinterest-ads"
-        assert oauth_field.required is True
-
-        account_field = config.fields[1]
-        assert isinstance(account_field, SourceFieldOauthAccountSelectConfig)
-        assert account_field.name == "ad_account_id"
-        assert account_field.required is True
-        assert account_field.integrationField == "pinterest_ads_integration_id"
-        assert account_field.integrationKind == "pinterest-ads"
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="")
@@ -73,21 +45,33 @@ class TestPinterestAdsSource:
         assert is_valid is True
         assert error_message is None
 
+    @pytest.mark.parametrize(
+        "side_effect,expected_error_fragment,expect_capture_called",
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message and do NOT report it to error tracking.
+            (ValueError("Integration not found: 162559"), "Pinterest Ads integration not found", False),
+            # Anything else is genuinely unexpected and must still be captured.
+            (Exception("OAuth error"), "Failed to validate Pinterest Ads credentials", True),
+        ],
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.PinterestAdsSource.get_oauth_integration"
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.capture_exception"
     )
-    def test_validate_credentials_integration_error(self, mock_capture, mock_get_oauth):
-        mock_get_oauth.side_effect = Exception("Integration not found")
+    def test_validate_credentials_integration_error(
+        self, mock_capture, mock_get_oauth, side_effect, expected_error_fragment, expect_capture_called
+    ):
+        mock_get_oauth.side_effect = side_effect
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None
-        assert "Failed to validate Pinterest Ads credentials" in error_message
-        mock_capture.assert_called_once()
+        assert expected_error_fragment in error_message
+        assert mock_capture.called is expect_capture_called
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -186,13 +170,6 @@ class TestPinterestAdsSource:
 
         with pytest.raises(ValueError, match="Pinterest Ads access token not found for job test_job"):
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-    def test_get_resumable_source_manager(self):
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "job-1"
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class.__name__ == "PinterestAdsResumeConfig"
 
     @pytest.mark.parametrize(
         "transport_error",

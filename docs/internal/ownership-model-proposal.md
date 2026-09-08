@@ -119,16 +119,15 @@ This keeps all 68 products at zero migration cost and preserves `hogli product:l
 
 ### Slack derivation: measured, not assumed
 
-Checked every team slug in use against live Slack channels, re-verified 2026-07-15 against the 30 slugs left after the migration:
+Checked every team slug in use against live Slack channels (first pass 2026-07-15). The counts below follow the root `owners.yaml` registry, over the 30 slugs in use:
 
-- 24/30: `#<slug>` exists verbatim, so no entry is needed.
-- 6/30 need an entry in the root `teams:` registry (below):
-  - `clickhouse`, `conversations`, `batch-exports` — these predate the `team-` convention and are the real org slugs; `team-clickhouse` and friends do not exist as GitHub teams, so the slugs cannot be "fixed" and the channel is `#team-<slug>`.
+- 22/30: `#<slug>` exists verbatim, so no entry is needed.
+- 8/30 need an entry in the root `teams:` registry (below):
+  - `ai-research`, `batch-exports`, `clickhouse`, `conversations`, `mcp-analytics`, `platform-ux` — these predate the `team-` convention and are the real org slugs; `team-clickhouse` and friends do not exist as GitHub teams, so the slugs cannot be "fixed" and the channel is `#team-<slug>`.
   - `team-data-stack` → `#group-data-stack`.
-  - `team-posthog-code` → `#team-desktop`, the name the channel was created under.
-  - `logs` → `#team-apm`: the `logs` and `apm` GitHub teams have identical membership, APM ("Logs, Metrics and Traces") having absorbed logs.
+  - `team-posthog-desktop` → `#team-desktop`, the name the channel was created under.
 
-So the derived default is right for 80% of teams and the rest carry one entry each.
+So the derived default is right for most teams and the rest carry one entry each.
 
 Nothing validates that a derived channel actually exists — a wrong or dead channel fails silently.
 An opt-in Slack-API check in `owners:lint`, mirroring the existing opt-in live GitHub-team validation, would close that gap; it is not built.
@@ -136,7 +135,15 @@ An opt-in Slack-API check in `owners:lint`, mirroring the existing opt-in live G
 #### The `teams:` registry (repo-root only)
 
 The channel-to-team mapping is declared **once**, at the root, never per file — a team that owns paths across many directories should not restate its channel in each.
-The **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of team slug to a single `slack` value (a string starting with `#`, or `false` to mean "no channel, don't derive"):
+The **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of team slug to the channels that team declares.
+Every value is a string starting with `#`, or `false` to mean "no channel, don't derive":
+
+- `slack` — where the people are. This is the channel a human is pointed at.
+- `notifications` — where automation posts. It falls back to `slack`, so a team that never separates the two keeps one entry, and `notifications: false` keeps automation out without hiding the team's channel from people.
+
+`notifications` may also be a mapping of producer name to channel, so a team can silence or redirect one bot on its own.
+A producer the mapping does not name falls through to `slack`.
+Only a producer the schema knows may be named, so a typo is a lint error rather than an opt-out that never applies.
 
 ```yaml
 # owners.yaml (repo root only)
@@ -145,9 +152,20 @@ teams:
     slack: '#team-clickhouse'
   team-data-stack:
     slack: '#group-data-stack'
+    notifications: '#group-data-stack-bots'
+  quiet-team:
+    slack: '#team-quiet'
+    notifications: false
+  digest-free-team:
+    slack: '#team-digest-free'
+    notifications:
+      stamphog: false
   some-retired-team:
     slack: false
 ```
+
+A team is registered only when it declares at least one channel, so a slug's presence in the registry means "this repo answered for that team" and nothing more.
+Consumers ask for the purpose they need, which is what keeps a bot's destination out of the channel a human is pointed at.
 
 `teams:` in any non-root `owners.yaml` is a schema error, and `product.yaml` aliases never carry it.
 There is no per-path or per-file Slack override — the registry (plus the derived default) is the only way a channel is set.

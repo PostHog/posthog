@@ -32,6 +32,7 @@ import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/front
 import type { CountedPaginatedResponse } from '../../../lib/api'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from '../editor/IncrementalConfigFields'
 import { DEFAULT_MATERIALIZE_SYNC_FREQUENCY, dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+import { latestSuccessfulSyncAt } from './materializationJobUtils'
 
 const REFRESH_INTERVAL = 10000
 const DEFAULT_JOBS_PAGE_SIZE = 10
@@ -52,6 +53,7 @@ export interface materializationJobsLogicValues {
     incrementalDraft: IncrementalConfigDraft
     incrementalDraftTouched: boolean
     initialSyncFrequency: DataModelingSyncInterval
+    lastSuccessfulSyncAt: string | null
     resumingMaterialization: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryLoading: boolean
@@ -175,6 +177,7 @@ export interface materializationJobsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasMoreJobsToLoad: (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => boolean
+        lastSuccessfulSyncAt: (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => string | null
     }
 }
 
@@ -329,6 +332,11 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         hasMoreJobsToLoad: [
             (s) => [s.dataModelingJobs],
             (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => !!dataModelingJobs?.next,
+        ],
+        lastSuccessfulSyncAt: [
+            (s) => [s.dataModelingJobs],
+            (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) =>
+                latestSuccessfulSyncAt(dataModelingJobs?.results),
         ],
     }),
     afterMount(({ actions, props }) => {

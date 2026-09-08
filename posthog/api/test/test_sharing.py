@@ -15,6 +15,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.test import APIClient
 
 from posthog.api.sharing import (
     SHARING_RESOURCE_ACCESS_CHECKS,
@@ -24,6 +25,7 @@ from posthog.api.sharing import (
     shared_url_as_png,
 )
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.filters.filter import Filter
@@ -31,6 +33,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -40,8 +43,6 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def mock_exporter_template(test_func):
@@ -1445,7 +1446,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         cls.insight = Insight.objects.create(
             team=cls.team,
             name="Test Insight",
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         cls.sharing_config = SharingConfiguration.objects.create(
             team=cls.team,
@@ -1582,14 +1583,14 @@ class TestSharedAdhocQueryExport(APIBaseTest):
     """The /exporter page for an insight-less PNG asset (export_context.source) must inline the
     pre-computed query result — the anonymous page can't authenticate against the query API."""
 
-    _SOURCE_QUERY = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
+    _SOURCE_QUERY = {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}}
 
     def _create_asset(self) -> ExportedAsset:
         return ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
             created_by=self.user,
-            export_context={"source": self._SOURCE_QUERY},
+            export_context={"source": self._SOURCE_QUERY, "title": "Weekly signups"},
         )
 
     @patch("posthog.api.sharing.process_query_dict")
@@ -1605,6 +1606,7 @@ class TestSharedAdhocQueryExport(APIBaseTest):
         exported_data = json.loads(mock_render_template.call_args[1]["context"]["exported_data"])
         assert exported_data["query"] == self._SOURCE_QUERY
         assert exported_data["query_results"] == {"results": [{"count": 42}], "cache_key": "abc"}
+        assert exported_data["query_title"] == "Weekly signups"
         # The read must be attributed to the export owner so warehouse access control resolves.
         assert mock_process_query.call_args[1]["user"] == self.user
 
@@ -1626,6 +1628,75 @@ class TestSharedAdhocQueryExport(APIBaseTest):
         assert response.status_code == 404
 
 
+class TestExportRendererTokenFlow(APIBaseTest):
+    @staticmethod
+    def _exported_data(response: HttpResponse) -> dict:
+        html = response.content.decode()
+        marker = '<script id="posthog-exported-data" type="application/json">'
+        start = html.index(marker) + len(marker)
+        end = html.index("</script>", start)
+        encoded_data = json.loads(html[start:end])
+        return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
+
+    @mock_exporter_template
+    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(self) -> None:
+        export_context = {
+            "heatmap_url": "https://example.com",
+            "heatmap_data_url": "https://example.com",
+            "heatmap_type": "click",
+            "width": 1400,
+            "common_filters": {"date_from": "-7d"},
+            "heatmap_filters": {"type": "click", "aggregation": "total_count", "viewportAccuracy": 0.9},
+        }
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context=export_context,
+        )
+
+        with patch("products.exports.backend.url_security.is_url_allowed", return_value=(True, None)):
+            response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+
+        assert response.status_code == status.HTTP_200_OK
+        renderer_token = self._exported_data(response)["exportToken"]
+        claims = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)
+        assert claims["id"] == self.user.id
+        assert claims["team_id"] == self.team.id
+        assert claims["exported_asset_id"] == asset.id
+        assert claims["scopes"] == ["heatmap:read"]
+
+        heatmap_response = APIClient().get(
+            f"/api/environments/{self.team.id}/heatmaps",
+            {
+                "type": "click",
+                "date_from": "-7d",
+                "url_exact": "https://example.com",
+                "viewport_width_min": "1260",
+                "viewport_width_max": "1540",
+                "aggregation": "total_count",
+                "limit": "0",
+            },
+            headers={"authorization": f"Bearer {renderer_token}"},
+        )
+        assert heatmap_response.status_code == status.HTTP_200_OK
+
+    def test_exporter_page_rejects_stored_cross_origin_screenshot_asset(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.com/collect",
+                "heatmap_data_url": "https://example.com/page",
+                "heatmap_type": "screenshot",
+            },
+        )
+
+        response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):
@@ -1636,13 +1707,13 @@ class TestSharedCohortInlining(APIBaseTest):
 
         insight = Insight.objects.create(
             team=self.team,
-            name="Trend by cohort",
+            name="Insight by cohort",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort.id]},
+                    "kind": "EventsQuery",
+                    "select": ["*"],
+                    "properties": [{"type": "cohort", "key": "id", "value": cohort.id}],
                 },
             },
         )
@@ -1660,13 +1731,7 @@ class TestSharedCohortInlining(APIBaseTest):
         insight = Insight.objects.create(
             team=self.team,
             name="No cohorts",
-            query={
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
 
@@ -1686,11 +1751,11 @@ class TestSharedCohortInlining(APIBaseTest):
         insight_a = Insight.objects.create(
             team=self.team,
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_a.id]},
+                    "kind": "EventsQuery",
+                    "select": ["*"],
+                    "properties": [{"type": "cohort", "key": "id", "value": cohort_a.id}],
                 },
             },
         )
@@ -1765,13 +1830,18 @@ class TestSharedCohortInlining(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
         insight = Insight.objects.create(
             team=self.team,
-            name="Pageviews",
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            name="Event count",
+            # Alerts only render for an alertable insight kind, so the empty-alerts assertion
+            # below needs one — otherwise it holds for the wrong reason.
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+            },
             created_by=self.user,
             last_modified_by=self.user,
         )
         AlertConfiguration.objects.create(
-            team=self.team, insight=insight, name="High pageviews", enabled=True, created_by=self.user
+            team=self.team, insight=insight, name="High event count", enabled=True, created_by=self.user
         )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight)
         text = Text.objects.create(team=self.team, body="Read me", created_by=self.user, last_modified_by=self.user)
@@ -2015,7 +2085,6 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
     def _deny_warehouse(self) -> None:
-
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
     def _enable_sharing(self, kind: str):
@@ -2066,7 +2135,6 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.json()["enabled"] is True
 
     def test_system_table_denial_blocks_publishing(self):
-
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
             "kind": "DataTableNode",
@@ -2114,7 +2182,6 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand([("non_materialized",), ("materialized",)])
     def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
-
         inner = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="restricted_inner",
@@ -2252,8 +2319,22 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
         }
 
-    def test_query_update_allowed_when_not_shared(self):
+    @parameterized.expand([("no_share",), ("deleted_tile",)])
+    def test_query_update_allowed_when_not_shared(self, coverage: str):
         self._deny_editor()
+        if coverage == "deleted_tile":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            # The shared dashboard also carries a live tile for another insight. A share lookup
+            # that matched the deleted tile and the live tile as two separate rows would report
+            # this insight as shared.
+            other_insight = Insight.objects.create(
+                team=self.team,
+                query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2 AS two"}},
+                created_by=self.user,
+            )
+            DashboardTile.objects.create(dashboard=dashboard, insight=other_insight)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight, deleted=True)
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
 
         response = self._patch_insight_query()
 

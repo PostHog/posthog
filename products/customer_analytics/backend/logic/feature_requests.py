@@ -4,8 +4,22 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Lower
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    F,
+    IntegerField,
+    Min,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -25,7 +39,7 @@ from products.customer_analytics.backend.models import (
 )
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class _FeatureRequestWithPermissionLinks(Protocol):
@@ -140,11 +154,19 @@ def _to_feature_request_view(
         can_update=_get_feature_request_can_update(feature_request, user_access_control),
         account=legacy_account,
         account_links=account_links,
+        evidence_count=sum(link.evidence_count for link in account_links),
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
         created_by=feature_request.created_by_id,
         updated_by=feature_request.updated_by_id,
         created_at=feature_request.created_at,
         updated_at=feature_request.updated_at,
+    )
+
+
+def _accessible_account_ids(team_id: int, user_access_control: "UserAccessControl") -> QuerySet[Account]:
+    return cast(
+        QuerySet[Account],
+        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id)).values("id"),
     )
 
 
@@ -154,9 +176,7 @@ def _feature_request_queryset(
     *,
     include_evidence: bool = True,
 ) -> QuerySet[FeatureRequest]:
-    accessible_account_ids = user_access_control.filter_queryset_by_access_level(
-        Account.objects.for_team(team_id)
-    ).values("id")
+    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
     visible_links = (
         FeatureRequestAccountLink.objects.for_team(team_id)
         .filter(account_id__in=accessible_account_ids, unlinked_at__isnull=True)
@@ -199,15 +219,60 @@ def _apply_priority_ordering(queryset: QuerySet[FeatureRequest], ordering: str) 
     return queryset.alias(priority_order=priority_order).order_by("priority_order", "id")
 
 
-def _apply_ordering(queryset: QuerySet[FeatureRequest], ordering: str) -> QuerySet[FeatureRequest]:
+def _order_by_annotation(
+    queryset: QuerySet[FeatureRequest], annotation: str, direction: str
+) -> QuerySet[FeatureRequest]:
+    ordering = F(annotation).desc(nulls_last=True) if direction else F(annotation).asc(nulls_last=True)
+    return queryset.order_by(ordering, f"{direction}id")
+
+
+def _apply_ordering(
+    queryset: QuerySet[FeatureRequest], ordering: str, accessible_account_ids: QuerySet[Account]
+) -> QuerySet[FeatureRequest]:
     if ordering in {"priority", "-priority"}:
         return _apply_priority_ordering(queryset, ordering)
     if ordering == "title":
         return queryset.order_by(Lower("title"), "id")
     if ordering == "-title":
         return queryset.order_by(Lower("title").desc(), "-id")
+
     direction = "-" if ordering.startswith("-") else ""
     field = ordering.removeprefix("-")
+    if field == "account":
+        queryset = queryset.annotate(
+            _ordering_account=Min(
+                Lower("account_links__account__name"),
+                filter=Q(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True),
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_account", direction)
+    if field == "product_area":
+        queryset = queryset.annotate(_ordering_product_area=Min(Lower("product_area_links__product_area__name")))
+        return _order_by_annotation(queryset, "_ordering_product_area", direction)
+    if field == "evidence_count":
+        queryset = queryset.annotate(
+            _ordering_evidence_count=Count(
+                "account_links__evidence",
+                filter=Q(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True),
+                distinct=True,
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_evidence_count", direction)
+    if field == "created_by":
+        creator_name = (
+            User.objects.filter(pk=OuterRef("created_by_id"))
+            .annotate(
+                display_name=Coalesce(
+                    NullIf(Trim(Concat("first_name", Value(" "), "last_name")), Value("")),
+                    "email",
+                    output_field=CharField(),
+                )
+            )
+            .order_by()
+            .values("display_name")[:1]
+        )
+        queryset = queryset.annotate(_ordering_created_by=Lower(Subquery(creator_name, output_field=CharField())))
+        return _order_by_annotation(queryset, "_ordering_created_by", direction)
     if field == "updated_at":
         return queryset.order_by(ordering, f"{direction}created_at", f"{direction}id")
     return queryset.order_by(ordering, f"{direction}id")
@@ -237,6 +302,8 @@ def _apply_filters(
             account_links__account_id__in=account_filter_ids,
             account_links__unlinked_at__isnull=True,
         )
+    if filters.created_by_ids:
+        queryset = queryset.filter(created_by_id__in=filters.created_by_ids)
     if filters.archive_state == "active":
         queryset = queryset.filter(archived_at__isnull=True)
     elif filters.archive_state == "archived":
@@ -421,6 +488,7 @@ def _ensure_initial_history(
     *,
     accounts: list[Account] | None = None,
     product_areas: list[FeatureRequestProductArea] | None = None,
+    evidence: FeatureRequestEvidence | None = None,
 ) -> None:
     if accounts is None:
         accounts = list(
@@ -435,21 +503,30 @@ def _ensure_initial_history(
                 request_links__feature_request=feature_request
             )
         )
+    changes: list[contracts.FeatureRequestHistoryChange] = [
+        {"field": "status", "before": None, "after": feature_request.status},
+        {"field": "priority", "before": None, "after": feature_request.priority},
+        {"field": "accounts", "before": [], "after": _account_snapshots(accounts)},
+        {
+            "field": "product_areas",
+            "before": [],
+            "after": _product_area_snapshots(product_areas),
+        },
+    ]
+    if evidence is not None:
+        changes.append(
+            {
+                "field": "evidence",
+                "before": None,
+                "after": _evidence_snapshot(evidence),
+            }
+        )
     FeatureRequestHistory.objects.for_team(feature_request.team_id).get_or_create(
         team_id=feature_request.team_id,
         feature_request=feature_request,
         is_initial=True,
         defaults={
-            "changes": [
-                {"field": "status", "before": None, "after": feature_request.status},
-                {"field": "priority", "before": None, "after": feature_request.priority},
-                {"field": "accounts", "before": [], "after": _account_snapshots(accounts)},
-                {
-                    "field": "product_areas",
-                    "before": [],
-                    "after": _product_area_snapshots(product_areas),
-                },
-            ],
+            "changes": changes,
             "source": FeatureRequestHistorySource.MANUAL,
             "actor_id": feature_request.created_by_id,
             "changed_at": feature_request.created_at,
@@ -538,12 +615,13 @@ def list_feature_requests(
             .filter(id__in=filters.account_ids)
             .values_list("id", flat=True)
         )
+    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
     queryset = _apply_filters(
         _feature_request_queryset(team_id, user_access_control, include_evidence=False),
         filters,
         account_filter_ids,
     )
-    queryset = _apply_ordering(queryset, filters.ordering)
+    queryset = _apply_ordering(queryset, filters.ordering, accessible_account_ids)
     total_count = queryset.count()
     return [
         _to_feature_request_view(item, user_access_control=user_access_control, include_evidence=False)
@@ -576,6 +654,10 @@ def create_feature_request(
     if not input.product_area_ids:
         raise FeatureRequestValidationError("product_area_ids", "Select at least one product area.")
 
+    evidence_input = input.evidence
+    validated_evidence = (
+        _validate_evidence(team_id=team_id, input=evidence_input) if evidence_input is not None else None
+    )
     existing = FeatureRequest.objects.for_team(team_id).filter(idempotency_key=input.idempotency_key).first()
     if existing is not None:
         accessible_existing = _feature_request_queryset(team_id, user_access_control).filter(id=existing.id).first()
@@ -613,11 +695,25 @@ def create_feature_request(
             },
         )
         if created:
-            FeatureRequestAccountLink.objects.for_team(team_id).create(
+            account_link = FeatureRequestAccountLink.objects.for_team(team_id).create(
                 team_id=team_id,
                 feature_request=feature_request,
                 account=accessible_account,
             )
+            initial_evidence = None
+            if validated_evidence is not None and evidence_input is not None:
+                initial_evidence = FeatureRequestEvidence.objects.for_team(team_id).create(
+                    team_id=team_id,
+                    account_link=account_link,
+                    summary=validated_evidence.summary,
+                    customer_quote=validated_evidence.customer_quote,
+                    source=validated_evidence.source,
+                    source_url=validated_evidence.source_url,
+                    requested_on=evidence_input.requested_on,
+                    image_ids=list(validated_evidence.image_ids),
+                    created_by_id=actor_id,
+                    updated_by_id=actor_id,
+                )
             FeatureRequestProductAreaLink.objects.for_team(team_id).bulk_create(
                 [
                     FeatureRequestProductAreaLink(
@@ -632,6 +728,7 @@ def create_feature_request(
                 feature_request,
                 accounts=[accessible_account],
                 product_areas=product_areas,
+                evidence=initial_evidence,
             )
 
     return contracts.FeatureRequestCreateOutcome(
@@ -827,8 +924,17 @@ def _validate_evidence(
         if requested_image_ids is None
         else _validate_image_ids(team_id=team_id, image_ids=requested_image_ids)
     )
-    if not summary and not customer_quote and not source_url and not image_ids:
-        raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, source URL, or image.")
+    if (
+        not summary
+        and not customer_quote
+        and not source_url
+        and not image_ids
+        and input.requested_on is None
+        and input.evidence_source == "conversation"
+    ):
+        raise FeatureRequestValidationError(
+            "evidence", "Enter a summary, customer quote, source URL, image, request date, or change the source."
+        )
     if source_url:
         parsed_url = urlparse(source_url)
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:

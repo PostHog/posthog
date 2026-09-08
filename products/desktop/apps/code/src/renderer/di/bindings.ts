@@ -39,6 +39,10 @@ import {
   EXTERNAL_APPS_WORKSPACE_CLIENT,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import {
+  FILE_READ_CLIENT,
+  type FileReadClient,
+} from "@posthog/core/files/identifiers";
 import type {
   GitInteractionEffects,
   GitInteractionService,
@@ -93,26 +97,14 @@ import {
   type ResolveSkillBundleDependencies,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffDialog,
-  type LocalHandoffHost,
-  type LocalHandoffNotifier,
-  type LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import type {
-  FileReadClient,
   GithubPrTitleClient,
   TitleGeneratorLogger,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
 import {
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
@@ -161,6 +153,10 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
+import {
+  DISK_CACHE_IMAGES,
+  type IDiskCacheImages,
+} from "@posthog/platform/disk-cache";
 import {
   HOST_CAPABILITIES,
   type HostCapabilities,
@@ -326,10 +322,6 @@ export interface RendererBindings {
   [TASK_SERVICE]: TaskService;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
   [SESSION_SERVICE]: SessionService;
-  [LOCAL_HANDOFF_HOST]: LocalHandoffHost;
-  [LOCAL_HANDOFF_DIALOG]: LocalHandoffDialog;
-  [LOCAL_HANDOFF_NOTIFIER]: LocalHandoffNotifier;
-  [LOCAL_HANDOFF_SERVICE]: LocalHandoffService;
   [GIT_WRITE_CLIENT]: IGitWriteClient;
   [GIT_INTERACTION_EFFECTS]: GitInteractionEffects;
   [GIT_INTERACTION_SERVICE]: GitInteractionService;
@@ -352,7 +344,7 @@ export interface RendererBindings {
   [CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES]: ResolveSkillBundleDependencies;
   [CLOUD_ARTIFACT_READ_FILE_AS_BASE64]: ReadFileAsBase64;
   [LLM_GATEWAY_SERVICE]: LlmGatewayService;
-  [TITLE_GENERATOR_FILE_READ_CLIENT]: FileReadClient;
+  [FILE_READ_CLIENT]: FileReadClient;
   [TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT]: GithubPrTitleClient;
   [TITLE_GENERATOR_LOGGER]: TitleGeneratorLogger;
 
@@ -387,6 +379,7 @@ export interface RendererBindings {
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;
   [SETUP_STORE]: ISetupStore;
   [HOST_CAPABILITIES]: HostCapabilities;
+  [DISK_CACHE_IMAGES]: IDiskCacheImages;
 
   // --- desktop-contributions.ts ---
   [CONTRIBUTION]: Contribution;

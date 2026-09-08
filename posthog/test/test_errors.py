@@ -44,6 +44,11 @@ class TestWrapClickhouseQueryError:
             # fixed user_safe string. The assertion guards against a revert to user_safe=True, which
             # would pass the raw ClickHouse text (and the source value) straight through.
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
+            (
+                70,
+                "CANNOT_CONVERT_TYPE",
+                "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
+            ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
         ]
     )
@@ -65,7 +70,6 @@ class TestWrapClickhouseQueryError:
             # These parse/convert codes embed the failing data value in the CH message, so they stay
             # internal to avoid leaking source values on public shared insights.
             (6, "CANNOT_PARSE_TEXT"),
-            (70, "CANNOT_CONVERT_TYPE"),
             (72, "CANNOT_PARSE_NUMBER"),
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),

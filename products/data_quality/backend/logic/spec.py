@@ -62,6 +62,13 @@ class CheckTypeSpec(ABC):
             raise CheckConfigError(f"A {self.type_name} check needs a column_name.")
         return self.parse_config(config)
 
+    def coerce_to_column(self, config: CheckConfig, column_type: str | None) -> CheckConfig:
+        """Normalize config values against the column's type. Identity for types that hold none.
+
+        ``column_type`` is the raw ClickHouse type, or None when it could not be established.
+        """
+        return config
+
     def related_subject_ref(self, config: CheckConfig) -> tuple[str, str] | None:
         """The second subject this check needs resolved before it can compile, if any."""
         return None

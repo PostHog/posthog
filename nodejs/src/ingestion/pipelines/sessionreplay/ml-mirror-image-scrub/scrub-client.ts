@@ -6,14 +6,23 @@ import { ImageScrubConsumerMetrics } from './metrics'
 
 /** The timeout's own message, matched on rather than duplicated, so the reason label cannot drift. */
 const REQUEST_TIMED_OUT = 'scrub request timed out'
+const REACHABILITY_RETRY_MS = 1_000
 
 /**
  * Why a single attempt did not come back with bytes.
  *
- * `rejected` is kept apart from `transport` because only it means the sidecar took the image,
- * looked at it, and could not produce bytes. A refused or reset socket says nothing about content.
+ * `rejected` is kept apart from the socket reasons because only it means the sidecar took the image,
+ * looked at it, and could not produce bytes. A refused or dropped socket says nothing about content.
+ *
+ * The socket reasons are split by what they say about the sidecar. `refused` means nothing is
+ * listening on the sidecar port. `reset` is a connection that was accepted and then dropped before
+ * a reply, which the sidecar does to its idle keep-alive sockets on every shutdown, so it is expected
+ * on a rollout or a scale-down and does not mean the sidecar is down. `transport` is every other
+ * socket failure, including one that carries no error code, and is deliberately not folded into
+ * `reset`: an unrecognised failure has to land on a label the unreachable alert selects, not on the
+ * one the runbook tells the on-call to expect. The alert selects `refused` and `transport`.
  */
-export type ScrubWaitReason = 'busy' | 'timeout' | 'transport' | 'rejected'
+export type ScrubWaitReason = 'busy' | 'timeout' | 'refused' | 'reset' | 'transport' | 'rejected'
 
 /** Raised only when the caller hangs up, which is the one condition that stops the wait. */
 export class ScrubAborted extends Error {}
@@ -28,7 +37,14 @@ export class ScrubContractError extends Error {}
 export class ScrubPoisoned extends Error {
     constructor(
         message: string,
-        readonly detail: { reason: ScrubWaitReason; lastError: string; attempts: number; waitedMs: number }
+        readonly detail: {
+            reason: ScrubWaitReason
+            lastError: string
+            attempts: number
+            waitedMs: number
+            elapsedMs: number
+            rejectedMs: number
+        }
     ) {
         super(message)
     }
@@ -66,7 +82,7 @@ const POISON_MIN_FAILURES = 12
 export const POISON_MIN_OTHER_SUCCESSES = 3
 
 /**
- * Accumulated backoff after which a sidecar that keeps answering is taken at its word.
+ * Time spent on rejected requests and their backoffs before a sidecar is taken at its word.
  *
  * The success test cannot be satisfied when nothing else is succeeding, and the images in a batch
  * are chosen by whoever produced them: fill one with content the sidecar rejects and no peer is left
@@ -77,14 +93,15 @@ export const POISON_MIN_OTHER_SUCCESSES = 3
  * constraint rather than a preference. A batch cannot return while one of its images is in flight,
  * so a threshold above the lease can never be reached: the group fences the pod first, the partition
  * moves, and its new owner repeats the same work and is fenced in turn. The gate would be dead code
- * and the images would circle the fleet. This counts backoff only, and real elapsed time is longer,
- * so the margin below the lease has to be generous rather than exact.
+ * and the images would circle the fleet. Request time counts because a wedged worker consumes most
+ * of the lease before each backoff starts. Busy, timeout, and socket intervals stay outside this
+ * budget because they do not blame the image.
  *
  * The trade is deliberate. A sidecar broken for this long parks images rather than holding them,
  * which keeps every byte, is loud in the dead-letter counter, and is replayable, against a silent
  * stall that holds a shared partition hostage and moves nothing.
  */
-export const POISON_MAX_WAITED_MS = 120_000
+export const POISON_MAX_REJECTED_MS = 120_000
 
 const BACKOFF_BASE_MS = 100
 /**
@@ -93,12 +110,14 @@ const BACKOFF_BASE_MS = 100
  * A 503 is the sidecar stating it is full, so backing off hard is the point: at the short cap eight
  * in-flight images per pod keep up a steady stream of re-posts against something already shedding,
  * which is load rather than backpressure and slows the recovery it is waiting for. A refused socket
- * is different, because the ordinary cause is the sidecar still starting up in the same pod, and
- * waiting half a minute to notice it came up is a needless stall.
+ * is different, because the ordinary cause is the sidecar container restarting in the same pod and
+ * reloading its models, and waiting half a minute to notice it came back is a needless stall.
  */
 const BACKOFF_MAX_MS: Record<ScrubWaitReason, number> = {
     busy: 30_000,
     timeout: 5_000,
+    refused: 5_000,
+    reset: 5_000,
     transport: 5_000,
     // The sidecar answered, so it is neither full nor unreachable, and re-asking quickly costs it a
     // whole scrub attempt each time. Backed off like a shed request rather than like a lost socket.
@@ -145,6 +164,17 @@ function isWaitable(status: number): boolean {
     return status >= 500 || status === 408 || status === 429
 }
 
+/** The codes Node reports when the peer closes a connection it had accepted. Nothing else may read as a benign reset. */
+const RESET_CODES = new Set(['ECONNRESET', 'EPIPE', 'ECONNABORTED'])
+
+export function socketWaitReason(error: unknown): ScrubWaitReason {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code === 'ECONNREFUSED') {
+        return 'refused'
+    }
+    return code !== undefined && RESET_CODES.has(code) ? 'reset' : 'transport'
+}
+
 export class ScrubClient {
     private readonly url: URL
     /**
@@ -168,9 +198,23 @@ export class ScrubClient {
         // minute of a process that has already finished shutting down.
         private readonly sleep: (ms: number) => Promise<void> = (ms) =>
             new Promise((resolve) => setTimeout(resolve, ms).unref()),
-        private readonly random: () => number = Math.random
+        private readonly random: () => number = Math.random,
+        private readonly now: () => number = () => performance.now()
     ) {
         this.url = new URL('/scrub', baseUrl)
+    }
+
+    public async waitUntilReachable(
+        sleepBeforeRetry: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    ): Promise<void> {
+        for (;;) {
+            try {
+                await this.probe()
+                return
+            } catch {
+                await sleepBeforeRetry(REACHABILITY_RETRY_MS)
+            }
+        }
     }
 
     /**
@@ -187,7 +231,9 @@ export class ScrubClient {
      * The caller hanging up raises [[ScrubAborted]], which belongs to shutdown rather than to load.
      */
     public async scrub(bytes: Buffer, signal?: AbortSignal, ref?: string): Promise<Buffer | null> {
+        const startedAtMs = this.now()
         let waitedMs = 0
+        let rejectedMs = 0
         let stuckReports = 0
         let blamableFailures = 0
         const successesAtStart = this.successes
@@ -197,6 +243,7 @@ export class ScrubClient {
             }
             let reason: ScrubWaitReason
             let detail: string
+            const attemptStartedAtMs = this.now()
             try {
                 const { status, body } = await this.post(bytes, signal)
                 if (status === 200 && body.length > 0) {
@@ -219,10 +266,10 @@ export class ScrubClient {
                 if (error instanceof ScrubAborted || error instanceof ScrubContractError) {
                     throw error
                 }
-                // Refused, reset, or destroyed by the request timeout. None of them say anything
+                // Refused, dropped, or destroyed by the request timeout. None of them say anything
                 // about this image, and none of them are fixed by dropping it.
                 detail = (error as Error)?.message ?? String(error)
-                reason = detail === REQUEST_TIMED_OUT ? 'timeout' : 'transport'
+                reason = detail === REQUEST_TIMED_OUT ? 'timeout' : socketWaitReason(error)
             }
             if (signal?.aborted) {
                 throw new ScrubAborted('scrub batch aborted')
@@ -235,19 +282,21 @@ export class ScrubClient {
             // sidecar being unreachable, which is true of every image at once.
             if (reason === 'rejected') {
                 blamableFailures += 1
+                rejectedMs += this.now() - attemptStartedAtMs
             }
             const sidecarProvenHealthy = this.successes - successesAtStart >= POISON_MIN_OTHER_SUCCESSES
-            const waitedTooLong = waitedMs >= POISON_MAX_WAITED_MS
+            const rejectedTooLong = reason === 'rejected' && rejectedMs >= POISON_MAX_REJECTED_MS
             if (
                 this.deadLetters &&
-                blamableFailures >= POISON_MIN_FAILURES &&
-                (sidecarProvenHealthy || waitedTooLong)
+                ((blamableFailures >= POISON_MIN_FAILURES && sidecarProvenHealthy) || rejectedTooLong)
             ) {
                 throw new ScrubPoisoned(`sidecar cannot process this image: ${detail}`, {
                     reason,
                     lastError: detail,
                     attempts: attempt + 1,
                     waitedMs,
+                    elapsedMs: this.now() - startedAtMs,
+                    rejectedMs,
                 })
             }
             const delayMs = backoffMs(attempt, reason, this.random)
@@ -266,10 +315,15 @@ export class ScrubClient {
                     detail,
                     attempts: attempt + 1,
                     waitedMs,
+                    elapsedMs: this.now() - startedAtMs,
                     bytes: bytes.length,
                 })
             }
+            const waitStartedAtMs = this.now()
             await this.waitOrAbort(delayMs, signal)
+            if (reason === 'rejected') {
+                rejectedMs += this.now() - waitStartedAtMs
+            }
         }
     }
 
@@ -324,6 +378,18 @@ export class ScrubClient {
                 }
             }
             req.end(bytes)
+        })
+    }
+
+    private probe(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const req = request(this.url, { method: 'GET' }, (res) => {
+                res.resume()
+                resolve()
+            })
+            req.setTimeout(this.timeoutMs, () => req.destroy(new Error(REQUEST_TIMED_OUT)))
+            req.on('error', reject)
+            req.end()
         })
     }
 }

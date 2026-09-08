@@ -78,7 +78,8 @@ def _format_tools_list(tools_list: list[Any]) -> str:
 
             # Build function signature from schema
             signature = f"{name}("
-            if schema and isinstance(schema, dict) and "properties" in schema:
+            # SDKs record non-object `properties`, which crashes `.items()` below.
+            if isinstance(schema, dict) and isinstance(schema.get("properties"), dict):
                 properties = schema["properties"]
                 required = schema.get("required", [])
                 params: list[str] = []
@@ -141,7 +142,7 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
     if len(tools_list) == 0:
         return lines
 
-    options = options or {}  # ty: ignore[invalid-assignment]
+    options = options or {}
     include_markers = options.get("include_markers", True)
     collapse_threshold: int = options.get("tools_collapse_threshold", DEFAULT_TOOLS_COLLAPSE_THRESHOLD)  # type: ignore[assignment]
 

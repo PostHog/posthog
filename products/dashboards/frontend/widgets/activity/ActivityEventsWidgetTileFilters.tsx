@@ -97,7 +97,7 @@ export function ActivityEventsWidgetTileFilters({
                 disabled={!canUpdate}
                 placeholder="All events"
                 onChange={(value) => {
-                    void applyEventName(value)
+                    void applyEventName(value === '' ? null : value)
                 }}
             />
             {canUpdate && (

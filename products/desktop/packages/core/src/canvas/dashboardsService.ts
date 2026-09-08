@@ -8,6 +8,7 @@ import {
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasCreator,
   CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
@@ -47,12 +48,7 @@ interface ApiCanvas {
   pinned_at: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
-  created_by?: {
-    uuid: string;
-    first_name?: string | null;
-    last_name?: string | null;
-    email?: string | null;
-  } | null;
+  created_by?: CanvasCreator | null;
   created_at: string;
   updated_at: string;
 }
@@ -106,6 +102,7 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     generationTaskId: api.generation_task_id,
     createdBy: creatorLabel(api.created_by),
     createdByUuid: api.created_by?.uuid,
+    createdByUser: api.created_by ?? undefined,
     createdAt: toEpoch(api.created_at) ?? 0,
     updatedAt: toEpoch(api.updated_at) ?? 0,
     pinnedAt: toEpoch(api.pinned_at),
@@ -181,6 +178,15 @@ export class DashboardsService {
       { limit: 200 },
     );
     return rows.map(toRecord);
+  }
+
+  async listAll(): Promise<DashboardRecord[]> {
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      "canvases/",
+      "list all canvases",
+      { limit: 500 },
+    );
+    return rows.map(toRecord).filter((record) => record.kind !== "component");
   }
 
   async create(input: {
@@ -329,6 +335,14 @@ export class DashboardsService {
   // Pin (or unpin) a canvas to its channel (shared across users).
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord> {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
+  }
+
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord> {
+    return this.patch(
+      input.id,
+      { channel_id: input.channelId },
+      "file canvas to space",
+    );
   }
 
   // File a rendering error in the canvas's authoring-task thread (the server

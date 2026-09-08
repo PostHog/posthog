@@ -8,7 +8,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import get_request_analytics_properties
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
-from posthog.rbac.user_access_control import UserAccessControlError
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 
 class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

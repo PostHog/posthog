@@ -12,9 +12,13 @@ import type {
     DataQualityCheckApi,
     DataQualityCheckRunApi,
     DataQualityCheckTypeApi,
+    DataQualityChecksListParams,
+    DataQualityRunRequestApi,
+    DataQualityRunsListParams,
     DataQualitySubjectHealthApi,
     DataQualitySuiteRunApi,
     PaginatedDataQualityCheckListApi,
+    PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
     PatchedDataQualityCheckApi,
     WarehouseSavedQueriesCheckSuiteRunsListParams,
@@ -39,6 +43,133 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getDataQualityChecksListUrl = (projectId: string, params?: DataQualityChecksListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_quality_checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_quality_checks/`
+}
+
+/**
+ * Every check in the project, and the health of every subject that has one.
+ *
+ * The per-subject surfaces answer "what is wrong with this table". This answers "what is wrong
+ * across the project", which they cannot: each is nested under one parent. Read-only -- authoring
+ * still happens against the subject that owns the check.
+ */
+export const dataQualityChecksList = async (
+    projectId: string,
+    params?: DataQualityChecksListParams,
+    options?: RequestInit
+): Promise<PaginatedDataQualityOverviewCheckListApi> => {
+    return apiMutator<PaginatedDataQualityOverviewCheckListApi>(getDataQualityChecksListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataQualityChecksHealthListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_checks/health/`
+}
+
+/**
+ * Health rollup for every table and view in the project that has checks.
+ */
+export const dataQualityChecksHealthList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualitySubjectHealthApi[]> => {
+    return apiMutator<DataQualitySubjectHealthApi[]>(getDataQualityChecksHealthListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataQualityRunsListUrl = (projectId: string, params?: DataQualityRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_quality_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_quality_runs/`
+}
+
+/**
+ * Project-wide check runs: start one over a selection, and read every run the project has had.
+ *
+ * The per-subject surfaces only serve runs scoped to their own subject, so this is where a sweep
+ * across several subjects -- a manual project-wide run, a materialization, a source sync -- is
+ * readable. Scoped to `warehouse_objects` because it spans tables and views at once.
+ */
+export const dataQualityRunsList = async (
+    projectId: string,
+    params?: DataQualityRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataQualitySuiteRunListApi> => {
+    return apiMutator<PaginatedDataQualitySuiteRunListApi>(getDataQualityRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataQualityRunsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_runs/`
+}
+
+/**
+ * Run the named checks now, or every enabled check in the project when none are named. Returns the suite run to poll for the report.
+ */
+export const dataQualityRunsCreate = async (
+    projectId: string,
+    dataQualityRunRequestApi?: DataQualityRunRequestApi,
+    options?: RequestInit
+): Promise<DataQualitySuiteRunApi> => {
+    return apiMutator<DataQualitySuiteRunApi>(getDataQualityRunsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataQualityRunRequestApi),
+    })
+}
+
+export const getDataQualityRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_quality_runs/${id}/`
+}
+
+/**
+ * Project-wide check runs: start one over a selection, and read every run the project has had.
+ *
+ * The per-subject surfaces only serve runs scoped to their own subject, so this is where a sweep
+ * across several subjects -- a manual project-wide run, a materialization, a source sync -- is
+ * readable. Scoped to `warehouse_objects` because it spans tables and views at once.
+ */
+export const dataQualityRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataQualitySuiteRunApi> => {
+    return apiMutator<DataQualitySuiteRunApi>(getDataQualityRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getWarehouseSavedQueriesCheckSuiteRunsListUrl = (
     projectId: string,
@@ -213,7 +344,7 @@ export const getWarehouseSavedQueriesChecksUpdateUrl = (projectId: string, saved
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseSavedQueriesChecksUpdate = async (
     projectId: string,
@@ -235,7 +366,7 @@ export const getWarehouseSavedQueriesChecksPartialUpdateUrl = (projectId: string
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseSavedQueriesChecksPartialUpdate = async (
     projectId: string,
@@ -534,7 +665,7 @@ export const getWarehouseTablesChecksUpdateUrl = (projectId: string, tableId: st
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseTablesChecksUpdate = async (
     projectId: string,
@@ -556,7 +687,7 @@ export const getWarehouseTablesChecksPartialUpdateUrl = (projectId: string, tabl
 }
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseTablesChecksPartialUpdate = async (
     projectId: string,

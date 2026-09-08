@@ -151,6 +151,23 @@ class TestValidateCredentials:
             assert valid is False
             assert msg is not None
 
+    def test_404_returns_actionable_message_not_raw_body(self):
+        # A 404 used to surface Lago's bare "Not Found" body verbatim, which tells the user nothing.
+        with self._patch_session(self._resp(status_code=404, json_data={"error": "Not Found"}, text="Not Found")):
+            valid, msg = validate_credentials(None, "key")
+            assert valid is False
+            assert msg is not None
+            assert msg != "Not Found"
+            assert "404" in msg
+
+    def test_other_error_status_does_not_leak_raw_body(self):
+        with self._patch_session(self._resp(status_code=500, json_data={"error": "Internal"}, text="Internal")):
+            valid, msg = validate_credentials(None, "key")
+            assert valid is False
+            assert msg is not None
+            assert "Internal" not in msg
+            assert "500" in msg
+
     def test_request_exception_returns_failure(self):
         import requests
 

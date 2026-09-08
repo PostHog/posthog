@@ -80,7 +80,7 @@ pub fn get_injected_release_id(source: &str, chunk_id: &str) -> Option<String> {
 pub struct SourceMapContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "chunkId", skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
     /// Bundler-emitted ECMA-426 debug id. Kept separate from `chunk_id` so a bundler-stamped
     /// map isn't mistaken for one we already processed (which would skip the mapping
@@ -394,6 +394,14 @@ impl MinifiedSourceFile {
             }
         }
         None
+    }
+
+    /// Whether the snippet injected for `chunk_id` carries a release id.
+    ///
+    /// The two snippet variants have different lengths, so the choice shifts every generated
+    /// column the sourcemap records for the injected chunk.
+    pub fn has_release_snippet(&self, chunk_id: &str) -> bool {
+        find_release_snippet(&self.inner.content, chunk_id).is_some()
     }
 
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
@@ -783,6 +791,26 @@ mod tests {
                     "sources": ["a.ts"],
                     "names": [],
                     "debugId": "11111111-2222-4333-8444-555555555555",
+                    "x_hermes_function_offsets": {},
+                })),
+            ),
+        };
+
+        let upload: SymbolSetUpload = file.try_into().expect("Failed to convert to upload");
+        assert_eq!(upload.chunk_id, "11111111-2222-4333-8444-555555555555");
+    }
+
+    #[test]
+    fn hermes_upload_accepts_map_with_camel_case_chunk_id() {
+        let file = SourceMapFile {
+            inner: SourceFile::new(
+                PathBuf::from("bundle.js.map"),
+                content_from(json!({
+                    "version": 3,
+                    "mappings": "AAAA",
+                    "sources": ["a.ts"],
+                    "names": [],
+                    "chunkId": "11111111-2222-4333-8444-555555555555",
                     "x_hermes_function_offsets": {},
                 })),
             ),

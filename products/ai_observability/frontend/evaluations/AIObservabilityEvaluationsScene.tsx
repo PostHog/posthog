@@ -46,6 +46,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { evaluationsEmptyState } from '../emptyState/evaluationsEmptyState'
 import type { EvaluationDirectoryApi } from '../generated/api.schemas'
 import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import {
@@ -71,6 +72,7 @@ export const scene: SceneExport = {
     component: AIObservabilityEvaluationsScene,
     logic: llmEvaluationsLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: evaluationsEmptyState,
 }
 
 function getActiveTab(
@@ -203,10 +205,12 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
-    const moveEvaluationDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.LlmAnalytics,
-        AccessControlLevel.Editor
-    )
+    const moveEvaluationDisabledReason = (evaluation: EvaluationConfig): string | null =>
+        getAccessControlDisabledReason(
+            AccessControlResourceType.Evaluation,
+            AccessControlLevel.Editor,
+            evaluation.user_access_level ?? undefined
+        )
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         displayedEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -286,8 +290,9 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={evaluation.user_access_level ?? undefined}
                         >
                             <Tooltip title={isBlocked ? blockedReason : undefined}>
                                 <span>
@@ -441,12 +446,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             icon={<IconFolder />}
                             tooltip="Move evaluation"
                             loading={movingEvaluationId === evaluation.id}
-                            disabledReason={moveEvaluationDisabledReason}
+                            disabledReason={moveEvaluationDisabledReason(evaluation)}
                         />
                     </LemonMenu>
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Evaluation}
                         minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={evaluation.user_access_level ?? undefined}
                     >
                         <LemonButton
                             size="small"
@@ -456,8 +462,9 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         />
                     </AccessControlAction>
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Evaluation}
                         minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={evaluation.user_access_level ?? undefined}
                     >
                         <LemonButton
                             size="small"
@@ -518,7 +525,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             render: (_, directory) => (
                 <div className="flex justify-end gap-1">
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Evaluation}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
@@ -530,7 +537,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         />
                     </AccessControlAction>
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Evaluation}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
@@ -615,7 +622,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 <div className="flex shrink-0 items-center gap-2">
                     {!selectedDirectoryId && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton
@@ -629,7 +636,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         </AccessControlAction>
                     )}
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Evaluation}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton

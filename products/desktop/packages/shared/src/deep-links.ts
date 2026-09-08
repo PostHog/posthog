@@ -1,7 +1,7 @@
 import { scoutSkillSlug } from "./scout-naming";
 
-export const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
-export const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
+const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
+const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
 
 export function getDeeplinkProtocol(isDevBuild: boolean): string {
   return isDevBuild
@@ -45,7 +45,7 @@ export function buildInboxDeeplink(
 /**
  * Build a canonical deep link to a loop's detail page
  * (`<scheme>://loop/<loopId>`). The inbound side lives in the `loop` handler
- * (`LoopLinkService`), which routes to `/code/loops/<loopId>`.
+ * (`LoopLinkService`), which routes to `/loops/<loopId>`.
  */
 export function buildLoopDeeplink(
   loopId: string,

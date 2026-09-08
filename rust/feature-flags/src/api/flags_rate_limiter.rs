@@ -291,6 +291,7 @@ where
     custom_limiters: Arc<HashMap<String, GovernorLimiter<C>>>,
 }
 
+#[cfg(test)]
 impl FlagsRateLimiter {
     /// Creates a new FlagsRateLimiter with the specified configuration.
     ///
@@ -746,6 +747,7 @@ where
     inner: KeyedRateLimiter<C>,
 }
 
+#[cfg(test)]
 impl IpRateLimiter {
     /// Creates a new IpRateLimiter with the specified configuration.
     ///

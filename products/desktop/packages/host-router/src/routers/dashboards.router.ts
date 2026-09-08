@@ -18,6 +18,7 @@ import {
   createDashboardInput,
   dashboardIdInput,
   dashboardRecordSchema,
+  fileDashboardInput,
   listComponentsInput,
   listDashboardsInput,
   promoteCanvasInput,
@@ -56,6 +57,11 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .listComponents(input),
+    ),
+  listAll: publicProcedure
+    .output(z.array(dashboardRecordSchema))
+    .query(({ ctx }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listAll(),
     ),
   get: publicProcedure
     .input(dashboardIdInput)
@@ -179,6 +185,12 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .setPinned(input),
+    ),
+  file: publicProcedure
+    .input(fileDashboardInput)
+    .output(dashboardRecordSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).file(input),
     ),
   reportError: publicProcedure
     .input(reportCanvasErrorInput)

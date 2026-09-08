@@ -574,6 +574,49 @@ describe('NotebookComponentShell', () => {
         expect(within(collapsedCanvas.container).getByLabelText('Expand')).toBeTruthy()
     })
 
+    it.each([
+        ['edit', { filters: true, results: true }],
+        ['view', { filters: false, results: true }],
+        // Collapsed: the reason the control is a shell slot rather than a published toolbar extra —
+        // a code cell stays runnable with neither its editor nor its results on screen.
+        ['edit', { filters: false, results: false }],
+    ] as const)('renders the definition toolbar control in %s mode with panels %p', (mode, componentPanels) => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: () => <div>Results</div>,
+                EditComponent: () => <div>Filters panel</div>,
+                ToolbarComponent: () => <button type="button">Run</button>,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{ id: 'probe-node', type: 'component', tagName: 'Probe', props: {} }}
+                mode={mode}
+                componentPanels={componentPanels}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        expect(
+            within(container.querySelector('.MarkdownNotebook__component-toolbar') as HTMLElement).getByText('Run')
+        ).toBeTruthy()
+    })
+
     it('keeps the toolbar menu when collapsing unmounts the component', () => {
         function ExtrasProbe(): JSX.Element {
             const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)

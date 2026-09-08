@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { Flex } from "@radix-ui/themes";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import { useDraftStore } from "../../message-editor/draftStore";
 import { useSessionCallbacks } from "../hooks/useSessionCallbacks";
 import { useSessionConnection } from "../hooks/useSessionConnection";
@@ -15,9 +15,14 @@ import { SessionView } from "./SessionView";
 export function EmbeddedSessionView({
   task,
   isActiveSession,
+  threadActions,
 }: {
   task: Task;
   isActiveSession?: boolean;
+  threadActions?: (context: {
+    sendPrompt: (prompt: string) => Promise<boolean>;
+    isPromptPending: boolean;
+  }) => ReactNode;
 }) {
   const taskId = task.id;
   const { requestFocus } = useDraftStore((s) => s.actions);
@@ -33,7 +38,6 @@ export function EmbeddedSessionView({
     promptStartedAt,
     isInitializing,
     cloudBranch,
-    cloudStatus,
     errorTitle,
     errorMessage,
     errorRetryable,
@@ -75,9 +79,12 @@ export function EmbeddedSessionView({
         onNewSession={isCloud ? undefined : handleNewSession}
         isInitializing={isInitializing}
         isCloud={isCloud}
-        cloudStatus={cloudStatus}
         compact
         isActiveSession={isActiveSession}
+        threadActions={threadActions?.({
+          sendPrompt: handleSendPrompt,
+          isPromptPending: Boolean(isPromptPending),
+        })}
       />
     </Flex>
   );

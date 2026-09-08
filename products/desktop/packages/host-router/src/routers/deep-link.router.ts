@@ -53,6 +53,7 @@ import {
   type IDeepLinkRegistry,
 } from "@posthog/platform/deep-link";
 import type { NotificationTarget } from "@posthog/platform/notifications";
+import { buildActionUrl, openAgentActionInput } from "@posthog/shared";
 import { z } from "zod";
 
 export const deepLinkRouter = router({
@@ -66,6 +67,18 @@ export const deepLinkRouter = router({
         .get<IDeepLinkRegistry>(DEEP_LINK_SERVICE)
         .handleUrl(input.url),
     ),
+
+  // A typed verb rather than a url, unlike `open` above: the agent names the
+  // action and the host builds the link, so nothing an agent writes decides
+  // where a click lands.
+  openAgentAction: publicProcedure
+    .input(openAgentActionInput)
+    .mutation(({ ctx, input }) => {
+      const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
+      return deepLinks.handleUrl(
+        buildActionUrl(input.action, deepLinks.getProtocol()),
+      );
+    }),
 
   onOpenTask: publicProcedure.subscription(async function* (opts) {
     const service = opts.ctx.container.get<TaskLinkService>(TASK_LINK_SERVICE);

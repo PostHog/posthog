@@ -65,7 +65,7 @@ def _wire(
     def _send(prepared: Any, **_kwargs: Any) -> Response:
         if iterator is not None:
             return next(iterator)
-        assert callable(responses)
+        assert not isinstance(responses, list)
         return responses(prepared.url)
 
     session.prepare_request.side_effect = _prepare

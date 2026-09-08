@@ -7,14 +7,6 @@ import { AUTH_SCOPED_QUERY_META } from "../../auth/useCurrentUser";
 import type { Integration } from "../../integrations/store";
 import { useProjects } from "../../projects/useProjects";
 
-export interface ProjectWithIntegrations {
-  id: number;
-  name: string;
-  organization: { id: string; name: string };
-  integrations: Integration[];
-  hasGithubIntegration: boolean;
-}
-
 export function useProjectsWithIntegrations() {
   const { projects } = useProjects();
   const projectsLoading = !useAuthStateFetched();

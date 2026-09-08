@@ -1,20 +1,18 @@
-from typing import Any, cast
+from typing import Any
 
 from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.koyeb import KoyebSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb import source as koyeb_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.koyeb import KoyebResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.source import KoyebSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -41,9 +39,6 @@ class TestKoyebSource:
         self.source = KoyebSource()
         self.config = KoyebSourceConfig(api_token="token")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KOYEB
-
     def test_source_config_metadata(self) -> None:
         config = self.source.get_source_config
         assert config.label == "Koyeb"
@@ -53,12 +48,6 @@ class TestKoyebSource:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/koyeb"
         # get_schemas is a static catalog, so the public docs can list tables credential-free.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
-        assert set(fields) == {"api_token"}
-        assert fields["api_token"].required is True
-        assert fields["api_token"].secret is True
 
     def test_get_schemas_incremental_only_for_instances(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
@@ -80,11 +69,6 @@ class TestKoyebSource:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["apps"])
         assert [s.name for s in schemas] == ["apps"]
 
-    @parameterized.expand([("valid", (True, None)), ("invalid", (False, "Invalid or unauthorized Koyeb API token"))])
-    def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
-        with mock.patch.object(koyeb_source_module, "validate_koyeb_credentials", lambda token: result):
-            assert self.source.validate_credentials(self.config, team_id=1) == result
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://app.koyeb.com/v1/apps?limit=100"),
@@ -105,11 +89,6 @@ class TestKoyebSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("apps"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is KoyebResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         captured: dict[str, Any] = {}

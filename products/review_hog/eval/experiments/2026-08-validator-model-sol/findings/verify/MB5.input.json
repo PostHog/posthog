@@ -1,0 +1,12 @@
+{
+    "id": "MB5",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "1198-1221",
+    "priority": "must_fix",
+    "title": "Head-only dedupe accepts a changed base diff",
+    "problem": "A base retarget changes the reviewed diff without changing `head_sha`. This dedupe treats the old completed run as current. If the retarget webhook is lost, a later receiver run leaves the old approval active over an unreviewed diff.",
+    "suggestion": "Include the base SHA in the review identity. When the fetched base differs, dismiss the old approval and create a new run even when the head matches. Treat missing base identity on older runs as requiring a new review.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

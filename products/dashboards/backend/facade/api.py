@@ -22,9 +22,9 @@ from rest_framework import serializers
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -87,6 +87,11 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
         for dashboard_id in dashboard_ids
         if dashboard_id in names
     )
+
+
+def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
+    """Dashboard IDs and names for callers that already validated the dashboard IDs."""
+    return _refs_in_given_order(dashboard_ids)
 
 
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
@@ -316,6 +321,7 @@ __all__ = [
     "InsightTilePlacement",
     "MembershipChange",
     "active_tile_count",
+    "dashboard_refs",
     "hide_tiles_for_insights",
     "insight_has_listed_tile",
     "insight_ids_on_dashboard",

@@ -19,6 +19,8 @@ Hooks wrap one source: one query, one mutation, one subscription, or one store s
 
 ## Components
 
+Use `PresenceAvatars` to show presence in a space.
+
 Use functional components and typed props.
 
 ```ts
@@ -165,6 +167,12 @@ Do not use inline `style` for static colors, spacing, layout, borders, radii, cu
 When creating reusable styled components, accept both `className?: string` and `style?: React.CSSProperties`, and pass them to the underlying element.
 
 Default line heights are set in [packages/ui/src/styles/globals.css](../packages/ui/src/styles/globals.css). Add `leading-*` only when the component needs a non-default line height. Pair arbitrary body text sizes with `leading-snug`; pair titles with `leading-tight`.
+
+Spinning icons go through `Spin` or `Spinner` from [packages/ui/src/primitives/Spinner.tsx](../packages/ui/src/primitives/Spinner.tsx). Never put `animate-spin` on an `<svg>`: Chromium animates SVG transforms on the main thread, so one visible spinner costs a style recalc and a layerize pass on every frame. Stop the animation (`spinning={false}`) or unmount the spinner when it is hidden behind `opacity-0`.
+
+Do not write a `:has()` rule with `html` or `body` as the anchor and a descendant subject (`body:has(...) .thing`). Chromium re-checks such a rule after DOM mutations anywhere and restyles the whole document. Set custom properties on the anchor instead and consume them where the style applies, as the quill portal rule in `globals.css` does.
+
+Animate `transform` and `opacity` only. Keyframes on `left`, `width`, or `height` force a layout every frame.
 
 ## Logging
 

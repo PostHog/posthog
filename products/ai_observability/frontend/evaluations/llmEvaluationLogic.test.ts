@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
@@ -296,6 +297,18 @@ describe('llmEvaluationLogic', () => {
                 evaluation: expect.objectContaining({
                     output_config: { allows_na: true },
                 }),
+            })
+        })
+
+        it('records the polarity on the boolean output config', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation })
+                logic.actions.setTrueIsFailure(true)
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_config: { allows_na: false, true_is_failure: true },
+                }),
+                hasUnsavedChanges: true,
             })
         })
 
@@ -603,6 +616,31 @@ return result`,
             })
         })
 
+        describe('sidePanelContext', () => {
+            it('scopes the side panel to this evaluation once it loads', async () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    sidePanelContext: {
+                        activity_scope: ActivityScope.EVALUATION,
+                        activity_item_id: 'eval-123',
+                        access_control_resource: 'evaluation',
+                        access_control_resource_id: 'eval-123',
+                    },
+                })
+            })
+
+            it('stays null while creating a new evaluation', async () => {
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+
+                await expectLogic(logic).toMatchValues({ sidePanelContext: null })
+            })
+        })
+
         describe('modelSelectionRequired', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
@@ -713,7 +751,7 @@ return result`,
             })
 
             it('calculates summary from server-side aggregate counts', async () => {
-                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, passed: 1 })
+                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, trueCount: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {
@@ -966,6 +1004,19 @@ return result`,
                 })
             })
 
+            it('treats a false result as a pass for a detector', async () => {
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
+                })
+            })
+
             it('returns only failing runs when filter is fail', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
                 logic.actions.setEvaluationRunsFilter('fail', 'all')
@@ -1051,6 +1102,27 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: mockSentimentRuns,
+                })
+            })
+        })
+
+        // Without this the failed query keeps the default empty list, and the table shows "no runs
+        // yet" instead of a failure state — the bug this fix addresses.
+        describe('evaluationRunsError', () => {
+            it('records the failure so the table can show an error state', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationRunsError: true,
+                })
+            })
+
+            it('clears the error on the next successful load', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationRunsError: false,
                 })
             })
         })

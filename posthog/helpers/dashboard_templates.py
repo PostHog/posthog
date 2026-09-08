@@ -18,7 +18,7 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
