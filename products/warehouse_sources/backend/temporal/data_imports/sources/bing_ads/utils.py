@@ -244,10 +244,10 @@ def download_and_extract_report_csv(
         try:
             result_file_path = reporting_service_manager.download_file(download_params)
         except ReportingDownloadException as e:
-            # The SDK raises this same type for a poll-budget timeout and for a failed download, and
-            # only the message tells them apart. Only the timeout is worth narrowing the range for.
-            if "timeout" not in str(e).lower():
-                raise
+            # The SDK raises this type only when a report is still not ready at the end of the
+            # polling budget. A failed transfer raises FileDownloadException and a failed report
+            # status raises ReportingException, so the type alone identifies the timeout. Do not
+            # match on the message, because it is a hand-written SDK literal and not a contract.
             raise BingAdsReportTimeoutError(
                 f"Bing Ads did not finish the {report_type} report within "
                 f"{integrations.BING_ADS_REPORT_TIMEOUT_SECONDS}s"

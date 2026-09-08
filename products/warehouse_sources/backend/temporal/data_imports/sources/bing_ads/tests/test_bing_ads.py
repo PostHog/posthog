@@ -4,6 +4,7 @@ from collections.abc import Iterable
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from bingads.exceptions import FileDownloadException
 from bingads.v13.reporting import ReportingDownloadException
 from parameterized import parameterized
 
@@ -280,17 +281,24 @@ class TestBingAdsHelperFunctions:
 
     @parameterized.expand(
         [
-            ("poll_budget_timeout", "Reporting file download tracking status timeout.", True),
-            ("download_failure", "Reporting file download failed.", False),
+            (
+                "poll_budget_timeout",
+                ReportingDownloadException("Reporting file download tracking status timeout."),
+                BingAdsReportTimeoutError,
+            ),
+            (
+                "download_failure",
+                FileDownloadException("connection reset while fetching the result file"),
+                FileDownloadException,
+            ),
         ]
     )
-    def test_download_and_extract_report_csv_flags_only_the_timeout(self, _name, message, expects_timeout):
-        # The SDK raises one exception type for both, and only the timeout can be fixed by asking
-        # for a smaller date range.
+    def test_download_and_extract_report_csv_flags_only_the_timeout(self, _name, raised, expected):
+        # Only the poll-budget timeout can be fixed by asking for a smaller date range, and the SDK
+        # gives it a type of its own. A failed transfer keeps its type, so it is never narrowed.
         manager = Mock()
-        manager.download_file.side_effect = ReportingDownloadException(message)
+        manager.download_file.side_effect = raised
 
-        expected = BingAdsReportTimeoutError if expects_timeout else ReportingDownloadException
         with pytest.raises(expected):
             download_and_extract_report_csv(
                 reporting_service_manager=manager,
