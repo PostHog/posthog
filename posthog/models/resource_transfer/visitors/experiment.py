@@ -31,8 +31,7 @@ class ExperimentVisitor(
         "flag_cleanup_task_id",
         # Points into the source team's GitHub integration, which does not transfer.
         "repository",
-        # Rules v2 analysis link and frozen snapshot: bound to the source flag's rule, and the copy
-        # starts as a draft that establishes its own link.
+        # Rules v2 link and frozen snapshot belong to the source flag's rule; a copy starts unlinked.
         "feature_flag_rule_id",
         "analysis_contract",
         "analysis_snapshot",

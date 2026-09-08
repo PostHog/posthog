@@ -33,7 +33,6 @@ class TestCreateExperiment(APIBaseTest):
         experiment = Experiment.objects.get(id=result.id)
         assert experiment.name == "Test Experiment"
         assert experiment.feature_flag.key == "test-flag"
-        # Dormant rules v2 columns: creation must not stamp them, so they stay null until a lifecycle writer exists
         assert experiment.feature_flag_rule_id is None
         assert experiment.analysis_contract is None
         assert experiment.analysis_snapshot is None

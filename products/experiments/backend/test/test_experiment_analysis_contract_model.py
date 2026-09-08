@@ -27,8 +27,6 @@ class ExperimentDormantV2AnalysisColumnsMigrationTest(TestMigrations):
         self.experiment_id = Experiment.objects.create(team=team, name="existing", feature_flag=flag).id
 
     def test_existing_row_is_null_in_every_new_column(self) -> None:
-        # Guards the expansion step against a smuggled default or backfill: existing rows must stay
-        # null until the dedicated backfill migration maps them to "v1".
         assert self.apps is not None
         Experiment = self.apps.get_model("experiments", "Experiment")
 
