@@ -2603,8 +2603,9 @@ def get_teams_with_logs_retention_byte_days_in_period(
     The consumer emits one `retention_byte_days` metric into `app_metrics2`
     (`retention_byte_days = bytes_ingested * retention_days`, summed per flush) only for teams on a
     non-default retention; default-retention teams emit nothing, so their storage is billed through
-    `bytes_ingested` alone. Summed over the period it is total storage-duration and scales to any
-    retention day count. Each `(team_id, count)` tuple is ready for `convert_team_usage_rows_to_dict`.
+    `bytes_ingested` alone. Summed over the period it is the storage-duration of the logs kept beyond
+    the default, not of all logs, and it scales to any retention day count. Each `(team_id, count)`
+    tuple is ready for `convert_team_usage_rows_to_dict`.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
