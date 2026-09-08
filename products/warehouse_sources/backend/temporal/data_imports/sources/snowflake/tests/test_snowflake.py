@@ -823,10 +823,11 @@ class TestSnowflakeSourceNonRetryableErrors:
             "290403: 290403: HTTP 403: Forbidden",
         ],
     )
-    def test_forbidden_403_is_non_retryable(self, source, error_msg):
+    def test_forbidden_403_is_non_retryable_and_names_both_causes(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Persistent HTTP 403 should be non-retryable: {error_msg}"
+        messages = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert messages, f"HTTP 403 should be non-retryable: {error_msg}"
+        assert all(message is not None and "expired" in message and "grants" in message for message in messages)
 
     @pytest.mark.parametrize(
         "error_msg",

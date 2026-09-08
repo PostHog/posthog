@@ -1,10 +1,18 @@
+import time
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.core.cache import cache
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES
+from products.signals.backend.scout_harness.suggestions import ScoutSuggestionItem, persist_suggestion_batch
 from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus  # tach-ignore
 from products.tasks.backend.models import Task, TaskRun
 
@@ -82,3 +90,95 @@ class TestScoutChatTaskAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).exists())
         mock_workflow.assert_not_called()
+
+
+class TestScoutChatFromSuggestion(APIBaseTest):
+    def _suggestion_id(self) -> str:
+        row = persist_suggestion_batch(
+            self.team.id,
+            [
+                ScoutSuggestionItem(
+                    kind="custom",
+                    skill_name="signals-scout-checkout-drop",
+                    title="Watch checkout drop-off",
+                    why_here="Checkout converts half as often as it did last month.",
+                    description="Watches the checkout funnel.",
+                    draft_body="# Checkout drop\n\nCheck the checkout funnel daily.",
+                )
+            ],
+            task_run_id=None,
+            model="m",
+            fleet_snapshot=[],
+        )
+        return row.items[0]["id"]
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_chat_opens_on_the_stored_draft(self, mock_workflow):
+        suggestion_id = self._suggestion_id()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
+                {"chat_type": "author_scout", "suggestion_id": suggestion_id},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["task_id"])
+        self.assertEqual(task.title, "Watch checkout drop-off")
+        self.assertIn("Check the checkout funnel daily.", task.description)
+        self.assertIn("Checkout converts half as often", task.description)
+        self.assertEqual(TaskRun.objects.get(task=task).state.get("pending_user_message"), task.description)
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_a_task_only_key_cannot_read_a_suggestion_into_a_chat(self, mock_workflow):
+        # The primed chat copies scout evidence into the task, so a key that can only write tasks is
+        # refused, while the same key still starts a plain chat.
+        suggestion_id = self._suggestion_id()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Task-only key",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["task:write"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        primed = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
+            {"chat_type": "author_scout", "suggestion_id": suggestion_id},
+            format="json",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            plain = self.client.post(
+                f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
+                {"chat_type": "author_scout"},
+                format="json",
+            )
+
+        self.assertEqual(primed.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(plain.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).count(), 1)
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("unknown_suggestion", "author_scout", "no-such-suggestion"),
+            ("wrong_chat_type", "fleet_overview", None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rejects_a_draft_it_cannot_open_on(self, _name, chat_type, suggestion_id, mock_workflow):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
+            {"chat_type": chat_type, "suggestion_id": suggestion_id or self._suggestion_id()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).exists())
+        mock_workflow.assert_not_called()
+        # A rejected draft spends none of the day's attempts.
+        self.assertIsNone(cache.get(f"signals_scout_chat_attempts:{self.user.id}:{int(time.time()) // 86400}"))

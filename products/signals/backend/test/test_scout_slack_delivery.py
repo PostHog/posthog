@@ -237,7 +237,7 @@ class TestScoutSlackDelivery(BaseTest):
         call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["client_msg_id"] == delivery_id
         context = call["blocks"][0]["elements"][0]["text"]
-        assert "added a note to an existing report" in context
+        assert "posted an update on an existing report" in context
         assert call["blocks"][1]["text"]["text"] == "Checkout failures"
         markdown = call["blocks"][2]["text"]
         assert "**error rate**" in markdown

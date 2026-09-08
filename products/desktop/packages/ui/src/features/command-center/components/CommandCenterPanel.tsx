@@ -12,6 +12,8 @@ import {
 } from "@phosphor-icons/react";
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
+import { readRunMode } from "@posthog/core/sidebar/buildSidebarData";
+import { resolveEffectiveCloudStatus } from "@posthog/core/task-detail/cloudRunState";
 import {
   Button,
   Empty,
@@ -104,16 +106,17 @@ function CellStatusBadge({
   if (label === null) return null;
 
   const taskRunStatus = isCloud
-    ? (session?.cloudStatus ?? task.latest_run?.status ?? undefined)
+    ? (resolveEffectiveCloudStatus(task, session) ?? undefined)
     : undefined;
 
   return (
     <span className="inline-flex items-center gap-0.5 rounded bg-gray-3 px-1 py-0.5 text-[10px] text-gray-11">
       <TaskIcon
         workspaceMode={workspaceMode ?? undefined}
-        isGenerating={session?.isPromptPending}
-        needsPermission={(session?.pendingPermissions?.size ?? 0) > 0}
+        isGenerating={status === "running"}
+        needsPermission={status === "waiting"}
         taskRunStatus={taskRunStatus}
+        runMode={readRunMode(task.latest_run?.state)}
         prState={prState}
         hasDiff={hasDiff}
         size={10}

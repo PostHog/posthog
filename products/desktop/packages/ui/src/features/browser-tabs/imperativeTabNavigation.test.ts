@@ -1,6 +1,7 @@
 import type { TabsSnapshot } from "@posthog/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  focusExistingTab,
   getCurrentBrowserTabId,
   navigateBrowserTab,
 } from "./imperativeTabNavigation";
@@ -134,5 +135,64 @@ describe("imperative browser-tab navigation", () => {
 
     expect(navigateBrowserTab(null, destination, fallback)).toBe("active");
     expect(fallback).toHaveBeenCalledOnce();
+  });
+});
+
+describe("focusExistingTab", () => {
+  const history = { location: { state: { tabId: "tab-b" } }, push: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    history.location.state.tabId = "tab-b";
+    mocks.getRouterOrNull.mockReturnValue({ history });
+    mocks.readMirror.mockReturnValue(snapshot());
+  });
+
+  it("pushes a tagged history entry for an existing tab on the destination", () => {
+    const push = vi.fn();
+    mocks.getRouterOrNull.mockReturnValue({ history: { ...history, push } });
+
+    expect(focusExistingTab({ href: "/new" })).toBe(true);
+    expect(push).toHaveBeenCalledWith("/new", { tabId: "tab-a" });
+  });
+
+  it("reports a match without navigating when the active tab already shows it", () => {
+    history.location.state.tabId = "tab-a";
+
+    expect(focusExistingTab({ href: "/new" })).toBe(true);
+  });
+
+  it("keeps the active tab when an earlier tab shows the same destination", () => {
+    const mirror = snapshot();
+    mirror.tabs[0] = { ...mirror.tabs[0], href: "/tasks/task-1" };
+    mirror.tabs[1] = { ...mirror.tabs[1], href: "/tasks/task-1" };
+    mocks.readMirror.mockReturnValue(mirror);
+    const push = vi.fn();
+    mocks.getRouterOrNull.mockReturnValue({ history: { ...history, push } });
+
+    expect(focusExistingTab({ href: "/tasks/task-1" })).toBe(true);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("returns false when no tab shows the destination", () => {
+    expect(focusExistingTab({ href: "/tasks/other" })).toBe(false);
+  });
+
+  it.each([
+    { name: "the channel route form", href: "/spaces/chan-9/tasks/task-9" },
+    { name: "a null href", href: null },
+  ])("matches a task tab on its id across $name", ({ href }) => {
+    const mirror = snapshot();
+    mirror.tabs[0] = { ...mirror.tabs[0], href, taskId: "task-9" };
+    mocks.readMirror.mockReturnValue(mirror);
+    const push = vi.fn();
+    mocks.getRouterOrNull.mockReturnValue({ history: { ...history, push } });
+
+    expect(focusExistingTab({ href: "/tasks/task-9", taskId: "task-9" })).toBe(
+      true,
+    );
+    expect(push).toHaveBeenCalledWith(href ?? "/tasks/task-9", {
+      tabId: "tab-a",
+    });
   });
 });

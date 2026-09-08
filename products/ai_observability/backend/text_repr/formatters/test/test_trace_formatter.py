@@ -129,8 +129,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Factual accuracy" in summary
-        assert "PASS" in summary
+        assert "Factual accuracy (true)" in summary
 
     def test_evaluation_summary_fail(self):
         event = {
@@ -141,8 +140,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Relevance" in summary
-        assert "FAIL" in summary
+        assert "Relevance (false)" in summary
 
     def test_evaluation_summary_na(self):
         event = {
@@ -174,9 +172,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Length check" in summary
-        assert "hog" in summary
-        assert "PASS" in summary
+        assert "Length check (hog, true)" in summary
 
     def test_evaluation_summary_includes_llm_judge_runtime(self):
         event = {
@@ -188,9 +184,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Factual accuracy" in summary
-        assert "llm_judge" in summary
-        assert "FAIL" in summary
+        assert "Factual accuracy (llm_judge, false)" in summary
 
     def test_unknown_event_type(self):
         """Should return event type for unknown events."""
@@ -827,3 +821,25 @@ class TestLLMTraceToFormatterFormat:
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
 
         assert [node["event"]["id"] for node in hierarchy] == ["slow-start-first", "quick-start-second"]
+
+
+class TestSurrogateSafety:
+    """Test that a trace holding half an emoji still yields encodable text."""
+
+    def test_trace_text_repr_encodes_as_utf8(self):
+        """Should repair content captured with an unpaired surrogate."""
+        trace = {"properties": {"$ai_span_name": "broken \ud83c"}}
+        hierarchy = [
+            {
+                "event": {
+                    "event": "$ai_generation",
+                    "properties": {"$ai_input": [{"role": "user", "content": "hello \ud83c"}]},
+                },
+                "children": [],
+            }
+        ]
+
+        text, _ = format_trace_text_repr(trace=trace, hierarchy=hierarchy)
+
+        assert text.encode("utf-8")
+        assert "\ud83c" not in text

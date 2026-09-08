@@ -183,8 +183,29 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
      */
     retention_period: string | null
     replay_opt_in: boolean
-    /** Replay's default floor drops sessions under 5 active seconds, so it can empty a list. */
+    /**
+     * Whether any duration filter was applied. Replay applies a default floor to every list, so
+     * this is true on nearly every render and separates almost nothing. A dashboard tile reads it,
+     * so its meaning is frozen; the four properties below are what answers whether the floor is
+     * why the list came back empty.
+     */
     duration_filter_active: boolean
+    /** Which duration the floor measures: `active_seconds`, `duration`, or `inactive_seconds`. */
+    duration_filter_key: string | null
+    /** The floor's threshold in seconds. */
+    duration_filter_seconds: number | null
+    /** `gt` for a floor, `lt` for a ceiling. The viewer can flip it in the playlist filter bar. */
+    duration_filter_operator: string | null
+    /**
+     * How many duration filters were applied. The three properties above describe the first, so a
+     * count above one says they describe part of the set rather than all of it.
+     */
+    duration_filter_count: number
+    /**
+     * Whether the applied filter differs from replay's default floor, which counts removing the
+     * filter as a difference. The three properties above are null when the viewer removed it.
+     */
+    duration_filter_customized: boolean
     /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
     exposure_linkable: boolean | null
 }
@@ -222,6 +243,17 @@ export interface ExperimentWatchLoadFailedContext {
 export interface ExperimentWatchEmptyActionContext {
     empty_reason: string | null
     /** 'exposure_docs' or 'replay_settings'. */
+    action: string
+}
+
+/**
+ * An action on the empty recordings list was taken. Joined to `empty_reason` on
+ * `experiment recordings list rendered`, this says which explanations people act on.
+ */
+export interface ExperimentRecordingsEmptyActionContext {
+    /** One of the tab's `ExperimentReplayListEmptyReason` values. */
+    empty_reason: string | null
+    /** One of the tab's `ExperimentRecordingsEmptyAction` values. */
     action: string
 }
 
@@ -1378,6 +1410,13 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsBucketLoadedContext
     ) => {
         context: ExperimentRecordingsBucketLoadedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsEmptyActionClicked: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsEmptyActionContext
+    ) => {
+        context: ExperimentRecordingsEmptyActionContext
         experimentId: ExperimentIdType
     }
     reportExperimentRecordingsListRendered: (
@@ -2862,6 +2901,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsListRenderedContext
         ) => ({ experimentId, context }),
+        reportExperimentRecordingsEmptyActionClicked: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsEmptyActionContext
+        ) => ({ experimentId, context }),
         reportExperimentRecordingOpened: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsFilterContext
@@ -4112,6 +4155,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentRecordingsListRendered: ({ experimentId, context }) => {
             posthog.capture('experiment recordings list rendered', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsEmptyActionClicked: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings empty state action clicked', {
                 experiment_id: experimentId,
                 ...context,
             })
