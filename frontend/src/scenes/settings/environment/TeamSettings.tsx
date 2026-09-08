@@ -139,7 +139,7 @@ export function TeamVariables(): JSX.Element {
                 </CodeSnippet>
                 <p className="text-muted text-xs mb-0">
                     Write-only key for use in <Link to="https://posthog.com/docs/libraries">client libraries</Link>.
-                    Safe to use in public apps. Integrations often call this your project API key.
+                    Safe to use in public apps.
                 </p>
             </div>
 
