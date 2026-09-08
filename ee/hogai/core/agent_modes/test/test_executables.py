@@ -21,7 +21,13 @@ from posthog.models import Team, User
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
+from ee.hogai.tool_errors import (
+    MaxToolAccessDeniedError,
+    MaxToolError,
+    MaxToolFatalError,
+    MaxToolRetryableError,
+    MaxToolTransientError,
+)
 from ee.hogai.tools.read_taxonomy.core import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -915,6 +921,41 @@ class TestRootNodeTools(BaseTest):
         groups = call_args.kwargs["groups"]
         self.assertIn("organization", groups)
         self.assertIn("project", groups)
+
+    @parameterized.expand(
+        [
+            ("access_denied", MaxToolAccessDeniedError("dashboard", "viewer", action="read"), False),
+            ("fatal", MaxToolFatalError("Something unexpected broke"), True),
+        ]
+    )
+    @patch("ee.hogai.core.agent_modes.executables.capture_exception")
+    @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
+    async def test_only_unexpected_errors_reach_error_tracking(
+        self, _name, error, expects_exception_capture, read_taxonomy_mock, capture_mock, capture_exception_mock
+    ):
+        read_taxonomy_mock.side_effect = error
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool that will fail",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+        await node.arun(state, config)
+
+        self.assertEqual(capture_exception_mock.called, expects_exception_capture)
+        self.assertEqual(capture_mock.call_args.kwargs["event"], "max_tool_error")
+        self.assertEqual(capture_mock.call_args.kwargs["properties"]["error_type"], error.__class__.__name__)
 
     @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
     async def test_mode_switch_emits_analytics_event(self, capture_mock):
