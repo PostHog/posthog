@@ -1,0 +1,215 @@
+//! OTLP and Prometheus remote-write metrics capture. This binary serves only
+//! the metrics routes of `capture-logs`, so metrics traffic can scale and
+//! deploy on its own. All handlers, config, and the Kafka sink come from the
+//! `capture-logs` library.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
+use capture::metrics_middleware::track_metrics;
+use capture_logs::authorizer::Authorizer;
+use capture_logs::config::Config;
+use capture_logs::endpoints::prometheus;
+use capture_logs::kafka::KafkaSink;
+use capture_logs::middleware::translate_compression_query_param;
+use capture_logs::service::Service;
+use capture_logs::service::{export_metrics_http, options_handler};
+use common_metrics::setup_metrics_routes;
+use std::future::ready;
+use std::net::SocketAddr;
+
+use health::HealthRegistry;
+use tokio::signal;
+use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
+use tower_http::decompression::RequestDecompressionLayer;
+use tracing::level_filters::LevelFilter;
+use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+use limiters::token_dropper::TokenDropper;
+
+common_alloc::used!();
+
+async fn shutdown() {
+    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
+        .expect("failed to register SIGTERM handler");
+
+    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
+        .expect("failed to register SIGINT handler");
+
+    tokio::select! {
+        _ = term.recv() => {},
+        _ = interrupt.recv() => {},
+    };
+
+    tracing::info!("Shutting down gracefully...");
+}
+
+fn setup_tracing() {
+    let log_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_span_list(false)
+        .with_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy()
+                .add_directive("pyroscope=warn".parse().unwrap()),
+        );
+    tracing_subscriber::registry().with(log_layer).init();
+}
+
+pub async fn index() -> &'static str {
+    "metric hog hogs metrics
+
+.|||||||||.
+|||||||||||||  gimme ur metrics 📈
+|||||||||||' .\\
+`||||||||||_,__o
+"
+}
+
+#[tokio::main]
+async fn main() {
+    setup_tracing();
+    info!("Starting up...");
+
+    let config = Config::init_with_defaults().unwrap();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
+    let health_registry = HealthRegistry::new("liveness");
+
+    // The shared sink owns one producer per signal. This binary only sends
+    // metrics, but the sink constructor is unchanged, so the other producers
+    // still connect and report liveness.
+    let logs_sink_liveness = health_registry
+        .register("rdkafka".to_string(), Duration::from_secs(30))
+        .await;
+    let traces_sink_liveness = health_registry
+        .register("rdkafka_traces".to_string(), Duration::from_secs(30))
+        .await;
+    let metrics_sink_liveness = health_registry
+        .register("rdkafka_metrics".to_string(), Duration::from_secs(30))
+        .await;
+
+    let kafka_sink = KafkaSink::new(
+        config.kafka.clone(),
+        logs_sink_liveness,
+        traces_sink_liveness,
+        metrics_sink_liveness,
+    )
+    .await
+    .expect("failed to start Kafka sink");
+
+    let management_router = Router::new()
+        .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route(
+            "/_liveness",
+            get(move || ready(health_registry.get_status())),
+        );
+    let management_router = setup_metrics_routes(management_router);
+    let management_bind = format!("{}:{}", config.management_host, config.management_port);
+    info!("Healthcheck and metrics listening on {}", management_bind);
+    let management_listener = tokio::net::TcpListener::bind(management_bind)
+        .await
+        .expect("could not bind management port");
+
+    let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
+    let authorizer = Authorizer::new(Arc::new(token_dropper));
+    let metrics_service =
+        match Service::new(kafka_sink, authorizer, config.max_request_body_size_bytes).await {
+            Ok(service) => service,
+            Err(e) => {
+                error!("Failed to initialize metrics service: {}", e);
+                panic!("Could not start metrics capture service: {e}");
+            }
+        };
+    let http_bind = format!("{}:{}", config.host, config.port);
+    info!("Listening on {}", http_bind);
+    let http_listener = tokio::net::TcpListener::bind(http_bind)
+        .await
+        .expect("could not bind http port");
+
+    // Very permissive CORS policy
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
+        .allow_origin(AllowOrigin::mirror_request());
+
+    let http_router = Router::new()
+        .route(
+            "/v1/metrics",
+            post(export_metrics_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/metrics",
+            post(export_metrics_http).options(options_handler),
+        )
+        .with_state(metrics_service.clone())
+        .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
+        .layer(axum::middleware::from_fn(track_metrics))
+        .layer(RequestDecompressionLayer::new())
+        .layer(axum::middleware::from_fn(translate_compression_query_param));
+
+    // Prometheus remote-write sends `Content-Encoding: snappy`, which
+    // RequestDecompressionLayer rejects with 415 before the handler runs. This
+    // route is deliberately kept off that layer (and the gzip query-param
+    // shim); the handler snappy-decodes the body itself.
+    let prometheus_router = Router::new()
+        .route(
+            "/i/v1/prometheus/write",
+            post(prometheus::export_prometheus_remote_write_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/prometheus/write/:token",
+            post(prometheus::export_prometheus_remote_write_http).options(options_handler),
+        )
+        .with_state(metrics_service)
+        .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
+        .layer(axum::middleware::from_fn(track_metrics));
+
+    let http_router = http_router.merge(prometheus_router).layer(cors);
+
+    let http_server = tokio::spawn(async move {
+        if let Err(e) = axum::serve(
+            http_listener,
+            http_router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown())
+        .await
+        {
+            error!("HTTP server failed: {}", e);
+        }
+    });
+
+    let mgmt_server = tokio::spawn(async move {
+        if let Err(e) = axum::serve(
+            management_listener,
+            management_router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
+            error!("Management server failed: {}", e);
+        }
+    });
+
+    // Wait for any server to finish
+    tokio::select! {
+        _ = http_server => {
+            error!("HTTP server stopped");
+        }
+        _ = mgmt_server => {
+            error!("Management server stopped");
+        }
+    }
+}

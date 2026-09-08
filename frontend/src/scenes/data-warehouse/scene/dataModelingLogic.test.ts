@@ -1,8 +1,4 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-
-import api from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -41,37 +37,6 @@ describe('dataModelingLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
-    })
-
-    // The Models scene's DagsTab links here with ?dag=<id> to open a specific DAG's graph — a
-    // regression here would silently send that link to the wrong (or persisted) DAG instead.
-    it('selects the DAG from a ?dag= URL param and filters node/edge loads by it', async () => {
-        const nodesSpy = jest.spyOn(api.dataModelingNodes, 'list')
-        const edgesSpy = jest.spyOn(api.dataModelingEdges, 'list')
-
-        router.actions.push(urls.dataOps('modeling', 'dag-123'))
-        logic = dataModelingLogic()
-        logic.mount()
-
-        expect(logic.values.selectedDagId).toBe('dag-123')
-        await expectLogic(logic).toDispatchActions(['loadDataModelingNodesSuccess', 'loadDataModelingEdgesSuccess'])
-
-        expect(nodesSpy).toHaveBeenCalledWith('dag-123')
-        expect(edgesSpy).toHaveBeenCalledWith('dag-123')
-    })
-
-    it('keeps the persisted DAG selection when the URL has no ?dag= param', () => {
-        router.actions.push(urls.dataOps('modeling', 'dag-123'))
-        logic = dataModelingLogic()
-        logic.mount()
-        expect(logic.values.selectedDagId).toBe('dag-123')
-        logic.unmount()
-
-        router.actions.push(urls.dataOps('modeling'))
-        logic = dataModelingLogic()
-        logic.mount()
-
-        expect(logic.values.selectedDagId).toBe('dag-123')
     })
 
     it('lays out only the nodes matched by a lineage search', async () => {

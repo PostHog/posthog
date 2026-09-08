@@ -5,6 +5,7 @@ import type {
   CloudRunSource,
   ExecutionMode,
   McpServerConnection,
+  ModelAccess,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -411,17 +412,11 @@ export interface CreateResourceCommentRequest {
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
   resetAt: string | null;
-  isPro: boolean;
-  constructor(params: {
-    limitType: UsageLimitType;
-    resetAt: string | null;
-    isPro: boolean;
-  }) {
+  constructor(params: { limitType: UsageLimitType; resetAt: string | null }) {
     super(CLOUD_USAGE_LIMIT_ERROR_MESSAGE);
     this.name = "CloudUsageLimitError";
     this.limitType = params.limitType;
     this.resetAt = params.resetAt;
-    this.isPro = params.isPro;
   }
 }
 
@@ -1086,6 +1081,7 @@ export interface CloudRunOptions {
   autoPublish?: boolean;
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
+  claudeModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1235,6 +1231,9 @@ function buildCloudRunRequestBody(
   }
   if (options?.rtkEnabled === false) {
     body.rtk_enabled = false;
+  }
+  if (!options?.piRuntime && options?.claudeModelAccess) {
+    body.claude_model_access = options.claudeModelAccess;
   }
   if (options?.runSource) {
     body.run_source = options.runSource;
@@ -2277,7 +2276,7 @@ export class PostHogAPIClient {
     const data = await this.api.get("/api/projects/{project_id}/", {
       path: { project_id: projectId.toString() },
     });
-    return data as Schemas.Team;
+    return data as Schemas.ProjectBackwardCompat;
   }
 
   /**
@@ -4070,6 +4069,7 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     reason?: string,
+    onlyIfAwaitingFirstMessage = false,
   ): Promise<{ status?: string }> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/cancel/`;
@@ -4078,7 +4078,12 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${path}`),
       path,
       overrides: {
-        body: JSON.stringify(reason ? { reason } : {}),
+        body: JSON.stringify({
+          ...(reason ? { reason } : {}),
+          ...(onlyIfAwaitingFirstMessage
+            ? { only_if_awaiting_first_message: true }
+            : {}),
+        }),
       },
     });
     return (await response.json().catch(() => ({}))) as { status?: string };
@@ -5164,7 +5169,7 @@ export class PostHogAPIClient {
   async updateTeam(updates: {
     session_recording_opt_in?: boolean;
     autocapture_exceptions_opt_in?: boolean;
-  }): Promise<Schemas.Team> {
+  }): Promise<Schemas.ProjectBackwardCompat> {
     const teamId = await this.getTeamId();
     const url = new URL(`${this.api.baseUrl}/api/projects/${teamId}/`);
     const response = await this.api.fetcher.fetch({
@@ -5204,7 +5209,7 @@ export class PostHogAPIClient {
       );
     }
 
-    return (await response.json()) as Schemas.Team;
+    return (await response.json()) as Schemas.ProjectBackwardCompat;
   }
 
   async getSignalReport(reportId: string): Promise<SignalReport | null> {
@@ -6512,7 +6517,6 @@ export class PostHogAPIClient {
           typeof parsed.body.reset_at === "string"
             ? parsed.body.reset_at
             : null,
-        isPro: parsed.body.is_pro === true,
       });
     }
   }
