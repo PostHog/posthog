@@ -4,21 +4,14 @@ This prototype keeps multiple immutable, permission-filtered catalogs in memory 
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
-For local development, the service can still load one `default` catalog directly from PostHog:
+For local development, start the service on its loopback listener:
 
 ```bash
-.codex/with-flox env \
-  POSTHOG_BASE_URL=http://localhost:8010 \
-  POSTHOG_PROJECT_ID=2 \
-  POSTHOG_USER_ID=1 \
-  POSTHOG_PERSONAL_API_KEY=phx_... \
-  go -C services/hogql-language-service run ./cmd/server
+.codex/with-flox go -C services/hogql-language-service run ./cmd/server
 ```
 
-The token needs `query:read`, `property_definition:read`, and access to the selected project. The service deliberately
-consumes schema and property definitions already filtered by Django rather than loading their storage directly. It
-loads event, person, session, and group indexes 0 through 4 concurrently. Every property request sets
-`exclude_restricted=true`.
+Publish a permission-filtered catalog through the multitenant endpoint below before making language requests. The Go
+service does not hold a personal API key or fetch schema from PostHog directly.
 
 ```bash
 curl -sS http://localhost:8091/health

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,8 +21,6 @@ import (
 )
 
 type server struct {
-	client           *catalog.Client
-	defaultAuth      serviceauth.Authorization
 	catalogs         *catalog.Registry
 	auth             *serviceauth.Authenticator
 	preAuthLimiter   *ratelimit.Limiter
@@ -86,37 +83,6 @@ func main() {
 		preAuthLimiter:   configuredLimiter("PRE_AUTH_RATE_LIMIT", 300, 100, maxRateLimitKeys, rateLimitIdleTTL),
 		principalLimiter: configuredLimiter("PRINCIPAL_RATE_LIMIT", 120, 60, maxRateLimitKeys, rateLimitIdleTTL),
 	}
-	projectID := os.Getenv("POSTHOG_PROJECT_ID")
-	userID := os.Getenv("POSTHOG_USER_ID")
-	personalAPIKey := os.Getenv("POSTHOG_PERSONAL_API_KEY")
-	configuredBootstrapValues := 0
-	for _, value := range []string{projectID, userID, personalAPIKey} {
-		if value != "" {
-			configuredBootstrapValues++
-		}
-	}
-	if configuredBootstrapValues != 0 && configuredBootstrapValues != 3 {
-		fatalConfiguration(errors.New("POSTHOG_PROJECT_ID, POSTHOG_USER_ID, and POSTHOG_PERSONAL_API_KEY must be set together"))
-	}
-	if projectID != "" {
-		s.defaultAuth.TeamID, err = strconv.ParseInt(projectID, 10, 64)
-		if err != nil || s.defaultAuth.TeamID <= 0 {
-			fatalConfiguration(errors.New("POSTHOG_PROJECT_ID must be a positive team ID"))
-		}
-		s.defaultAuth.UserID, err = strconv.ParseInt(userID, 10, 64)
-		if err != nil || s.defaultAuth.UserID <= 0 {
-			fatalConfiguration(errors.New("POSTHOG_USER_ID must be a positive user ID"))
-		}
-		s.client, err = catalog.NewClient(env("POSTHOG_BASE_URL", "http://localhost:8010"), projectID, personalAPIKey, &http.Client{Timeout: 30 * time.Second})
-		if err != nil {
-			fatalConfiguration(err)
-		}
-		if err := s.reloadDefault(context.Background()); err != nil {
-			slog.Error("initial catalog load failed", "error", err)
-			os.Exit(1)
-		}
-	}
-
 	httpServer := &http.Server{Addr: listenAddress, Handler: s.handler(), ReadHeaderTimeout: 5 * time.Second}
 	stats := s.catalogs.Stats()
 	slog.Info("HogQL language service listening", "address", listenAddress, "catalogs", stats.Catalogs, "tables", stats.Tables, "properties", stats.Properties)
@@ -131,7 +97,6 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /health", s.health)
 	mux.Handle("PUT /teams/{teamID}/users/{userID}/catalog", s.authorized(serviceauth.OperationPublish, s.putCatalog))
 	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", s.authorized(serviceauth.OperationDelete, s.deleteCatalog))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/reload", s.authorized(serviceauth.OperationPublish, s.reloadHTTP))
 	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", s.authorized(serviceauth.OperationComplete, s.autocomplete))
 	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", s.authorized(serviceauth.OperationValidate, s.validate))
 	return mux
@@ -217,30 +182,6 @@ func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization 
 	writeJSON(w, http.StatusOK, validationResponse{Result: validation.Validate(current, input.Query), CatalogRevision: revision})
 }
 
-func (s *server) reloadDefault(ctx context.Context) error {
-	if s.client == nil {
-		return errors.New("team and user catalog loader is not configured")
-	}
-	next, err := s.client.Load(ctx)
-	if err != nil {
-		return err
-	}
-	return s.catalogs.Put(s.defaultAuth, strconv.FormatInt(time.Now().UnixNano(), 10), next)
-}
-
-func (s *server) reloadHTTP(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
-	if s.client == nil || authorization != s.defaultAuth {
-		http.Error(w, "team loader not configured", http.StatusNotFound)
-		return
-	}
-	if err := s.reloadDefault(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	current, revision, _ := s.catalogs.Get(authorization)
-	writeJSON(w, http.StatusOK, map[string]any{"teamId": authorization.TeamID, "userId": authorization.UserID, "revision": revision, "tables": len(current.Tables), "properties": propertyCount(current)})
-}
-
 func (s *server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -253,14 +194,6 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, maxBytes int64, target a
 		return false
 	}
 	return true
-}
-
-func propertyCount(current *catalog.Catalog) int {
-	count := 0
-	for _, properties := range current.Properties {
-		count += len(properties)
-	}
-	return count
 }
 
 func authorizationFromPath(w http.ResponseWriter, r *http.Request) (serviceauth.Authorization, bool) {
