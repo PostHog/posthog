@@ -131,12 +131,17 @@ def _bounded_simulation_date_from(
 
 def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
     series = result.series[0]
-    points: list[tuple[str, float]] = []
+    # Keyed by date so a repeated bucket label collapses. An hourly insight renders both sides of a
+    # daylight saving fall-back to the same local time. Prophet drops duplicate history dates while
+    # fitting, so passing them on makes it return fewer points than the requested horizon, and the
+    # engine then pairs its forecast against a longer margin list and fails.
+    points: dict[str, float] = {}
     for point in series.points:
         if point.date is not None and point.value is not None and math.isfinite(point.value):
-            points.append((point.date, point.value))
+            points[point.date] = point.value
     limit = bounded_training_points(len(points), result.interval_type)
-    return [point[0] for point in points[-limit:]], [point[1] for point in points[-limit:]]
+    dates = list(points)[-limit:]
+    return dates, [points[date] for date in dates]
 
 
 def _inconclusive(result: ExtractionResult, reason: str) -> AlertEvaluationResult:

@@ -329,6 +329,27 @@ class TestHistoryRequirements:
         assert result.value is None
         assert result.breaches == []
 
+    def test_a_repeated_bucket_label_is_collapsed_before_fitting(self) -> None:
+        extraction = _series(49, interval=IntervalType.HOUR)
+        points = extraction.series[0].points
+        points[25].date = points[24].date
+        points[25].value = 123.0
+
+        engine = StubEngine(_forecast(["2026-01-03T01:00:00"], [90.0]))
+        with patch("products.alerts.backend.evaluation.forecast.get_forecast_engine", return_value=engine):
+            result = evaluate_with_forecast(
+                extraction,
+                {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 3},
+                _threshold(upper=1000),
+            )
+
+        assert result.is_inconclusive is False
+        dates = engine.calls[0]["dates"]
+        values = engine.calls[0]["values"]
+        assert len(dates) == len(set(dates)) == 48
+        assert len(values) == 48
+        assert values[dates.index(points[24].date)] == 123.0
+
     def test_stale_data_cannot_hide_a_long_effective_target_horizon(self) -> None:
         engine = StubEngine(_forecast(["2026-06-01"], [90.0]))
         with patch("products.alerts.backend.evaluation.forecast.get_forecast_engine", return_value=engine):
