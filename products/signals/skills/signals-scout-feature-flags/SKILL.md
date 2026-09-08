@@ -191,7 +191,7 @@ The check already excludes experiment-linked, early-access, survey- and product-
 
 **Re-verify each shortlisted candidate before it earns a report.** The issue is a snapshot and the flag may have moved since:
 
-1. `feature-flag-get-definition {flag_id}` — the flag still exists, is still active, and its `filters` still match `rollout_state`. A current `version` above the payload's `flag_version` means it was edited after detection: re-derive the direction from the live definition or drop the candidate.
+1. `feature-flag-get-definition {"id": <flag_id>}` — the flag still exists, is still active, and its `filters` still match `rollout_state`. A current `version` above the payload's `flag_version` means it was edited after detection: re-derive the direction from the live definition or drop the candidate.
 2. Re-check the blockers for this one flag: non-empty `experiment_set` → skip, `feature-flags-dependent-flags-retrieve` returning dependents → skip.
 3. Check for work already in flight — an open report, an implementation task, a recent cleanup PR (the searches are in [Decide](#decide)).
 
