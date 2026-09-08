@@ -20,6 +20,7 @@ import {
     forecastTargetValueError,
     maxHorizonForInterval,
     maxTargetDaysForInterval,
+    targetByDateSupportsForecast,
 } from 'products/alerts/frontend/logic/forecastReach'
 
 const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
@@ -145,7 +146,11 @@ export function ForecastSelector({
                         label: 'Target by date',
                         description: 'Alert if the value forecast for a chosen date is on the wrong side of a target.',
                         'data-attr': 'alertForm-forecast-condition-target-by-date',
-                        disabledReason,
+                        disabledReason:
+                            disabledReason ??
+                            (!targetByDateSupportsForecast(insightInterval)
+                                ? 'Target-by-date forecasts need a daily, weekly, or monthly insight interval.'
+                                : undefined),
                     },
                 ]}
             />

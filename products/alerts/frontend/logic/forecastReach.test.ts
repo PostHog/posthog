@@ -10,6 +10,7 @@ import {
     intervalSupportsForecast,
     maxHorizonForInterval,
     minForecastPoints,
+    targetByDateSupportsForecast,
     pointsInSimulationRange,
     resolveForecastSimulationRange,
     usableSimulationRanges,
@@ -97,6 +98,7 @@ describe('displaySupportsForecast', () => {
         ['a line graph', ChartDisplayType.ActionsLineGraph, true],
         ['an area graph', ChartDisplayType.ActionsAreaGraph, true],
         ['a bar chart', ChartDisplayType.ActionsBar, true],
+        ['a cumulative line graph', ChartDisplayType.ActionsLineGraphCumulative, false],
         // Both keep the insight's interval, so the time-series check alone lets them through.
         ['a box plot', ChartDisplayType.BoxPlot, false],
         ['a slope graph', ChartDisplayType.SlopeGraph, false],
@@ -106,6 +108,17 @@ describe('displaySupportsForecast', () => {
 
     it('allows an insight with no display set', () => {
         expect(displaySupportsForecast(null)).toBe(true)
+    })
+})
+
+describe('targetByDateSupportsForecast', () => {
+    it.each([
+        ['hour', false],
+        ['day', true],
+        ['week', true],
+        ['month', true],
+    ] as const)('supports %s: %s', (interval, expected) => {
+        expect(targetByDateSupportsForecast(interval)).toBe(expected)
     })
 })
 

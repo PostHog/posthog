@@ -23,12 +23,17 @@ export function intervalSupportsForecast(interval: IntervalType | null | undefin
  * one to fit: the box plot returns a distribution per bucket, and the slope keeps only the first
  * and last bucket. */
 const UNFORECASTABLE_DISPLAYS: ReadonlySet<ChartDisplayType> = new Set([
+    ChartDisplayType.ActionsLineGraphCumulative,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
 ])
 
 export function displaySupportsForecast(display: ChartDisplayType | null | undefined): boolean {
     return display == null || !UNFORECASTABLE_DISPLAYS.has(display)
+}
+
+export function targetByDateSupportsForecast(interval: IntervalType | null | undefined): boolean {
+    return interval !== 'hour'
 }
 
 /** Days per interval as the backend counts them, from `_INTERVAL_DAYS` in
