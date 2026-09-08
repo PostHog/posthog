@@ -7,13 +7,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import {
-    isEventsQuery,
-    isHogQLQuery,
-    isMarketingAnalyticsTableQuery,
-    isNonIntegratedConversionsTableQuery,
-    isPersonsNode,
-} from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery, isMarketingAnalyticsTableQuery, isPersonsNode } from '~/queries/utils'
 
 import { DataTableRow } from './dataTableLogic'
 
@@ -65,11 +59,7 @@ export const flattenObject = (obj: any, prefix?: string, separator = '.'): Recor
 const processRowData = (row: DataTableRow, columns: string[], query: DataTableNode): Record<string, any> => {
     const flattenedRecord: Record<string, any> = {}
 
-    if (
-        isHogQLQuery(query.source) ||
-        isMarketingAnalyticsTableQuery(query.source) ||
-        isNonIntegratedConversionsTableQuery(query.source)
-    ) {
+    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         const data = row.result ?? {}
         columns.forEach((col, index) => {
             const value = Array.isArray(data) ? data[index] : (data as Record<string, any>)[index]
@@ -193,11 +183,7 @@ export const getJsonTableData = (
         })
     }
 
-    if (
-        isHogQLQuery(query.source) ||
-        isMarketingAnalyticsTableQuery(query.source) ||
-        isNonIntegratedConversionsTableQuery(query.source)
-    ) {
+    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         return dataTableRows.map((n) => {
             const data = n.result ?? {}
             return columns.reduce(

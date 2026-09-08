@@ -6,7 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { MappingTypes } from './mappingUtils'
-import { buildCampaignMappingMenuItems, buildRowMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
+import { buildCampaignMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
 
 // Mock icons for marketing sources - these are the paths returned by the backend
 const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; fields: never[]; caption: string }> = {
@@ -240,62 +240,6 @@ export const CampaignCellAction_GloballyMapped: Story = {
         docs: {
             description: {
                 story: 'Campaign cell action when the UTM campaign is already mapped globally. The mapping option is disabled.',
-            },
-        },
-    },
-}
-
-/** Row Actions Stories */
-export const RowActions_Combined: Story = {
-    render: () => {
-        const items = buildRowMappingMenuItems({
-            sourceValue: 'facebook',
-            campaignValue: 'retargeting_q4',
-            sourceMappingStatus: { type: MappingTypes.Unmapped },
-            availableSourceIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-            globalCampaignMapping: null,
-            existingCampaignMappings: [],
-            availableCampaignIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-            onOpenSourceSettings: () => alert('Opening source settings'),
-            onOpenCampaignSettings: () => alert('Opening campaign settings'),
-        })
-
-        return <MenuDisplay items={items} title="Row Actions: Both Source and Campaign can be mapped" />
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Row actions that combine both source and campaign mapping options. Appears in the row actions menu (three dots) at the end of each row.',
-            },
-        },
-    },
-}
-
-export const RowActions_SourceDefaultMapped: Story = {
-    render: () => {
-        const items = buildRowMappingMenuItems({
-            sourceValue: 'google',
-            campaignValue: 'black_friday_sale',
-            sourceMappingStatus: { type: MappingTypes.Default, integration: 'GoogleAds' },
-            availableSourceIntegrations: [],
-            globalCampaignMapping: null,
-            existingCampaignMappings: [],
-            availableCampaignIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-            onOpenSourceSettings: () => alert('Opening source settings'),
-            onOpenCampaignSettings: () => alert('Opening campaign settings'),
-        })
-
-        return (
-            <MenuDisplay
-                items={items}
-                title="Row Actions: Source is default mapped (disabled), Campaign can be mapped"
-            />
-        )
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Row actions where the source has a default mapping (disabled) but the campaign can still be mapped.',
             },
         },
     },
