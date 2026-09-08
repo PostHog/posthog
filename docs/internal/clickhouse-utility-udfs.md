@@ -75,6 +75,10 @@ Fresh installations use the updated schema definitions. Existing tables require 
 
 Native-event queries derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
 
+Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
+becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
+The virtual `$active_feature_flags` array contains sorted map keys whose values are neither empty nor `false`.
+
 ### Benchmarking the cleaner
 
 `BenchmarkProcessFixture` measures cleaning with a reused processor and output buffer.
