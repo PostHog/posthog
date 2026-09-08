@@ -84,6 +84,8 @@ const getErrorMessage = (error: unknown): string => {
 export interface contentAutopilotLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     activeRun: ContentAutopilotRunApi | null
+    deletedProfile: string | null
+    deletedProfileLoading: boolean
     discoveredSite: ContentAutopilotSiteDiscoveryResponseApi | null
     discoveredSiteLoading: boolean
     exportedProposal: ContentAutopilotExportResponseApi | null
@@ -142,6 +144,21 @@ export interface contentAutopilotLogicActions {
         payload?: string
     ) => {
         runMutation: ContentAutopilotRunApi
+        payload?: string
+    }
+    deleteProfile: (profileId: string) => string
+    deleteProfileFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    deleteProfileSuccess: (
+        deletedProfile: string,
+        payload?: string
+    ) => {
+        deletedProfile: string
         payload?: string
     }
     discoverSite: () => any
@@ -414,6 +431,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 selectProfile: (_, { profileId }) => profileId,
                 saveProfileSuccess: (_, { savedProfile }) => savedProfile.id,
+                deleteProfileSuccess: () => null,
             },
         ],
         onboardingOpen: [
@@ -573,6 +591,18 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         String(values.currentTeamIdStrict),
                         payload
                     )
+                },
+            },
+        ],
+        deletedProfile: [
+            null as string | null,
+            {
+                deleteProfile: async (profileId: string) => {
+                    await webAnalyticsApi.webAnalyticsContentAutopilotProfilesDestroy(
+                        String(values.currentTeamIdStrict),
+                        profileId
+                    )
+                    return profileId
                 },
             },
         ],
@@ -766,6 +796,14 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             actions.loadSiteProfiles()
         },
         saveProfileFailure: ({ errorObject }) => {
+            lemonToast.error(getErrorMessage(errorObject))
+        },
+        deleteProfileSuccess: () => {
+            lemonToast.success('Site deleted')
+            actions.selectProposal(null)
+            actions.loadSiteProfiles()
+        },
+        deleteProfileFailure: ({ errorObject }) => {
             lemonToast.error(getErrorMessage(errorObject))
         },
         startRunSuccess: () => {

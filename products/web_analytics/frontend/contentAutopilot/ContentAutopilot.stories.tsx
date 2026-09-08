@@ -10,6 +10,7 @@ import type {
     ContentAutopilotSiteProfileApi,
 } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
+import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_PROFILE,
     EXAMPLE_PROPOSAL,
@@ -85,6 +86,13 @@ export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => (
     </div>
 )
 MultipleSites.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE] })]
+
+export const SiteSettings: StoryFn<typeof ContentAutopilotSetup> = () => (
+    <div className="p-6">
+        <ContentAutopilotSetup />
+    </div>
+)
+SiteSettings.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
 
 export const ReadyForReview: StoryFn<typeof ContentAutopilot> = () => (
     <div className="p-6">

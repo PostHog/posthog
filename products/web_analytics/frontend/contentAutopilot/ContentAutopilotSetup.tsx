@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
 
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSetupStepIndicator } from './ContentAutopilotSetupStepIndicator'
@@ -9,14 +9,39 @@ import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
 
 export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boolean }): JSX.Element => {
-    const { siteProfiles, profileDraft, onboardingStep, discoveredSite, discoveredSiteLoading, savedProfileLoading } =
-        useValues(contentAutopilotLogic)
-    const { cancelOnboarding, discoverSite, saveProfile, setOnboardingStep } = useActions(contentAutopilotLogic)
+    const {
+        siteProfiles,
+        profile,
+        profileDraft,
+        onboardingStep,
+        discoveredSite,
+        discoveredSiteLoading,
+        savedProfileLoading,
+        deletedProfileLoading,
+    } = useValues(contentAutopilotLogic)
+    const { cancelOnboarding, deleteProfile, discoverSite, saveProfile, setOnboardingStep } =
+        useActions(contentAutopilotLogic)
     const saveDisabledReason = !profileDraft.domain.trim()
         ? 'Enter a site URL'
         : splitHasNoValues(profileDraft.sourceUrls)
           ? 'Add at least one sitemap or source URL'
           : undefined
+    const confirmDeleteSite = (): void => {
+        if (!profile) {
+            return
+        }
+        LemonDialog.open({
+            title: `Delete ${profile.name || profile.domain}?`,
+            description:
+                'PostHog stops any run in progress and removes this site and its proposals from the workspace. You can add the site again later.',
+            primaryButton: {
+                children: 'Delete site',
+                status: 'danger',
+                onClick: () => deleteProfile(profile.id),
+            },
+            secondaryButton: { children: 'Keep site' },
+        })
+    }
 
     if (!onboarding) {
         return (
@@ -29,7 +54,17 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
                     <ContentAutopilotSiteFields draft={profileDraft} />
                     <ContentAutopilotSourceFields draft={profileDraft} />
                 </div>
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex items-center justify-between gap-2">
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={confirmDeleteSite}
+                        loading={deletedProfileLoading}
+                        data-attr="content-autopilot-delete-site"
+                    >
+                        Delete site
+                    </LemonButton>
                     <LemonButton
                         type="primary"
                         onClick={saveProfile}

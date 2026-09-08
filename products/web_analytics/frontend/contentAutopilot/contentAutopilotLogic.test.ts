@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     webAnalyticsContentAutopilotProfilesCreate,
+    webAnalyticsContentAutopilotProfilesDestroy,
     webAnalyticsContentAutopilotProfilesDiscover,
     webAnalyticsContentAutopilotProfilesList,
     webAnalyticsContentAutopilotProfilesPartialUpdate,
@@ -32,6 +33,7 @@ import {
 
 jest.mock('../generated/api', () => ({
     webAnalyticsContentAutopilotProfilesCreate: jest.fn(),
+    webAnalyticsContentAutopilotProfilesDestroy: jest.fn(),
     webAnalyticsContentAutopilotProfilesDiscover: jest.fn(),
     webAnalyticsContentAutopilotProfilesList: jest.fn(),
     webAnalyticsContentAutopilotProfilesPartialUpdate: jest.fn(),
@@ -52,6 +54,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 const mockProfilesCreate = jest.mocked(webAnalyticsContentAutopilotProfilesCreate)
+const mockProfilesDestroy = jest.mocked(webAnalyticsContentAutopilotProfilesDestroy)
 const mockProfilesList = jest.mocked(webAnalyticsContentAutopilotProfilesList)
 const mockProposalsEdit = jest.mocked(webAnalyticsContentAutopilotProposalsEdit)
 const mockProposalsList = jest.mocked(webAnalyticsContentAutopilotProposalsList)
@@ -88,6 +91,7 @@ describe('contentAutopilotLogic', () => {
         mockProposalsRetrieve.mockResolvedValue(EXAMPLE_PROPOSAL)
         mockRunsStart.mockResolvedValue({ ...EXAMPLE_RUN, run_status: 'pending' })
         mockProfilesCreate.mockResolvedValue(EXAMPLE_SECOND_PROFILE)
+        mockProfilesDestroy.mockResolvedValue(undefined)
         jest.mocked(webAnalyticsContentAutopilotProfilesDiscover).mockResolvedValue({
             name: EXAMPLE_PROFILE.name ?? '',
             domain: EXAMPLE_PROFILE.domain,
@@ -173,6 +177,20 @@ describe('contentAutopilotLogic', () => {
             limit: 100,
             profile_id: EXAMPLE_SECOND_PROFILE.id,
         })
+    })
+
+    it('returns to onboarding once the last site is deleted', async () => {
+        const mountedLogic = await mountWorkspace()
+        mockProfilesList.mockResolvedValue(paginated([]))
+
+        await expectLogic(mountedLogic, () =>
+            mountedLogic.actions.deleteProfile(EXAMPLE_PROFILE.id)
+        ).toFinishAllListeners()
+
+        expect(mockProfilesDestroy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), EXAMPLE_PROFILE.id)
+        expect(mountedLogic.values.siteProfiles).toEqual([])
+        expect(mountedLogic.values.profile).toBeNull()
+        expect(mountedLogic.values.onboardingOpen).toBe(true)
     })
 
     it('ignores stale profile data when requests finish out of order', async () => {
