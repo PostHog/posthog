@@ -11,6 +11,7 @@ export interface AccountPropertyConfiguratorProps {
     isOpen: boolean
     options: AccountPropertyOption[]
     pinnedPropertyKeys: string[]
+    saving?: boolean
     onChange: (pinnedPropertyKeys: string[]) => void
     onSave: (pinnedPropertyKeys: string[]) => void
     onCancel: () => void
@@ -20,6 +21,7 @@ export function AccountPropertyConfigurator({
     isOpen,
     options,
     pinnedPropertyKeys,
+    saving = false,
     onChange,
     onSave,
     onCancel,
@@ -68,6 +70,7 @@ export function AccountPropertyConfigurator({
                     <LemonButton
                         type="primary"
                         onClick={() => onSave(pinnedPropertyKeys)}
+                        loading={saving}
                         data-attr="account-pinned-properties-save"
                     >
                         Save
@@ -97,6 +100,7 @@ export function AccountPropertyConfigurator({
                                     <AccountPropertyConfiguratorItem
                                         key={option.key}
                                         option={option}
+                                        disabled={saving}
                                         onRemove={() =>
                                             onChange(pinnedPropertyKeys.filter((key) => key !== option.key))
                                         }
@@ -129,7 +133,11 @@ export function AccountPropertyConfigurator({
                     title="Available properties"
                     fullWidth
                     disabledReason={
-                        pinLimitReached ? `You can pin up to ${MAX_PINNED_ACCOUNT_PROPERTIES} properties` : undefined
+                        saving
+                            ? 'Saving'
+                            : pinLimitReached
+                              ? `You can pin up to ${MAX_PINNED_ACCOUNT_PROPERTIES} properties`
+                              : undefined
                     }
                     data-attr="account-pinned-property-selector"
                 />

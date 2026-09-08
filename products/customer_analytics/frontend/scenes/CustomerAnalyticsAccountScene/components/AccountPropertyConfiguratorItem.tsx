@@ -10,14 +10,19 @@ import type { AccountPropertyOption } from './accountPropertyTypes'
 
 export interface AccountPropertyConfiguratorItemProps {
     option: AccountPropertyOption
+    disabled?: boolean
     onRemove: () => void
 }
 
 export function AccountPropertyConfiguratorItem({
     option,
+    disabled = false,
     onRemove,
 }: AccountPropertyConfiguratorItemProps): JSX.Element {
-    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: option.key })
+    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+        id: option.key,
+        disabled,
+    })
 
     return (
         <div
@@ -31,8 +36,11 @@ export function AccountPropertyConfiguratorItem({
         >
             <button
                 type="button"
-                className="flex cursor-grab items-center text-secondary active:cursor-grabbing"
+                className={`flex items-center text-secondary ${
+                    disabled ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'
+                }`}
                 aria-label={`Reorder ${option.label}`}
+                disabled={disabled}
                 {...attributes}
                 {...listeners}
             >
@@ -48,6 +56,7 @@ export function AccountPropertyConfiguratorItem({
                 tooltip={`Remove ${option.label}`}
                 aria-label={`Remove ${option.label}`}
                 onClick={onRemove}
+                disabledReason={disabled ? 'Saving' : undefined}
             />
         </div>
     )
