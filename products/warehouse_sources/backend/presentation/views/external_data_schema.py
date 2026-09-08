@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
     RowFilterValidationError,
     SourceRegistry,
+    SQLSource,
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
@@ -1933,17 +1934,24 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        if not schemas:
-            # Discovery found nothing at all, which several unrelated conditions produce. Postgres and
-            # Redshift read `information_schema.columns`, which hides columns the connected role has no
-            # privilege on, so a revoked GRANT looks the same as a dropped table. Don't claim the
-            # relation is gone when we cannot tell.
-            message = (
-                f'Couldn\'t read any columns for "{instance.name}". The table may have been dropped, '
-                "the connected user may not have permission to read it, or PostHog may not support "
-                "this type of table. Check that the table exists and that the connected user can read it."
-            )
-            return Response(data={"message": message}, status=status.HTTP_400_BAD_REQUEST)
+        # A SQL source reads its columns from `information_schema.columns`, which hides columns the
+        # connected role has no privilege on, so a revoked GRANT looks the same as a dropped table.
+        # Two result shapes carry that condition. Redshift keys its table list off the column rows,
+        # so it discovers nothing and returns no schemas. Postgres seeds relations from `pg_class`,
+        # which applies no privilege filter, so it returns the relation with no columns. Neither may
+        # claim the relation is gone, because discovery cannot tell the two causes apart.
+        # Sources with a fixed endpoint list (Stripe and the rest of the REST family) also return no
+        # schemas when the stored name was never one of their endpoints, but permissions play no part
+        # there, so they fall through to the name-match response below.
+        is_sql_source = isinstance(new_source, SQLSource)
+        unreadable_message = (
+            f'Couldn\'t read any columns for "{instance.name}". The table may have been dropped, '
+            "the connected user may not have permission to read it, or PostHog may not support "
+            "this type of table. Check that the table exists and that the connected user can read it."
+        )
+
+        if is_sql_source and not schemas:
+            return Response(data={"message": unreadable_message}, status=status.HTTP_400_BAD_REQUEST)
 
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
@@ -1953,6 +1961,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+
+        # The second shape above: discovery matched the relation but read no columns from it.
+        if is_sql_source and not schema.columns:
+            return Response(data={"message": unreadable_message}, status=status.HTTP_400_BAD_REQUEST)
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.

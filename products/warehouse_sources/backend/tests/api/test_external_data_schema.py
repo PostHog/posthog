@@ -496,15 +496,14 @@ class TestExternalDataSchema(APIBaseTest):
                         name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False
                     )
                 ],
-                "not found",
             ),
-            # Discovery reads `information_schema.columns` on Postgres and Redshift, which hides columns
-            # the connected role has no privilege on, so an empty result must not claim the table is gone.
-            ("nothing_discovered", [], "permission"),
+            # A fixed-endpoint-list source discovers nothing when the stored name was never one of its
+            # endpoints. Permissions play no part there, so it must not get the unreadable-table advice.
+            ("nothing_discovered", []),
         ]
     )
     def test_incremental_fields_returns_400_when_schema_name_absent(
-        self, _name: str, discovered_schemas: list[SourceSchema], expected_message_fragment: str
+        self, _name: str, discovered_schemas: list[SourceSchema]
     ):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
@@ -527,7 +526,58 @@ class TestExternalDataSchema(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert expected_message_fragment in response.json()["message"]
+        assert response.json()["message"] == "Schema with name C999 not found"
+
+    @parameterized.expand(
+        [
+            # Redshift keys its table list off the column rows, so a table it cannot read discovers
+            # nothing at all.
+            ("nothing_discovered", []),
+            # Postgres seeds relations from `pg_class`, which applies no privilege filter, so a table
+            # it cannot read comes back matched but with no columns.
+            (
+                "matched_without_columns",
+                [SourceSchema(name="some_table", supports_incremental=False, supports_append=False, columns=[])],
+            ),
+        ]
+    )
+    def test_incremental_fields_reports_unreadable_table_for_sql_source(
+        self, _name: str, discovered_schemas: list[SourceSchema]
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                "ssh_tunnel_enabled": False,
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="some_table",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(PostgresSource, "get_schemas", return_value=discovered_schemas),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "permission" in response.json()["message"]
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
