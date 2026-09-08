@@ -1820,6 +1820,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // experiment would end up watching every visitor instead of the participants. A draft
                 // that named an experiment itself is fresher intent, so it wins.
                 const context = goalDraft.experiment_targeting ? null : values.experimentContext
+                if (goalDraft.experiment_targeting && values.experimentContext) {
+                    // rebuildExperimentContext keeps a card whose experiment id already matches, so a
+                    // draft that renames the variant would leave the Recordings step showing the old
+                    // one while the scanner saves the new one. Drop the card and let it rebuild.
+                    actions.setExperimentContext(null)
+                }
                 const base = newScanner(null, teamLogic.values.currentTeam?.name)
                 actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
                 const draftQuery = goalDraft.query as RecordingsQuery | undefined

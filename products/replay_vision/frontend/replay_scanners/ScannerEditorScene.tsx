@@ -136,8 +136,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     // An experiment cross-sell entry point has already said what to watch and deep-linked the
     // targeting. Asking for that goal again as free text loses the prefill from view and makes the
     // user restate it, so those entries get the template picker with the prefill already applied.
-    const experimentScoped = experimentDeepLink || experimentContext !== null
-    const showGoalEntry = step === 'template' && goalFlow && !manualMode && !experimentScoped
+    // Only the deep link decides this. A context that arrives later (the experiment fetch, or a
+    // restored draft that carries targeting) would swap the layout under someone already typing.
+    const showGoalEntry = step === 'template' && goalFlow && !manualMode && !experimentDeepLink
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -235,7 +236,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 {/* The goal flow supersedes this box, so someone who has already
                                     turned it down to build by hand should not be offered it again.
                                     An experiment entry never saw the goal flow, so it keeps the box. */}
-                                {(!goalFlow || experimentScoped) && <ScannerGoalDraft />}
+                                {(!goalFlow || experimentDeepLink) && <ScannerGoalDraft />}
                             </>
                         )
                     ) : step === 'overview' ? (
@@ -291,7 +292,7 @@ function ExperimentScopeNote({ experimentName }: { experimentName?: string }): J
         return null
     }
     return (
-        <LemonBanner type="info" data-attr="vision-template-experiment-scope">
+        <LemonBanner type="info">
             This scanner watches sessions of people exposed to {experimentName}. That holds whichever way you set it up
             below, and you can narrow it to one variant on the Recordings step.
         </LemonBanner>
