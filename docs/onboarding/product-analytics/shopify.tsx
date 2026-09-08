@@ -115,7 +115,7 @@ export const getShopifyEcommerceStep = (ctx: OnboardingComponentsContext): StepD
                                         const checkout = event.data.checkout
                                         posthog.capture('checkout_started', {
                                             checkout_token: checkout?.token,
-                                            item_count: checkout?.lineItems?.length,
+                                            item_count: checkout?.lineItems?.reduce((sum, item) => sum + (item?.quantity ?? 0), 0),
                                             value: checkout?.totalPrice?.amount,
                                             currency: checkout?.currencyCode
                                         })
@@ -126,7 +126,7 @@ export const getShopifyEcommerceStep = (ctx: OnboardingComponentsContext): StepD
                                         posthog.capture('checkout_completed', {
                                             order_id: checkout?.order?.id,
                                             checkout_token: checkout?.token,
-                                            item_count: checkout?.lineItems?.length,
+                                            item_count: checkout?.lineItems?.reduce((sum, item) => sum + (item?.quantity ?? 0), 0),
                                             revenue: checkout?.totalPrice?.amount,
                                             currency: checkout?.currencyCode
                                         })
