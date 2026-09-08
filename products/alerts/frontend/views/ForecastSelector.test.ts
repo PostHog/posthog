@@ -5,10 +5,11 @@ import {
     ForecastConfig,
     ForecastEngineType,
     ForecastTargetDirection,
+    FutureBreachForecastConfig,
 } from '~/queries/schema/schema-general'
 
 import { forecastTargetDateError, forecastTargetValueError } from '../logic/forecastReach'
-import { getDefaultForecastConfig, withConditionDefaults } from './ForecastSelector'
+import { getDefaultForecastConfig, withConditionDefaults, withEnteredHorizon } from './ForecastSelector'
 
 describe('withConditionDefaults', () => {
     const futureBreach: ForecastConfig = {
@@ -82,6 +83,31 @@ describe('withConditionDefaults', () => {
         )
 
         expect(next).toHaveProperty('horizon', 3)
+    })
+})
+
+describe('withEnteredHorizon', () => {
+    const breachConfig = (horizon: number | undefined): FutureBreachForecastConfig => ({
+        type: 'ForecastConfig',
+        engine: ForecastEngineType.PROPHET,
+        condition: ForecastConditionType.FUTURE_BREACH,
+        horizon,
+    })
+
+    it.each([
+        // Clearing the field reports NaN. Storing it would save a null horizon that silently
+        // evaluates as the backend default, dropping a longer look-ahead the user had set.
+        ['keeps the set horizon when the field is cleared', 30, Number.NaN, 'day', 30],
+        ['takes a number the user typed', 30, 14, 'day', 14],
+        ['clamps a typed horizon to the interval cap', 7, 100, 'week', 13],
+        ['falls back to the default when no horizon is set yet', undefined, Number.NaN, 'day', 7],
+    ] as const)('%s', (_name, current, entered, interval, expected) => {
+        const next = withEnteredHorizon(breachConfig(current), entered, interval)
+
+        if (next.condition !== ForecastConditionType.FUTURE_BREACH) {
+            throw new Error('Expected future-breach config')
+        }
+        expect(next.horizon).toBe(expected)
     })
 })
 

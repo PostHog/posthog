@@ -32,6 +32,18 @@ const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
 const DEFAULT_HORIZON = 7
 const DEFAULT_TARGET_DAYS = 90
 
+/** Merges a horizon the user typed. An emptied number input reports NaN, which `??` does not
+ *  catch, so a cleared field would store NaN, serialize to null, and then evaluate as the
+ *  backend's own default. Keep the horizon already set until a real number arrives. */
+export function withEnteredHorizon(
+    config: FutureBreachForecastConfig,
+    entered: number | null | undefined,
+    insightInterval?: IntervalType | null
+): ForecastConfig {
+    const horizon = entered != null && Number.isFinite(entered) ? entered : (config.horizon ?? DEFAULT_HORIZON)
+    return clampHorizon({ ...config, horizon }, insightInterval)
+}
+
 export function withConditionDefaults(
     config: ForecastConfig,
     condition: ForecastConditionType,
@@ -147,9 +159,7 @@ export function ForecastSelector({
                         min={1}
                         max={maxHorizon}
                         value={config.horizon ?? DEFAULT_HORIZON}
-                        onChange={(horizon) =>
-                            onChange(clampHorizon({ ...config, horizon: horizon ?? DEFAULT_HORIZON }, insightInterval))
-                        }
+                        onChange={(horizon) => onChange(withEnteredHorizon(config, horizon, insightInterval))}
                     />
                     <span>{unit}</span>
                     <SettingHelp text="Forecasts are limited to 92 days and 250 output points. Shorter horizons are generally more stable." />
