@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { NextScheduledRun } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -164,6 +164,19 @@ export function AlertIntervalRow({
                     )}
                 </LemonField>
                 {evaluatedWindow}
+            </AlertDefinitionRow>
+            <AlertDefinitionRow label="Run checks at">
+                <LemonInput
+                    type="time"
+                    step={60}
+                    value={alertForm.schedule_start_time?.time ?? ''}
+                    onChange={(time) => onSetAlertFormValue('schedule_start_time', time ? { time } : null)}
+                    aria-label="Alert check start time"
+                    data-attr="alertForm-schedule-start-time"
+                />
+                <span className="text-sm text-muted">
+                    Choose the check timing in your project timezone. The selected interval controls check frequency.
+                </span>
             </AlertDefinitionRow>
             {nextEvaluation}
         </div>
