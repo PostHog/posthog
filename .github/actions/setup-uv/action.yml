@@ -1,12 +1,29 @@
 name: Set up uv
-description: Install the repository's pinned uv version and optionally restore its cache
+description: |
+    Installs CI's exact uv version and optionally restores its cache.
+
+    The pin lives here so an upgrade is one edit. It stays an exact literal:
+    a version range makes setup-uv resolve through the GitHub API on every
+    job, which exhausts the shared rate limit under concurrent CI load
+    (astral-sh/setup-uv#325).
+
+    A job whose workspace is a PR head ref cannot use this action, because a
+    local action added on master is absent there until the branch rebases.
+    Those jobs keep a matching inline pin instead.
+
+    The three inputs below repeat setup-uv's own defaults on purpose. A
+    composite always writes every key it forwards, so an omitted input would
+    reach setup-uv as an empty string and suppress the default rather than
+    inherit it: caching would silently switch off.
 
 inputs:
     enable-cache:
         description: Whether to use the uv cache
+        required: false
         default: auto
     cache-dependency-glob:
         description: Files used to calculate the uv cache key
+        required: false
         default: |
             **/*requirements*.txt
             **/*requirements*.in
@@ -17,24 +34,13 @@ inputs:
             **/*.py.lock
     save-cache:
         description: Whether to save the uv cache after the job
+        required: false
         default: 'true'
 
 outputs:
-    uv-version:
-        description: The installed uv version
-        value: ${{ steps.setup-uv.outputs.uv-version }}
-    uv-path:
-        description: The path to the installed uv binary
-        value: ${{ steps.setup-uv.outputs.uv-path }}
-    uvx-path:
-        description: The path to the installed uvx binary
-        value: ${{ steps.setup-uv.outputs.uvx-path }}
     cache-hit:
         description: Whether a matching cache entry was restored
         value: ${{ steps.setup-uv.outputs.cache-hit }}
-    cache-key:
-        description: The uv cache key
-        value: ${{ steps.setup-uv.outputs.cache-key }}
 
 runs:
     using: composite
@@ -43,7 +49,7 @@ runs:
           id: setup-uv
           uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
           with:
-              version: '0.11.28' # Exact pins avoid GitHub API resolution for each concurrent job.
+              version: '0.11.28'
               enable-cache: ${{ inputs.enable-cache }}
               cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
               save-cache: ${{ inputs.save-cache }}

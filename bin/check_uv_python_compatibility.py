@@ -11,19 +11,21 @@ The shape we enforce:
   breaking the moment master ships a new pin. Raise the floor only when the
   code on master genuinely requires a newer uv feature.
 
-- .github/actions/setup-uv/action.yml holds CI's exact uv version. Jobs that
-  check out another revision keep matching exact pins because that revision
-  may not contain the shared action. Exact pins avoid the historical GitHub
-  API rate-limit issue caused by range resolution (astral-sh/setup-uv#325).
+- .github/actions/setup-uv/action.yml holds CI's exact uv version. A job whose
+  workspace is a PR head tree cannot reach it — a local action added on master
+  is absent there until the branch rebases — so those jobs, and the .depot
+  shadow's own copies, keep a matching exact pin inline. Exact pins avoid the
+  historical GitHub API rate-limit issue caused by range resolution
+  (astral-sh/setup-uv#325).
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
   CI. Comparison is on major.minor to allow patch drift.
 
 Performs four checks:
-1. Workflow pins are present, exact literals, and identical across all files.
-2. Workflow pin satisfies pyproject's required-version floor.
-3. Workflow pin can download the required Python version.
-4. Flox manifest uv version matches the workflow pin on major.minor.
+1. CI pins are present, exact literals, and identical across all files.
+2. The pin satisfies pyproject's required-version floor.
+3. The pin can download the required Python version.
+4. Flox manifest uv version matches the CI pin on major.minor.
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
@@ -106,15 +108,18 @@ def get_uv_version_from_flox() -> str | None:
     return match.group(1) if match else None
 
 
-def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
+def get_uv_pins_from_ci_files() -> dict[str, list[str | None]]:
     """Find direct setup-uv usages in CI configuration and their version pins.
 
-    Returns a dict mapping each file to its direct setup-uv versions. The shared
-    action and jobs that cannot use it must have matching exact pins.
+    Returns a dict mapping each repo-relative file to its direct setup-uv
+    versions. Composite actions are globbed rather than named, so a second
+    wrapper — a .depot mirror, or a future per-tool action — cannot carry an
+    unpinned setup-uv past this check.
     """
     repo_root = Path(__file__).parent.parent
     ci_files = [
-        repo_root / ".github" / "actions" / "setup-uv" / "action.yml",
+        *sorted(repo_root.glob(".github/actions/*/action.y*ml")),
+        *sorted(repo_root.glob(".depot/actions/*/action.y*ml")),
         *sorted((repo_root / ".github" / "workflows").glob("*.y*ml")),
         *sorted((repo_root / ".depot" / "workflows").glob("*.y*ml")),
     ]
@@ -180,10 +185,10 @@ def _divider() -> None:
 
 
 def label_workflow_pins(workflow_usages: dict[str, list[str | None]]) -> tuple[list[str], dict[str, list[str]]]:
-    """Split workflow usages into missing pins and pins grouped by version.
+    """Split usages into missing pins and pins grouped by version.
 
     Returns (missing_pins, pin_locations). Each usage is labelled with its
-    workflow name, plus a `(usage N)` suffix when a workflow has several.
+    repo-relative path, plus a `(usage N)` suffix when a file has several.
     """
     missing_pins: list[str] = []
     pin_locations: dict[str, list[str]] = {}
@@ -200,14 +205,14 @@ def label_workflow_pins(workflow_usages: dict[str, list[str | None]]) -> tuple[l
 
 
 def check_workflow_pins() -> tuple[bool, str | None]:
-    """Check 1: pins present, exact literals, and identical across workflows.
+    """Check 1: pins present, exact literals, and identical across CI files.
 
     Returns (ok, workflow_pin). The pin is the single agreed version, or None
     when it is missing or ambiguous.
     """
     _section("Check 1: CI workflow uv version pins")
 
-    workflow_usages = get_uv_versions_from_workflows()
+    workflow_usages = get_uv_pins_from_ci_files()
     missing_pins, pin_locations = label_workflow_pins(workflow_usages)
     distinct_pins = set(pin_locations)
 
