@@ -5,13 +5,31 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAppBridge } from "./useAppBridge";
 
-const { bridgeInstances, createMockAppBridge } = vi.hoisted(() => {
+const { bridgeInstances, createMockAppBridge, connectGate } = vi.hoisted(() => {
+  // When gated, connect stays pending until the test releases it, so a test
+  // can run a teardown while a connect is in flight.
+  const connectGate = {
+    enabled: false,
+    resolvers: [] as Array<() => void>,
+    enable() {
+      this.enabled = true;
+    },
+    release() {
+      this.enabled = false;
+      for (const resolve of this.resolvers.splice(0)) resolve();
+    },
+  };
   class MockAppBridge {
     oninitialized: (() => void) | null = null;
     sendToolResult = vi.fn();
     sendToolInput = vi.fn();
     sendHostContextChange = vi.fn();
-    connect = vi.fn().mockResolvedValue(undefined);
+    connect = vi.fn().mockImplementation(() => {
+      if (!connectGate.enabled) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        connectGate.resolvers.push(resolve);
+      });
+    });
     sendSandboxResourceReady = vi.fn().mockResolvedValue(undefined);
     teardownResource = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
@@ -22,7 +40,7 @@ const { bridgeInstances, createMockAppBridge } = vi.hoisted(() => {
     bridgeInstances.push(instance);
     return instance;
   }
-  return { bridgeInstances, createMockAppBridge };
+  return { bridgeInstances, createMockAppBridge, connectGate };
 });
 
 vi.mock("@modelcontextprotocol/ext-apps/app-bridge", () => ({
@@ -63,6 +81,7 @@ beforeEach(() => {
 
 afterEach(() => {
   bridgeInstances.length = 0;
+  connectGate.release();
   vi.restoreAllMocks();
 });
 
@@ -189,6 +208,42 @@ describe("useAppBridge", () => {
     });
 
     expect(bridge.sendToolResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a bridge whose connect finishes after a teardown (regression)", async () => {
+    connectGate.enable();
+    const onPhaseChange = vi.fn();
+    const { rerender } = renderHook((props) => useAppBridge(props), {
+      initialProps: baseArgs({ onPhaseChange }),
+    });
+
+    await act(async () => {
+      // Do not await the listener: with the gate on, it parks at connect.
+      void latestMessageListener?.({
+        source: fakeIframeEl.contentWindow,
+        data: { method: "ui/notifications/sandbox-proxy-ready" },
+      } as MessageEvent);
+      await Promise.resolve();
+    });
+    expect(bridgeInstances).toHaveLength(1);
+    const staleBridge = bridgeInstances[0];
+
+    // The resource changes while connect is still pending, so the effect
+    // that started this bridge tears down.
+    rerender(
+      baseArgs({
+        onPhaseChange,
+        uiResource: makeResource("ui://posthog/other.html"),
+      }),
+    );
+
+    await act(async () => {
+      connectGate.release();
+    });
+
+    expect(staleBridge.sendSandboxResourceReady).not.toHaveBeenCalled();
+    expect(staleBridge.close).toHaveBeenCalled();
+    expect(onPhaseChange).not.toHaveBeenCalledWith("resource-sent");
   });
 
   it("does not double-deliver when a result was already queued before the app initializes", async () => {
