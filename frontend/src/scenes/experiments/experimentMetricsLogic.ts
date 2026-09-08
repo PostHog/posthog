@@ -457,7 +457,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             (recalc: ExperimentMetricsRecalculationApi | null): string | null =>
                 recalc?.completed_at ?? recalc?.query_to ?? null,
         ],
-        // Upper time bound of the data the current results cover.
         dataThrough: [
             (s) => [s.currentRecalculation],
             (recalc: ExperimentMetricsRecalculationApi | null): string | null => recalc?.query_to ?? null,

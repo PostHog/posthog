@@ -108,7 +108,6 @@ export const ExperimentReloadAction = ({
 }: {
     isRefreshing: boolean
     lastRefresh: string | null
-    /** Upper time bound of the data behind the results. */
     dataThrough?: string | null
     onClick: () => void
     progress?: { completed: number; total: number }
@@ -120,10 +119,7 @@ export const ExperimentReloadAction = ({
     // Completed experiments have final results: no staleness warning, no auto refresh
     const ended = hasEnded(experiment)
 
-    /**
-     * A stopped experiment pins its analysis window to the end date, so a reload recomputes nothing and the
-     * numbers on screen are already the final ones. Only block the click once we have results to stand behind.
-     */
+    // Only block the reload once the final results exist, so a fresh stop can still compute them.
     const finalResultsReason =
         ended && lastRefresh
             ? `This experiment stopped${
