@@ -42,7 +42,6 @@ export interface CustomModelPickerOption extends ModelPickerOptionBase {
   kind: "custom";
 }
 
-/** A gateway model this table has no price row for. It shows no cost chip. */
 export interface UnpricedModelPickerOption extends ModelPickerOptionBase {
   kind: "unpriced";
 }
@@ -148,9 +147,8 @@ export function modelCostInfo(modelId: string): ModelCostInfo | null {
 
 /**
  * Converts an ACP model into the picker contract. The pickers call this during
- * render, so a model id this table does not know must cost the row its cost
- * chip and nothing more: the harness names its own model ids, and a resumed
- * session can carry an older one, so drift is expected.
+ * render, and the harness names model ids this table may not hold, so an
+ * unknown id costs the row its cost chip and nothing more.
  */
 export function toModelPickerOption(
   model: ModelPickerOptionBase,

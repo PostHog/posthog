@@ -22,7 +22,7 @@ describe("model picker rows", () => {
 
     expect(screen.getByText("Claude Sonnet 5")).toBeInTheDocument();
     expect(screen.getByText("GPT-5.99")).toBeInTheDocument();
-    // The unpriced row drops its cost chip; the priced row keeps one.
+    // Only the priced row keeps a cost chip.
     expect(screen.getAllByTitle(/Cost per token/)).toHaveLength(1);
   });
 });

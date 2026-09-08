@@ -10,9 +10,8 @@ const log = logger.scope("model-picker");
 const reported = new Set<string>();
 
 /**
- * The picker's model conversion, with a report when the client price table has
- * no row for a model. The row still renders, without its cost chip. One report
- * per model id, because the pickers convert on every render.
+ * The picker's model conversion, with a report when the price table has no row
+ * for a model. One report per id, because the pickers convert on every render.
  */
 export function toPickerOption(
   model: ModelPickerOptionBase,
