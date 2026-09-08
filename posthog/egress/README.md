@@ -106,7 +106,8 @@ Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from
 
 Harmonic (`harmonic/`) meters one account-wide rate limit, and an instance holds a single API key, so it uses one constant scope like the two above.
 The budget is a single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
-Harmonic publishes no rate limit we could confirm, so that default is seeded from observed throughput and is meant to be tuned against the rate-limit headers this domain records.
+Harmonic documents a per-second limit for most endpoints and answers 429 above it, reporting the current limit and remaining allowance in `X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second` on every response.
+The default sits above that so the `BATCH` reserve floor lands the bulk lane near the documented rate, and it is tuned against the values this domain records from those headers.
 Harmonic is the first async domain: it subclasses `AsyncEgressClient` rather than `EgressClient`, because its client speaks `aiohttp`.
 Its lanes carry very different traffic, so the reserve floor matters: signup enrichment and the ICP re-enrichment sweep run `CRITICAL` inside a short Temporal activity budget, while the Salesforce enrichment sweep runs `BATCH` and yields to them.
 
