@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
+from celery.result import EagerResult
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
@@ -21,7 +22,7 @@ from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
 )
-from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
+from posthog.clickhouse.client.async_task_chain import execute_task_chain, kick_off_task, task_chain_context
 from posthog.clickhouse.client.execute_async import (
     QueryNotFoundError,
     QueryStatusManager,
@@ -230,6 +231,32 @@ class TestQueryStatusManager(SimpleTestCase):
 
 
 class TestAsyncTaskChain(SimpleTestCase):
+    def test_eager_task_preserves_terminal_error_metadata(self) -> None:
+        query_id = "eager-query"
+        team_id = 12345
+        manager = QueryStatusManager(query_id, team_id)
+        get_client().delete(manager.results_key)
+        initial_status = QueryStatus(id=query_id, team_id=team_id)
+        terminal_status = QueryStatus(id=query_id, team_id=team_id, complete=True, error=True)
+        task_signature = MagicMock()
+
+        def execute_task(*, task_id: str) -> EagerResult:
+            manager.store_query_status(
+                terminal_status,
+                error_category=QueryErrorCategory.RATE_LIMITED,
+                error_retryable=True,
+            )
+            return EagerResult(task_id, None, "SUCCESS")
+
+        task_signature.apply_async.side_effect = execute_task
+
+        kick_off_task(manager, initial_status, task_signature)
+
+        internal_status = manager.get_internal_query_status()
+        self.assertTrue(internal_status.query_status.complete)
+        self.assertEqual(internal_status.error_category, QueryErrorCategory.RATE_LIMITED)
+        self.assertTrue(internal_status.error_retryable)
+
     @patch("posthog.clickhouse.client.async_task_chain.uuid.uuid4")
     @patch("posthog.clickhouse.client.async_task_chain.chain")
     def test_persists_each_task_identity_before_dispatch(self, chain_mock: MagicMock, uuid4_mock: MagicMock) -> None:
