@@ -3259,6 +3259,7 @@ class TaskSearchDocument(TeamScopedRootMixin, UUIDModel):
         PULL_REQUEST = "pull_request", "Pull request"
         ARTIFACT = "artifact", "Artifact"
         CHANNEL = "channel", "Channel"
+        CANVAS = "canvas", "Canvas"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)

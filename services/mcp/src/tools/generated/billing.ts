@@ -51,21 +51,6 @@ const billingLimitsGet = (): ToolBase<ReturnType<typeof BillingLimitsGetSchema>,
     },
 })
 
-const BillingProjectsListSchema = () => z.object({})
-
-const billingProjectsList = (): ToolBase<ReturnType<typeof BillingProjectsListSchema>, Schemas.BillingProjects> => ({
-    name: 'billing-projects-list',
-    schema: BillingProjectsListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectsListSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.BillingProjects>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/projects/`,
-        })
-        return result
-    },
-})
-
 const BillingOverviewGetSchema = () => z.object({})
 
 const billingOverviewGet = (): ToolBase<
@@ -156,6 +141,21 @@ const billingProductsList = (): ToolBase<ReturnType<typeof BillingProductsListSc
             query: {
                 include_plans: params.include_plans,
             },
+        })
+        return result
+    },
+})
+
+const BillingProjectsListSchema = () => z.object({})
+
+const billingProjectsList = (): ToolBase<ReturnType<typeof BillingProjectsListSchema>, Schemas.BillingProjects> => ({
+    name: 'billing-projects-list',
+    schema: BillingProjectsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectsListSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.BillingProjects>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/projects/`,
         })
         return result
     },
@@ -479,10 +479,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-features-get': billingFeaturesGet,
     'billing-forecast-get': billingForecastGet,
     'billing-limits-get': billingLimitsGet,
-    'billing-projects-list': billingProjectsList,
     'billing-overview-get': billingOverviewGet,
     'billing-product-get': billingProductGet,
     'billing-products-list': billingProductsList,
+    'billing-projects-list': billingProjectsList,
     'billing-spend-get': billingSpendGet,
     'billing-spend-summary-get': billingSpendSummaryGet,
     'billing-spend-timeseries-get': billingSpendTimeseriesGet,

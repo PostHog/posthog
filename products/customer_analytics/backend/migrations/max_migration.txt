@@ -1,1 +1,1 @@
-0049_validate_customer_task_foreign_keys
+0051_squash_2026_09_07_schema_addons

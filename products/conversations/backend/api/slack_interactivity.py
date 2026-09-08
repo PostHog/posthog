@@ -19,7 +19,7 @@ from posthog.models.integration import SlackIntegrationError
 
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 from products.conversations.backend.support_slack import team_exists_for_slack_workspace, validate_support_request
-from products.conversations.backend.tasks import process_supporthog_interactivity
+from products.conversations.backend.tasks.slack import process_supporthog_interactivity
 
 logger = structlog.get_logger(__name__)
 

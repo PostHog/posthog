@@ -4,6 +4,7 @@ from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -105,27 +106,22 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False)
         self.aliases: dict[str, ast.Expr] = {}
-        self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
-        self.in_group_by = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
-        outer_alias_positions = self.alias_positions
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
-        self.alias_positions = {
-            expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
-        }
         lowered = super().visit_select_query(node)
-        if node.group_by is not None:
-            outer_in_group_by = self.in_group_by
-            self.in_group_by = True
-            try:
-                lowered.group_by = [self.visit(expr) for expr in node.group_by]
-            finally:
-                self.in_group_by = outer_in_group_by
+        if node.group_by is not None and lowered.group_by is not None and lowered.group_by_mode is None:
+            projections = [expression_key(expr) for expr in lowered.select]
+            # Separate parameter occurrences are not identical grouping expressions in Trino.
+            for index, expr in enumerate(lowered.group_by):
+                if positional_index(node.group_by[index]) is not None:
+                    continue
+                key = expression_key(expr)
+                if key in projections:
+                    lowered.group_by[index] = ast.PositionalRef(index=projections.index(key) + 1)
         self.aliases = outer_aliases
-        self.alias_positions = outer_alias_positions
         return lowered
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
@@ -137,8 +133,6 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             and node.chain[0] not in self.expanding
         ):
             alias = node.chain[0]
-            if self.in_group_by:
-                return ast.PositionalRef(index=self.alias_positions[alias])
             self.expanding.add(alias)
             try:
                 return self.visit(self.aliases[alias])
