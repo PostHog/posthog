@@ -90,25 +90,23 @@ class DataIntervalEndInFutureError(Exception):
 class HogQLQueryResourceLimitExceededError(Exception):
     """A user's HogQL batch export query exceeded a per-query ClickHouse resource limit.
 
-    Raised in place of the ClickHouse error so the staging activity treats it as expected (see
-    `EXPECTED_STAGE_ERRORS`): re-running the query unchanged would fail again.
+    Raised in place of the ClickHouse error so the staging activity treats it as non-retryable
+    (see `NON_RETRYABLE_ERRORS`): re-running the query unchanged would fail again.
 
     Only raised for the `hogql` model. The fixed models keep their ClickHouse errors and stay
     retryable, since their queries are ours and any failures are our responsibility to address.
     """
 
 
-EXPECTED_STAGE_ERRORS: tuple[type[Exception], ...] = (
+# Staging failures the user has to resolve; retrying them ourselves would achieve nothing.
+# The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
+# run without failing the activity. This mirrors how the destination activities treat their own
+# non-retryable errors (see `handle_non_retryable_errors`), and prevents us being alerted on user errors.
+NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalEndInFutureError,
     HogQLQueryResourceLimitExceededError,
     InvalidFilterError,
 )
-"""Staging failures the user has to resolve, so retrying them ourselves would achieve nothing.
-
-The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
-run without failing the activity. This mirrors how the destination activities treat their own
-expected errors (see `handle_non_retryable_errors`), and keeps a user's mistake from paging us.
-"""
 
 
 def _raise_on_hogql_resource_limit_error(exc: ClickHouseError, model_name: str) -> None:
@@ -271,7 +269,7 @@ class InternalStageResult:
     stage_folder: str
     # Total rows written to the stage (from ClickHouse's query summary), or None if unknown.
     records_total: int | None = None
-    # Set when staging failed with one of `EXPECTED_STAGE_ERRORS`, in which case nothing was staged.
+    # Set when staging failed with one of `NON_RETRYABLE_ERRORS`, in which case nothing was staged.
     error: BatchExportError | None = None
 
 
@@ -315,13 +313,7 @@ class BatchExportInsertIntoInternalStageInputs:
 async def insert_into_internal_stage_activity(
     inputs: BatchExportInsertIntoInternalStageInputs,
 ) -> InternalStageResult:
-    """Write record batches to our own internal S3 staging area.
-
-    Returns:
-        The S3 staging folder where the data was written to, and the total number of rows staged.
-        If staging failed with one of `EXPECTED_STAGE_ERRORS`, the result carries that error
-        instead and the activity still succeeds.
-    """
+    """Write record batches to our own internal S3 staging area."""
     bind_contextvars(
         team_id=inputs.team_id,
         batch_export_id=inputs.batch_export_id,
@@ -376,8 +368,8 @@ async def insert_into_internal_stage_activity(
                 s3_staging_folder=s3_staging_folder,
                 num_partitions=num_partitions,
             )
-        except EXPECTED_STAGE_ERRORS as e:
-            logger.warning("Staging data failed with an expected error", error=str(e))
+        except NON_RETRYABLE_ERRORS as e:
+            logger.warning("Staging data failed with a non-retryable error", error=str(e))
             return InternalStageResult(
                 stage_folder=s3_staging_folder.folder,
                 error=BatchExportError(type=type(e).__name__, message=str(e)),

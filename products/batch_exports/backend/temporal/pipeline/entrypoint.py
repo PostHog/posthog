@@ -21,7 +21,7 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    EXPECTED_STAGE_ERRORS,
+    NON_RETRYABLE_ERRORS,
     BatchExportInsertIntoInternalStageInputs,
     InternalStageResult,
     insert_into_internal_stage_activity,
@@ -74,7 +74,7 @@ DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS = 600
 # The staging activity returns these as an `InternalStageResult.error` rather than raising, so
 # Temporal normally never sees them. They stay listed here to stop an endless retry loop if one is
 # ever raised from a path the activity's own handling does not cover.
-STAGE_NON_RETRYABLE_ERROR_TYPES = tuple(error.__name__ for error in EXPECTED_STAGE_ERRORS)
+STAGE_NON_RETRYABLE_ERROR_TYPES = tuple(error.__name__ for error in NON_RETRYABLE_ERRORS)
 
 
 @frozen
@@ -147,8 +147,8 @@ def _get_status_for_activity_error(error: exceptions.ActivityError) -> BatchExpo
     if isinstance(error.cause, exceptions.CancelledError):
         return BatchExportRun.Status.CANCELLED
 
-    # Both activities report their expected errors through their result rather than by raising, so
-    # this covers only an expected error escaping from a path that handling does not reach.
+    # Both activities report their non-retryable errors through their result rather than by raising,
+    # so this covers only one escaping from a path that handling does not reach.
     if isinstance(error.cause, exceptions.ApplicationError) and error.cause.type in STAGE_NON_RETRYABLE_ERROR_TYPES:
         return BatchExportRun.Status.FAILED
 
