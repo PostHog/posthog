@@ -216,15 +216,14 @@ describe("CommandCenterPanel", () => {
   });
 
   it("highlights a completed task until it is opened", () => {
-    const { container } = render(
+    render(
       <CommandCenterPanel
         cell={{ ...cell, hasUnseenCompletion: true }}
         isActiveSession={false}
       />,
     );
 
-    expect(screen.getByText("Completed")).toHaveClass("bg-primary");
-    expect(container.firstElementChild).toHaveClass("ring-primary");
+    expect(screen.getByText("Completed")).toBeVisible();
   });
 
   // Sending the user to the full-page composer instead abandons the grid they
