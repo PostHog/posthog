@@ -427,103 +427,16 @@ database "posthog" {
     to_table = "posthog.writable_metric_series1"
   }
 
-  materialized_view "kafka_trace_spans_avro_mv" {
-    override = true
+  patch_materialized_view "kafka_trace_spans_avro_mv" {
     to_table = "posthog.writable_trace_spans"
-    query    = <<SQL
-SELECT
-  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
-  toInt8(kind) AS kind,
-  toUInt32(flags) AS flags,
-  toUInt32(dropped_attributes_count) AS dropped_attributes_count,
-  toUInt32(dropped_events_count) AS dropped_events_count,
-  toUInt32(dropped_links_count) AS dropped_links_count,
-  toInt16(status_code) AS status_code,
-  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
-  + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
-  ) AS original_expiry_timestamp,
-  _partition,
-  _topic,
-  _offset,
-  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) AS _bytes_uncompressed,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) AS _bytes_compressed
-FROM posthog.kafka_trace_spans_avro
-SQL
 
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "parent_span_id" {
-      type = "String"
-    }
-    column "trace_state" {
-      type = "String"
-    }
-    column "name" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "end_time" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "events" {
-      type = "Array(String)"
-    }
-    column "links" {
-      type = "Array(String)"
-    }
-    column "kind" {
-      type = "Int8"
-    }
-    column "flags" {
-      type = "UInt32"
-    }
-    column "dropped_attributes_count" {
-      type = "UInt32"
-    }
-    column "dropped_events_count" {
-      type = "UInt32"
-    }
-    column "dropped_links_count" {
-      type = "UInt32"
-    }
-    column "status_code" {
-      type = "Int16"
-    }
-    column "attributes_map_str" {
+    modify_column "attributes_map_str" {
       type = "Map(String, String)"
     }
-    column "resource_attributes" {
+    modify_column "resource_attributes" {
       type = "Map(String, String)"
     }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
+
     column "_partition" {
       type = "UInt64"
     }

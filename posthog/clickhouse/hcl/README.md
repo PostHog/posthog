@@ -131,12 +131,11 @@ The wrapper resolves `$HCLEXP_BIN` → `hclexp` on `$PATH` → that image, so a 
 wins: run `bash $HCL/bin/install-hclexp` to extract one from the pinned image (what CI does), or
 build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-clickhouse-schema`.
 
-**Pass `-ignore-column-order` to every `hclexp diff`.**
-`check.sh`, `check-live.sh` and `diff.sh` already do.
-Column order carries no meaning here, and the layers cannot express it anyway: a patch cannot reorder the columns it inherits, so an object whose order differs between two compositions can only be written out in full.
-Without the flag, two identical schemas whose columns sit in a different order report `~ columns changed` and name no column, which reads as real drift and is expensive to disprove.
-
-`plan` has no such flag yet, so the cross-repo reconcile in `check-cloud.sh` still sees order differences as drift ([chschema#241](https://github.com/PostHog/chschema/issues/241)).
+**Pass `-ignore-column-order` to every `hclexp diff` and `hclexp plan`.**
+`check.sh`, `check-live.sh`, `diff.sh` and `check-cloud.sh` all do.
+Column order carries no meaning here, and the layers cannot express it anyway: a patch cannot reorder the columns it inherits ([chschema#240](https://github.com/PostHog/chschema/issues/240)), so an object whose order differs between two compositions could otherwise only be written out in full.
+Without the flag, two identical schemas whose columns sit in a different order report a column change, which reads as real drift and is expensive to disprove.
+On our three cloud envs the flag removes 10 of the 26 `unsafe` rows the reconcile used to report.
 
 1. **Edit the right layer** for what you're changing.
    Placement = which node stacks compose the layer, declared in `manifest.hcl`; find an existing object's single declaration with `hclexp locate` (or grep) rather than assuming:
