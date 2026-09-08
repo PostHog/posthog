@@ -19,7 +19,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.interval_specs import interval_spec
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
@@ -455,7 +455,7 @@ def simulate_forecast_on_insight(
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
 
-    with upgrade_query(insight):
+    with upgrade_insight(insight):
         query = insight.query
 
     kind = get_from_dict_or_attr(query, "kind")
