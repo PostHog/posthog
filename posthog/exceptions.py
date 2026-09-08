@@ -37,7 +37,8 @@ class APIQueriesBudgetExceeded(Throttled):
     # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
     default_detail = (
         "This project used its hourly budget of data read by API queries. "
-        "To stay under it, read less data per query or run queries less often."
+        "To stay under it, read less data per query or run queries less often. "
+        "See https://posthog.com/docs/sql/optimizing-queries for ways to read less."
     )
 
 

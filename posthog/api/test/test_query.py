@@ -1544,25 +1544,19 @@ class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):
         )
         return {"Authorization": f"Bearer {value}"}
 
-    def test_api_key_query_response_carries_cost_and_balance_headers(self):
+    @parameterized.expand([("api_key", True), ("session", False)])
+    def test_only_api_key_query_responses_carry_cost_headers(self, _name, api_key):
         response = self.client.post(
             f"/api/projects/{self.team.id}/query/",
             {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
             format="json",
-            headers=self._personal_key_headers(),
+            headers=self._personal_key_headers() if api_key else {},
         )
         assert response.status_code == 200, response.content
-        assert int(response["X-PostHog-Query-Bytes-Read"]) >= 0
-        assert int(response["X-PostHog-Query-Budget-Remaining-Bytes"]) > 0
-
-    def test_session_query_response_has_no_cost_headers(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
-            format="json",
-        )
-        assert response.status_code == 200
-        assert "X-PostHog-Query-Bytes-Read" not in response
+        assert ("X-PostHog-Query-Bytes-Read" in response) is api_key
+        if api_key:
+            assert int(response["X-PostHog-Query-Bytes-Read"]) >= 0
+            assert int(response["X-PostHog-Query-Budget-Remaining-Bytes"]) > 0
 
     def test_budget_429_is_not_captured_as_an_error(self):
         with (
