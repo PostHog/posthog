@@ -175,7 +175,8 @@ export function AlertIntervalRow({
                     data-attr="alertForm-schedule-start-time"
                 />
                 <span className="text-sm text-muted">
-                    Choose the check timing in your project timezone. The selected interval controls check frequency.
+                    Choose when the alert runs in your project timezone. The selected interval controls how often it
+                    runs.
                 </span>
             </AlertDefinitionRow>
             {nextEvaluation}
