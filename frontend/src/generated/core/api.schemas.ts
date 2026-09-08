@@ -646,15 +646,6 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
 
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
-
-export const EffectiveMembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
-
 /**
  * * `30d` - 30 Days
  * * `90d` - 90 Days
@@ -1864,7 +1855,7 @@ export interface ProjectBackwardCompatApi {
      */
     tags?: string[]
     readonly created_at: string
-    readonly effective_membership_level: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level: OrganizationMembershipLevelEnumApi
     readonly has_group_types: boolean
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -2725,7 +2716,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     tags?: string[]
     readonly created_at?: string
-    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level?: OrganizationMembershipLevelEnumApi
     readonly has_group_types?: boolean
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -4230,14 +4221,6 @@ export interface TeamBasicApi {
     readonly access_control: boolean
 }
 
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
-
-export const MembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
-
 /**
  * * `0` - none
  * * `3` - config
@@ -4282,7 +4265,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -4380,7 +4363,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: MembershipLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.

@@ -7,9 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+/**
+ * * `1` - member
+ * * `8` - administrator
+ * * `15` - owner
+ */
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const MembershipLevelEnumApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -65,7 +71,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -173,7 +179,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: MembershipLevelEnumApi
+    readonly membership_level?: OrganizationMembershipLevelEnumApi
     readonly plugins_access_level?: OrganizationPluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -366,20 +372,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-/**
- * * `1` - member
- * * `8` - administrator
- * * `15` - owner
- */
-export type OrganizationMembershipLevelEnumApi =
-    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
-
-export const OrganizationMembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
-
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -545,11 +537,7 @@ export interface ProxyRecordListResponseApi {
 }
 
 export interface PatchedProxyRecordUpdateApi {
-    /**
-     * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
-     * @maxLength 1024
-     * @nullable
-     */
+    /** HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy. */
     root_redirect_url?: string | null
 }
 

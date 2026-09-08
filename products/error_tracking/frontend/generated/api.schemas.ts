@@ -1469,7 +1469,7 @@ export const ErrorTrackingIssueStatusEnumApi = {
 
 export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
-    id: string | number | null
+    id: string | number
     /** Assignee target type: user or role.
      *
      * * `user` - user
