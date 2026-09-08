@@ -226,18 +226,23 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
 def object_models(resource: str) -> list[type[Model]]:
     """Return the model classes that an object rule on `resource` can point at.
 
-    Return the display model when one exists. Otherwise return every team-scoped model
+    Return the display model first when one exists, then every other team-scoped model
     behind the resource's routes that the resolver maps back to `resource`. Return an
     empty list when no such model exists: the preview cannot resolve those rules.
     """
     display = display_model(resource)
-    if display is not None:
-        return [display.model]
-    models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
-    return sorted(
-        (model for model in models if model_has_field(model, "team") and model_to_resource(model) == resource),
+    route_models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
+    models = sorted(
+        (
+            model
+            for model in route_models
+            if model_has_field(model, "team")
+            and model_to_resource(model) == resource
+            and (display is None or model is not display.model)
+        ),
         key=lambda model: model.__name__,
     )
+    return [display.model, *models] if display is not None else models
 
 
 def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, _LoadedObject]:
