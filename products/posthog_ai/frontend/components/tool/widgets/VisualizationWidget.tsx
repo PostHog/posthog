@@ -105,27 +105,32 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
                     <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />
                 </div>
             )}
-            <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                {isInsightVizNode(query) ? (
-                    <div className="flex items-center gap-1.5">
-                        <LemonButton
-                            sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                            onClick={() => setIsSummaryShown(!isSummaryShown)}
-                            size="xsmall"
-                            className="-m-1 shrink"
-                            tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                        >
-                            <h5 className="m-0 leading-none">
-                                <TopHeading query={query} />
-                            </h5>
-                        </LemonButton>
-                    </div>
-                ) : (
-                    <h5 className="m-0 leading-none">
-                        <TopHeading query={query} />
-                    </h5>
-                )}
-                <div className="flex items-center gap-1.5">
+            <div
+                className={clsx('flex min-w-0 flex-wrap items-center justify-between gap-2', !isCollapsed && 'mt-2')}
+                data-attr="visualization-widget-action-row"
+            >
+                <div className="min-w-0 flex-1 truncate" data-attr="visualization-widget-heading">
+                    {isInsightVizNode(query) ? (
+                        <div className="flex min-w-0 items-center gap-1.5">
+                            <LemonButton
+                                sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                                onClick={() => setIsSummaryShown(!isSummaryShown)}
+                                size="xsmall"
+                                className="-m-1 min-w-0 max-w-full shrink"
+                                tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                            >
+                                <h5 className="m-0 truncate leading-none">
+                                    <TopHeading query={query} />
+                                </h5>
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <h5 className="m-0 truncate leading-none">
+                            <TopHeading query={query} />
+                        </h5>
+                    )}
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-1.5" data-attr="visualization-widget-actions">
                     {extraActions}
                     {openUrl && (
                         <LemonButton

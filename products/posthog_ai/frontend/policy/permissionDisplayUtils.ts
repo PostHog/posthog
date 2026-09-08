@@ -1,9 +1,6 @@
-import {
-    POSTHOG_EXEC_TOOL_RE,
-    formatPostHogExecBody,
-    getPostHogExecDisplay,
-} from '../components/tool/posthogExecDisplay'
+import { formatPostHogExecBody, getPostHogExecDisplay } from '../components/tool/posthogExecDisplay'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { POSTHOG_EXEC_TOOL_RE } from '../utils/posthogExec'
 import { resolveToolCall } from '../utils/toolResolver'
 
 // Re-exported so existing importers (and tests) keep resolving the exec display from here.

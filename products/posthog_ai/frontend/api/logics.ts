@@ -55,6 +55,7 @@ export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
 export { resolveToolCall } from '../utils/toolResolver'
+export { parseToolOutputRecord } from '../utils/toolOutput'
 
 // --- Foreground stream registry + MCP tool apply-back (headless) ---
 // `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a

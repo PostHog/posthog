@@ -218,6 +218,26 @@ function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew 
     return Number.isNaN(parsedTileId) ? null : parsedTileId
 }
 
+// kea-router decodes a numeric query value to a number, so a clicked link supplies 41 while a
+// params-object push supplies '41'. Both forms must resolve to the same tile.
+function parseHighlightTileId(value: unknown): number | null {
+    const parsed =
+        typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
+    return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function dashboardRevealKeyFromSearchParams(dashboardId: number, searchParams: Record<string, unknown>): string | null {
+    if (Object.prototype.hasOwnProperty.call(searchParams, 'highlightTileId')) {
+        const value = searchParams.highlightTileId
+        return parseHighlightTileId(value) !== null ? `${dashboardId}:tile:${String(value)}` : null
+    }
+
+    const highlightedInsightId = searchParams.highlightInsightId
+    return typeof highlightedInsightId === 'string' && highlightedInsightId
+        ? `${dashboardId}:insight:${highlightedInsightId}`
+        : null
+}
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -302,6 +322,7 @@ export interface dashboardLogicValues {
     }
     dashboardLoading: boolean
     dashboardMode: DashboardMode | null
+    dashboardRevealReadyKey: string | null
     dashboardStreaming: boolean
     dashboardTileSpacingSaving: boolean
     dashboardWidgetsEnabled: boolean
@@ -321,13 +342,16 @@ export interface dashboardLogicValues {
     error404: boolean
     externalFilters: DashboardFilter
     filtersOverrideForLoad: DashboardFilter
+    hasHighlightTileIdParam: boolean
     hasIntermittentFilters: boolean
     hasInvalidDashboardId: boolean
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
     hasUrlFilters: boolean
     hasVariables: boolean
+    highlightTileIdParam: unknown
     highlightedInsightId: any
+    highlightedTileId: number | null
     initialVariablesLoaded: boolean
     insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     intermittentFilters: DashboardFilter
@@ -627,6 +651,9 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
+    prepareDashboardReveal: (revealKey: string | null) => {
+        revealKey: string | null
+    }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
         tile: any
@@ -783,6 +810,9 @@ export interface dashboardLogicActions {
             mode: DashboardMode | null
             source: DashboardEventSource
         }
+    }
+    setDashboardRevealReadyKey: (revealKey: string | null) => {
+        revealKey: string | null
     }
     setDashboardStreamFailed: () => {
         value: true
@@ -1027,6 +1057,15 @@ export interface dashboardLogicMeta {
             },
             previousState: any
         ) => void | Promise<void>
+        markDashboardRevealReady: (
+            payload: any,
+            breakpoint: BreakPointFunction,
+            action: {
+                type: string
+                payload: any
+            },
+            previousState: any
+        ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
@@ -1131,7 +1170,10 @@ export interface dashboardLogicMeta {
         ) => boolean
         isRefreshingQueued: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
         isRefreshing: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
+        hasHighlightTileIdParam: (searchParams: Record<string, any>) => boolean
         highlightedInsightId: (searchParams: Record<string, any>) => any
+        highlightTileIdParam: (searchParams: Record<string, any>) => unknown
+        highlightedTileId: (searchParams: Record<string, any>) => number | null
         sortedDates: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => Dayjs[]
         oldestRefreshed: (sortedDates: Dayjs[], pageVisibility: boolean) => Dayjs | null
         effectiveLastRefresh: (lastDashboardRefresh: Dayjs | null, oldestRefreshed: Dayjs | null) => Dayjs | null
@@ -1273,6 +1315,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         /** Manually refresh the entire dashboard. */
         triggerDashboardRefresh: true,
+        prepareDashboardReveal: (revealKey: string | null) => ({ revealKey }),
+        setDashboardRevealReadyKey: (revealKey: string | null) => ({ revealKey }),
         /**
          * If the latest tile data is older than SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
          * queue a single force-blocking refresh on the next microtask. Reads
@@ -1848,6 +1892,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboard: () => true,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
+            },
+        ],
+        dashboardRevealReadyKey: [
+            null as string | null,
+            {
+                setDashboardRevealReadyKey: (_, { revealKey }) => revealKey,
             },
         ],
         dashboardStreaming: [
@@ -2909,9 +2959,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.refreshStatus],
             (refreshStatus: Record<string, RefreshStatus>) => (id: string) => !!refreshStatus[id]?.loading,
         ],
+        hasHighlightTileIdParam: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): boolean =>
+                Object.prototype.hasOwnProperty.call(searchParams, 'highlightTileId'),
+        ],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, any>) => searchParams.highlightInsightId,
+        ],
+        highlightTileIdParam: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): unknown => searchParams.highlightTileId,
+        ],
+        highlightedTileId: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): number | null =>
+                parseHighlightTileId(searchParams.highlightTileId),
         ],
         sortedDates: [
             (s) => [s.insightTiles],
@@ -3281,7 +3345,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.tileIdsBeforeInsertion = undefined
         },
     })),
-    sharedListeners(({ values, props, actions }) => ({
+    sharedListeners(({ values, props, actions, cache }) => ({
         reportRefreshTiming: ({ shortId }) => {
             const refreshStatus = values.refreshStatus[shortId]
 
@@ -3308,6 +3372,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.reportDashboardViewed()
             }
         },
+        markDashboardRevealReady: () => {
+            if (
+                values.dashboard &&
+                cache.pendingDashboardRevealKey &&
+                cache.pendingDashboardRevealKey === cache.activeDashboardRevealKey
+            ) {
+                actions.setDashboardRevealReadyKey(cache.pendingDashboardRevealKey)
+                cache.pendingDashboardRevealKey = null
+            }
+        },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
@@ -3322,6 +3396,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (open) {
                 actions.clearAddWidgetSelectedTypes()
             }
+        },
+        prepareDashboardReveal: ({ revealKey }) => {
+            if (cache.activeDashboardRevealKey === revealKey) {
+                return
+            }
+
+            cache.activeDashboardRevealKey = revealKey
+            cache.pendingDashboardRevealKey = revealKey
+            actions.setDashboardRevealReadyKey(null)
+
+            if (!revealKey || values.dashboardLoading || values.dashboardStreaming || !values.dashboard) {
+                return
+            }
+
+            actions.loadDashboard({ action: DashboardLoadAction.Update })
         },
         togglePinned: () => {
             if (values.dashboard) {
@@ -3381,6 +3470,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         loadDashboardFailure: () => {
+            cache.pendingDashboardRevealKey = null
             const { action, dashboardQueryId, startTime } = values.dashboardLoadData
 
             eventUsageLogic.actions.reportTimeToSeeData({
@@ -3394,6 +3484,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         tileStreamingFailure: ({ error }) => {
+            cache.pendingDashboardRevealKey = null
             // Only a genuine 404 response means the dashboard is missing. Stream errors can contain
             // "404" in their message even when the dashboard still exists.
             if (error?.status === 404) {
@@ -4572,6 +4663,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         loadDashboardSuccess: [
             sharedListeners.reportLoadTiming,
+            sharedListeners.markDashboardRevealReady,
             () => {
                 if (!values.dashboard) {
                     actions.dashboardNotFound()
@@ -4588,7 +4680,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
         },
-        tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
+        tileStreamingComplete: [sharedListeners.markDashboardRevealReady, sharedListeners.handleDashboardLoadComplete],
         reportInsightsViewed: ({ insights }: { insights: QueryBasedInsightModel[] }) => {
             const insightIds = insights
                 .map((insight: QueryBasedInsightModel) => insight?.id)
@@ -5026,7 +5118,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    urlToAction(({ values, actions }) => ({
+    urlToAction(({ values, actions, props }) => ({
         '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
             const id = subscriptionId
                 ? subscriptionId == 'new'
@@ -5040,6 +5132,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
 
         '/dashboard/:id': (_params, searchParams) => {
+            actions.prepareDashboardReveal(dashboardRevealKeyFromSearchParams(props.id, searchParams))
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             actions.setButtonTileId(null)

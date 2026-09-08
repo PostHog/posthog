@@ -1,5 +1,3 @@
-import { decode } from '@toon-format/toon'
-
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
 import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'
@@ -16,7 +14,7 @@ import { RecordingUniversalFilters } from '~/types'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
-import { parseExecCall, parseExecCommand } from '../posthogExecDisplay'
+import { parseToolOutputRecord } from '../../../utils/toolOutput'
 
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
@@ -28,61 +26,326 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
-function parseJsonRecord(text: string): Record<string, unknown> | null {
+function asString(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined
+}
+
+function asPositiveSafeInteger(value: unknown): number | null {
+    const parsed =
+        typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
+    return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function asPositiveSafeIntegerNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] | null {
+    if (!Array.isArray(value)) {
+        return null
+    }
+    const records = value.map(asRecord)
+    return records.every((record): record is Record<string, unknown> => record !== null) ? records : null
+}
+
+function getAgreedPositiveSafeInteger(
+    record: Record<string, unknown>,
+    keys: readonly string[]
+): number | null | undefined {
+    const values = keys.filter((key) => key in record).map((key) => asPositiveSafeInteger(record[key]))
+    if (values.length === 0) {
+        return undefined
+    }
+    if (values.some((value) => value === null)) {
+        return null
+    }
+    return values.every((value) => value === values[0]) ? values[0]! : null
+}
+
+function getRequestDashboardId(input: Record<string, unknown>): number | null {
+    return getAgreedPositiveSafeInteger(input, ['id', 'dashboard_id', 'dashboardId']) ?? null
+}
+
+function getDashboardIdFromPostHogUrl(value: unknown): number | null {
+    if (typeof value !== 'string') {
+        return null
+    }
     try {
-        return asRecord(JSON.parse(text))
+        const url = new URL(value)
+        if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname) {
+            return null
+        }
+        const match = /^\/project\/(\d+)\/dashboard\/(\d+)\/?$/.exec(url.pathname)
+        if (!match || asPositiveSafeInteger(match[1]) === null) {
+            return null
+        }
+        return asPositiveSafeInteger(match[2])
     } catch {
         return null
     }
 }
 
-function parseToonRecord(text: string): Record<string, unknown> | null {
-    // TOON decode is lenient — JSON text doesn't throw, it mangles into a garbage record — so
-    // anything that reads as JSON syntax must never reach it.
-    if (/^[[{]/.test(text)) {
+interface DashboardOwnershipCheck {
+    agrees: boolean
+    hasEvidence: boolean
+}
+
+function checkDashboardOwnership(
+    output: Record<string, unknown>,
+    dashboardId: number,
+    responseIdIsDashboardId = false
+): DashboardOwnershipCheck {
+    const ownershipIds: number[] = []
+
+    const directKeys = responseIdIsDashboardId ? ['id', 'dashboard_id', 'dashboardId'] : ['dashboard_id', 'dashboardId']
+    const directDashboardId = getAgreedPositiveSafeInteger(output, directKeys)
+    if (directDashboardId === null) {
+        return { agrees: false, hasEvidence: true }
+    }
+    if (directDashboardId !== undefined) {
+        ownershipIds.push(directDashboardId)
+    }
+
+    if (Object.prototype.hasOwnProperty.call(output, 'dashboard')) {
+        const nestedDashboard = asRecord(output.dashboard)
+        const nestedDashboardId = nestedDashboard
+            ? getAgreedPositiveSafeInteger(nestedDashboard, ['id', 'dashboard_id', 'dashboardId'])
+            : asPositiveSafeInteger(output.dashboard)
+        if (nestedDashboardId === null || nestedDashboardId === undefined) {
+            return { agrees: false, hasEvidence: true }
+        }
+        ownershipIds.push(nestedDashboardId)
+    }
+
+    if (Object.prototype.hasOwnProperty.call(output, '_posthogUrl')) {
+        const dashboardIdFromUrl = getDashboardIdFromPostHogUrl(output._posthogUrl)
+        if (dashboardIdFromUrl === null) {
+            return { agrees: false, hasEvidence: true }
+        }
+        ownershipIds.push(dashboardIdFromUrl)
+    }
+
+    return {
+        agrees: ownershipIds.every((ownershipId) => ownershipId === dashboardId),
+        hasEvidence: ownershipIds.length > 0,
+    }
+}
+
+function getResponseTileId(
+    output: Record<string, unknown>,
+    dashboardId: number,
+    requireDashboardOwnership: boolean
+): number | null {
+    const ownership = checkDashboardOwnership(output, dashboardId)
+    if (!ownership.agrees || (requireDashboardOwnership && !ownership.hasEvidence)) {
         return null
     }
-    try {
-        return asRecord(decode(text))
-    } catch {
+    return getAgreedPositiveSafeInteger(output, ['id', 'tile_id']) ?? null
+}
+
+function responseDashboardAgreesWithRequest(output: Record<string, unknown>, dashboardId: number): boolean {
+    const ownership = checkDashboardOwnership(output, dashboardId, true)
+    if (!ownership.agrees || !ownership.hasEvidence) {
+        return false
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(output, 'tiles')) {
+        return true
+    }
+    const tiles = asRecordArray(output.tiles)
+    return (
+        tiles !== null &&
+        tiles.every((tile) => {
+            const tileOwnership = checkDashboardOwnership(tile, dashboardId)
+            return tileOwnership.agrees
+        })
+    )
+}
+
+export interface DashboardRevealTarget {
+    dashboardId: number
+    tileId?: number
+    insightShortId?: string
+}
+
+/** Dashboard creation routes require the numeric ID returned by the completed first-party tool. */
+export function extractDashboardCreateRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    if (message.status !== 'completed' || message.resolvedKey !== 'dashboard-create') {
         return null
     }
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
+    const dashboardId = asPositiveSafeIntegerNumber(output?.id)
+    return dashboardId === null || !output || !responseDashboardAgreesWithRequest(output, dashboardId)
+        ? null
+        : { dashboardId }
+}
+
+/** Distinguishes an ordinary insight result from one that requested dashboard placement. */
+export function insightRequestIncludesDashboardTarget(message: ToolCallMessage): boolean {
+    const input = asRecord(message.innerInput)
+    if (!input || !Object.prototype.hasOwnProperty.call(input, 'dashboards')) {
+        return false
+    }
+    const dashboards = input.dashboards
+    return dashboards !== null && dashboards !== undefined && (!Array.isArray(dashboards) || dashboards.length > 0)
+}
+
+const DASHBOARD_TILE_CREATE_KEYS = new Set(['dashboard-create-tile', 'dashboard-create-text-tile'])
+const DASHBOARD_TILE_UPDATE_KEYS = new Set(['dashboard-update-text-tile'])
+const DASHBOARD_BATCH_ADD_KEYS = new Set(['dashboard-widgets-batch-add', 'dashboards-widgets-batch-create'])
+const DASHBOARD_BATCH_UPDATE_KEYS = new Set(['dashboard-widgets-batch-update'])
+const DASHBOARD_MOVE_TILE_KEYS = new Set(['dashboards-move-tile-create', 'dashboards-move-tile-partial-update'])
+const DASHBOARD_RESPONSE_KEYS = new Set([
+    'dashboard-update',
+    'dashboard-reorder-tiles',
+    'dashboard-tile-copy',
+    'dashboards-copy-tile-create',
+])
+
+function extractDashboardBatchRevealTarget(
+    input: Record<string, unknown>,
+    output: Record<string, unknown>,
+    dashboardId: number,
+    requireExistingTileIds: boolean
+): DashboardRevealTarget | null {
+    const outputOwnership = checkDashboardOwnership(output, dashboardId)
+    const requestedWidgets = asRecordArray(input.widgets)
+    const returnedTiles = asRecordArray(output.tiles)
+    if (
+        !outputOwnership.agrees ||
+        !outputOwnership.hasEvidence ||
+        !requestedWidgets ||
+        !returnedTiles ||
+        requestedWidgets.length === 0 ||
+        requestedWidgets.length !== returnedTiles.length
+    ) {
+        return null
+    }
+
+    const tileIds = returnedTiles.map((tile) => getResponseTileId(tile, dashboardId, false))
+    if (tileIds.some((tileId) => tileId === null)) {
+        return null
+    }
+
+    if (requireExistingTileIds) {
+        const requestedTileIds = requestedWidgets.map((widget) => getAgreedPositiveSafeInteger(widget, ['tile_id']))
+        if (
+            requestedTileIds.some((tileId) => tileId === null || tileId === undefined) ||
+            requestedTileIds.some((tileId, index) => tileId !== tileIds[index])
+        ) {
+            return null
+        }
+    }
+
+    return tileIds.length === 1 ? { dashboardId, tileId: tileIds[0]! } : { dashboardId }
 }
 
 /**
- * Best-effort record from a tool call's `rawOutput`. Objects pass through; strings are parsed per the
- * exec `call` output contract: `--json` means the server responded with `JSON.stringify`, otherwise
- * TOON (`services/mcp/src/lib/response.ts`). The off-order format is still tried as a fallback, and
- * anything unparseable (or empty) resolves to null so the widget falls back to the generic card.
+ * Produces a navigation target only when the completed mutation response corroborates the request.
+ * Ambiguous batches and response/request disagreements intentionally fall back to the generic card.
  */
-export function parseToolOutputRecord(message: ToolCallMessage): Record<string, unknown> | null {
-    const direct = asRecord(message.rawOutput)
-    if (direct) {
-        return direct
-    }
-    if (typeof message.rawOutput !== 'string') {
+export function extractDashboardMutationRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    if (message.status !== 'completed') {
         return null
     }
-    const text = message.rawOutput.trim()
-    if (!text) {
+    const input = asRecord(message.innerInput)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
+    if (!input || !output) {
         return null
     }
-    const command = typeof message.rawInput.command === 'string' ? message.rawInput.command : ''
-    const { verb, rest } = parseExecCommand(command)
-    const forceJson = verb === 'call' && parseExecCall(rest).forceJson
-    const attempts = forceJson ? [parseJsonRecord, parseToonRecord] : [parseToonRecord, parseJsonRecord]
-    for (const attempt of attempts) {
-        const record = attempt(text)
-        // decode('') and JSON '{}' both yield {}, which carries nothing a widget can render.
-        if (record && Object.keys(record).length > 0) {
-            return record
-        }
+    const dashboardId = getRequestDashboardId(input)
+    if (dashboardId === null) {
+        return null
     }
+
+    if (DASHBOARD_TILE_CREATE_KEYS.has(message.resolvedKey)) {
+        const tileId = getResponseTileId(output, dashboardId, true)
+        return tileId === null ? null : { dashboardId, tileId }
+    }
+
+    if (DASHBOARD_TILE_UPDATE_KEYS.has(message.resolvedKey)) {
+        const requestedTileId = getAgreedPositiveSafeInteger(input, ['tile_id'])
+        const responseTileId = getResponseTileId(output, dashboardId, true)
+        return requestedTileId === null || requestedTileId === undefined || requestedTileId !== responseTileId
+            ? null
+            : { dashboardId, tileId: responseTileId }
+    }
+
+    if (DASHBOARD_BATCH_ADD_KEYS.has(message.resolvedKey)) {
+        return extractDashboardBatchRevealTarget(input, output, dashboardId, false)
+    }
+
+    if (DASHBOARD_BATCH_UPDATE_KEYS.has(message.resolvedKey)) {
+        return extractDashboardBatchRevealTarget(input, output, dashboardId, true)
+    }
+
+    if (DASHBOARD_MOVE_TILE_KEYS.has(message.resolvedKey)) {
+        // A move answers with the source dashboard the tile left, so the response corroborates the
+        // request while the tile keeps its ID on the destination it was asked to move to.
+        const toDashboardId = getAgreedPositiveSafeInteger(input, ['to_dashboard'])
+        const requestedTile = asRecord(input.tile)
+        const requestedTileId = requestedTile ? getAgreedPositiveSafeInteger(requestedTile, ['id']) : null
+        return responseDashboardAgreesWithRequest(output, dashboardId) &&
+            toDashboardId !== null &&
+            toDashboardId !== undefined &&
+            requestedTileId !== null &&
+            requestedTileId !== undefined
+            ? { dashboardId: toDashboardId, tileId: requestedTileId }
+            : null
+    }
+
+    if (message.resolvedKey === 'dashboard-delete-tile') {
+        const ownership = checkDashboardOwnership(output, dashboardId)
+        return ownership.agrees && ownership.hasEvidence ? { dashboardId } : null
+    }
+
+    if (DASHBOARD_RESPONSE_KEYS.has(message.resolvedKey)) {
+        return responseDashboardAgreesWithRequest(output, dashboardId) ? { dashboardId } : null
+    }
+
     return null
 }
 
-function asString(value: unknown): string | undefined {
-    return typeof value === 'string' ? value : undefined
+/**
+ * Intersects a requested dashboard with the saved insight's authoritative, non-deleted tile response.
+ * Request-side dashboard IDs alone never establish a reveal target.
+ */
+export function extractInsightDashboardRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    if (
+        message.status !== 'completed' ||
+        (message.resolvedKey !== 'insight-create' && message.resolvedKey !== 'insight-update')
+    ) {
+        return null
+    }
+    const input = asRecord(message.innerInput)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
+    const requestedDashboards = input && Array.isArray(input.dashboards) ? input.dashboards : null
+    const shortId = asString(output?.short_id)
+    const dashboardTiles = asRecordArray(output?.dashboard_tiles)
+    if (
+        !requestedDashboards ||
+        requestedDashboards.length !== 1 ||
+        !shortId?.trim() ||
+        !dashboardTiles ||
+        dashboardTiles.length === 0
+    ) {
+        return null
+    }
+
+    const dashboardId = asPositiveSafeInteger(requestedDashboards[0])
+    if (dashboardId === null) {
+        return null
+    }
+    const matchingTiles = dashboardTiles.filter(
+        (tile) =>
+            asPositiveSafeInteger(tile.dashboard_id) === dashboardId &&
+            (tile.deleted === false || tile.deleted === null)
+    )
+    if (matchingTiles.length !== 1) {
+        return null
+    }
+    const tileId = asPositiveSafeInteger(matchingTiles[0].id)
+    return tileId === null ? null : { dashboardId, tileId, insightShortId: shortId }
 }
 
 const QUERY_WRAPPER_KIND_BY_TOOL_KEY: Record<string, NodeKind> = {
@@ -129,7 +392,7 @@ export interface VisualizationArtifactExtraction {
  * query-only outputs carry neither and render inline as ephemeral visualizations.
  */
 export function extractVisualizationArtifact(message: ToolCallMessage): VisualizationArtifactExtraction | null {
-    const output = parseToolOutputRecord(message)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
     if (!output) {
         return null
     }
@@ -175,7 +438,7 @@ export interface QueryResultExtraction {
  * renderer (e.g. a single LLM trace) return null and fall back to the generic card.
  */
 export function extractQueryResult(message: ToolCallMessage): QueryResultExtraction | null {
-    const output = parseToolOutputRecord(message)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
     const query = (output ? asRecord(output.query) : null) ?? queryFromToolInput(message)
     if (!query || typeof query.kind !== 'string') {
         return null
@@ -218,7 +481,7 @@ export interface DashboardExtraction {
 }
 
 export function extractDashboard(message: ToolCallMessage): DashboardExtraction | null {
-    const output = parseToolOutputRecord(message)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
     if (!output) {
         return null
     }
@@ -237,7 +500,7 @@ export function extractDashboard(message: ToolCallMessage): DashboardExtraction 
  * falls back to the generic card rather than feeding the playlist a shape it can't use.
  */
 export function extractRecordingFilters(message: ToolCallMessage): RecordingUniversalFilters | null {
-    const output = parseToolOutputRecord(message)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
     if (!output) {
         return null
     }
@@ -280,7 +543,7 @@ const ERROR_TRACKING_RESPONSE_KEYS: readonly (keyof MaxErrorTrackingSearchRespon
  * REST issues list — fall back to the generic card instead of rendering empty filter chips.
  */
 export function extractErrorTrackingResponse(message: ToolCallMessage): MaxErrorTrackingSearchResponse | null {
-    const output = parseToolOutputRecord(message)
+    const output = parseToolOutputRecord(message.rawOutput, message.rawInput)
     if (!output || !ERROR_TRACKING_RESPONSE_KEYS.some((key) => key in output)) {
         return null
     }

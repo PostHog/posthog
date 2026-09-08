@@ -1,7 +1,8 @@
 import type { PermissionRequestRecord, ToolInvocation } from '../types/streamTypes'
 import type { PermissionOption } from '../types/wireTypes'
+import { isPostHogExecTool } from '../utils/posthogExec'
 import type { AgentQuestion } from './questionUtils'
-import { defaultPermissionDecision, findAllowOptionId, isPostHogExecTool, type PermissionDecision } from './toolPolicy'
+import { defaultPermissionDecision, findAllowOptionId, type PermissionDecision } from './toolPolicy'
 
 function makeRecord(
     overrides: {

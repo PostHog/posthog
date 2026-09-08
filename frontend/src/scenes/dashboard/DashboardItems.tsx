@@ -50,6 +50,7 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
+const TILE_HIGHLIGHT_DURATION_MS = 3000
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
@@ -89,10 +90,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         placement,
         isRefreshingQueued,
         isRefreshing,
+        hasHighlightTileIdParam,
         highlightedInsightId,
+        highlightTileIdParam,
+        highlightedTileId,
         refreshStatus,
         dashboardStreaming,
         dashboardLoading,
+        dashboardRevealReadyKey,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
         effectiveBreakdownColors,
@@ -145,6 +150,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
     const [resizingTileId, setResizingTileId] = useState<string | null>(null)
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
+    const [visuallyHighlightedTileId, setVisuallyHighlightedTileId] = useState<number | null>(null)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -156,6 +162,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
     const lastScrollSignalRef = useRef(scrollToBottomSignal)
+    const consumedRevealKeyRef = useRef<string | null>(null)
 
     useEffect(() => {
         return () => {
@@ -201,6 +208,81 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
+    const revealTargetKind = hasHighlightTileIdParam
+        ? 'tile'
+        : typeof highlightedInsightId === 'string' && highlightedInsightId
+          ? 'insight'
+          : null
+    const rawRevealTarget = hasHighlightTileIdParam
+        ? typeof highlightTileIdParam === 'string' || typeof highlightTileIdParam === 'number'
+            ? String(highlightTileIdParam)
+            : null
+        : typeof highlightedInsightId === 'string' && highlightedInsightId
+          ? highlightedInsightId
+          : null
+    const revealTileId = hasHighlightTileIdParam
+        ? highlightedTileId !== null
+            ? (tiles.find((tile) => tile.id === highlightedTileId)?.id ?? null)
+            : null
+        : (tiles.find((tile) => tile.insight?.short_id === highlightedInsightId)?.id ?? null)
+    const revealKey =
+        dashboard && revealTargetKind && rawRevealTarget && (revealTargetKind !== 'tile' || highlightedTileId !== null)
+            ? `${dashboard.id}:${revealTargetKind}:${rawRevealTarget}`
+            : null
+
+    useEffect(() => {
+        setVisuallyHighlightedTileId(null)
+        if (consumedRevealKeyRef.current !== revealKey) {
+            consumedRevealKeyRef.current = null
+        }
+    }, [revealKey])
+
+    useEffect(() => {
+        setVisuallyHighlightedTileId(null)
+        if (
+            !mounted ||
+            dashboardLoading ||
+            !revealKey ||
+            dashboardRevealReadyKey !== revealKey ||
+            !revealTileId ||
+            consumedRevealKeyRef.current === revealKey
+        ) {
+            return
+        }
+
+        let secondFrame: number | null = null
+        let highlightTimer: number | null = null
+        const firstFrame = requestAnimationFrame(() => {
+            secondFrame = requestAnimationFrame(() => {
+                const target = containerRef.current?.querySelector<HTMLElement>(
+                    `[data-dashboard-tile-id="${revealTileId}"]`
+                )
+                if (!target) {
+                    return
+                }
+
+                target.scrollIntoView({
+                    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                    block: 'center',
+                })
+                target.focus({ preventScroll: true })
+                consumedRevealKeyRef.current = revealKey
+                setVisuallyHighlightedTileId(revealTileId)
+                highlightTimer = window.setTimeout(() => setVisuallyHighlightedTileId(null), TILE_HIGHLIGHT_DURATION_MS)
+            })
+        })
+
+        return () => {
+            cancelAnimationFrame(firstFrame)
+            if (secondFrame !== null) {
+                cancelAnimationFrame(secondFrame)
+            }
+            if (highlightTimer !== null) {
+                window.clearTimeout(highlightTimer)
+            }
+        }
+    }, [dashboardLoading, dashboardRevealReadyKey, mounted, revealKey, revealTileId])
+
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
         useDashboardLayoutInteraction({
             layoutEditMode,
@@ -553,6 +635,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 },
                                 removeFromDashboard: () => removeTile(tile),
                             }
+                            const revealProps = {
+                                'data-dashboard-tile-id': String(tile.id),
+                                'data-dashboard-tile-highlighted':
+                                    visuallyHighlightedTileId === tile.id ? 'true' : undefined,
+                                tabIndex: -1,
+                            }
 
                             if (tile.error && !insight) {
                                 return (
@@ -568,6 +656,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         onEnterEditModeFromEdge={onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={onDragHandleMouseDown}
                                         showEditingControls={showEditingControls}
+                                        {...revealProps}
                                     />
                                 )
                             }
@@ -598,7 +687,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         apiErrored={apiErrored}
                                         apiError={apiError}
                                         queryId={insight.query_status?.id}
-                                        highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
+                                        highlighted={visuallyHighlightedTileId === tile.id}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
@@ -620,6 +709,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                                         {...commonTileProps}
+                                        {...revealProps}
                                     />
                                 )
                             }
@@ -645,6 +735,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        {...revealProps}
                                     />
                                 )
                             }
@@ -670,6 +761,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        {...revealProps}
                                     />
                                 )
                             }
@@ -717,6 +809,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        {...revealProps}
                                     />
                                 )
                             }

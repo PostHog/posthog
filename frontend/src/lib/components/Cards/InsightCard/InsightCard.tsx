@@ -207,6 +207,9 @@ export interface InsightCardProps extends Resizeable {
     dataColorThemeId?: number | null
     className?: string
     style?: React.CSSProperties
+    tabIndex?: React.HTMLAttributes<HTMLDivElement>['tabIndex']
+    'data-dashboard-tile-id'?: string
+    'data-dashboard-tile-highlighted'?: string
     children?: React.ReactNode
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */

@@ -33,6 +33,9 @@ const InsightRenderer = lazyWithRetry(() =>
 const DashboardRenderer = lazyWithRetry(() =>
     import('./UpsertDashboardWidget').then((m) => ({ default: m.UpsertDashboardWidget }))
 )
+const DashboardTileMutationRenderer = lazyWithRetry(() =>
+    import('./DashboardTileMutationWidget').then((m) => ({ default: m.DashboardTileMutationWidget }))
+)
 const SessionRecordingsRenderer = lazyWithRetry(() =>
     import('./SearchSessionRecordingsWidget').then((m) => ({ default: m.SearchSessionRecordingsWidget }))
 )
@@ -76,6 +79,28 @@ register(
     'Dashboard',
     <IconDashboard />,
     DashboardRenderer
+)
+
+// Dashboard tile mutations share one explicit target card. The text-tile create alias remains so
+// replayed threads keep their card after the live command moved to `dashboard-create-tile`.
+register(
+    [
+        'dashboard-create-tile',
+        'dashboard-create-text-tile',
+        'dashboard-update-text-tile',
+        'dashboard-delete-tile',
+        'dashboard-reorder-tiles',
+        'dashboard-tile-copy',
+        'dashboard-widgets-batch-add',
+        'dashboard-widgets-batch-update',
+        'dashboards-widgets-batch-create',
+        'dashboards-copy-tile-create',
+        'dashboards-move-tile-create',
+        'dashboards-move-tile-partial-update',
+    ],
+    'Dashboard update',
+    <IconDashboard />,
+    DashboardTileMutationRenderer
 )
 
 // --- Data tools: session recordings ---
