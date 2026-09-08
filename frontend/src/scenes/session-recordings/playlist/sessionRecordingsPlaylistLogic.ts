@@ -1029,7 +1029,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadPinnedRecordings()
         }
         if (props.filters && !objectsEqual(props.filters, oldProps.filters)) {
-            actions.setFilters(props.filters, false)
+            // A caller can recompute the whole object - the experiment tab does on every variant or
+            // watch card - so dispatch only the keys whose value moved. The rest would overwrite a
+            // viewer's own edit and take back their ownership of a key the caller never changed.
+            const changedFilters = Object.fromEntries(
+                Object.entries(props.filters).filter(
+                    ([filterKey, value]) =>
+                        !oldProps.filters ||
+                        !objectsEqual(value, oldProps.filters[filterKey as keyof RecordingUniversalFilters])
+                )
+            ) as Partial<RecordingUniversalFilters>
+            if (Object.keys(changedFilters).length) {
+                actions.setFilters(changedFilters, false)
+            }
         }
     }),
 

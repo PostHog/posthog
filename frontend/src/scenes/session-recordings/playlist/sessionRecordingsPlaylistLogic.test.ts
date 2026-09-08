@@ -1585,6 +1585,52 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ date_from: '-14d' }))
         })
 
+        // The experiment tab recomputes its whole filter object on every variant and watch card, so
+        // a props change must only carry the keys that moved.
+        it('leaves a viewer key alone when another caller key changes', async () => {
+            const scopedProps = {
+                logicKey: 'caller_scoped_partial_props_change',
+                updateSearchParams: false,
+                filters: {
+                    date_from: '-7d',
+                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                    filter_group: DEFAULT_RECORDING_FILTERS.filter_group,
+                },
+            }
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            logic = sessionRecordingsPlaylistLogic(scopedProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ date_from: '-30d', date_to: null })
+            })
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+
+            // the caller narrows to a variant, which recomputes the whole object
+            const experimentExposure = { experiment_id: 1, variant: 'test' }
+            sessionRecordingsPlaylistLogic({
+                ...scopedProps,
+                filters: { ...scopedProps.filters, experiment_exposure: experimentExposure },
+            })
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(logic.values.filters.date_from).toEqual('-30d')
+            expect(logic.values.viewerFilterKeys).toContain('date_from')
+            expect(listSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ date_from: '-30d', experiment_exposure: experimentExposure })
+            )
+        })
+
         it('clears the viewer keys on reset, so the next mount is fully caller-scoped', async () => {
             const scopedProps = {
                 logicKey: 'caller_scoped_reset',
