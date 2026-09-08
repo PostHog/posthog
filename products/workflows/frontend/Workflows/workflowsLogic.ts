@@ -522,8 +522,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
             setFilters: buildURL,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.workflows()]: (_, searchParams) => {
+    urlToAction(({ actions, values }) => {
+        const applyFilters = (_: any, searchParams: Record<string, any>): void => {
             const status = searchParams['status']
             const type = searchParams['type']
             const triggerType = searchParams['trigger_type']
@@ -540,6 +540,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
             if (!objectsEqual(parsed, values.filters)) {
                 actions.setFilters(parsed, true)
             }
-        },
-    })),
+        }
+
+        return {
+            [urls.workflows()]: applyFilters,
+            // The scene writes the tab into the path, so the list is also reachable at /workflows/workflows.
+            [urls.workflows('workflows')]: applyFilters,
+        }
+    }),
 ])
