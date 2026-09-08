@@ -76,8 +76,9 @@ class RowShift(BaseModel):
     changed_rows: int = Field(ge=0)
     residual_pixel_count: int = Field(ge=0)
     # Inserted rows whose pixels equal a deleted row's: content that moved
-    # somewhere else on the page, not padding that appeared. Zero on rows
-    # written before this field existed.
+    # somewhere else on the page, not padding that appeared. Every inserted
+    # row when the image was too big to check. Zero on rows written before
+    # this field existed.
     relocated_rows: int = Field(ge=0, default=0)
     residual_percentage: float
     raw_diff_percentage: float

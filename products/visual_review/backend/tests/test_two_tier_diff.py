@@ -326,6 +326,21 @@ class TestRowShiftClassification:
 
         assert classify_compare_result(result) == ChangeKind.LAYOUT
 
+    def test_shift_too_big_to_check_for_relocation_goes_to_review(self, mocker):
+        # The relocation check decodes the images again. Past the pixel bound
+        # it is skipped, and a shift with both inserts and deletes must then
+        # reach a reviewer rather than absorb on the strength of a guess.
+        mocker.patch("products.visual_review.backend.diff.RELOCATION_CHECK_MAX_PIXELS", 1)
+        baseline = _make_tall_settings_page()
+        grown = open_png(_grow_rows(baseline, y=1500, rows=1))
+        current = to_png(grown.crop((0, 0, grown.width, grown.height - 1)))
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert result.row_shift.relocated_rows == 1
+
+        assert classify_compare_result(result) == ChangeKind.LAYOUT
+
     def test_shift_plus_real_change_is_not_absorbed(self):
         baseline = _make_tall_settings_page()
         shifted = open_png(_insert_rows(baseline, y=200, rows=1))

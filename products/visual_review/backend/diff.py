@@ -49,6 +49,11 @@ CLUSTER_MAX = 20
 # still admits a one pixel wide image with tens of millions of rows. Real pages
 # top out well under this, so past it the pair keeps the naive diff.
 ALIGN_MAX_ROWS = 32_768
+# The relocation check decodes each image a second time, one after the other.
+# Past this many pixels that is too much memory next to pixelhog's own buffers,
+# so the check is skipped and a shift with both inserts and deletes is treated
+# as moved content, which sends it to a reviewer instead of absorbing it.
+RELOCATION_CHECK_MAX_PIXELS = 16_000_000
 
 
 @frozen
@@ -82,26 +87,30 @@ class CompareResult:
     row_shift: RowShift | None
 
 
-def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowAlignment) -> int:
+def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowAlignment, total_pixels: int) -> int:
     """Inserted rows whose pixels equal a deleted row's: content that moved, not padding that appeared.
 
     Padding that grew blends into a neighbor, so an inserted band counts only
     when it differs from the rows above and below it in the current image.
-    Only a pair with both inserts and deletes decodes the images again.
+    Only a pair with both inserts and deletes decodes the images again, one
+    at a time so the two are never held together.
     """
     deleted = [seg for seg in alignment.segments if seg.kind == "delete"]
     inserted = [seg for seg in alignment.segments if seg.kind == "insert"]
     if not deleted or not inserted:
         return 0
-    baseline = Image.open(io.BytesIO(baseline_bytes)).convert("RGBA")
-    current = Image.open(io.BytesIO(current_bytes)).convert("RGBA")
+    if total_pixels > RELOCATION_CHECK_MAX_PIXELS:
+        return sum(seg.len for seg in inserted)
 
     def row(image: Image.Image, y: int) -> bytes:
         return image.crop((0, y, image.width, y + 1)).tobytes()
 
+    baseline = Image.open(io.BytesIO(baseline_bytes)).convert("RGBA")
     deleted_rows = {
         row(baseline, y) for seg in deleted for y in range(seg.baseline_start, seg.baseline_start + seg.len)
     }
+    del baseline
+    current = Image.open(io.BytesIO(current_bytes)).convert("RGBA")
     relocated = 0
     for seg in inserted:
         start, end = seg.current_start, seg.current_start + seg.len
@@ -190,7 +199,7 @@ def compare_images(
             deleted_rows=alignment.deleted_rows,
             changed_rows=alignment.changed_rows,
             residual_pixel_count=alignment.residual_count,
-            relocated_rows=_relocated_rows(baseline_bytes, current_bytes, alignment),
+            relocated_rows=_relocated_rows(baseline_bytes, current_bytes, alignment, total_pixels),
             residual_percentage=round(residual_percentage, 4),
             raw_diff_percentage=round(diff_percentage, 4),
             bands=[ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in alignment.bands],
