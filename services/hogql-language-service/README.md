@@ -22,30 +22,30 @@ loads event, person, session, and group indexes 0 through 4 concurrently. Every 
 
 ```bash
 curl -sS http://localhost:8091/health
-curl -sS -X POST http://localhost:8091/autocomplete \
+curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
   -H 'Content-Type: application/json' \
-  -d '{"teamId":2,"userId":1,"query":"SELECT o. FROM orders AS o","position":9}'
+  -d '{"query":"SELECT o. FROM orders AS o","position":9}'
 ```
 
 Validate syntax and catalog-backed table and field references:
 
 ```bash
-curl -sS -X POST http://localhost:8091/validate \
+curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -H 'Content-Type: application/json' \
-  -d '{"teamId":2,"userId":1,"query":"SELECT amuont FROM warehouse_0420"}'
+  -d '{"query":"SELECT amuont FROM warehouse_0420"}'
 ```
 
 Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
 distance. Dynamic properties use the same cached namespaces as autocomplete.
 
 ```bash
-curl -sS -X POST http://localhost:8091/autocomplete \
+curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
   -H 'Content-Type: application/json' \
-  -d '{"teamId":2,"userId":1,"query":"SELECT events.properties.$geo"}'
+  -d '{"query":"SELECT events.properties.$geo"}'
 
-curl -sS -X POST http://localhost:8091/validate \
+curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -H 'Content-Type: application/json' \
-  -d '{"teamId":2,"userId":1,"query":"SELECT events.properties.$geo_cty FROM events"}'
+  -d '{"query":"SELECT events.properties.$geo_cty FROM events"}'
 ```
 
 `position` is an optional UTF-8 byte offset and defaults to the end of the query. `durationMicros` covers only the
@@ -75,9 +75,11 @@ curl -sS -X PUT http://localhost:8091/teams/2/users/17/catalog \
   }'
 ```
 
-Every language request requires both `teamId` and `userId`. The response includes `catalogRevision`, allowing Django
-and the editor to detect a stale response. An unknown, expired, or evicted pair returns `404`; the service never falls
-back to another team or user. `DELETE /teams/{teamId}/users/{userId}/catalog` removes that entry.
+Every protected route requires positive `teamId` and `userId` path parameters. The response includes
+`catalogRevision`, allowing Django and the editor to detect a stale response. An unknown, expired, or evicted pair
+returns `404`; the service never falls back to another team or user.
+
+`DELETE /teams/{teamId}/users/{userId}/catalog` removes that entry.
 
 Catalogs expire after `CATALOG_TTL` (default `30m`) without use. When `MAX_CATALOGS` (default `256`) is reached, the
 least recently used catalog is evicted. Publishing a new revision replaces the old immutable catalog atomically.
@@ -101,6 +103,28 @@ Tokens are valid only for the exact team, user, and operation. List the current 
 afterward during rotation. Do not expose the service directly to browsers; Django should mint tokens and proxy
 requests after resolving the user's membership and permissions for that team.
 
+## Rate limiting
+
+Protected requests pass through two bounded in-memory token buckets before the handler reads JSON:
+
+1. The pre-authentication bucket keys requests by the direct peer IP address.
+2. The principal bucket keys authenticated requests by `teamId:userId`.
+
+The JWT must match the path before a request consumes principal capacity. The service does not trust forwarded-IP
+headers. Deployments should configure the pre-authentication allowance for the expected number of Django callers.
+
+| Setting                                  | Default |
+| ---------------------------------------- | ------- |
+| `PRE_AUTH_RATE_LIMIT_CAPACITY`           | `300`   |
+| `PRE_AUTH_RATE_LIMIT_REFILL_PER_SECOND`  | `100`   |
+| `PRINCIPAL_RATE_LIMIT_CAPACITY`          | `120`   |
+| `PRINCIPAL_RATE_LIMIT_REFILL_PER_SECOND` | `60`    |
+| `RATE_LIMIT_MAX_KEYS`                    | `10000` |
+| `RATE_LIMIT_IDLE_TTL`                    | `10m`   |
+
+Limited requests return `429` and a `Retry-After` header. The entry bound prevents attacker-controlled path values
+from growing limiter memory without limit.
+
 ## Container image
 
 Build the image from the service directory:
@@ -122,6 +146,6 @@ docker run --rm \
   hogql-language-service:local
 ```
 
-The production binary is compiled with Go 1.27.1. The runtime image contains only the static service binary, the
-commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow native `linux/amd64`
-and `linux/arm64` builds.
+The production binary is compiled with Go 1.27.1 and `go build -trimpath`. The runtime image contains only the static
+service binary, the commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow
+native `linux/amd64` and `linux/arm64` builds.

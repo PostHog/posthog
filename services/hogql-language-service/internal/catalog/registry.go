@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
 )
 
 var (
@@ -11,14 +13,9 @@ var (
 	ErrInvalidRevision = errors.New("invalid catalog revision")
 )
 
-type Scope struct {
-	TeamID int64
-	UserID int64
-}
-
 type Registry struct {
 	mu         sync.Mutex
-	entries    map[Scope]registryEntry
+	entries    map[serviceauth.Authorization]registryEntry
 	maxEntries int
 	ttl        time.Duration
 	now        func() time.Time
@@ -41,11 +38,11 @@ func NewRegistry(maxEntries int, ttl time.Duration) *Registry {
 }
 
 func newRegistry(maxEntries int, ttl time.Duration, now func() time.Time) *Registry {
-	return &Registry{entries: map[Scope]registryEntry{}, maxEntries: maxEntries, ttl: ttl, now: now}
+	return &Registry{entries: map[serviceauth.Authorization]registryEntry{}, maxEntries: maxEntries, ttl: ttl, now: now}
 }
 
-func (r *Registry) Put(scope Scope, revision string, value *Catalog) error {
-	if scope.TeamID <= 0 || scope.UserID <= 0 {
+func (r *Registry) Put(authorization serviceauth.Authorization, revision string, value *Catalog) error {
+	if !authorization.Valid() {
 		return ErrInvalidScope
 	}
 	if revision == "" || len(revision) > 128 {
@@ -59,34 +56,34 @@ func (r *Registry) Put(scope Scope, revision string, value *Catalog) error {
 	defer r.mu.Unlock()
 	now := r.now()
 	r.removeExpired(now)
-	if _, exists := r.entries[scope]; !exists && len(r.entries) >= r.maxEntries {
+	if _, exists := r.entries[authorization]; !exists && len(r.entries) >= r.maxEntries {
 		r.removeLeastRecentlyUsed()
 	}
-	r.entries[scope] = registryEntry{catalog: value, revision: revision, lastAccess: now}
+	r.entries[authorization] = registryEntry{catalog: value, revision: revision, lastAccess: now}
 	return nil
 }
 
-func (r *Registry) Get(scope Scope) (*Catalog, string, bool) {
+func (r *Registry) Get(authorization serviceauth.Authorization) (*Catalog, string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
 	r.removeExpired(now)
-	entry, ok := r.entries[scope]
+	entry, ok := r.entries[authorization]
 	if !ok {
 		return nil, "", false
 	}
 	entry.lastAccess = now
-	r.entries[scope] = entry
+	r.entries[authorization] = entry
 	return entry.catalog, entry.revision, true
 }
 
-func (r *Registry) Delete(scope Scope) bool {
+func (r *Registry) Delete(authorization serviceauth.Authorization) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.entries[scope]; !exists {
+	if _, exists := r.entries[authorization]; !exists {
 		return false
 	}
-	delete(r.entries, scope)
+	delete(r.entries, authorization)
 	return true
 }
 
@@ -105,23 +102,23 @@ func (r *Registry) Stats() RegistryStats {
 }
 
 func (r *Registry) removeExpired(now time.Time) {
-	for scope, entry := range r.entries {
+	for authorization, entry := range r.entries {
 		if now.Sub(entry.lastAccess) >= r.ttl {
-			delete(r.entries, scope)
+			delete(r.entries, authorization)
 		}
 	}
 }
 
 func (r *Registry) removeLeastRecentlyUsed() {
-	var oldestScope Scope
+	var oldestAuthorization serviceauth.Authorization
 	found := false
 	var oldest time.Time
-	for scope, entry := range r.entries {
+	for authorization, entry := range r.entries {
 		if !found || entry.lastAccess.Before(oldest) {
-			oldestScope = scope
+			oldestAuthorization = authorization
 			oldest = entry.lastAccess
 			found = true
 		}
 	}
-	delete(r.entries, oldestScope)
+	delete(r.entries, oldestAuthorization)
 }

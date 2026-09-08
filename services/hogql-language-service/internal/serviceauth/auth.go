@@ -12,6 +12,24 @@ import (
 
 var ErrUnauthorized = errors.New("unauthorized")
 
+type Authorization struct {
+	TeamID int64
+	UserID int64
+}
+
+func (a Authorization) Valid() bool {
+	return a.TeamID > 0 && a.UserID > 0
+}
+
+type Operation string
+
+const (
+	OperationPublish  Operation = "publish"
+	OperationDelete   Operation = "delete"
+	OperationComplete Operation = "complete"
+	OperationValidate Operation = "validate"
+)
+
 type Authenticator struct {
 	keys          [][]byte
 	allowInsecure bool
@@ -41,17 +59,20 @@ func New(keys []string, allowInsecure bool) *Authenticator {
 	return &Authenticator{keys: parsed, allowInsecure: allowInsecure, now: time.Now}
 }
 
-func (a *Authenticator) Verify(authorization string, teamID, userID int64, operation string) error {
+func (a *Authenticator) Verify(headerValue string, authorization Authorization, operation Operation) error {
+	if !authorization.Valid() {
+		return ErrUnauthorized
+	}
 	if len(a.keys) == 0 {
 		if a.allowInsecure {
 			return nil
 		}
 		return ErrUnauthorized
 	}
-	if !strings.HasPrefix(authorization, "Bearer ") {
+	if !strings.HasPrefix(headerValue, "Bearer ") {
 		return ErrUnauthorized
 	}
-	parts := strings.Split(strings.TrimPrefix(authorization, "Bearer "), ".")
+	parts := strings.Split(strings.TrimPrefix(headerValue, "Bearer "), ".")
 	if len(parts) != 3 {
 		return ErrUnauthorized
 	}
@@ -70,11 +91,11 @@ func (a *Authenticator) Verify(authorization string, teamID, userID int64, opera
 		return ErrUnauthorized
 	}
 	now := a.now().Unix()
-	if claims.Audience != "hogql-language-service" || claims.ExpiresAt <= now || claims.NotBefore > now || claims.TeamID != teamID || claims.UserID != userID {
+	if claims.Audience != "hogql-language-service" || claims.ExpiresAt <= now || claims.NotBefore > now || claims.TeamID != authorization.TeamID || claims.UserID != authorization.UserID {
 		return ErrUnauthorized
 	}
 	for _, allowed := range claims.Operations {
-		if allowed == operation {
+		if allowed == string(operation) {
 			return nil
 		}
 	}

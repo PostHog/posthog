@@ -34,8 +34,11 @@ authenticated internal request.
 
 ## Isolation boundary
 
-Every catalog and language request requires both `team_id` and `user_id`. The service keys its current catalog cache
-by that pair because the published snapshot contains user-filtered tables and properties.
+Every protected route requires both `team_id` and `user_id` in its path. Shared middleware converts those values into
+one authorization struct used by JWT verification, rate limiting, catalog lookup, and request handlers.
+
+The service keys its current catalog cache by that pair because the published snapshot contains user-filtered tables
+and properties.
 
 The transport JWT also binds the request to:
 
@@ -47,6 +50,10 @@ The transport JWT also binds the request to:
 
 An absent, invalid, expired, or evicted catalog fails closed. The service never falls back to another team or user's
 catalog.
+
+Before reading a request body, a bounded token bucket limits the direct peer address. After JWT verification, another
+bounded bucket limits the authenticated team and user pair. The service ignores forwarded-IP headers because only
+deployment infrastructure can define a trustworthy proxy chain.
 
 A later implementation may store structural schema once per team and apply smaller user authorization overlays. The
 team remains the primary isolation boundary in that model.

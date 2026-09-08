@@ -20,19 +20,20 @@ func TestVerifyScopesTokenToCatalogAndOperation(t *testing.T) {
 		ExpiresAt:  200,
 	})
 
-	if err := authenticator.Verify("Bearer "+token, 1, 10, "complete"); err != nil {
+	if err := authenticator.Verify("Bearer "+token, Authorization{TeamID: 1, UserID: 10}, OperationComplete); err != nil {
 		t.Fatalf("valid rotated key was rejected: %v", err)
 	}
 	for _, test := range []struct {
 		teamID    int64
 		userID    int64
-		operation string
+		operation Operation
 	}{
-		{teamID: 2, userID: 10, operation: "complete"},
-		{teamID: 1, userID: 20, operation: "complete"},
-		{teamID: 1, userID: 10, operation: "publish"},
+		{teamID: 2, userID: 10, operation: OperationComplete},
+		{teamID: 1, userID: 20, operation: OperationComplete},
+		{teamID: 1, userID: 10, operation: OperationPublish},
 	} {
-		if err := authenticator.Verify("Bearer "+token, test.teamID, test.userID, test.operation); err == nil {
+		authorization := Authorization{TeamID: test.teamID, UserID: test.userID}
+		if err := authenticator.Verify("Bearer "+token, authorization, test.operation); err == nil {
 			t.Fatalf("token unexpectedly authorized %s for team %d user %d", test.operation, test.teamID, test.userID)
 		}
 	}
@@ -44,9 +45,12 @@ func TestVerifyRejectsExpiredAndUnsignedTokens(t *testing.T) {
 	expired := signToken(t, "key", Claims{Audience: "hogql-language-service", TeamID: 1, UserID: 10, Operations: []string{"complete"}, ExpiresAt: 100})
 
 	for _, authorization := range []string{"", "Bearer unsigned", "Bearer " + expired} {
-		if err := authenticator.Verify(authorization, 1, 10, "complete"); err == nil {
+		if err := authenticator.Verify(authorization, Authorization{TeamID: 1, UserID: 10}, OperationComplete); err == nil {
 			t.Fatalf("invalid token was accepted: %q", authorization)
 		}
+	}
+	if err := New(nil, true).Verify("", Authorization{}, OperationComplete); err == nil {
+		t.Fatal("insecure local mode accepted an empty authorization scope")
 	}
 }
 
