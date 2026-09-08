@@ -1,5 +1,7 @@
 from django.test import TransactionTestCase
 
+from parameterized import parameterized
+
 from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
 
@@ -73,6 +75,28 @@ class TestTaskSearchIndex(TransactionTestCase):
         self.assertEqual(result["latest_run"].environment, TaskRun.Environment.CLOUD)
         self.assertIsNotNone(result["updated_at"])
 
+    @parameterized.expand([("channel",), ("channel_id",)])
+    def test_a_canvas_moved_into_a_private_space_leaves_team_search(self, channel_field):
+        shared = Channel.objects.create(team=self.team, name="canvas-home", created_by=self.user)
+        private = Channel.objects.create(
+            team=self.team,
+            name="me",
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=self.user,
+        )
+        canvas = Canvas.objects.create(team=self.team, name="Release checklist", channel=shared)
+        teammate = User.objects.create(email="teammate@example.com", distinct_id="teammate-search-user")
+        self.assertEqual(len(search_tasks(self.team.id, teammate.id, "release checklist")), 1)
+
+        canvas.channel = private
+        canvas.save(update_fields=[channel_field])
+
+        self.assertEqual(search_tasks(self.team.id, teammate.id, "release checklist"), [])
+        self.assertEqual(
+            search_tasks(self.team.id, self.user.id, "release checklist")[0]["channel_id"],
+            str(private.id),
+        )
+
     def test_a_space_match_carries_no_task_context(self):
         Channel.objects.create(team=self.team, name="export-lab", created_by=self.user)
 
@@ -130,7 +154,8 @@ class TestTaskSearchIndex(TransactionTestCase):
 
         self.assertEqual(search_tasks(self.team.id, self.user.id, "search indexing")[0]["task_id"], str(task.id))
 
-    def test_updates_descendant_context_without_reindexing_runs(self):
+    @parameterized.expand([("channel",), ("channel_id",)])
+    def test_updates_descendant_context_without_reindexing_runs(self, channel_field):
         task = self.make_task(title="Old title")
         run = TaskRun.objects.create(
             team=self.team,
@@ -142,7 +167,7 @@ class TestTaskSearchIndex(TransactionTestCase):
 
         task.title = "New title"
         task.channel = new_channel
-        task.save(update_fields=["title", "channel"])
+        task.save(update_fields=["title", channel_field])
 
         document = TaskSearchDocument.objects.for_team(self.team.id).get(
             kind=TaskSearchDocument.Kind.ARTIFACT,

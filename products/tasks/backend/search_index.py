@@ -250,6 +250,19 @@ def rebuild_team_search_index(team_id: int) -> None:
         index_canvas(canvas_id, canonical_team_id=canonical_team_id)
 
 
+def _touches(update_fields, fields: set[str]) -> bool:
+    """Whether a save wrote any of these fields, under either name Django uses.
+
+    A caller that sets a relation by id saves ``channel_id`` where the model declares
+    ``channel``, so a receiver that reads the declared name alone skips the reindex and
+    the row keeps the old relation.
+    """
+    if update_fields is None:
+        return True
+    written = set(update_fields)
+    return any(field in written or f"{field}_id" in written for field in fields)
+
+
 def _after_commit(callback) -> None:
     def safely_index() -> None:
         try:
@@ -264,51 +277,42 @@ def _after_commit(callback) -> None:
 
 @receiver(post_save, sender=Task)
 def task_saved(sender, instance: Task, update_fields=None, **kwargs) -> None:
-    if update_fields is not None and not set(update_fields) & {
-        "title",
-        "task_number",
-        "slug",
-        "repository",
-        "channel",
-        "archived",
-        "deleted",
-    }:
+    if not _touches(
+        update_fields,
+        {"title", "task_number", "slug", "repository", "channel", "archived", "deleted"},
+    ):
         return
-    include_related = update_fields is None or bool(set(update_fields) & {"title", "channel"})
+    include_related = _touches(update_fields, {"title", "channel"})
     _after_commit(lambda: index_task(instance.id, include_related=include_related))
 
 
 @receiver(post_save, sender=TaskRun)
 def task_run_saved(sender, instance: TaskRun, update_fields=None, **kwargs) -> None:
-    if update_fields is not None and not set(update_fields) & {"output", "artifacts"}:
+    if not _touches(update_fields, {"output", "artifacts"}):
         return
     _after_commit(lambda: index_task_run(instance.id))
 
 
 @receiver(post_save, sender=TaskArtifact)
 def task_artifact_saved(sender, instance: TaskArtifact, update_fields=None, **kwargs) -> None:
-    if update_fields is not None and not set(update_fields) & {"name", "status", "task", "task_run", "artifact_type"}:
+    if not _touches(update_fields, {"name", "status", "task", "task_run", "artifact_type"}):
         return
     _after_commit(lambda: index_task_artifact(instance.id))
 
 
 @receiver(post_save, sender=Channel)
 def channel_saved(sender, instance: Channel, update_fields=None, **kwargs) -> None:
-    if update_fields is not None and not set(update_fields) & {"name", "deleted", "channel_type", "created_by"}:
+    if not _touches(update_fields, {"name", "deleted", "channel_type", "created_by"}):
         return
     _after_commit(lambda: index_channel(instance.id))
 
 
 @receiver(post_save, sender=Canvas)
 def canvas_saved(sender, instance: Canvas, update_fields=None, **kwargs) -> None:
-    if update_fields is not None and not set(update_fields) & {
-        "name",
-        "deleted",
-        "channel",
-        "kind",
-        "template_id",
-        "source_policy",
-    }:
+    if not _touches(
+        update_fields,
+        {"name", "deleted", "channel", "kind", "template_id", "source_policy"},
+    ):
         return
     _after_commit(lambda: index_canvas(instance.id))
 
