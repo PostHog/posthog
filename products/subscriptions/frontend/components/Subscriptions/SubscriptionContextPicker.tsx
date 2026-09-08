@@ -66,6 +66,7 @@ export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: Subscri
     return (
         <div className="flex flex-wrap items-center gap-1 min-w-0" data-attr="ai-subscription-context-list">
             <TaxonomicPopover
+                key={disabledReason ? 'context-limit-reached' : 'context-available'}
                 groupType={TaxonomicFilterGroupType.Dashboards}
                 groupTypes={CONTEXT_GROUP_TYPES}
                 onChange={handleChange}
@@ -77,7 +78,7 @@ export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: Subscri
                         .filter(isInsightContext)
                         .map((context) => context.insight_short_id),
                 }}
-                closeOnChange={contexts.length === MAX_CONTEXTS - 1}
+                closeOnChange={false}
                 placeholder="Add context"
                 size="small"
                 type="secondary"

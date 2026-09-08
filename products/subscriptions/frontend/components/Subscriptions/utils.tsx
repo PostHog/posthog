@@ -10,7 +10,11 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import {
+    SubscriptionAIContextLimit,
+    SubscriptionAIPromptMaxLength,
+    SubscriptionFreeTierLimit,
+} from '~/queries/schema/schema-general'
 import { InsightShortId, IntegrationType, SubscriptionType, WeekdayType } from '~/types'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
@@ -18,7 +22,7 @@ import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
-export const MAX_CONTEXTS = 3
+export const MAX_CONTEXTS = SubscriptionAIContextLimit.COUNT
 
 export function requestSubscriptionWizardCancellation({
     onCancel,

@@ -263,15 +263,15 @@ const meta: Meta<StoryArgs> = {
 
                     return { count: results.length, results }
                 },
-                '/api/environments/:id/subscriptions/:subId': selectedSubscription,
                 '/api/projects/:id/subscriptions/': {
                     count: freeTierSubscriptionCount ?? 0,
                     results: [],
                 },
-                '/api/projects/:id/subscriptions/:subId/deliveries/': { count: 0, results: [] },
                 '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
                     ? { active_count: 10, limit: 10, at_limit: true }
                     : { active_count: 0, limit: 10, at_limit: false },
+                '/api/projects/:id/subscriptions/:subId/deliveries/': { count: 0, results: [] },
+                '/api/projects/:id/subscriptions/:subId': selectedSubscription,
                 '/api/projects/:id/integrations': { results: [mockIntegration] },
                 '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },
             },

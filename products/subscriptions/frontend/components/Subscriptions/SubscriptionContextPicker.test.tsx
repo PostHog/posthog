@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 
 import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -16,7 +17,7 @@ interface MockTaxonomicPopoverProps {
 }
 
 jest.mock('lib/components/TaxonomicPopover/TaxonomicPopover', () => {
-    const { useState } = jest.requireActual('react')
+    const { useEffect, useRef, useState } = jest.requireActual('react')
     const { TaxonomicFilterGroupType } = jest.requireActual('lib/components/TaxonomicFilter/types')
 
     return {
@@ -26,8 +27,17 @@ jest.mock('lib/components/TaxonomicPopover/TaxonomicPopover', () => {
             onChange,
             selectedProperties,
             'data-attr': dataAttr,
-        }: MockTaxonomicPopoverProps) => {
+        }: MockTaxonomicPopoverProps): JSX.Element => {
             const [isOpen, setIsOpen] = useState(false)
+            const previousCloseOnChange = useRef(closeOnChange)
+
+            useEffect(() => {
+                if (previousCloseOnChange.current !== closeOnChange) {
+                    setIsOpen(false)
+                    previousCloseOnChange.current = closeOnChange
+                }
+            }, [closeOnChange])
+
             const select = (
                 value: string | number,
                 groupType: string,
@@ -50,7 +60,7 @@ jest.mock('lib/components/TaxonomicPopover/TaxonomicPopover', () => {
                         Add context
                     </button>
                     {isOpen ? (
-                        <div data-testid="taxonomic-options">
+                        <div data-attr="taxonomic-options">
                             <button
                                 data-attr="pick-dashboard"
                                 disabled={selectedProperties?.[TaxonomicFilterGroupType.Dashboards]?.includes(7)}
@@ -128,6 +138,18 @@ function renderPicker(
     return render(<SubscriptionContextPicker contexts={contexts} onAdd={onAdd} onRemove={onRemove} />)
 }
 
+function StatefulPicker(): JSX.Element {
+    const [contexts, setContexts] = useState<SubscriptionContextApi[]>([])
+
+    return (
+        <SubscriptionContextPicker
+            contexts={contexts}
+            onAdd={(context) => setContexts((current) => [...current, context])}
+            onRemove={(context) => setContexts((current) => current.filter((candidate) => candidate !== context))}
+        />
+    )
+}
+
 describe('SubscriptionContextPicker', () => {
     afterEach(cleanup)
 
@@ -178,28 +200,20 @@ describe('SubscriptionContextPicker', () => {
         expect(onRemove).toHaveBeenNthCalledWith(2, INSIGHT_CONTEXT)
     })
 
-    it('closes after the third selection and disables additions at three combined contexts', async () => {
-        const thirdContext: SubscriptionContextApi = {
-            dashboard_id: 8,
-            dashboard_name: 'Revenue overview',
-        }
-        const onAdd = jest.fn()
-        const { rerender } = renderPicker([DASHBOARD_CONTEXT, INSIGHT_CONTEXT], onAdd)
-
+    it('keeps one picker open until the third selection, then closes and disables additions', async () => {
+        render(<StatefulPicker />)
         await userEvent.click(screen.getByText('Add context'))
+        await userEvent.click(screen.getByTestId('pick-dashboard'))
+
+        expect(screen.getByTestId('taxonomic-options')).toBeInTheDocument()
+
+        await userEvent.click(screen.getByTestId('pick-insight'))
+
+        expect(screen.getByTestId('taxonomic-options')).toBeInTheDocument()
+
         await userEvent.click(screen.getByTestId('pick-second-dashboard'))
 
-        expect(onAdd).toHaveBeenCalledWith(thirdContext)
         expect(screen.queryByTestId('taxonomic-options')).not.toBeInTheDocument()
-
-        rerender(
-            <SubscriptionContextPicker
-                contexts={[DASHBOARD_CONTEXT, INSIGHT_CONTEXT, thirdContext]}
-                onAdd={onAdd}
-                onRemove={jest.fn()}
-            />
-        )
-
         expect(screen.getByText('Add context')).toBeDisabled()
         expect(screen.getByText('Add context')).toHaveAttribute(
             'title',

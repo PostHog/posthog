@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, connect, events, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -23,7 +23,10 @@ import { userLogic } from 'scenes/userLogic'
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import {
+    subscriptionsCreate,
     subscriptionsDeliveriesList,
+    subscriptionsPartialUpdate,
+    subscriptionsRetrieve,
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
 import {
@@ -32,7 +35,6 @@ import {
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
     SubscriptionContextApi,
-    SubscriptionWriteApi,
     SubscriptionWriteApiContextsItem,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -50,10 +52,14 @@ import {
     ALL_DAYS,
     AI_PROMPT_MAX_LENGTH,
     coerceDeliveryConfigForScope,
+    MAX_CONTEXTS,
     SubscriptionBaseProps,
     targetTypeOptions,
     urlForSubscription,
 } from './utils'
+
+type SubscriptionCreatePayload = Parameters<typeof subscriptionsCreate>[1]
+type SubscriptionPatchPayload = NonNullable<Parameters<typeof subscriptionsPartialUpdate>[2]>
 
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
@@ -632,7 +638,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
                     const subscription = subscriptionForForm(
-                        (await api.subscriptions.get(props.id)) as unknown as SubscriptionApi
+                        await subscriptionsRetrieve(String(getCurrentTeamId()), props.id)
                     )
                     // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
                     // so the analysis window select renders the effective default instead of empty.
@@ -702,18 +708,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
+                if (!isSupportedTargetType(subscription.target_type)) {
+                    throw new Error('Unsupported subscription target type')
+                }
+
                 const webhookKept = isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
-                const payload: Partial<SubscriptionWriteApi> = {
-                    ...subscription,
-                    // Omitting it tells the backend to keep the stored URL. Sending the host back
-                    // is rejected, since it is not a URL anything could deliver to.
-                    target_value: webhookKept ? undefined : subscription.target_value?.trim(),
-                    bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
+                const payload: SubscriptionCreatePayload = {
                     delivery_config: coerceDeliveryConfigForScope(
                         subscription,
                         integrationsLogic.findMounted()?.values.integrations
                     ),
-                    insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     insight: isAi ? undefined : insightId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would
@@ -727,8 +731,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         isAi && values.featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]
                             ? subscription.contexts.map(contextForWrite)
                             : undefined,
-                    target_type: subscription.target_type as SubscriptionWriteApi['target_type'],
-                    target_value: subscription.target_value,
+                    target_type: subscription.target_type,
+                    target_value: (subscription.target_value ?? '').trim(),
                     frequency: subscription.frequency,
                     interval: subscription.interval,
                     byweekday: subscription.byweekday,
@@ -745,16 +749,19 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     summary_enabled: subscription.summary_enabled,
                     summary_prompt_guide: subscription.summary_prompt_guide,
                 }
+                const patchPayload: SubscriptionPatchPayload = {
+                    ...payload,
+                    // Omitting it tells the backend to keep the stored URL. Sending the host back
+                    // is rejected, since it is not a URL anything could deliver to.
+                    target_value: webhookKept ? undefined : payload.target_value,
+                }
 
                 breakpoint()
 
                 const updatedSub = subscriptionForForm(
-                    (props.id === 'new'
-                        ? await api.subscriptions.create(payload as unknown as Partial<SubscriptionType>)
-                        : await api.subscriptions.update(
-                              props.id,
-                              payload as unknown as Partial<SubscriptionType>
-                          )) as unknown as SubscriptionApi
+                    props.id === 'new'
+                        ? await subscriptionsCreate(String(getCurrentTeamId()), payload)
+                        : await subscriptionsPartialUpdate(String(getCurrentTeamId()), props.id, patchPayload)
                 )
 
                 actions.resetSubscription()
@@ -880,7 +887,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 )
             )
         },
-        prefillCurrentContext: async () => {
+        prefillCurrentContext: async (_, breakpoint) => {
             if (
                 props.id !== 'new' ||
                 values.subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ||
@@ -913,10 +920,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         insight_name: props.insightName || 'Untitled insight',
                     })
                 })
-                .catch(() => {
-                    lemonToast.error(
-                        'Could not add this insight as report context. Select it again, or continue with project data.'
-                    )
+                .catch((error: unknown) => {
+                    if (!(error instanceof Error && isBreakpoint(error))) {
+                        breakpoint()
+                        lemonToast.error(
+                            'Could not add this insight as report context. Select it again, or continue with project data.'
+                        )
+                    }
+                })
+                .catch((error: unknown) => {
+                    if (!(error instanceof Error && isBreakpoint(error))) {
+                        throw error
+                    }
                 })
             cache.contextPrefillPromise = prefillPromise
             try {

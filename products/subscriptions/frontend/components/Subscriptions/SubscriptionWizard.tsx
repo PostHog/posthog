@@ -698,12 +698,15 @@ function SubscriptionReviewStep({
     insightShortId?: InsightShortId
     contextsEnabled: boolean
 }): JSX.Element {
-    const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
+    const { previewLoading, previewError, previewImageUrl, subscriptionErrors } = useValues(
+        subscriptionLogic(logicProps)
+    )
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
     const advancedSettings = getSubscriptionAdvancedSettings(subscription)
     const nextDeliveryDate = getNextDeliveryDate(subscription)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+    const contextError = typeof subscriptionErrors.contexts === 'string' ? subscriptionErrors.contexts : undefined
     let reviewNotice: JSX.Element
 
     if (subscription.send_test_now) {
@@ -750,7 +753,17 @@ function SubscriptionReviewStep({
 
     return (
         <div className="flex flex-col gap-4">
-            <WizardReview items={reviewItems} footer={<div className="text-secondary text-sm">{reviewNotice}</div>} />
+            <WizardReview
+                items={reviewItems}
+                notice={
+                    contextsEnabled && isAiPrompt && contextError ? (
+                        <LemonBanner type="error">
+                            {contextError} Return to What to send to update the context.
+                        </LemonBanner>
+                    ) : undefined
+                }
+                footer={<div className="text-secondary text-sm">{reviewNotice}</div>}
+            />
             {insightShortId && !isAiPrompt ? (
                 <div>
                     <LemonLabel className="mb-2">Preview</LemonLabel>

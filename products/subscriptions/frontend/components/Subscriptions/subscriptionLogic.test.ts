@@ -70,7 +70,7 @@ describe('subscriptionLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1),
                 '/api/projects/:team/subscriptions/1/deliveries/': {
                     next: null,
                     previous: null,
@@ -84,7 +84,7 @@ describe('subscriptionLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => [
+                '/api/projects/:team/subscriptions': async ({ request }) => [
                     200,
                     { id: 42, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
                 ],
@@ -155,7 +155,7 @@ describe('subscriptionLogic', () => {
     it('uses the UTC weekday for legacy weekly subscriptions', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     frequency: 'weekly',
                     start_date: '2024-01-01T00:30:00Z',
                     byweekday: null,
@@ -173,7 +173,7 @@ describe('subscriptionLogic', () => {
     it('removes hidden weekday constraints from daily subscriptions with intervals greater than one', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     frequency: 'daily',
                     interval: 2,
                     byweekday: ['monday', 'wednesday'],
@@ -744,7 +744,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 42, ...capturedBody } as SubscriptionType]
                 },
@@ -815,7 +815,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Record<string, unknown> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Record<string, unknown>
                     return [200, { id: 44, ...capturedBody } as SubscriptionType]
                 },
@@ -851,7 +851,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Record<string, unknown> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Record<string, unknown>
                     return [200, { id: 45, ...capturedBody } as SubscriptionType]
                 },
@@ -880,7 +880,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Record<string, unknown> | undefined
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': {
+                '/api/projects/:team/subscriptions/1': {
                     ...fixtureSubscriptionResponse(1, {
                         resource_type: 'ai_prompt',
                         prompt: 'Compare activation and signup conversion',
@@ -889,7 +889,7 @@ describe('subscriptionLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                '/api/projects/:team/subscriptions/1': async ({ request }) => {
                     capturedBody = (await request.json()) as Record<string, unknown>
                     return [200, { ...fixtureSubscriptionResponse(1), ...capturedBody } as SubscriptionType]
                 },
@@ -975,7 +975,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 44, ...capturedBody } as SubscriptionType]
                 },
@@ -1007,13 +1007,13 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     target_type: 'teams',
                     target_value: 'prod-12.westeurope.logic.azure.com',
                 }),
             },
             patch: {
-                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                '/api/projects/:team/subscriptions/1': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, fixtureSubscriptionResponse(1, { target_type: 'teams' })]
                 },
@@ -1033,7 +1033,7 @@ describe('subscriptionLogic', () => {
     it('asks for a URL again once the Teams webhook is being replaced', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     target_type: 'teams',
                     target_value: 'prod-12.westeurope.logic.azure.com',
                 }),
@@ -1066,7 +1066,7 @@ describe('subscriptionLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Record<string, unknown>
                     return [200, { id: 45, ...capturedBody } as SubscriptionType]
                 },
@@ -1098,13 +1098,40 @@ describe('subscriptionLogic', () => {
         raceLogic.unmount()
     })
 
+    it('does not report a failed context prefill after the form unmounts', async () => {
+        let rejectInsightLookup: (error: Error) => void = () => {}
+        const insightLookup = new Promise<never>((_, reject) => {
+            rejectInsightLookup = reject
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': async () => await insightLookup,
+            },
+        })
+        const transientLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        transientLogic.mount()
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(transientLogic).toFinishAllListeners()
+
+        transientLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+        transientLogic.unmount()
+        rejectInsightLookup(new Error('lookup failed'))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 43, ...capturedBody } as SubscriptionType]
                 },
@@ -1136,7 +1163,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 51, ...capturedBody } as SubscriptionType]
                 },
