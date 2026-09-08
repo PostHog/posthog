@@ -128,8 +128,14 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('a malformed ?filters= param falls back to the blank wizard', async () => {
-            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: 'not-json{' })
+        // A crafted or truncated param must not reach the filter UI, which spreads what it gets:
+        // a list field holding a string renders one filter per character.
+        it.each([
+            ['unparseable JSON', 'not-json{'],
+            ['a JSON array', '[]'],
+            ['a list field that is not a list', '{"kind":"RecordingsQuery","events":"x"}'],
+        ])('a ?filters= param carrying %s falls back to the blank wizard', async (_label, filters) => {
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters })
             await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
                 scanner: expect.objectContaining({
                     scanner_type: 'monitor',

@@ -30,7 +30,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import type { RecordingsQuery } from '~/queries/schema/schema-general'
+import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 
 import {
     visionScannersAffectedCohortCreate,
@@ -124,11 +124,32 @@ function currentTemplateKey(): string | null {
     return typeof value === 'string' ? value : null
 }
 
+// The filter UI spreads each of these straight into its list of filter values, so a string here
+// renders one filter per character instead of failing.
+const PREFILL_QUERY_LIST_FIELDS = [
+    'events',
+    'actions',
+    'properties',
+    'console_log_filters',
+    'having_predicates',
+] as const
+
+function isValidPrefillQuery(parsed: unknown): parsed is RecordingsQuery {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return false
+    }
+    const query = parsed as Record<string, unknown>
+    if ('kind' in query && query.kind !== NodeKind.RecordingsQuery) {
+        return false
+    }
+    return PREFILL_QUERY_LIST_FIELDS.every((field) => !(field in query) || Array.isArray(query[field]))
+}
+
 /**
  * A `RecordingsQuery` handed to the new-scanner wizard via `?filters=<url-encoded JSON>`, used by
  * cross-sell entry points (e.g. "save these filters as a scanner" in the replay playlist) to seed
- * the scanner's query. Returns null on a missing or unparseable param so a malformed link just
- * opens the blank wizard rather than throwing.
+ * the scanner's query. Returns null on a missing, unparseable, or wrong-shaped param so a malformed
+ * link just opens the blank wizard rather than throwing or rendering nonsense filters.
  */
 function prefillQueryFromUrl(): RecordingsQuery | null {
     const value = router.values.searchParams.filters
@@ -137,7 +158,7 @@ function prefillQueryFromUrl(): RecordingsQuery | null {
     }
     try {
         const parsed = JSON.parse(value)
-        return parsed && typeof parsed === 'object' ? (parsed as RecordingsQuery) : null
+        return isValidPrefillQuery(parsed) ? parsed : null
     } catch {
         return null
     }

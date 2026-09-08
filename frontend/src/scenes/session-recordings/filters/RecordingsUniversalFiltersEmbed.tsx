@@ -744,6 +744,7 @@ export const ReplayFiltersTab = ({
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
+    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -1034,27 +1035,37 @@ export const ReplayFiltersTab = ({
                         )}
                         <div className="flex gap-2 ml-auto">
                             {resetButton}
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                data-attr="replay-save-filters-as-scanner"
-                                tooltip="Create a Replay Vision scanner that keeps watching sessions matching these filters"
-                                onClick={() => {
-                                    const query = convertUniversalFiltersToRecordingsQuery(filters)
-                                    void addProductIntentForCrossSell({
-                                        from: ProductKey.SESSION_REPLAY,
-                                        to: ProductKey.REPLAY_VISION,
-                                        intent_context: ProductIntentContext.SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER,
-                                    })
-                                    router.actions.push(
-                                        combineUrl(urls.replayVisionScannerConfigure('new'), {
-                                            filters: JSON.stringify(query),
-                                        }).url
-                                    )
-                                }}
-                            >
-                                Create scanner from filters
-                            </LemonButton>
+                            {scannerCrossSellEnabled && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    data-attr="replay-save-filters-as-scanner"
+                                    tooltip="Create a Replay Vision scanner that keeps watching sessions matching these filters. The date range doesn't carry over, so the scanner watches sessions from now on."
+                                    disabledReason={
+                                        (totalFiltersCount ?? 0) === 0
+                                            ? 'Add a filter first. A scanner with no filters watches every session.'
+                                            : undefined
+                                    }
+                                    onClick={() => {
+                                        // Session IDs pin the query to recordings that already exist, and nothing
+                                        // downstream removes them, so a scanner built from them would match nothing
+                                        // ever while looking healthy in the list.
+                                        const query = convertUniversalFiltersToRecordingsQuery(stripSessionIds(filters))
+                                        void addProductIntentForCrossSell({
+                                            from: ProductKey.SESSION_REPLAY,
+                                            to: ProductKey.REPLAY_VISION,
+                                            intent_context: ProductIntentContext.SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER,
+                                        })
+                                        router.actions.push(
+                                            combineUrl(urls.replayVisionScannerConfigure('new'), {
+                                                filters: JSON.stringify(query),
+                                            }).url
+                                        )
+                                    }}
+                                >
+                                    Create scanner from filters
+                                </LemonButton>
+                            )}
                             <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
                                 Save as new filter
                             </LemonButton>
