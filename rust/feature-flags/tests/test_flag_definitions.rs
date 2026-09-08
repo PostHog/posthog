@@ -2776,8 +2776,10 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
         .await
         .unwrap();
     // Only the dedicated db is cleared: the shared one is polled concurrently by the
-    // sibling self-heal tests in this binary.
+    // sibling self-heal tests in this binary, so the shared assertion below compares
+    // membership before and after instead of requiring an empty set.
     clear_flag_definitions_rebuild_requests(&config.flags_redis_url).await;
+    let shared_before = read_flag_definitions_rebuild_requests(&config.redis_url).await;
 
     // Leave both caches unseeded and inject a NotFound S3 so the read is a genuine
     // cache_miss rather than an s3_error.
@@ -2800,9 +2802,13 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
         team.id
     );
 
-    let shared_members = read_flag_definitions_rebuild_requests(&config.redis_url).await;
+    let shared_after = read_flag_definitions_rebuild_requests(&config.redis_url).await;
+    let added: Vec<&String> = shared_after
+        .iter()
+        .filter(|member| !shared_before.contains(member))
+        .collect();
     assert!(
-        !shared_members.contains(&team.id.to_string()),
+        !added.contains(&&team.id.to_string()),
         "team {} must not be enqueued on the shared redis, where nothing drains",
         team.id
     );

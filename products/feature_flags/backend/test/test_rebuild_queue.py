@@ -247,6 +247,35 @@ def test_drain_reads_the_dedicated_cluster_and_ignores_the_shared_one():
     assert shared.zrange(REBUILD_REQUESTS_ZSET, 0, -1) == [b"999999"]
 
 
+def test_unread_cluster_gauge_reports_the_other_cluster_depth():
+    # Every other gauge follows the cluster the drain resolved, so a producer and consumer
+    # split reads zero on all of them. This one is the signal that the split happened, and
+    # the one that shows the post-deploy cleanup worked.
+    dedicated, shared = fakeredis.FakeRedis(), fakeredis.FakeRedis()
+    clients = {DEDICATED_REDIS_URL: dedicated, settings.REDIS_URL: shared}
+
+    with _dedicated_cache(registered=True):
+        _enqueue(shared, 999999)
+        _enqueue(shared, 999998)
+        with (
+            patch.object(rebuild_queue, "get_client", side_effect=lambda url: clients[url]),
+            _rebuilds(),
+        ):
+            drain_rebuild_requests()
+
+    assert REGISTRY.get_sample_value("posthog_flag_definitions_rebuild_unread_cluster_depth") == 2.0
+
+
+def test_unread_cluster_gauge_is_zero_when_both_ends_agree():
+    # Self-hosted resolves both ends to one cluster, where "the other cluster" does not
+    # exist. The gauge must read 0 rather than repeat the live queue depth.
+    with _dedicated_cache(registered=False):
+        with patch.object(rebuild_queue, "get_client", return_value=fakeredis.FakeRedis()), _rebuilds():
+            drain_rebuild_requests()
+
+    assert REGISTRY.get_sample_value("posthog_flag_definitions_rebuild_unread_cluster_depth") == 0.0
+
+
 def test_drain_falls_back_to_the_shared_cluster_without_the_alias():
     # Self-hosted installs leave FLAGS_REDIS_URL unset, so the alias never registers and
     # both ends stay on the shared cluster. A derivation that hardcodes the dedicated URL

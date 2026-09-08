@@ -19,6 +19,8 @@ DB round (like the verifier) rather than per team.
 
 import time
 
+from django.conf import settings
+
 import redis as redis_lib
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
@@ -75,6 +77,14 @@ REBUILD_OLDEST_AGE = Gauge(
 REBUILD_DEAD_LETTER = Gauge(
     "posthog_flag_definitions_rebuild_dead_letter_teams",
     "Teams whose rebuild circuit is open (repeatedly failing)",
+)
+# Every other gauge here reads the cluster the drain resolved, so a producer and consumer
+# split reads as zero on all of them while the enqueue counter still reports ok: a dead
+# queue looks healthy. This reads the cluster the drain does not use, which is non-zero
+# only while the two ends disagree. Remove it when the dedicated-Redis move is complete.
+REBUILD_UNREAD_CLUSTER_DEPTH = Gauge(
+    "posthog_flag_definitions_rebuild_unread_cluster_depth",
+    "Teams queued on the Redis cluster the drain does not read (0 when both ends agree)",
 )
 
 
@@ -154,8 +164,24 @@ def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]
     return stats
 
 
+def _emit_unread_cluster_gauge() -> None:
+    """Publish the queue depth on the cluster the drain does not read, so the deploy window
+    and the cleanup step afterwards are both observable. Failures here must not fail a drain,
+    because this gauge is diagnostic."""
+    if flag_definitions_hypercache.redis_url == settings.REDIS_URL:
+        REBUILD_UNREAD_CLUSTER_DEPTH.set(0)
+        return
+    try:
+        depth = get_client(settings.REDIS_URL).zcard(REBUILD_REQUESTS_ZSET)
+    except Exception:
+        logger.exception("flag definitions self-heal unread cluster gauge failed")
+        return
+    REBUILD_UNREAD_CLUSTER_DEPTH.set(depth)
+
+
 def _emit_queue_gauges(redis: redis_lib.Redis, now: float) -> None:
     REBUILD_QUEUE_DEPTH.set(redis.zcard(REBUILD_REQUESTS_ZSET))
+    _emit_unread_cluster_gauge()
     oldest = redis.zrange(REBUILD_REQUESTS_ZSET, 0, 0, withscores=True)
     if oldest:
         # score is the most-recent enqueue time in epoch millis. Rust re-enqueues with
