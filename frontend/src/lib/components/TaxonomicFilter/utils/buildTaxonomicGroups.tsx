@@ -94,6 +94,10 @@ const TRAFFIC_TYPE_VIRTUAL_PROPERTIES = [
 // that combined with react-window's layout effect setState exceed React's 50-update limit.
 const COHORTS_WITH_ALL_USERS_OPTIONS: CohortType[] = [{ id: 'all', name: 'All Users*' } as unknown as CohortType]
 
+// The cohort picker reads the trimmed `?basic=true` payload, which drops the
+// query/groups/last_error_message/experiment_set fields it never reads. `filters` is kept.
+const COHORTS_ENDPOINT_PARAMS = { basic: true }
+
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventDefinition.name]) {
@@ -198,11 +202,6 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
-    // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
-    // query/groups/last_error_message/experiment_set fields the picker never reads;
-    // `filters` is kept). Gated by a flag so the smaller response shape can be rolled
-    // out and rolled back independently.
-    const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
             name: 'Events',
@@ -764,7 +763,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.Cohorts,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, COHORTS_ENDPOINT_PARAMS).url,
             value: 'cohorts',
             // See taxonomicFilterLogic — cohort populations comfortably fit
             // in one page; cache the first 100 and fuse-filter typed
@@ -788,7 +787,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, COHORTS_ENDPOINT_PARAMS).url,
             clientFilterFirstPage: true,
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
