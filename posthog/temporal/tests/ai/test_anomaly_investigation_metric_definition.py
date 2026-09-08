@@ -141,7 +141,8 @@ SQL_OVER_TWO_SOURCES = {
             ")\n"
             "SELECT slot AS hour,\n"
             "       spend_total AS mean_spend,\n"
-            "       median(job_cost) AS median_job_cost\n"
+            "       median(job_cost) AS median_job_cost,\n"
+            "       median(job_cost) / spend_total AS cost_share\n"
             "FROM hourly LEFT JOIN per_job ON 1 = 1\n"
             "GROUP BY hour, mean_spend"
         ),
@@ -153,6 +154,7 @@ SQL_OVER_TWO_SOURCES = {
                 "column": "median_job_cost",
                 "settings": {"display": {"label": "median job cost"}},
             },
+            {"column": "cost_share", "settings": {"formatting": {"style": "percent"}}},
         ]
     },
 }
@@ -181,11 +183,23 @@ def test_sql_metric_names_the_scored_column_and_its_sources(_name: str, expected
     assert expected in described
 
 
-def test_sql_metric_reports_units_the_author_declared() -> None:
-    described = describe_metric_definition(SQL_OVER_TWO_SOURCES, alert_config={"column": "mean_spend"})
+@parameterized.expand(
+    [
+        # A prefix only decorates the number, so the agent must not be warned off using it.
+        ("currency_prefix", "mean_spend", 'prefix "$"', "currency symbol"),
+        # A percent style rewrites the number, and its author is told never to pair it with a "%"
+        # suffix, so the prefix and suffix read comes back empty on exactly these columns.
+        ("percent_names_the_style", "cost_share", 'style "percent"', "Units declared for the column: none"),
+        ("percent_names_the_scale", "cost_share", "multiplied by 100", "Units declared for the column: none"),
+    ]
+)
+def test_declared_units_reach_the_block_instead_of_the_no_units_warning(
+    _name: str, column: str, expected: str, forbidden: str
+) -> None:
+    described = describe_metric_definition(SQL_OVER_TWO_SOURCES, alert_config={"column": column})
 
-    assert 'prefix "$"' in described
-    assert "currency symbol" not in described
+    assert expected in described
+    assert forbidden not in described
 
 
 def test_sql_metric_without_a_configured_column_says_so() -> None:

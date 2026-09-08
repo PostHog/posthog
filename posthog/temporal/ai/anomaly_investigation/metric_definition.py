@@ -199,12 +199,26 @@ def _describe_column_presentation(column: str, chart_settings: dict[str, Any]) -
 
     formatting = _nested_dict(settings, "formatting")
     units = [f'{key} "{formatting[key]}"' for key in ("prefix", "suffix") if formatting.get(key)]
+    percent = formatting.get("style") == "percent"
+    if percent:
+        units.append('style "percent"')
+
     if units:
         lines.append(f"- Units declared for the column: displayed with {', '.join(units)}.")
     else:
         lines.append(
             "- Units declared for the column: none. Report the bare number. Do not attach a "
             "currency symbol or a unit that the SQL or the column label does not state."
+        )
+    if percent:
+        # The percent style multiplies the stored value by 100 to display it, and its schema tells
+        # the author not to also set a "%" suffix. So the prefix and suffix read finds nothing on
+        # exactly the columns that carry this unit, while every value the agent holds stays the
+        # stored ratio.
+        lines.append(
+            "- The column holds a ratio, and the insight displays it as a percentage. The number a "
+            "reader sees is the stored value multiplied by 100, with a % sign. Every value you are "
+            "given is the stored ratio, so a stored 0.027 reads as 2.7% on the reader's chart."
         )
     return lines
 
