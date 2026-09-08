@@ -110,6 +110,40 @@ def resolve_staged_repository_binding(
     )
 
 
+def revalidate_staged_repository_binding(
+    *,
+    team_id: int,
+    actor_id: int,
+    repository: str,
+    github_integration_id: int,
+    github_user_integration_id: UUID,
+    github_installation_id: str,
+) -> bool:
+    """Recheck a persisted staged binding without resolving a new base revision."""
+    normalized_repository = _normalize_repository(repository)
+    if normalized_repository is None:
+        return False
+    authorized = _revalidate_authorization(
+        team_id=team_id,
+        actor_id=actor_id,
+        candidate=_RepositoryAuthorization(
+            repository=repository,
+            github_integration_id=github_integration_id,
+            github_user_integration_id=github_user_integration_id,
+            github_installation_id=github_installation_id,
+            team_cache_updated_at=None,
+            personal_cache_updated_at=None,
+        ),
+    )
+    return (
+        authorized is not None
+        and _normalize_repository(authorized.repository) == normalized_repository
+        and authorized.github_integration_id == github_integration_id
+        and authorized.github_user_integration_id == github_user_integration_id
+        and authorized.github_installation_id == github_installation_id
+    )
+
+
 def _actor_has_current_team_access(*, team_id: int, actor_id: int) -> bool:
     team = Team.objects.filter(id=team_id).first()
     actor = User.objects.filter(id=actor_id).first()

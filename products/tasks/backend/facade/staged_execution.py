@@ -11,6 +11,8 @@ from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEviden
 
 PULSE_ANALYSIS_DISABLED_TOOLS = ("Bash", "WebFetch", "WebSearch", "Write", "Edit")
 PULSE_ANALYSIS_NETWORK_EGRESS = "posthog_mcp_only"
+PULSE_EXECUTION_DISABLED_TOOLS = ("WebFetch", "WebSearch")
+PULSE_EXECUTION_NETWORK_EGRESS = "posthog_mcp_only"
 
 
 @frozen
@@ -19,6 +21,7 @@ class StagedRepositoryBinding:
     base_sha: str
     base_branch: str
     github_integration_id: int
+    github_user_integration_id: UUID
     github_installation_id: str
     grant_version: str
 
@@ -70,6 +73,7 @@ class AdvanceStagedTaskInput:
     caller_id: UUID
     staged_run_id: UUID
     idempotency_key: str
+    instruction: str
     execution_manifest: StagedCapabilityManifest
 
 

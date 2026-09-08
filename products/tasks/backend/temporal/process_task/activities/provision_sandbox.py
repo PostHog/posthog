@@ -373,6 +373,7 @@ def _resolve_sandbox_github_token(
             binding is None
             or binding.repository != repository
             or binding.github_integration_id != ctx.github_integration_id
+            or binding.github_user_integration_id is None
             or binding.github_installation_id is None
         ):
             raise CredentialUnavailableError(
@@ -381,8 +382,10 @@ def _resolve_sandbox_github_token(
             )
         validate_staged_repository_grant(
             team_id=ctx.team_id,
+            actor_id=task.created_by_id,
             repository=repository,
             github_integration_id=ctx.github_integration_id,
+            github_user_integration_id=binding.github_user_integration_id,
             github_installation_id=binding.github_installation_id,
         )
         return (

@@ -55,9 +55,34 @@ def resolve_staged_repository_binding(
     )
 
 
+def revalidate_staged_repository_binding(
+    *,
+    team_id: int,
+    actor_id: int,
+    repository: str,
+    github_integration_id: int,
+    github_user_integration_id: UUID,
+    github_installation_id: str,
+) -> bool:
+    """Confirm the stored actor and installation authority still permits one repository."""
+    from products.tasks.backend.logic.services.repository_authorization import (  # noqa: PLC0415 - keep Django off facade import
+        revalidate_staged_repository_binding as _revalidate_staged_repository_binding,
+    )
+
+    return _revalidate_staged_repository_binding(
+        team_id=team_id,
+        actor_id=actor_id,
+        repository=repository,
+        github_integration_id=github_integration_id,
+        github_user_integration_id=github_user_integration_id,
+        github_installation_id=github_installation_id,
+    )
+
+
 __all__ = [
     "AuthorizableRepository",
     "ResolvedStagedRepositoryBinding",
     "list_authorizable_repositories",
+    "revalidate_staged_repository_binding",
     "resolve_staged_repository_binding",
 ]

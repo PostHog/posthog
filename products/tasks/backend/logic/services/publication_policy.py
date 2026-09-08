@@ -39,9 +39,11 @@ def validate_bundle_acceptance_authority(publication: TaskDraftPublication) -> N
         or staged_run.execution_run is None
         or staged_run.execution_run.status != TaskRun.Status.COMPLETED
         or task.created_by is None
+        or staged_run.github_user_integration_id is None
         or not user_has_current_team_access(task.created_by, task.team)
     ):
         raise PublicationPolicyError("Draft publication is no longer authorized")
+    assert task.created_by_id is not None
     if (
         publication.repository != staged_run.repository
         or publication.base_sha != staged_run.base_sha
@@ -61,8 +63,10 @@ def validate_bundle_acceptance_authority(publication: TaskDraftPublication) -> N
     try:
         validate_staged_repository_grant(
             team_id=publication.team_id,
+            actor_id=task.created_by_id,
             repository=publication.repository,
             github_integration_id=publication.github_integration_id,
+            github_user_integration_id=staged_run.github_user_integration_id,
             github_installation_id=publication.github_installation_id,
         )
     except InvalidStagedTaskBindingError as err:
