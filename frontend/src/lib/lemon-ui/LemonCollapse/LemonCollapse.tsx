@@ -28,7 +28,7 @@ interface LemonCollapsePropsBase<K extends React.Key> {
 }
 
 interface LemonCollapsePropsSingle<K extends React.Key> extends LemonCollapsePropsBase<K> {
-    /** Pass this to control the panel. `null` or `undefined` then means closed, not uncontrolled. */
+    /** Pass a key to control the panel, or `null` to control it closed. Leave it `undefined` to let the panel keep its own state. */
     activeKey?: K | null
     defaultActiveKey?: K
     onChange?: (activeKey: K | null) => void
@@ -77,10 +77,10 @@ export function LemonCollapse<K extends React.Key>({
     } else {
         // eslint-disable-next-line react-hooks/rules-of-hooks
         const [localActiveKey, setLocalActiveKey] = useState<K | null>(props.defaultActiveKey ?? null)
-        // Read the presence of `activeKey` rather than its value. A caller that controls the panel
-        // has no other way to say "closed", so falling back on a nullish value would reopen the
-        // panel from whatever the user last clicked.
-        const effectiveActiveKey = 'activeKey' in props ? (props.activeKey ?? null) : localActiveKey
+        // `null` is a controlled value that means closed, because a caller that controls the panel
+        // has no other way to say so. `undefined` stays uncontrolled, because many callers pass a
+        // key only some of the time and let a click open the panel the rest of the time.
+        const effectiveActiveKey = props.activeKey !== undefined ? props.activeKey : localActiveKey
         isPanelExpanded = (key: K) => key === effectiveActiveKey
         onPanelChange = (key: K, isExpanded: boolean): void => {
             props.onChange?.(isExpanded ? key : null)

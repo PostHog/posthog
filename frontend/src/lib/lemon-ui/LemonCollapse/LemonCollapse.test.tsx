@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { render, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { LemonCollapse } from './LemonCollapse'
 
@@ -14,6 +15,18 @@ describe('LemonCollapse', () => {
         const { container } = render(<LemonCollapse panels={panels} defaultActiveKey="only" activeKey={null} />)
 
         expect(within(container).queryByText('Body')).not.toBeInTheDocument()
+    })
+
+    // Many callers pass `activeKey={condition ? key : undefined}` and give no `onChange`. If
+    // `undefined` made the panel controlled, a click would have nothing to update and the panel
+    // could never open.
+    it('opens on click when activeKey is undefined', async () => {
+        const { container } = render(<LemonCollapse panels={panels} activeKey={undefined} />)
+        expect(within(container).queryByText('Body')).not.toBeInTheDocument()
+
+        await userEvent.click(container.querySelector<HTMLElement>('.LemonCollapsePanel__header')!)
+
+        expect(within(container).getByText('Body')).toBeInTheDocument()
     })
 
     it('still seeds itself from defaultActiveKey when left uncontrolled', () => {
