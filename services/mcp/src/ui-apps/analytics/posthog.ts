@@ -37,11 +37,20 @@ export function initPostHog(appName: string, appVersion: string): void {
     }
 
     log('Initializing PostHog client', { token: POSTHOG_TOKEN, host: POSTHOG_HOST, appName, appVersion })
-    client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
-    client.register({
-        $mcp_app_name: appName,
-        $mcp_app_version: appVersion,
-    })
+    try {
+        client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
+        client.register({
+            $mcp_app_name: appName,
+            $mcp_app_version: appVersion,
+        })
+    } catch (error) {
+        // posthog-js-lite 4.11.0 reads `window.localStorage` in its constructor without a
+        // guard, and MCP app iframes are sandboxed without `allow-same-origin`, so the
+        // property read throws SecurityError and kills the app. Analytics is optional;
+        // the app must render regardless.
+        log('PostHog client initialization failed', error)
+        client = null
+    }
 }
 
 /**
