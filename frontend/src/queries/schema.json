@@ -35385,6 +35385,9 @@
                     },
                     "type": "object"
                 },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
