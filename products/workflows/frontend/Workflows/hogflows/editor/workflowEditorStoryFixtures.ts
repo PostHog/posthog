@@ -279,14 +279,14 @@ const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
 
 export const workflowEditorStoryDecorator = mswDecorator({
     get: {
-        '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
+        '/api/projects/:team_id/hog_flows/:id/': ({ params }) => [
             200,
             PICKABLE_WORKFLOWS[String(params.id)] ?? CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW,
         ],
-        '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
+        '/api/projects/:team_id/messaging_categories': { count: 0, results: [] },
     },
     patch: {
-        '/api/environments/:team_id/hog_flows/:id/': async ({ request, params }) => [
+        '/api/projects/:team_id/hog_flows/:id/': async ({ request, params }) => [
             200,
             {
                 ...(PICKABLE_WORKFLOWS[String(params.id)] ?? CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW),
@@ -296,7 +296,7 @@ export const workflowEditorStoryDecorator = mswDecorator({
         ],
     },
     post: {
-        '/api/environments/:team_id/hog_flows/': async ({ request }) => [
+        '/api/projects/:team_id/hog_flows/': async ({ request }) => [
             201,
             {
                 ...NEW_WORKFLOW,
@@ -307,7 +307,7 @@ export const workflowEditorStoryDecorator = mswDecorator({
                 updated_at: '2026-09-04T12:01:00.000Z',
             },
         ],
-        '/api/environments/:team_id/hog_flows/user_blast_radius/': {
+        '/api/projects/:team_id/hog_flows/user_blast_radius/': {
             affected: 240,
             total: 1200,
             limit: 100000,
