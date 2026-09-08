@@ -1,9 +1,16 @@
+from contextlib import ExitStack
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot
 
-from products.alerts.backend.forecasting.capacity import ForecastSimulationCapacityExceeded, forecast_simulation_slot
+from products.alerts.backend.forecasting.capacity import (
+    FORECAST_SIMULATION_GLOBAL_CONCURRENCY,
+    ForecastSimulationCapacityExceeded,
+    forecast_evaluation_slot,
+    forecast_simulation_slot,
+)
 
 
 def test_forecast_simulation_slot_releases_global_and_team_capacity() -> None:
@@ -83,3 +90,15 @@ def test_forecast_simulation_slot_releases_capacity_when_simulation_fails() -> N
 
     global_limiter.release.assert_called_once_with(global_slot)
     team_limiter.release.assert_called_once_with(team_slot)
+
+
+def test_preview_saturation_leaves_scheduled_evaluations_their_own_capacity() -> None:
+    with patch("products.alerts.backend.forecasting.capacity.TEST", False), ExitStack() as previews:
+        for team_id in range(1, FORECAST_SIMULATION_GLOBAL_CONCURRENCY + 1):
+            previews.enter_context(forecast_simulation_slot(team_id=team_id))
+
+        with pytest.raises(ForecastSimulationCapacityExceeded), forecast_simulation_slot(team_id=1):
+            pass
+
+        with forecast_evaluation_slot(team_id=1) as capacity_available:
+            assert capacity_available
