@@ -2790,6 +2790,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 return
             }
 
+            // The setFeatureFlags listener re-runs this refresh if a later flag update contradicts this value.
+            cache.branchFlagValue = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+            cache.lastRefreshArgs = { forceRefresh, triggeredBy, refreshIfStale }
+
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -2941,6 +2945,18 @@ export const experimentLogic = kea<experimentLogicType>([
             if (deferred) {
                 cache.deferredRefresh = undefined
                 actions.refreshExperimentResults(deferred.forceRefresh, deferred.triggeredBy, deferred.refreshIfStale)
+                return
+            }
+            /**
+             * A refresh that branched on a wrong early flag value ran the wrong loaders, and nothing
+             * re-runs it when the real flag response lands (see the setFeatureFlags listener in
+             * experimentMetricsLogic for why the first flag set of a page load can be wrong). Re-run the
+             * last refresh when the current value contradicts the recorded one; equal values no-op.
+             */
+            const flagValue = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+            const lastArgs = cache.lastRefreshArgs
+            if (lastArgs && cache.branchFlagValue !== undefined && flagValue !== cache.branchFlagValue) {
+                actions.refreshExperimentResults(lastArgs.forceRefresh, lastArgs.triggeredBy, lastArgs.refreshIfStale)
             }
         },
         updateExperimentMetrics: async () => {
