@@ -492,6 +492,37 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_internal_query_status")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_completing_after_poll_timeout_returns_results(
+        self, mock_get_query_status, mock_get_internal_query_status, mock_process_query
+    ):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = QueryStatus(
+            id="test-query-id", team_id=self.team.pk, complete=False, error=False
+        )
+        # The query finishes between the last poll and the post-timeout status read, so the caller
+        # gets its results instead of a failure it would treat as a broken query plan.
+        mock_get_internal_query_status.return_value = InternalQueryStatus(
+            query_status=QueryStatus(
+                id="test-query-id",
+                team_id=self.team.pk,
+                complete=True,
+                error=False,
+                results={"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]},
+            ),
+            error_category=None,
+        )
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            result = await self.query_runner.arun_format_and_capture(query, async_query_timeout_seconds=0)
+
+        self.assertIn("Date|test", result.formatted)
+        mock_get_internal_query_status.assert_called_once()
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_internal_query_status")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
     async def test_async_query_polling_timeout_preserves_pending_retryability(
         self, mock_get_query_status, mock_get_internal_query_status, mock_process_query
     ):
