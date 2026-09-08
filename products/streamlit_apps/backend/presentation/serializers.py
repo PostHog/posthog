@@ -1,3 +1,5 @@
+import base64
+import binascii
 from typing import TYPE_CHECKING, cast
 
 import posthoganalytics
@@ -8,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from products.streamlit_apps.backend.facade.api import attachment_path_error
 from products.streamlit_apps.backend.facade.contracts import (
     AppContract,
     AppSandboxContract,
@@ -91,6 +94,9 @@ class UpdateAppInputSerializer(DataclassSerializer):
         dataclass = UpdateAppInput
 
 
+_MAX_TEXT_FILE_LENGTH = 1024 * 1024
+
+
 class CreateVersionFromSourceInputSerializer(DataclassSerializer):
     # "source" is the natural API field name; it shadows DRF's Field.source attribute
     # only in the eyes of mypy — DRF handles same-named declared fields fine.
@@ -98,10 +104,27 @@ class CreateVersionFromSourceInputSerializer(DataclassSerializer):
         trim_whitespace=False,
         # Bounds the JSON body before any zip is built; the multipart path gets the
         # same protection from the declared-size check against MAX_ZIP_SIZE.
-        max_length=1024 * 1024,
+        max_length=_MAX_TEXT_FILE_LENGTH,
         help_text=(
             "Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). "
             "Becomes a new version and is set as the active version."
+        ),
+    )
+
+    files = serializers.DictField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=True, max_length=_MAX_TEXT_FILE_LENGTH),
+        required=False,
+        help_text=(
+            "Extra text files to ship next to app.py, keyed by project-relative path "
+            "(for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB)."
+        ),
+    )
+    assets = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Extra binary files to ship next to app.py, keyed by project-relative path "
+            "(for example 'data/events.parquet'), each as standard base64 text."
         ),
     )
 
@@ -113,8 +136,33 @@ class CreateVersionFromSourceInputSerializer(DataclassSerializer):
             raise serializers.ValidationError("Source cannot be empty.")
         return value
 
+    def validate_files(self, value: dict[str, str]) -> dict[str, str]:
+        return _validate_attachment_paths(value)
+
+    def validate_assets(self, value: dict[str, str]) -> dict[str, str]:
+        _validate_attachment_paths(value)
+        for path, content in value.items():
+            try:
+                base64.b64decode(content, validate=True)
+            except (binascii.Error, ValueError):
+                raise serializers.ValidationError({path: "Content must be standard base64 text."}) from None
+        return value
+
+    def validate(self, attrs: CreateVersionFromSourceInput) -> CreateVersionFromSourceInput:
+        overlap = sorted(set(attrs.files) & set(attrs.assets))
+        if overlap:
+            raise serializers.ValidationError({"assets": f"Paths also present in files: {', '.join(overlap)}"})
+        return attrs
+
     class Meta:
         dataclass = CreateVersionFromSourceInput
+
+
+def _validate_attachment_paths(value: dict[str, str]) -> dict[str, str]:
+    errors = {path: error for path in value if (error := attachment_path_error(path))}
+    if errors:
+        raise serializers.ValidationError(errors)
+    return value
 
 
 class StreamlitAppStatusSerializer(serializers.Serializer):
