@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
@@ -7,7 +7,7 @@ import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { useAdblockDetection } from 'scenes/onboarding/legacy/sdks/hooks/useAdblockDetection'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { SDKGrid } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/SDKGrid'
-import { SDKInstructionsModal } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/SDKInstructionsModal'
+import { SDKInstructionsPanel } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/SDKInstructionsPanel'
 import { ProductAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { sdksLogic } from 'scenes/onboarding/legacy/sdks/sdksLogic'
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
@@ -135,8 +135,11 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
 
 /**
  * The manual escape hatch, rendered by the flow footer next to Continue on the install step.
- * Opens the legacy manual-setup dialog: the SDK grid, then per-SDK instructions. Picking an SDK
- * closes the grid and opens the instructions; closing the instructions reopens the grid.
+ * Opens the legacy manual-setup dialog: the SDK grid, then per-SDK instructions.
+ *
+ * Both views share one modal. Two modals handing over to each other used to strand the user on a
+ * blank step, because each one runs its own 250ms close transition and a pick made inside that
+ * window left both closed.
  */
 export function ManualSetupButton({ onAdvance }: { onAdvance: () => void }): JSX.Element {
     const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
@@ -145,8 +148,18 @@ export function ManualSetupButton({ onAdvance }: { onAdvance: () => void }): JSX
     const { currentTeam } = useValues(teamLogic)
     const installationComplete = useInstallationComplete('ingested_event')
     const adblockResult = useAdblockDetection()
-    const [gridOpen, setGridOpen] = useState(false)
-    const [instructionsOpen, setInstructionsOpen] = useState(false)
+    const [isOpen, setIsOpen] = useState(false)
+    const [showInstructions, setShowInstructions] = useState(false)
+    const modalContent = useRef<HTMLDivElement | null>(null)
+    const setModalContent = useCallback((element: HTMLDivElement | null) => {
+        modalContent.current = element
+    }, [])
+
+    // Swapping views inside one modal removes the element that had focus, which leaves focus on the
+    // body and stops Escape from closing the modal. Hand focus back to the modal itself.
+    useEffect(() => {
+        modalContent.current?.focus()
+    }, [showInstructions])
 
     // The same map the legacy default flow shows: one install covers the core web products.
     useEffect(() => {
@@ -155,8 +168,7 @@ export function ManualSetupButton({ onAdvance }: { onAdvance: () => void }): JSX
 
     const handleSDKClick = (sdk: SDK): void => {
         selectSDK(sdk)
-        setGridOpen(false)
-        setInstructionsOpen(true)
+        setShowInstructions(true)
     }
 
     return (
@@ -166,44 +178,57 @@ export function ManualSetupButton({ onAdvance }: { onAdvance: () => void }): JSX
                 size="small"
                 onClick={() => {
                     reportOnboardingInstallModeSelected('manual')
-                    setGridOpen(true)
+                    setIsOpen(true)
                 }}
                 data-attr="self-driving-manual-setup"
             >
                 Set up manually
             </LemonButton>
-            <LemonModal isOpen={gridOpen} onClose={() => setGridOpen(false)} title="Manual SDK setup" width="80vw">
-                <div className="p-4">
-                    <SDKGrid
-                        filteredSDKs={filteredSDKs ?? []}
-                        searchTerm={searchTerm}
-                        selectedTag={selectedTag}
-                        tags={tags}
-                        onSDKClick={handleSDKClick}
-                        onSearchChange={setSearchTerm}
-                        onTagChange={setSelectedTag}
-                        currentTeam={currentTeam}
-                        showTopControls
-                        installationComplete={installationComplete}
-                        showTopSkipButton={false}
+            <LemonModal
+                isOpen={isOpen}
+                onClose={() => setIsOpen(false)}
+                // Reset only once the modal is gone, so the grid doesn't flash in behind the
+                // instructions while they fade out.
+                onAfterClose={() => setShowInstructions(false)}
+                simple
+                width={showInstructions ? undefined : '80vw'}
+                contentRef={setModalContent}
+            >
+                {showInstructions ? (
+                    <SDKInstructionsPanel
+                        sdk={selectedSDK ?? undefined}
+                        sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                        adblockResult={adblockResult}
+                        onBack={() => setShowInstructions(false)}
+                        verifyingProperty="ingested_event"
+                        verifyingName="event"
+                        onAdvance={onAdvance}
                     />
-                </div>
+                ) : (
+                    <>
+                        <LemonModal.Header>
+                            <h3>Manual SDK setup</h3>
+                        </LemonModal.Header>
+                        <LemonModal.Content>
+                            <div className="p-4">
+                                <SDKGrid
+                                    filteredSDKs={filteredSDKs ?? []}
+                                    searchTerm={searchTerm}
+                                    selectedTag={selectedTag}
+                                    tags={tags}
+                                    onSDKClick={handleSDKClick}
+                                    onSearchChange={setSearchTerm}
+                                    onTagChange={setSelectedTag}
+                                    currentTeam={currentTeam}
+                                    showTopControls
+                                    installationComplete={installationComplete}
+                                    showTopSkipButton={false}
+                                />
+                            </div>
+                        </LemonModal.Content>
+                    </>
+                )}
             </LemonModal>
-            {selectedSDK && (
-                <SDKInstructionsModal
-                    isOpen={instructionsOpen && !gridOpen}
-                    onClose={() => {
-                        setInstructionsOpen(false)
-                        setGridOpen(true)
-                    }}
-                    sdk={selectedSDK}
-                    sdkInstructionMap={ProductAnalyticsSDKInstructions}
-                    adblockResult={adblockResult}
-                    verifyingProperty="ingested_event"
-                    verifyingName="event"
-                    onAdvance={onAdvance}
-                />
-            )}
         </>
     )
 }
