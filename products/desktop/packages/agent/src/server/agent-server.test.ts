@@ -5981,6 +5981,113 @@ describe("AgentServer HTTP Mode", () => {
       20000,
     );
 
+    it("answers the pending user message on the fresh-session retry", async () => {
+      const s = createServer();
+      await s.start();
+
+      const prompts: ContentBlock[][] = [];
+      const prompt = vi.fn(async (params: { prompt: ContentBlock[] }) => {
+        prompts.push(params.prompt);
+        if (prompts.length === 1) {
+          throw new Error("Internal error: Prompt is too long");
+        }
+        return { stopReason: "end_turn" };
+      });
+      const newSession = vi.fn(async () => ({ sessionId: "fresh-session" }));
+      const broadcastEvent = vi.fn();
+
+      const internals = s as unknown as {
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        session: {
+          clientConnection: {
+            prompt: typeof prompt;
+            newSession: typeof newSession;
+          };
+        };
+        resumeState: ResumeState | null;
+        nativeResume: { sessionId: string; warm: boolean } | null;
+        broadcastEvent: typeof broadcastEvent;
+        loadResumeState(
+          taskId: string,
+          resumeRunId: string,
+          runId: string,
+        ): Promise<void>;
+        sendResumeContinuation(
+          payload: JwtPayload,
+          taskRun: TaskRun | null,
+        ): Promise<void>;
+      };
+      internals.session.clientConnection.prompt = prompt;
+      internals.session.clientConnection.newSession = newSession;
+      internals.nativeResume = { sessionId: "prior-session", warm: true };
+      internals.broadcastEvent = broadcastEvent;
+      internals.loadResumeState = vi.fn(async () => {
+        internals.resumeState = {
+          conversation: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "original task" }],
+            },
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "progress so far" }],
+            },
+          ],
+          interrupted: false,
+          logEntryCount: 2,
+          sessionId: "prior-session",
+        };
+      });
+
+      const taskRun = createTaskRun({
+        id: "test-run-id",
+        task: "test-task-id",
+        state: {
+          resume_from_run_id: "previous-run",
+          pending_user_message: "answer this now",
+          pending_user_message_id: "pending-message-1",
+        },
+      });
+      vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(taskRun);
+
+      await internals.sendResumeContinuation(
+        {
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        },
+        taskRun,
+      );
+
+      expect(prompts).toHaveLength(2);
+      const retryBlocks = prompts[1];
+      expect(
+        retryBlocks
+          .map((block) => ("text" in block ? block.text : ""))
+          .join("\n"),
+      ).toContain("progress so far");
+      expect(
+        retryBlocks
+          .filter(
+            (block) =>
+              block.type === "text" &&
+              (block as { _meta?: { ui?: { hidden?: boolean } } })._meta?.ui
+                ?.hidden !== true,
+          )
+          .map((block) => (block as { text: string }).text),
+      ).toEqual(["answer this now"]);
+      expect(
+        broadcastEvent.mock.calls.filter(
+          ([event]) =>
+            (event as { notification?: { method?: string } }).notification
+              ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+        ),
+      ).toHaveLength(1);
+    }, 20000);
+
     it("hydrates cold sessions from S3 logs instead of cached resume conversation", async () => {
       const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = join(repo.path, ".claude-test");

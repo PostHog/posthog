@@ -2910,59 +2910,66 @@ export class AgentServer {
   private async sendResumeMessage(
     payload: JwtPayload,
     taskRun: TaskRun | null,
-  ): Promise<void> {
-    if (!this.session || !this.resumeState) return;
+    reservedMessageId?: string,
+  ): Promise<boolean> {
+    if (!this.session || !this.resumeState) return false;
     const resumeState = this.resumeState;
-    await this.runStartupTurn(() =>
-      this.runResumeTurn(payload, taskRun, "Resume message", async () => {
-        const conversationSummary = formatConversationForResume(
-          resumeState.conversation,
-        );
+    return await this.runStartupTurn(() =>
+      this.runResumeTurn(
+        payload,
+        taskRun,
+        "Resume message",
+        async () => {
+          const conversationSummary = formatConversationForResume(
+            resumeState.conversation,
+          );
 
-        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+          const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
 
-        let resumePromptBlocks: ContentBlock[];
-        let resumePromptMeta: Record<string, unknown> | undefined;
-        let resumePromptMessageId: string | undefined;
-        if (pendingUserPrompt?.prompt.length) {
-          resumePromptMeta = pendingUserPrompt.meta;
-          resumePromptMessageId = pendingUserPrompt.messageId;
-          resumePromptBlocks = [
-            hiddenTextBlock(
-              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-                `Here is the conversation history from the previous session:\n\n` +
-                `${conversationSummary}\n\n` +
-                `The user has sent a new message:\n\n`,
-            ),
-            ...pendingUserPrompt.prompt,
-            hiddenTextBlock(
-              "\n\nRespond to the user's new message above. You have full context from the previous session.",
-            ),
-          ];
-        } else {
-          resumePromptBlocks = [
-            hiddenTextBlock(
-              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-                `Here is the conversation history from the previous session:\n\n` +
-                `${conversationSummary}\n\n` +
-                `Continue from where you left off. The user is waiting for your response.`,
-            ),
-          ];
-        }
+          let resumePromptBlocks: ContentBlock[];
+          let resumePromptMeta: Record<string, unknown> | undefined;
+          let resumePromptMessageId: string | undefined;
+          if (pendingUserPrompt?.prompt.length) {
+            resumePromptMeta = pendingUserPrompt.meta;
+            resumePromptMessageId = pendingUserPrompt.messageId;
+            resumePromptBlocks = [
+              hiddenTextBlock(
+                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                  `Here is the conversation history from the previous session:\n\n` +
+                  `${conversationSummary}\n\n` +
+                  `The user has sent a new message:\n\n`,
+              ),
+              ...pendingUserPrompt.prompt,
+              hiddenTextBlock(
+                "\n\nRespond to the user's new message above. You have full context from the previous session.",
+              ),
+            ];
+          } else {
+            resumePromptBlocks = [
+              hiddenTextBlock(
+                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                  `Here is the conversation history from the previous session:\n\n` +
+                  `${conversationSummary}\n\n` +
+                  `Continue from where you left off. The user is waiting for your response.`,
+              ),
+            ];
+          }
 
-        this.logger.debug("Sending resume message", {
-          taskId: payload.task_id,
-          conversationTurns: resumeState.conversation.length,
-          promptLength: promptBlocksToText(resumePromptBlocks).length,
-          hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        });
+          this.logger.debug("Sending resume message", {
+            taskId: payload.task_id,
+            conversationTurns: resumeState.conversation.length,
+            promptLength: promptBlocksToText(resumePromptBlocks).length,
+            hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+          });
 
-        return {
-          prompt: resumePromptBlocks,
-          ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
-          messageId: resumePromptMessageId,
-        };
-      }),
+          return {
+            prompt: resumePromptBlocks,
+            ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
+            messageId: resumePromptMessageId,
+          };
+        },
+        reservedMessageId ? { reservedMessageId } : {},
+      ),
     );
   }
 
@@ -3159,6 +3166,7 @@ export class AgentServer {
   private async retryOversizedResumeOnFreshSession(
     payload: JwtPayload,
     taskRun: TaskRun | null,
+    reservedMessageId?: string,
   ): Promise<boolean> {
     if (this.oversizedResumeRetried || !this.session) {
       return false;
@@ -3203,8 +3211,7 @@ export class AgentServer {
     }
 
     try {
-      await this.sendResumeMessage(payload, taskRun);
-      return true;
+      return await this.sendResumeMessage(payload, taskRun, reservedMessageId);
     } finally {
       this.resumeState = null;
       this.nativeResume = null;
@@ -3216,11 +3223,15 @@ export class AgentServer {
     taskRun: TaskRun | null,
     logLabel: string,
     buildPrompt: () => Promise<BuiltPrompt>,
-    opts: { retryOnOversizedPrompt?: boolean } = {},
-  ): Promise<void> {
-    if (!this.session) return;
+    opts: {
+      retryOnOversizedPrompt?: boolean;
+      reservedMessageId?: string;
+    } = {},
+  ): Promise<boolean> {
+    if (!this.session) return false;
 
     let promptDispatched = false;
+    let heldMessageId = opts.reservedMessageId;
     let releaseSelfDelivery: (() => void) | undefined;
     try {
       const builtPrompt = await buildPrompt();
@@ -3230,14 +3241,21 @@ export class AgentServer {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      if (builtPrompt.messageId) {
+      // The fresh-session retry rebuilds the same pending message. It reuses the reservation
+      // that the failed attempt still holds, because a second reservation reads as a duplicate
+      // delivery and sends nothing.
+      if (
+        builtPrompt.messageId &&
+        builtPrompt.messageId !== opts.reservedMessageId
+      ) {
         if (
           this.deliveredMessageIds.has(builtPrompt.messageId) ||
           this.inFlightMessageDeliveries.has(builtPrompt.messageId)
         ) {
-          return;
+          return false;
         }
         releaseSelfDelivery = this.beginSelfDelivery(builtPrompt.messageId);
+        heldMessageId = builtPrompt.messageId;
       }
       this.session.logWriter.resetTurnMessages(payload.run_id);
       promptDispatched = true;
@@ -3276,12 +3294,18 @@ export class AgentServer {
       if (this.session) {
         await this.session.logWriter.flushAll();
       }
+      // The retry owns the outcome only when it sends a prompt. If it sends nothing, this turn
+      // must still report the failure, so the run does not stay in progress with no answer.
       if (
         opts.retryOnOversizedPrompt &&
         isPromptTooLongError(error) &&
-        (await this.retryOversizedResumeOnFreshSession(payload, taskRun))
+        (await this.retryOversizedResumeOnFreshSession(
+          payload,
+          taskRun,
+          heldMessageId,
+        ))
       ) {
-        return;
+        return true;
       }
       if (promptDispatched) {
         await this.clearPendingInitialPromptState(payload, taskRun);
@@ -3290,6 +3314,7 @@ export class AgentServer {
     } finally {
       releaseSelfDelivery?.();
     }
+    return promptDispatched;
   }
 
   private getInitialPromptOverride(taskRun: TaskRun): string | null {
