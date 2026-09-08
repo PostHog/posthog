@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import get_args
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -13,8 +14,15 @@ from products.logs.backend.anomaly_scan import ScanBucket, ScanBudgetExceeded, S
 from products.logs.backend.presentation.views.anomalies_api import (
     LogsAnomalyScanRequestSerializer,
     LogsSeriesBandsRequestSerializer,
+    LogsSeriesBandVerdict,
 )
-from products.logs.backend.series_bands import BandBucket, BandSeries, SeriesBandsFetchTruncated, SeriesBandsResult
+from products.logs.backend.series_bands import (
+    BandBucket,
+    BandSeries,
+    BandVerdict,
+    SeriesBandsFetchTruncated,
+    SeriesBandsResult,
+)
 
 UTC = dt.UTC
 T0 = dt.datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
@@ -211,6 +219,11 @@ class TestSeriesBandsRequestValidation(SimpleTestCase):
         serializer = LogsSeriesBandsRequestSerializer(data={"serviceName": "svc"})
         assert serializer.is_valid(), serializer.errors
         assert "intervalMinutes" not in serializer.validated_data
+
+    def test_verdict_choices_match_the_domain_verdicts(self) -> None:
+        # ChoiceField does not validate on output, so a domain verdict the choices
+        # miss would ship in the payload against an OpenAPI enum that omits it.
+        assert set(LogsSeriesBandVerdict.values) == set(get_args(BandVerdict))
 
 
 class TestLogsSeriesBandsAPI(APIBaseTest):
