@@ -138,6 +138,10 @@ def get_task_run_stream_heartbeat_key(stream_key: str) -> str:
     return f"{stream_key}:ingest-heartbeat"
 
 
+def get_task_run_stream_relay_activity_key(stream_key: str) -> str:
+    return f"{stream_key}:relay-activity"
+
+
 def get_task_run_stream_first_command_key(stream_key: str) -> str:
     return f"{stream_key}:ingest-first-agent-command"
 
@@ -421,6 +425,21 @@ class TaskRunRedisStream:
         active_raw = await self._redis_client.get(get_task_run_stream_agent_active_key(self._stream_key))
         return active_raw in (b"1", "1")
 
+    async def record_relay_activity(self) -> None:
+        await self._redis_client.set(
+            get_task_run_stream_relay_activity_key(self._stream_key),
+            str(time.time()),
+            ex=self._timeout,
+        )
+
+    async def get_relay_activity_at(self) -> float | None:
+        activity_raw = await self._redis_client.get(get_task_run_stream_relay_activity_key(self._stream_key))
+        if activity_raw is None:
+            return None
+        if isinstance(activity_raw, bytes):
+            activity_raw = activity_raw.decode("utf-8")
+        return float(activity_raw)
+
     async def claim_agent_active_heartbeat(self, throttle_seconds: int) -> bool:
         claimed = await self._redis_client.set(
             get_task_run_stream_heartbeat_key(self._stream_key),
@@ -693,6 +712,7 @@ class TaskRunRedisStream:
             completed_key = get_task_run_stream_completed_key(self._stream_key)
             agent_active_key = get_task_run_stream_agent_active_key(self._stream_key)
             heartbeat_key = get_task_run_stream_heartbeat_key(self._stream_key)
+            relay_activity_key = get_task_run_stream_relay_activity_key(self._stream_key)
             first_command_key = get_task_run_stream_first_command_key(self._stream_key)
             first_activity_key = get_task_run_stream_first_activity_key(self._stream_key)
             watched_key = get_task_run_stream_watched_key(self._stream_key)
@@ -702,6 +722,7 @@ class TaskRunRedisStream:
                 completed_key,
                 agent_active_key,
                 heartbeat_key,
+                relay_activity_key,
                 first_command_key,
                 first_activity_key,
                 watched_key,
@@ -719,6 +740,7 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
     completed_key = get_task_run_stream_completed_key(stream_key)
     agent_active_key = get_task_run_stream_agent_active_key(stream_key)
     heartbeat_key = get_task_run_stream_heartbeat_key(stream_key)
+    relay_activity_key = get_task_run_stream_relay_activity_key(stream_key)
     first_command_key = get_task_run_stream_first_command_key(stream_key)
     first_activity_key = get_task_run_stream_first_activity_key(stream_key)
     client = get_tasks_stream_redis_sync(use_dedicated)
@@ -730,6 +752,7 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
             completed_key,
             agent_active_key,
             heartbeat_key,
+            relay_activity_key,
             first_command_key,
             first_activity_key,
         )

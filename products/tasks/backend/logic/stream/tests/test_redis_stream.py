@@ -36,6 +36,19 @@ async def _read_stream_events(redis_stream: TaskRunRedisStream) -> list[dict]:
 
 
 @pytest.mark.asyncio
+async def test_record_relay_activity_round_trips_timestamp() -> None:
+    redis_stream = _new_stream()
+    try:
+        assert await redis_stream.get_relay_activity_at() is None
+
+        await redis_stream.record_relay_activity()
+
+        assert await redis_stream.get_relay_activity_at() is not None
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
 async def test_write_event_with_sequence_accepts_next_sequence() -> None:
     redis_stream = _new_stream()
     try:

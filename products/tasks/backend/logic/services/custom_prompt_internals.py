@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import asyncio
 import logging
 from collections.abc import Callable
@@ -19,7 +20,9 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.redis import run_uses_dedicated_stream
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -58,9 +61,9 @@ STALE_TURN_SALVAGE_SECONDS = 300
 # covers provisioning too, and a healthy clone or sandbox build can run for minutes with no log write
 # between the workflow's boundary progress events — longer than any floor below the poll budget. No
 # prompt echo lands until provisioning finishes, so the floor cannot fire there. The window then
-# measures silence over *any* log growth, so a live agent still emitting side-channel or streamed
-# output never trips it. The floor outlasts the relay's five-minute SSE read window by one poll, so
-# the relay can record a stream timeout before the poller classifies the turn as stalled.
+# measures silence in both the durable log and the relay activity marker. The marker includes chunks
+# that the durable log writer buffers and relay reconnect attempts, so this floor cannot stop a live
+# or recoverable turn.
 NO_TURN_OUTPUT_FLOOR_SECONDS = 5 * 60 + POLL_INTERVAL_SECONDS
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
@@ -80,6 +83,7 @@ TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
         "_posthog/console",
         "_posthog/progress",
         "_posthog/sandbox_output",
+        "_posthog/sdk_session",
     }
 )
 
@@ -93,8 +97,17 @@ FAILED_PROGRESS_STATUS = "failed"
 # input, not agent output, so the turn-relevant growth counting discounts them like the transient
 # side-channels above.
 _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
-_LIFECYCLE_SESSION_UPDATES = frozenset({"available_commands_update", "current_mode_update"})
-_TRANSIENT_SESSION_UPDATES = _PROMPT_ECHO_UPDATES | _LIFECYCLE_SESSION_UPDATES
+_TURN_RELEVANT_SESSION_UPDATES = frozenset(
+    {
+        "agent_message",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "plan",
+        "tool_call",
+        "tool_call_update",
+        "usage_update",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -241,6 +254,19 @@ def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> s
     if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
         return POLL_TIMEOUT_STALLED_AFTER_OUTPUT
     return POLL_TIMEOUT_ACTIVE_AT_BUDGET
+
+
+async def _relay_activity_is_stale(task_run: TaskRun, stale_seconds: int) -> bool:
+    stream = TaskRunRedisStream(
+        get_task_run_stream_key(str(task_run.id)),
+        run_uses_dedicated_stream(task_run.state),
+    )
+    try:
+        activity_at = await stream.get_relay_activity_at()
+    except Exception:
+        logger.warning("custom_prompt - poll_for_turn: failed to read relay activity", exc_info=True)
+        return False
+    return activity_at is not None and time.time() - activity_at >= stale_seconds
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -528,7 +554,13 @@ async def poll_for_turn(
         # that received the prompt and stalled, so fail fast now with the stage the wall would assign,
         # releasing the sandbox and starting the retry sooner. last_new_lines_at is still 0 here, so
         # the reported turn-relevant silence is the whole elapsed time.
-        if turn_started and turn_relevant_lines == 0 and elapsed - last_activity_at >= NO_TURN_OUTPUT_FLOOR_SECONDS:
+        durable_log_stale_seconds = elapsed - last_activity_at
+        if (
+            turn_started
+            and turn_relevant_lines == 0
+            and durable_log_stale_seconds >= NO_TURN_OUTPUT_FLOOR_SECONDS
+            and await _relay_activity_is_stale(task_run, NO_TURN_OUTPUT_FLOOR_SECONDS)
+        ):
             _raise_poll_timeout(
                 task_run,
                 stage=POLL_TIMEOUT_NO_TURN_OUTPUT,
@@ -987,7 +1019,7 @@ def _has_prompt_echo(lines: list[str]) -> bool:
 
 def _transient_growth(lines: list[str]) -> int:
     """Count how many of `lines` carry no agent turn-state: transient relay side-channels (network
-    audits, credential refreshes, sandbox stdout, informational progress), lifecycle updates, and echoed prompts. The
+    audits, credential refreshes, sandbox stdout, informational progress), setup updates, and echoed prompts. The
     relay echoes the user's own message into the turn log, so without discounting it every turn
     counts at least one "turn-relevant" line and the `no_turn_output` timeout classification —
     the agent never got going at all — could never fire. A failed progress line is not transient —
@@ -1006,7 +1038,7 @@ def _transient_growth(lines: list[str]) -> int:
         method = notification.get("method")
         if method == "session/update":
             update = (notification.get("params") or {}).get("update")
-            if isinstance(update, dict) and update.get("sessionUpdate") in _TRANSIENT_SESSION_UPDATES:
+            if isinstance(update, dict) and update.get("sessionUpdate") not in _TURN_RELEVANT_SESSION_UPDATES:
                 count += 1
             continue
         if method not in TRANSIENT_SIDE_CHANNEL_METHODS:

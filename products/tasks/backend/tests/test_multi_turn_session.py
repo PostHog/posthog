@@ -834,10 +834,15 @@ class TestPollForTurnTimeoutDiagnosis:
                     }
                 }
             )
-            for subtype in ("available_commands_update", "current_mode_update")
+            for subtype in ("available_commands_update", "config_option_update", "current_mode_update")
         ]
         log = "\n".join(
-            [_user_message_line("scan the project"), *lifecycle_updates, _console_line("agentsh network events")]
+            [
+                _user_message_line("scan the project"),
+                json.dumps({"notification": {"method": "_posthog/sdk_session", "params": {}}}),
+                *lifecycle_updates,
+                _console_line("agentsh network events"),
+            ]
         )
         fake = FakeTaskRun()
         with (
@@ -846,6 +851,10 @@ class TestPollForTurnTimeoutDiagnosis:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals._relay_activity_is_stale",
+                new=AsyncMock(return_value=True),
+            ),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(TurnPollTimeout) as exc_info:
@@ -853,6 +862,29 @@ class TestPollForTurnTimeoutDiagnosis:
 
         assert exc_info.value.stage == "no_turn_output"
         assert exc_info.value.elapsed == 40
+
+    @pytest.mark.asyncio
+    async def test_live_relay_activity_keeps_a_buffered_response_alive(self):
+        prompt_only = _user_message_line("scan the project")
+        completed = "\n".join([prompt_only, _agent_message_line("done"), _end_turn_line()])
+        logs = [prompt_only] * 5 + [completed]
+        poll_iter = iter(logs)
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda *a, **k: next(poll_iter, completed)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals._relay_activity_is_stale",
+                new=AsyncMock(return_value=False),
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            result = await poll_for_turn(fake, skip_lines=0)
+
+        assert result.last_message == "done"
 
     @pytest.mark.asyncio
     async def test_provisioning_silence_does_not_trip_the_floor(self):

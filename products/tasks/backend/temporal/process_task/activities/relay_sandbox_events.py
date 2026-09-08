@@ -457,6 +457,8 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if is_agent_generation_event(event_data):
+                                await _record_relay_activity_best_effort(redis_stream, run_id)
                             if workflow_handle is not None:
                                 if (
                                     is_agent_command_dispatched(event_data)
@@ -568,6 +570,7 @@ async def _relay_loop(
                         reconnect_count=reconnect_count,
                     )
                     if reconnect_count <= MAX_RECONNECT_ATTEMPTS:
+                        await _record_relay_activity_best_effort(redis_stream, run_id)
                         await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.ReadTimeout:
@@ -582,6 +585,7 @@ async def _relay_loop(
                     run_id=run_id,
                     reconnect_count=reconnect_count,
                 )
+                await _record_relay_activity_best_effort(redis_stream, run_id)
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.HTTPStatusError as e:
@@ -608,6 +612,7 @@ async def _relay_loop(
                     error=_sanitize_httpx_error(e),
                     reconnect_count=reconnect_count,
                 )
+                await _record_relay_activity_best_effort(redis_stream, run_id)
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
@@ -622,6 +627,7 @@ async def _relay_loop(
                     error=str(e),
                     reconnect_count=reconnect_count,
                 )
+                await _record_relay_activity_best_effort(redis_stream, run_id)
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
         # Exhausted reconnect attempts
@@ -649,6 +655,13 @@ async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_
             run_id=run_id,
             error=str(error),
         )
+
+
+async def _record_relay_activity_best_effort(redis_stream: TaskRunRedisStream, run_id: str) -> None:
+    try:
+        await redis_stream.record_relay_activity()
+    except Exception as error:
+        logger.warning("relay_sandbox_events_record_activity_failed", run_id=run_id, error=str(error))
 
 
 def _is_session_update(event_data: dict) -> bool:
