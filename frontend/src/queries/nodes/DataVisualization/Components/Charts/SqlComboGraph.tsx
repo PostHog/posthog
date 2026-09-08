@@ -7,6 +7,7 @@ import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsL
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
+import { SqlChartNothingToPlot } from './SqlChartNothingToPlot'
 import { SqlLineSeriesMeta, buildComboChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -21,6 +22,10 @@ const handleChartError = makeChartErrorHandler('sql-combo-chart')
 export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
     const model = useSqlChartModel(props, buildComboChartConfig)
 
+    if (!model) {
+        return <SqlChartNothingToPlot className={props.className} />
+    }
+
     return (
         <div
             className={clsx(
@@ -29,19 +34,17 @@ export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
                 { 'h-[60vh]': props.presetChartHeight, 'h-full': !props.presetChartHeight }
             )}
         >
-            {model && (
-                <TimeSeriesComboChart<SqlLineSeriesMeta>
-                    series={model.series}
-                    labels={model.labels}
-                    theme={model.theme}
-                    config={model.config}
-                    onError={handleChartError}
-                >
-                    {props.showAnnotations && props.insightNumericId && (
-                        <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
-                    )}
-                </TimeSeriesComboChart>
-            )}
+            <TimeSeriesComboChart<SqlLineSeriesMeta>
+                series={model.series}
+                labels={model.labels}
+                theme={model.theme}
+                config={model.config}
+                onError={handleChartError}
+            >
+                {props.showAnnotations && props.insightNumericId && (
+                    <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                )}
+            </TimeSeriesComboChart>
         </div>
     )
 }

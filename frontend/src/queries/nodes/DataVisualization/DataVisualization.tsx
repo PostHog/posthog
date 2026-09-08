@@ -325,6 +325,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else {
+        // A display saved through the API can name a chart no SQL renderer covers, and without this
+        // the surface is an empty box with nothing to tell the reader why.
+        component = (
+            <div className="rounded bg-surface-primary flex flex-1 items-center justify-center p-6">
+                <span className="text-secondary text-sm">
+                    PostHog can't draw a SQL insight as this chart type. Open the insight to pick another one.
+                </span>
+            </div>
+        )
     }
 
     if (props.embedded) {

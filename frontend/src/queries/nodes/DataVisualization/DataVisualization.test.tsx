@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -81,4 +81,19 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+
+    it('says why it drew nothing for a chart type it has no SQL renderer for', async () => {
+        render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-unsupported-display"
+                query={{ ...query, display: ChartDisplayType.WorldMap }}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+                embedded
+            />
+        )
+
+        expect(await screen.findByText(/can't draw a SQL insight as this chart type/)).toBeTruthy()
+    })
 })

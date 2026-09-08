@@ -121,7 +121,7 @@ describe('SqlLineGraph', () => {
             renderDataVisualization({
                 query: buildDataVisualizationQuery({
                     display: ChartDisplayType.ActionsLineGraph,
-                    chartSettings: { xAxis: { column: 'month' }, showAnnotations: true },
+                    chartSettings: { xAxis: { column: 'month' }, yAxis: [{ column: 'a' }], showAnnotations: true },
                 }),
                 response: twoSeries(),
                 mocks: {
@@ -148,7 +148,11 @@ describe('SqlLineGraph', () => {
             renderDataVisualization({
                 query: buildDataVisualizationQuery({
                     display: ChartDisplayType.ActionsLineGraph,
-                    chartSettings: { xAxis: { column: 'category' }, showAnnotations: true },
+                    chartSettings: {
+                        xAxis: { column: 'category' },
+                        yAxis: [{ column: 'accounts' }],
+                        showAnnotations: true,
+                    },
                 }),
                 response: {
                     columns: ['category', 'accounts'],

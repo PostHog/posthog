@@ -2,10 +2,18 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    ChartDisplayType,
+    DashboardTile,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import EXAMPLE_DATA_VISUALIZATION_NODE_PIE from '../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationPie.json'
 import EXAMPLE_FUNNEL from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
 import EXAMPLE_LIFECYCLE from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
 import EXAMPLE_RETENTION from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'
@@ -35,6 +43,16 @@ const defaultTile = {
     } as TileFilters,
 } as DashboardTile<QueryBasedInsightModel>
 
+// A SQL insight drawn as a chart rather than a table. The card can't persist the axes the
+// visualization derives, so it exercises a path the DataTableNode examples don't.
+const EXAMPLE_DATA_VISUALIZATION_NODE_BAR = {
+    ...EXAMPLE_DATA_VISUALIZATION_NODE_PIE,
+    id: 922,
+    short_id: 'SqlBarEx',
+    name: 'Top events (bar)',
+    query: { ...EXAMPLE_DATA_VISUALIZATION_NODE_PIE.query, display: ChartDisplayType.ActionsBar },
+}
+
 const examples = [
     EXAMPLE_TRENDS,
     EXAMPLE_TRENDS_MULTI,
@@ -49,6 +67,8 @@ const examples = [
     EXAMPLE_LIFECYCLE,
     EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY,
     EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY,
+    EXAMPLE_DATA_VISUALIZATION_NODE_PIE,
+    EXAMPLE_DATA_VISUALIZATION_NODE_BAR,
 ] as unknown as QueryBasedInsightModel[]
 
 const meta: Meta<InsightCardProps> = {

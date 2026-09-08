@@ -8,6 +8,7 @@ import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsL
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
+import { SqlChartNothingToPlot } from './SqlChartNothingToPlot'
 import { SqlLineSeriesMeta, buildLineChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -58,6 +59,10 @@ export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
         [model]
     )
 
+    if (!model) {
+        return <SqlChartNothingToPlot className={props.className} />
+    }
+
     return (
         <div
             className={clsx(
@@ -66,21 +71,19 @@ export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
                 { 'h-[60vh]': props.presetChartHeight, 'h-full': !props.presetChartHeight }
             )}
         >
-            {model && (
-                <TimeSeriesLineChart<SqlLineSeriesMeta>
-                    series={model.series}
-                    labels={model.labels}
-                    theme={model.theme}
-                    config={model.config}
-                    tooltip={onPointClickProp ? renderTooltip : undefined}
-                    onPointClick={onPointClickProp ? onPointClick : undefined}
-                    onError={handleChartError}
-                >
-                    {props.showAnnotations && props.insightNumericId && (
-                        <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
-                    )}
-                </TimeSeriesLineChart>
-            )}
+            <TimeSeriesLineChart<SqlLineSeriesMeta>
+                series={model.series}
+                labels={model.labels}
+                theme={model.theme}
+                config={model.config}
+                tooltip={onPointClickProp ? renderTooltip : undefined}
+                onPointClick={onPointClickProp ? onPointClick : undefined}
+                onError={handleChartError}
+            >
+                {props.showAnnotations && props.insightNumericId && (
+                    <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                )}
+            </TimeSeriesLineChart>
         </div>
     )
 }

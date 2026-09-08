@@ -8,6 +8,7 @@ import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsL
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
+import { SqlChartNothingToPlot } from './SqlChartNothingToPlot'
 import { type SqlLineSeriesMeta, buildBarChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -24,6 +25,10 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
         [onPointClickProp]
     )
 
+    if (!model) {
+        return <SqlChartNothingToPlot className={props.className} />
+    }
+
     return (
         <div
             className={clsx(
@@ -32,20 +37,18 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                 { 'h-[60vh]': props.presetChartHeight, 'h-full': !props.presetChartHeight }
             )}
         >
-            {model && (
-                <TimeSeriesBarChart
-                    series={model.series}
-                    labels={model.labels}
-                    theme={model.theme}
-                    config={model.config}
-                    onPointClick={onPointClickProp ? onPointClick : undefined}
-                    onError={handleChartError}
-                >
-                    {props.showAnnotations && props.insightNumericId && (
-                        <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
-                    )}
-                </TimeSeriesBarChart>
-            )}
+            <TimeSeriesBarChart
+                series={model.series}
+                labels={model.labels}
+                theme={model.theme}
+                config={model.config}
+                onPointClick={onPointClickProp ? onPointClick : undefined}
+                onError={handleChartError}
+            >
+                {props.showAnnotations && props.insightNumericId && (
+                    <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                )}
+            </TimeSeriesBarChart>
         </div>
     )
 }
