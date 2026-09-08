@@ -573,6 +573,18 @@ class MarkdownNotebookCrashReporter extends Component<{ children: ReactNode }, M
     }
 }
 
+function arraysShallowEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    for (let index = 0; index < a.length; index++) {
+        if (!Object.is(a[index], b[index])) {
+            return false
+        }
+    }
+    return true
+}
+
 export function MarkdownNotebook(props: MarkdownNotebookProps): JSX.Element {
     return (
         <MarkdownNotebookCrashReporter>
@@ -627,6 +639,12 @@ function MarkdownNotebookEditor({
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
+    // Mirror for updateActiveBoundaryFromRow: a memoized row keeps its cached hover handlers, so
+    // the handler must read the current suppress state through a ref, not its render's closure.
+    const suppressInsertBoundaryRef = useRef(false)
+    useEffect(() => {
+        suppressInsertBoundaryRef.current = focusedRowIndex !== null || !!insertMenu
+    }, [focusedRowIndex, insertMenu])
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
     const [isExternalDragOver, setIsExternalDragOver] = useState(false)
@@ -652,6 +670,12 @@ function MarkdownNotebookEditor({
     const listItemRefs = useRef<Record<string, HTMLElement | null>>({})
     const tableCellRefs = useRef<Record<string, HTMLElement | null>>({})
     const rootEditableInputHtmlByNodeIdRef = useRef<Record<string, string>>({})
+    // Reuse a row's rendered element while its inputs are unchanged. React skips reconciling a child
+    // whose element keeps the same reference, so a keystroke or a hover frame re-renders only the
+    // rows whose inputs changed, not every row in a long notebook.
+    const rowElementCacheRef = useRef<
+        Map<string, { node: NotebookBlockNode; inputs: readonly unknown[]; element: JSX.Element }>
+    >(new Map())
     const blockDragNodeIdRef = useRef<string | null>(null)
     const isTextSelectionPointerActiveRef = useRef(false)
     const floatingToolbarRevealTimeoutRef = useRef<number | null>(null)
@@ -971,6 +995,17 @@ function MarkdownNotebookEditor({
             setDebugOpen(false)
         }
     }, [setDebugOpen, showDebug])
+
+    useEffect(() => {
+        // Node ids are content-derived, so an edit gives the changed node a new id and orphans its
+        // old cache entry. Drop entries for ids that no longer exist so the map stays bounded.
+        const liveNodeIds = new Set(document.nodes.map((node) => node.id))
+        for (const nodeId of rowElementCacheRef.current.keys()) {
+            if (!liveNodeIds.has(nodeId)) {
+                rowElementCacheRef.current.delete(nodeId)
+            }
+        }
+    }, [document.nodes])
 
     const mapRemoteCaretAnchors = useCallback(
         (previousDocument: NotebookDocument, nextDocument: NotebookDocument, remoteMergeVersion?: number): void => {
@@ -4927,7 +4962,7 @@ function MarkdownNotebookEditor({
     const updateActiveBoundaryFromRow = (event: ReactMouseEvent<HTMLElement>, rowIndex: number): void => {
         setActiveRowIndex(rowIndex)
 
-        if (focusedRowIndex !== null || insertMenu) {
+        if (suppressInsertBoundaryRef.current) {
             setActiveBoundaryIndex(null)
             return
         }
@@ -5994,6 +6029,43 @@ function MarkdownNotebookEditor({
         )
     }
 
+    const renderMemoizedNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
+        const rowInsertMenu = insertMenu && insertMenu.nodeId === node.id ? insertMenu : null
+        // Every value renderNotebookRow reads for this row, beyond the node object itself. A reused
+        // row keeps its cached handlers, and each one is safe: it reads refs/state setters/props, or
+        // it reads state captured here (so a change re-renders the row with fresh handlers). Add a
+        // dependency here whenever renderNotebookRow starts reading a new per-row value.
+        const inputs: readonly unknown[] = [
+            index,
+            mode,
+            aiWritingNodeIndexSet.has(index),
+            aiWritingPlaceholderNodeIds.has(node.id),
+            rowInsertMenu ? (rowInsertMenu.mode ?? 'tools') : null,
+            rowInsertMenu ? rowInsertMenu.query : null,
+            rowInsertMenu ? rowInsertMenu.selectedIndex : null,
+            rowInsertMenu ? insertMenuPosition : null,
+            draggingNodeId === node.id,
+            dropIndicatorTarget?.index === index ? dropIndicatorTarget.position : null,
+            selectedComponentNodeIds.has(node.id),
+            activeRowIndex === index,
+            focusAIPromptNodeId === node.id ? (focusAIPromptRequest ?? null) : null,
+            isAIPromptSubmitDisabled,
+            componentPanelCache[node.id],
+            placeholderNodeId === node.id ? placeholder : null,
+            hideResourceLinks,
+            allowViewModeFilters,
+            mergedRegistry,
+            insertCommands,
+        ]
+        const cached = rowElementCacheRef.current.get(node.id)
+        if (cached && cached.node === node && arraysShallowEqual(cached.inputs, inputs)) {
+            return cached.element
+        }
+        const element = renderNotebookRow(node, index)
+        rowElementCacheRef.current.set(node.id, { node, inputs, element })
+        return element
+    }
+
     const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
 
     return (
@@ -6080,7 +6152,7 @@ function MarkdownNotebookEditor({
                                                 const chunkLastIndex = chunk.items[chunk.items.length - 1].index
                                                 const rows = chunk.items.map(({ node, index }) => (
                                                     <Fragment key={node.id}>
-                                                        {renderNotebookRow(node, index)}
+                                                        {renderMemoizedNotebookRow(node, index)}
                                                         {chunk.surface === 'text' && index < chunkLastIndex
                                                             ? renderInsertBoundaryButton(index + 1, {
                                                                   isGapClickable: false,
@@ -6116,7 +6188,7 @@ function MarkdownNotebookEditor({
 
                             return (
                                 <Fragment key={group.key}>
-                                    {renderNotebookRow(group.node, group.index)}
+                                    {renderMemoizedNotebookRow(group.node, group.index)}
                                     {renderInsertBoundaryButton(group.index + 1)}
                                 </Fragment>
                             )

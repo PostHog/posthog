@@ -15,6 +15,13 @@ WITH ordered AS (
     SELECT rs.id,
            rs.baseline_artifact_id,
            LAG(rs.baseline_artifact_id) OVER (ORDER BY r.created_at) AS prev_baseline_id,
+           (
+               rs.result = 'unchanged'
+               AND GREATEST(
+                     COALESCE((rs.diff_metadata -> 'row_shift' ->> 'inserted_rows')::int, 0),
+                     COALESCE((rs.diff_metadata -> 'row_shift' ->> 'deleted_rows')::int, 0)
+                   ) > 0
+           ) AS absorbed_shift,
            r.created_at
     FROM visual_review_runsnapshot rs
     JOIN visual_review_run r ON r.id = rs.run_id
@@ -23,10 +30,22 @@ WITH ordered AS (
       AND r.branch = ANY(%s)
       AND r.status = 'completed'
       AND rs.identifier = %s
+),
+periods AS (
+    SELECT *,
+           SUM(CASE WHEN prev_baseline_id IS DISTINCT FROM baseline_artifact_id THEN 1 ELSE 0 END)
+               OVER (ORDER BY created_at) AS baseline_period
+    FROM ordered
+),
+ranked AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY baseline_period, absorbed_shift ORDER BY created_at) AS nth_in_period
+    FROM periods
 )
 SELECT id
-FROM ordered
+FROM ranked
 WHERE prev_baseline_id IS DISTINCT FROM baseline_artifact_id
+   OR (absorbed_shift AND nth_in_period = 1)
 ORDER BY created_at DESC
 """
 
@@ -37,7 +56,13 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
     Returns one entry per *baseline transition* — every time the committed
     `.snapshots.yml` baseline actually moved. LAG-on-`baseline_artifact_id`
     (over ASC ordering) keeps the FIRST run of each baseline period, so the
-    user sees the inception event plus every change since.
+    user sees the inception event plus every change since. An absorbed shift
+    is an entry too, even though the baseline stayed put, because absorbing
+    it leaves no baseline change behind and this is where its trace shows.
+    Only absorbed rows qualify (an actionable change recurs on every run
+    until its baseline moves), and only the first one in each baseline period,
+    so a shift master keeps absorbing, with or without jitter in the image,
+    does not become an entry per run.
 
     Why LAG on `baseline_artifact_id` and not `current_artifact_id`:
       - `current_artifact_id` is the bytes captured by THIS run. Pixel jitter
