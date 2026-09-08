@@ -48,6 +48,8 @@ describe('clampHorizon', () => {
         ['pulls a horizon down to the cap', 100, 'week', 14],
         ['leaves a horizon inside the cap', 7, 'day', 7],
         ['raises a horizon below one', 0, 'day', 1],
+        ['rounds a fractional horizon up to a whole interval', 1.5, 'day', 2],
+        ['rounds a fractional horizon down to a whole interval', 7.4, 'day', 7],
     ] as const)('%s', (_name, horizon, interval, expected) => {
         expect(clampHorizon({ horizon }, interval).horizon).toBe(expected)
     })

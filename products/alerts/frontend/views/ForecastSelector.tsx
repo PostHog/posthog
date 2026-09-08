@@ -139,10 +139,7 @@ export function ForecastSelector({
                         max={maxHorizon}
                         value={config.horizon ?? DEFAULT_HORIZON}
                         onChange={(horizon) =>
-                            onChange({
-                                ...config,
-                                horizon: Math.min(Math.max(horizon ?? DEFAULT_HORIZON, 1), maxHorizon),
-                            })
+                            onChange(clampHorizon({ ...config, horizon: horizon ?? DEFAULT_HORIZON }, insightInterval))
                         }
                     />
                     <span>{unit}</span>

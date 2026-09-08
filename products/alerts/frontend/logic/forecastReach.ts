@@ -26,7 +26,8 @@ export function clampHorizon<T extends { horizon?: number | null }>(
     if (config.horizon == null) {
         return config
     }
-    const clamped = Math.min(Math.max(config.horizon, 1), maxHorizonForInterval(interval))
+    // The backend takes whole intervals, so round a fractional entry here instead of failing the request.
+    const clamped = Math.round(Math.min(Math.max(config.horizon, 1), maxHorizonForInterval(interval)))
     return clamped === config.horizon ? config : { ...config, horizon: clamped }
 }
 
