@@ -167,6 +167,43 @@ describe('llmGenerationSentimentLazyLoaderLogic', () => {
         )
     })
 
+    // Refresh is what a person clicks while a lookup hangs, so the hung batch can land after the
+    // fresh one and put its older answer back in the cell.
+    it('ignores a batch that a reset superseded', async () => {
+        jest.useFakeTimers()
+        let landStalledBatch: (results: Record<string, GenerationSentiment | null>) => void = () => {}
+        mockFetchStoredGenerationSentiments.mockReturnValueOnce(
+            new Promise((resolve) => {
+                landStalledBatch = resolve
+            })
+        )
+
+        logic.actions.ensureGenerationSentimentLoaded({
+            key: 'event-uuid-1',
+            traceId: 'trace-1',
+            generationIds: ['event-uuid-1'],
+            timestamp: '2026-06-23T10:00:00Z',
+        })
+        await jest.advanceTimersByTimeAsync(1)
+
+        logic.actions.resetGenerationSentiments()
+        mockFetchStoredGenerationSentiments.mockResolvedValueOnce({ 'event-uuid-1': sentiment })
+        logic.actions.ensureGenerationSentimentLoaded({
+            key: 'event-uuid-1',
+            traceId: 'trace-1',
+            generationIds: ['event-uuid-1'],
+            timestamp: '2026-06-23T10:00:00Z',
+        })
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(logic.values.getGenerationSentiment('event-uuid-1')).toEqual(sentiment)
+
+        landStalledBatch({})
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(logic.values.getGenerationSentiment('event-uuid-1')).toEqual(sentiment)
+    })
+
     it('returns cached sentiment through the selector', () => {
         logic.actions.loadGenerationSentimentBatchSuccess({ 'event-uuid-1': sentiment }, ['event-uuid-1'])
 

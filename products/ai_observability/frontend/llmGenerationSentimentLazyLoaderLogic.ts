@@ -25,6 +25,12 @@ interface SentimentEvaluationsProbe {
     result: Promise<boolean>
 }
 
+// Each reset starts a new generation of lookups. A batch from an earlier one carries a snapshot
+// taken before the refresh, so it must not write over what the current generation resolved.
+function currentSentimentEpoch(cache: Record<string, any>): number {
+    return (cache.sentimentEpoch as number | undefined) ?? 0
+}
+
 // One probe per project, reused by every batch. A probe that fails or stalls reports "yes", so a
 // flaky list request costs a scan instead of blanking the column.
 function probeSentimentEvaluations(cache: Record<string, any>, teamId: number): Promise<boolean> {
@@ -241,6 +247,7 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                 // Clearing the cells alone still lets the query cache answer the next lookup with
                 // the stale result, so the first batch after this recalculates.
                 cache.forceSentimentRefresh = true
+                cache.sentimentEpoch = currentSentimentEpoch(cache) + 1
             },
             ensureGenerationSentimentLoaded: ({ lookup }) => {
                 if (values.sentimentByGenerationKey[lookup.key] !== undefined) {
@@ -261,6 +268,8 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                             const pendingLookups = cache.pendingLookups as Map<string, GenerationSentimentLookup>
                             const allLookups = Array.from(pendingLookups.values())
                             cache.pendingLookups = new Map<string, GenerationSentimentLookup>()
+                            const epoch = currentSentimentEpoch(cache)
+                            const isSuperseded = (): boolean => epoch !== currentSentimentEpoch(cache)
 
                             const teamId = values.currentTeamId
                             if (!teamId || allLookups.length === 0) {
@@ -269,10 +278,12 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                             }
 
                             if (!(await probeSentimentEvaluations(cache, teamId))) {
-                                actions.loadGenerationSentimentBatchSuccess(
-                                    {},
-                                    allLookups.map((lookup) => lookup.key)
-                                )
+                                if (!isSuperseded()) {
+                                    actions.loadGenerationSentimentBatchSuccess(
+                                        {},
+                                        allLookups.map((lookup) => lookup.key)
+                                    )
+                                }
                                 return
                             }
 
@@ -288,9 +299,13 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                                         (signal) => fetchStoredGenerationSentiments(batch, signal, forceRefresh),
                                         REQUEST_DEADLINE_MS
                                     )
-                                    actions.loadGenerationSentimentBatchSuccess(results, requestedKeys)
+                                    if (!isSuperseded()) {
+                                        actions.loadGenerationSentimentBatchSuccess(results, requestedKeys)
+                                    }
                                 } catch {
-                                    actions.loadGenerationSentimentBatchFailure(requestedKeys)
+                                    if (!isSuperseded()) {
+                                        actions.loadGenerationSentimentBatchFailure(requestedKeys)
+                                    }
                                 }
                             })
                         })()
