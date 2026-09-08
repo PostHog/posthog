@@ -231,12 +231,18 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
 
-SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset(
-    {"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN", "POSTHOG_TASK_RUN_SESSION_TOKEN"}
+# this helps redact sensitive environment variables for logging
+SENSITIVE_SANDBOX_ENV_NAMES: frozenset[str] = frozenset(
+    {
+        "GITHUB_TOKEN",
+        "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN",
+        "POSTHOG_TASK_RUN_SESSION_TOKEN",
+        "POSTHOG_WIZARD_API_KEY",
+    }
 )
 SHELL_ARGUMENT_VALUE_PATTERN = r"'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+"
-SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
-    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
+SENSITIVE_SANDBOX_ENV_PATTERN = re.compile(
+    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_SANDBOX_ENV_NAMES) + r")="
     rf"(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
 SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
@@ -245,6 +251,7 @@ SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
 SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
     r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
 )
+GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -258,9 +265,15 @@ def sandbox_repo_path(repository: str) -> str:
 
 
 def redact_sandbox_command(command: str) -> str:
-    redacted = SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
-    redacted = SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
-    return SENSITIVE_FILE_HEREDOC_PATTERN.sub(r"\g<prefix><redacted>\g<suffix>", redacted)
+    redacted = command
+    for pattern, substitution in (
+        (SENSITIVE_SANDBOX_ENV_PATTERN, r"\g<name>=<redacted>"),
+        (SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN, r"\g<name> <redacted>"),
+        (SENSITIVE_FILE_HEREDOC_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+        (GITHUB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+    ):
+        redacted = pattern.sub(substitution, redacted)
+    return redacted
 
 
 def build_agent_runtime_env_prefix(
