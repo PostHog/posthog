@@ -2764,10 +2764,15 @@ export class AgentServer {
     }
 
     this.prewarmedRun = prewarmed;
-    this.prewarmedStartupTurnPending = prewarmed && !sameRunResume;
     // Activation clears await_user_message when Temporal accepts the signal, before the agent
     // receives it. Only an explicit same-run restart transfers startup ownership back to the agent.
-    if (prewarmed && !sameRunResume && !hasPendingUserPrompt) {
+    const awaitsForwardedMessage =
+      prewarmed && !sameRunResume && !hasPendingUserPrompt;
+    // The forwarded message owns the startup turn only while the run waits for it. When startup
+    // sends the pending prompt itself, the next message is a normal follow-up, so a steer during
+    // that turn must reach the agent instead of being declined.
+    this.prewarmedStartupTurnPending = awaitsForwardedMessage;
+    if (awaitsForwardedMessage) {
       return { taskRun, action: "wait" };
     }
 

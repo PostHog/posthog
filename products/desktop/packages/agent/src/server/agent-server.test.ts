@@ -4243,6 +4243,85 @@ describe("AgentServer HTTP Mode", () => {
       await firstTurn;
     }, 20000);
 
+    it("steers the turn after startup delivered the prewarmed message", async () => {
+      const s = createServer();
+      await s.start();
+      let finishFollowup!: (result: { stopReason: "end_turn" }) => void;
+      const prompt = vi.fn((params: { _meta?: Record<string, unknown> }) => {
+        if (params._meta?.steer === true) {
+          return Promise.resolve({
+            stopReason: "steered",
+            _meta: { steer: true },
+          });
+        }
+        // First call is the startup message; the follow-up turn stays open for the steer.
+        if (prompt.mock.calls.length === 1) {
+          return Promise.resolve({ stopReason: "end_turn" });
+        }
+        return new Promise<{ stopReason: "end_turn" }>((resolve) => {
+          finishFollowup = resolve;
+        });
+      });
+      const serverInternals = s as unknown as {
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.session.clientConnection.prompt = prompt;
+      const taskRun = createTaskRun({
+        id: "test-run-id",
+        task: "test-task-id",
+        state: {
+          prewarmed: true,
+          pending_user_message: "start on this",
+          pending_user_message_id: "startup-message",
+        },
+      });
+      vi.spyOn(serverInternals.posthogAPI, "getTaskRun").mockResolvedValue(
+        taskRun,
+      );
+
+      await startInitialTaskMessage(
+        s,
+        {
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        },
+        taskRun,
+      );
+      expect(prompt).toHaveBeenCalledOnce();
+
+      const token = createToken();
+      const send = (id: string, steer = false) =>
+        fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "user_message",
+            params: { content: id, messageId: id, ...(steer && { steer }) },
+          }),
+        });
+
+      const followupTurn = send("follow-up-turn");
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2));
+
+      const steerResponse = await send("steer-during-follow-up", true);
+      await expect(steerResponse.json()).resolves.toMatchObject({
+        result: { stopReason: "steered", steered: true },
+      });
+
+      finishFollowup({ stopReason: "end_turn" });
+      await followupTurn;
+    }, 20000);
+
     it("does not queue steering behind an active non-steering turn", async () => {
       const s = createServer();
       await s.start();
