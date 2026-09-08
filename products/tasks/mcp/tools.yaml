@@ -372,6 +372,15 @@ tools:
     tasks-active-wizard-run-retrieve:
         operation: tasks_active_wizard_run_retrieve
         enabled: false
+    tasks-analysis-config-create:
+        operation: tasks_analysis_config_create
+        enabled: false
+    tasks-analysis-config-list:
+        operation: tasks_analysis_config_list
+        enabled: false
+    tasks-analysis-runs-list:
+        operation: tasks_analysis_runs_list
+        enabled: false
     tasks-artifacts-list:
         operation: tasks_artifacts_list
         enabled: false
