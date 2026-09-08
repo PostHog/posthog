@@ -115,7 +115,7 @@ describe('accountsViewsLogic', () => {
             filters: {
                 search: 'acme',
                 tags: ['enterprise'],
-                unassigned: false,
+                assignmentStatus: 'assigned',
                 assignedTo: [1, 2, 3],
                 tileFilter: {
                     tileId: 't1',
@@ -133,7 +133,7 @@ describe('accountsViewsLogic', () => {
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
         expect(accountsLogic.values.searchQuery).toEqual('acme')
         expect(accountsLogic.values.tagsFilter).toEqual(['enterprise'])
-        expect(accountsLogic.values.allRolesUnassigned).toBe(false)
+        expect(accountsLogic.values.assignmentStatus).toBe('assigned')
         expect(accountsLogic.values.assignedToFilter).toEqual([1, 2, 3])
         expect(accountsLogic.values.sortOrder).toEqual({ column: 'csm', direction: 'desc' })
         expect(accountsOverviewTilesLogic.values.tiles).toEqual([
@@ -172,6 +172,19 @@ describe('accountsViewsLogic', () => {
             { kind: 'tags', tagNames: ['enterprise'] },
             { kind: 'assigned_to', userIds: [1, 2] },
         ])
+    })
+
+    it('applies a legacy saved view (no assignment field) as assigned-only', async () => {
+        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+        // A view saved before the status field existed must not silently broaden to all.
+        await expectLogic(logic, () =>
+            logic.actions.applyView(buildView({ columns: ['name'], filters: { search: 'acme' } }))
+        ).toFinishAllListeners()
+
+        expect(accountsLogic.values.assignmentStatus).toBe('assigned')
+        const source = accountsLogic.values.accountsQuerySource as AccountsTableQuery
+        expect(source.filters).toContainEqual({ kind: 'assigned' })
     })
 
     it('keeps column widths when the selected view changes', async () => {

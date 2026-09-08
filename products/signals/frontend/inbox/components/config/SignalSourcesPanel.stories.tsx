@@ -33,6 +33,7 @@ interface PanelState {
     hasAiEvents: boolean
     hasAnalyticsEvents: boolean
     eventDefinitionsUnavailable: boolean
+    sourceConfigsUnavailable: boolean
 }
 
 function sourceConfig(
@@ -112,7 +113,10 @@ function PanelHarness(state: PanelState): JSX.Element {
                     conversations_enabled: state.conversationsOn,
                 },
             ],
-            '/api/projects/:team_id/signals/source_configs/': () => [200, { results: sourceConfigsFor(state) }],
+            '/api/projects/:team_id/signals/source_configs/': () =>
+                state.sourceConfigsUnavailable
+                    ? [500, { detail: 'A server error occurred.' }]
+                    : [200, { results: sourceConfigsFor(state) }],
             '/api/projects/:team_id/vision/scanners/': () => {
                 const results = scannersFor(state)
                 return [200, { count: results.length, next: null, previous: null, results }]
@@ -174,6 +178,7 @@ const meta: Meta<typeof PanelHarness> = {
         hasAiEvents: false,
         hasAnalyticsEvents: true,
         eventDefinitionsUnavailable: false,
+        sourceConfigsUnavailable: false,
     },
 }
 export default meta
@@ -272,5 +277,12 @@ export const ServerSideExceptionsOnly: Story = {
         errorTrackingArmed: true,
         exceptionAutocaptureOn: false,
         hasExceptionEvents: true,
+    },
+}
+
+/** The source configs endpoint failed: the roster warns that its switches may be stale, and offers a retry. */
+export const SourceConfigsUnavailable: Story = {
+    args: {
+        sourceConfigsUnavailable: true,
     },
 }

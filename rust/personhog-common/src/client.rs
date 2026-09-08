@@ -267,6 +267,7 @@ mod tests {
     #[tokio::test]
     async fn update_request_carries_the_routing_headers() {
         let request = client().build_update_request(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 7,
             person_id: 42,
             ..Default::default()

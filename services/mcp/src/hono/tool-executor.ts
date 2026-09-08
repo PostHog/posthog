@@ -566,6 +566,7 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                flagGatedTools: state.flagGatedTools,
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
                 // and counts. Merge so the richer report wins without losing the verb.
@@ -859,7 +860,10 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
     }
     const { verb, targetTool } = describeExecCommand(
         command,
-        (name) => state.allTools.some((t) => t.name === name) || state.scopeGatedTools.some((t) => t.name === name)
+        (name) =>
+            state.allTools.some((t) => t.name === name) ||
+            state.scopeGatedTools.some((t) => t.name === name) ||
+            state.flagGatedTools.some((t) => t.name === name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

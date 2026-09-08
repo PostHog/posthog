@@ -900,9 +900,8 @@ describe('TrendsLineChart', () => {
             renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
             const wrapper = await getChartWrapper()
 
-            dragSelection(wrapper, 1, 3, totalLabels)
-
             await waitFor(() => {
+                dragSelection(wrapper, 1, 3, totalLabels)
                 // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
             })
@@ -918,9 +917,8 @@ describe('TrendsLineChart', () => {
             const step = dimensions.plotWidth / (totalLabels - 1)
             const x = dimensions.plotLeft + step
             const y = dimensions.plotTop + dimensions.plotHeight / 2
-            rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
-
             await waitFor(() => {
+                rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-11')
             })
         })

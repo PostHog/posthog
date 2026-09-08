@@ -273,6 +273,32 @@ tasks:
           Reads the current definition first, then edits targeting through update-feature-flag. Does not reach for a
           lifecycle tool, which cannot change targeting. If the flag does not exist, says so.
 
+    # The description asks the agent to weigh an experiment before it creates a flag. The
+    # pair below scores both directions: a user-visible change should route to an experiment,
+    # an operational flag should not. A description that pushes experiments too hard fails the
+    # second task. Both intents settle the choice up front, so a correct agent has a mutation
+    # to make and tool selection scores cleanly.
+    - id: flag-create-routes-to-experiment
+      category: feature-flags
+      intent: "We're putting a new version of our checkout page in front of 20% of users. Set that up — and if an
+          experiment is the better way to tell whether it helped, set that up instead of a plain flag."
+      expected_tools: [experiment-create]
+      acceptable_tools: [feature-flag-get-all, experiment-list]
+      success_criteria: >
+          Creates an experiment rather than a bare feature flag, and says the experiment manages its own flag. Does
+          not leave a separate feature flag behind alongside it.
+
+    - id: flag-create-killswitch-no-experiment
+      category: feature-flags
+      intent:
+          'Add a kill switch flag called mcp-eval-billing-killswitch so we can turn off the billing sync if it starts
+          failing.'
+      expected_tools: [create-feature-flag]
+      acceptable_tools: [feature-flag-get-all]
+      success_criteria: >
+          Creates the flag and does not raise an experiment. An operational kill switch has no user-visible change
+          to measure.
+
     # --- session-replay ----------------------------------------------------------
     - id: replay-rage-clicks
       category: session-replay

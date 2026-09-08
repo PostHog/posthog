@@ -153,6 +153,12 @@ function isAssistantMessage(
   return message.role === "assistant";
 }
 
+function normalizeStopReason(
+  stopReason: string | undefined,
+): string | undefined {
+  return stopReason === "aborted" ? "cancelled" : stopReason;
+}
+
 export interface PiDirectBashResult {
   cancelled: boolean;
   exitCode: number | null;
@@ -166,6 +172,8 @@ interface ActiveAssistantStream {
 }
 
 export interface PiConversationTranslator {
+  markTurnInterrupted(): void;
+  clearTurnInterrupted(): void;
   beginDirectBash(command: string): AgentConversationEvent[];
   completeDirectBash(result: PiDirectBashResult): AgentConversationEvent[];
   failDirectBash(message: string): AgentConversationEvent[];
@@ -185,6 +193,7 @@ export function createPiConversationTranslator(
   let contextTokens: number | null = null;
   let pendingRuntimeError: AgentConversationEvent | undefined;
   let settledStopReason: string | undefined;
+  let turnInterrupted = false;
   let retrying = false;
   let directBashSequence = 0;
 
@@ -322,7 +331,7 @@ export function createPiConversationTranslator(
       events.push({
         type: "turn_completed",
         timestamp: message.timestamp,
-        stopReason: message.stopReason,
+        stopReason: normalizeStopReason(message.stopReason),
       });
       historyTurnActive = false;
     }
@@ -471,11 +480,15 @@ export function createPiConversationTranslator(
     }
 
     if (event.type === "tool_execution_end") {
+      const interruptedToolFailure = turnInterrupted && event.isError;
       return messageTranslator.translateToolExecutionEnd(
         event.toolCallId,
         event.toolName,
-        event.result,
+        interruptedToolFailure
+          ? { content: [], details: undefined }
+          : event.result,
         event.isError,
+        interruptedToolFailure,
         latestRuntimeTimestamp,
       );
     }
@@ -550,10 +563,15 @@ export function createPiConversationTranslator(
       }
 
       if (isAssistantMessage(event.message)) {
-        settledStopReason = event.message.stopReason;
+        settledStopReason = normalizeStopReason(event.message.stopReason);
       }
 
-      const events = messageTranslator.translate(event.message);
+      const events = messageTranslator.translate(
+        event.message,
+        turnInterrupted &&
+          event.message.role === "toolResult" &&
+          event.message.isError,
+      );
       const runtimeError = events.find(
         (translated) => translated.type === "runtime_error",
       );
@@ -695,6 +713,7 @@ export function createPiConversationTranslator(
       const stopReason = settledStopReason;
       latestRuntimeTimestamp = 0;
       settledStopReason = undefined;
+      turnInterrupted = false;
       const billed = turnUsage;
       turnUsage = emptyTurnUsage();
       const totalTokens = billed.totalTokens;
@@ -720,6 +739,12 @@ export function createPiConversationTranslator(
   }
 
   return {
+    markTurnInterrupted(): void {
+      turnInterrupted = true;
+    },
+    clearTurnInterrupted(): void {
+      turnInterrupted = false;
+    },
     beginDirectBash,
     completeDirectBash,
     failDirectBash,

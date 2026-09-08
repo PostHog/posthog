@@ -20,7 +20,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -342,7 +342,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    const queryBasedDashboard = getQueryBasedDashboard(result)
+                    const queryBasedDashboard = getQueryBasedDashboard(result, 'new_dashboard')
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
                     tryShowMCPHint('dashboards.create', {
@@ -403,7 +403,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
 
                 actions.resetNewDashboard()
-                const queryBasedDashboard = getQueryBasedDashboard(result)
+                const queryBasedDashboard = getQueryBasedDashboard(result, 'new_dashboard')
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
 

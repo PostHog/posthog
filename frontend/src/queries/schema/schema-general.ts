@@ -700,6 +700,12 @@ export interface RecordingsQueryExperimentExposureFilter {
     experiment_id: integer
     /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
     variant?: string
+    /**
+     * Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria
+     * inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was
+     * never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward.
+     */
+    in_session?: boolean
 }
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
@@ -716,6 +722,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
+    /** Restrict results to recordings above the replay relevance threshold. */
+    recommended_only?: boolean
     /**
      * @default "AND"
      * */
@@ -4463,6 +4471,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     excludeAttributes?: boolean
     /** Show logs for a given person */
     personId?: string
+    /** Show logs for a given session ID */
+    sessionId?: string
     /**
      * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
      * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
@@ -6805,6 +6815,14 @@ export enum CustomBotField {
     Host = '$host',
     Pathname = '$pathname',
     CurrentURL = '$current_url',
+    Browser = '$browser',
+    OS = '$os',
+    BrowserLanguage = '$browser_language',
+    ScreenWidth = '$screen_width',
+    ScreenHeight = '$screen_height',
+    CountryCode = '$geoip_country_code',
+    Referrer = '$referrer',
+    ReferringDomain = '$referring_domain',
 }
 
 export enum CustomBotMatcher {
@@ -7851,6 +7869,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    filter_test_accounts?: boolean
     campaign_name_mappings?: Record<string, Record<string, string[]>>
     custom_source_mappings?: Record<string, string[]>
     campaign_field_preferences?: Record<string, CampaignFieldPreference>
@@ -9549,6 +9568,9 @@ export const externalDataSources = [
     'Medusa',
     'Membrain',
     'RecallAI',
+    'Tenjin',
+    'Folk',
+    'Cybersource',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -10057,6 +10079,7 @@ export enum ProductKey {
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
+    BUSINESS_KNOWLEDGE = 'business_knowledge',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
@@ -10095,11 +10118,15 @@ export enum ProductKey {
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     POSTHOG_AI_ONBOARDING = 'posthog_ai_onboarding',
+    POSTHOG_DESKTOP = 'posthog_desktop',
+    POSTHOG_GITHUB = 'posthog_github',
+    POSTHOG_SLACK = 'posthog_slack',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     PULSE = 'pulse',
     REVENUE_ANALYTICS = 'revenue_analytics',
     REVIEW_HOG = 'review_hog',
+    SELF_DRIVING = 'self_driving',
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',

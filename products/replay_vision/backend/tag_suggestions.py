@@ -20,10 +20,10 @@ from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
+from posthog.hogql_queries.utils.aggregated_property_values import get_event_property_values_from_aggregated_table
 from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.queries.property_values import get_event_property_values_from_aggregated_table
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
