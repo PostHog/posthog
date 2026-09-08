@@ -2262,6 +2262,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.breakdown_colors, breakdown_colors)
 
+    def test_dashboard_rejects_breakdown_colors_entries_that_cannot_apply(self) -> None:
+        # Wiring guard: the viewset has to reject the value rather than store it. The shape matrix
+        # lives in products/dashboards/backend/api/test/test_dashboard_filters_validation.py, which
+        # needs no database.
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard.pk,
+            {"breakdown_colors": {"Chrome": "preset-1"}},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], "breakdown_colors")
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.breakdown_colors, [])
+
     def test_dashboard_duplication_copies_variables(self):
         """Test that variables are copied during duplication"""
         variable = InsightVariable.objects.create(

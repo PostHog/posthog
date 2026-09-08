@@ -113,6 +113,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 from products.dashboards.backend.api.widget_openapi_serializers import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
+    BreakdownColorConfigSerializer,
     DashboardWidgetConfigField,
     PatchedDashboardOpenApiSerializer,
     UpdateDashboardWidgetRequestOpenApi,
@@ -1211,6 +1212,23 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     )
 
 
+class BreakdownColorsField(serializers.ListField):
+    # The child serializer decides whether an entry is valid, but it does not decide what gets
+    # stored or returned. It rewrites an entry rather than describing it: it drops a key it does not
+    # declare and adds a null for a declared key the entry omits. So both directions validate
+    # through the child and then use the entries as given.
+    #
+    # This matters in both directions because the dashboard saves the whole color list back. Letting
+    # the child shape a write would drop a key the frontend persists before this serializer learns
+    # about it, and the loss would only surface as colors disappearing after a later save.
+    def to_internal_value(self, data: Any) -> Any:
+        super().to_internal_value(data)
+        return data
+
+    def to_representation(self, data: Any) -> Any:
+        return data
+
+
 class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
@@ -1219,7 +1237,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.JSONField(required=False, help_text="Custom color mapping for breakdown values.")
+    breakdown_colors = BreakdownColorsField(
+        child=BreakdownColorConfigSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Colors pinned to specific breakdown values across the dashboard's tiles. "
+            "A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+        ),
+    )
     data_color_theme_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="ID of the color theme used for chart visualizations."
     )

@@ -2,7 +2,57 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "breakdown_colors": {
-            "description": "Custom color mapping for breakdown values."
+            "anyOf": [
+                {
+                    "items": {
+                        "properties": {
+                            "breakdownProperty": {
+                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+                                "type": "string"
+                            },
+                            "breakdownType": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`."
+                            },
+                            "breakdownValue": {
+                                "description": "The breakdown value this color applies to, as it appears in the chart legend.",
+                                "type": "string"
+                            },
+                            "colorToken": {
+                                "anyOf": [
+                                    {
+                                        "pattern": "^preset-\\d+$",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color."
+                            },
+                            "source": {
+                                "description": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
+                                "enum": ["auto", "manual"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["breakdownValue", "colorToken"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
         },
         "data_color_theme_id": {
             "anyOf": [

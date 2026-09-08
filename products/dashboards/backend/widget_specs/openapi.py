@@ -273,6 +273,46 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     )
 
 
+class BreakdownColorConfigSerializer(serializers.Serializer):
+    breakdownValue = serializers.CharField(
+        allow_blank=True,
+        help_text="The breakdown value this color applies to, as it appears in the chart legend.",
+    )
+    # A token names a slot in the dashboard's color theme, not a color. getColorFromToken parses the
+    # N out and indexes the theme with it, so any other string yields theme['preset-NaN'], which is
+    # undefined. The pattern rather than a fixed range, because a theme may carry more slots than the
+    # default palette and the token wraps past its end.
+    colorToken = serializers.RegexField(
+        r"^preset-\d+$",
+        allow_null=True,
+        help_text=(
+            "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex "
+            "value is rejected. Null leaves the value on its default color."
+        ),
+    )
+    breakdownType = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+    )
+    breakdownProperty = serializers.CharField(
+        required=False,
+        help_text=(
+            "Breakdown property the color is scoped to, so the color applies only to tiles that break "
+            "down by that property. Omit to apply it under every property."
+        ),
+    )
+    # `source` is also the name of a Field attribute on the Serializer base class, which mypy reads as
+    # a shadowed assignment. SerializerMetaclass pops every declared field out of the class namespace,
+    # so the base attribute survives and the entry key stays `source`, which is what the frontend
+    # persists.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["auto", "manual"],
+        required=False,
+        help_text="`manual` for a color a person picked, `auto` for one the dashboard assigned.",
+    )
+
+
 class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only PATCH body for dashboards (agents/MCP).
 
@@ -287,9 +327,14 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         required=False,
         help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
     )
-    breakdown_colors = serializers.JSONField(
+    breakdown_colors = serializers.ListField(
+        child=BreakdownColorConfigSerializer(),
         required=False,
-        help_text="Custom color mapping for breakdown values.",
+        allow_null=True,
+        help_text=(
+            "Colors pinned to specific breakdown values across the dashboard's tiles. "
+            "A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+        ),
     )
     data_color_theme_id = serializers.IntegerField(
         required=False,
