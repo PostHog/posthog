@@ -173,6 +173,11 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
+// How long a landed list response answers a repeat of the same request. Two seconds is shorter
+// than the gap the duplicates arrive in, and five seconds gives a person clicking around rows
+// they would call stale, so three seconds covers the repeats and keeps the rows fresh.
+export const LIST_MEMO_WINDOW_MS = 3000
+
 const getDefaultFilterTestAccounts = (): boolean => {
     const stored = localStorage.getItem('default_filter_test_accounts')
     return stored === 'true'
@@ -479,12 +484,15 @@ export interface SessionRecordingPlaylistLogicProps {
 /**
  * The most recent recordings list request this logic issued. `promise` is dropped once the response
  * lands, so only a live request can be waited on, while `selectedRecordingId` outlives it and
- * records which recording the server was already asked to include.
+ * records which recording the server was already asked to include. `response` and `completedAt`
+ * hold what the request returned, so a repeat inside `LIST_MEMO_WINDOW_MS` answers from it.
  */
 interface IssuedListRequest {
     key: string
     selectedRecordingId: RecordingsQuery['session_recording_id']
     promise: Promise<RecordingsQueryResponse> | undefined
+    response: RecordingsQueryResponse | undefined
+    completedAt: number | undefined
 }
 
 const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
@@ -760,8 +768,12 @@ export interface sessionRecordingsPlaylistLogicActions {
     setDeleteConfirmationText: (deleteConfirmationText: string) => {
         deleteConfirmationText: string
     }
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => {
+    setFilters: (
+        filters: Partial<RecordingUniversalFilters>,
+        userModified?: boolean
+    ) => {
         filters: Partial<RecordingUniversalFilters>
+        userModified: boolean
     }
     setIsAddToCollectionModalOpen: (isAddToCollectionModalOpen: boolean) => {
         isAddToCollectionModalOpen: boolean
@@ -902,7 +914,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
 
     actions({
-        setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
+        // `userModified` is false for filters that come from props rather than from the viewer,
+        // so the load they trigger reports no filter edit.
+        setFilters: (filters: Partial<RecordingUniversalFilters>, userModified: boolean = true) => ({
+            filters,
+            userModified,
+        }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
@@ -960,7 +977,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadPinnedRecordings()
         }
         if (props.filters && !objectsEqual(props.filters, oldProps.filters)) {
-            actions.setFilters(props.filters)
+            actions.setFilters(props.filters, false)
         }
     }),
 
@@ -1047,22 +1064,31 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         params.after = undefined
                     }
 
-                    // Each list request is a full ClickHouse read, so two identical ones in flight
-                    // read the same rows twice. The debounce below cannot prevent the second: it
-                    // discards the earlier *result*, but a request already past it has reached the
-                    // server, and cancellation does not reach the query layer. So a request that
-                    // matches one in flight waits for that response instead of issuing its own.
+                    // Each list request is a full ClickHouse read, so two identical ones read the
+                    // same rows twice. The debounce below cannot prevent the second: it discards
+                    // the earlier *result*, but a request already past it has reached the server,
+                    // and cancellation does not reach the query layer. So a repeat of the last
+                    // request waits for the response, or answers from it once it landed.
                     // The comparison ignores `user_modified_filters` because the server only feeds
                     // it to an analytics event, so it does not change which rows are read.
                     const requestKey = JSON.stringify({ ...params, user_modified_filters: undefined })
                     const lastRequest: IssuedListRequest | undefined = cache.listRequest
-                    const requestInFlight =
-                        !forceRefetch && lastRequest && lastRequest.key === requestKey ? lastRequest.promise : undefined
+                    // `forceRefetch` skips both paths, because the caller asks for fresh rows.
+                    const repeatOfLastRequest =
+                        !forceRefetch && lastRequest?.key === requestKey ? lastRequest : undefined
+                    const memoizedResponse =
+                        repeatOfLastRequest?.completedAt !== undefined &&
+                        performance.now() - repeatOfLastRequest.completedAt < LIST_MEMO_WINDOW_MS
+                            ? repeatOfLastRequest.response
+                            : undefined
+                    const requestInFlight = repeatOfLastRequest?.promise
 
                     let response: RecordingsQueryResponse
-                    if (requestInFlight) {
-                        // This call issued no request, so it has no fetch to report. The call that
-                        // did issue it reports the one read both calls answer from.
+                    // The first two branches issue no request, so they have no fetch to report.
+                    // The call that did issue it reports the one read they all answer from.
+                    if (memoizedResponse) {
+                        response = memoizedResponse
+                    } else if (requestInFlight) {
                         response = await requestInFlight
                     } else {
                         await breakpoint(400) // Debounce for lots of quick filter changes
@@ -1072,6 +1098,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             key: requestKey,
                             selectedRecordingId: params.session_recording_id,
                             promise,
+                            response: undefined,
+                            completedAt: undefined,
                         }
                         cache.listRequest = request
 
@@ -1087,9 +1115,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             throw e
                         }
                         // The response is here, so nothing can wait on this request any more. The
-                        // entry stays, because it records the recording the server was asked for.
+                        // entry stays, because it records the recording the server was asked for
+                        // and the rows a repeat answers from.
+                        const completedAt = performance.now()
                         request.promise = undefined
-                        const loadTimeMs = performance.now() - startTime
+                        request.response = response
+                        request.completedAt = completedAt
+                        const loadTimeMs = completedAt - startTime
 
                         actions.reportRecordingsListFetched(
                             loadTimeMs,
@@ -1404,8 +1436,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(undefined, undefined, true)
                 actions.loadPinnedRecordings()
             },
-            setFilters: ({ filters }) => {
-                actions.loadSessionRecordings(undefined, filters)
+            setFilters: ({ filters, userModified }) => {
+                actions.loadSessionRecordings(undefined, userModified ? filters : undefined)
                 props.onFiltersChange?.(values.filters)
                 actions.loadEventsHaveSessionId()
             },
@@ -2275,6 +2307,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 !equal(searchParams.filters, values.filters)
             ) {
                 // URL has valid filters different from current state - let urlToAction handle the initial load
+                return
+            }
+        }
+
+        // The filters reducer persists, so kea rehydrates the stored value over `props.filters` and
+        // the first read would carry a filter set the caller never asked for. A caller that scopes
+        // the list owns the keys it sets, so reapply them and let the `setFilters` listener issue
+        // the one load. Keys the caller leaves out - a duration or a property the viewer chose -
+        // survive the merge the reducer performs. This sits after the URL branch, so a shared link
+        // still wins over the props.
+        if (props.filters) {
+            const merged = { ...values.filters, ...props.filters }
+            if (!equal(merged, values.filters)) {
+                actions.setFilters(props.filters, false)
                 return
             }
         }

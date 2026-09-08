@@ -24,6 +24,8 @@ import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    LIST_MEMO_WINDOW_MS,
+    type SessionRecordingPlaylistLogicProps,
     asUniversalFilters,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
@@ -1316,27 +1318,93 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('rehydrating persisted filters', () => {
         const props = { logicKey: 'persist_regression', personUUID: 'persist_regression', updateSearchParams: false }
 
-        it('resets a malformed persisted filters value to defaults on mount', async () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // Leaves `storedFilters` in the persist slot the given props rehydrate from, so the next
+        // mount reads them - exactly what a stored entry does in production.
+        const persistFilters = (
+            logicProps: SessionRecordingPlaylistLogicProps,
+            storedFilters: Record<string, any>
+        ): void => {
             // A first mount writes the persist key. Discover its exact name rather than hardcoding
             // kea-localstorage's prefix/path format.
-            const seed = sessionRecordingsPlaylistLogic(props)
+            const seed = sessionRecordingsPlaylistLogic(logicProps)
             seed.mount()
             const filtersKey = Object.keys(localStorage).find(
-                (k) => k.includes('persist_regression') && k.endsWith('.filters')
+                (k) => k.includes(logicProps.logicKey!) && k.endsWith('.filters')
             )
             expect(typeof filtersKey).toBe('string')
             seed.unmount()
 
-            // Poison the persisted entry, then reset the kea context so the reducer rehydrates from
-            // storage on the next build - exactly what a stale localStorage entry does in production.
-            localStorage.setItem(filtersKey!, JSON.stringify({ filter_group: 'not-a-group', duration: 'nope' }))
+            localStorage.setItem(filtersKey!, JSON.stringify(storedFilters))
             initKeaTests()
             featureFlagLogic.mount()
+        }
+
+        it('resets a malformed persisted filters value to defaults on mount', async () => {
+            persistFilters(props, { filter_group: 'not-a-group', duration: 'nope' })
 
             logic = sessionRecordingsPlaylistLogic(props)
             logic.mount()
 
             expect(logic.values.filters).toEqual(getDefaultFilters('persist_regression'))
+        })
+
+        it('reads the caller filters, not the persisted ones, on a scoped mount', async () => {
+            // The caller scopes the list by date and leaves the rest of the filters to the viewer
+            const scopedProps = {
+                logicKey: 'caller_scoped',
+                updateSearchParams: false,
+                filters: {
+                    date_from: '-7d',
+                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                    filter_group: DEFAULT_RECORDING_FILTERS.filter_group,
+                },
+            }
+            persistFilters(scopedProps, {
+                ...DEFAULT_RECORDING_FILTERS,
+                date_from: '-30d',
+                filter_test_accounts: true,
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            logic = sessionRecordingsPlaylistLogic(scopedProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            // one read, scoped to the caller, and the viewer's own key survives the merge
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ date_from: '-7d', filter_test_accounts: true })
+            )
+        })
+
+        it('reads the persisted filters once when the caller sets none', async () => {
+            persistFilters(props, { ...DEFAULT_RECORDING_FILTERS, date_from: '-14d' })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            logic = sessionRecordingsPlaylistLogic(props)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ date_from: '-14d' }))
         })
     })
 
@@ -1435,6 +1503,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('deduping identical list requests', () => {
         const listResponse = { results: [aRecording], has_next: false }
 
+        // The memo window is measured with `performance.now`, so a test moves the clock rather
+        // than waiting on it. Returns a function that adds to the clock.
+        const mockClock = (): ((ms: number) => void) => {
+            let now = 0
+            jest.spyOn(performance, 'now').mockImplementation(() => now)
+            return (ms: number) => {
+                now += ms
+            }
+        }
+
         afterEach(() => {
             jest.restoreAllMocks()
         })
@@ -1443,6 +1521,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
         // in-flight guard, which cannot match a request that no call has issued yet. This case
         // guards the debounce: shorten or drop it and same-tick duplicates come back.
         it('leaves the debounce to collapse two loads dispatched in the same tick', async () => {
+            const advanceClock = mockClock()
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
                 .mockImplementation(
@@ -1455,6 +1534,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
             // let the load afterMount kicks off settle, so only the two below are counted
             await expectLogic(sameTickLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             listSpy.mockClear()
+            // move past the memo window, so the debounce is the only thing left to collapse them
+            advanceClock(LIST_MEMO_WINDOW_MS + 1)
 
             await expectLogic(sameTickLogic, () => {
                 sameTickLogic.actions.loadSessionRecordings()
@@ -1563,6 +1644,113 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(listSpy).not.toHaveBeenCalled()
 
             selectionLogic.unmount()
+        })
+
+        // The measured duplicates arrive a second or two after the first response landed, so the
+        // in-flight guard cannot match them. These cases cover the memo that does.
+        it('reads once when a load repeats a request whose response landed inside the memo window', async () => {
+            const advanceClock = mockClock()
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
+                )
+
+            const memoLogic = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-memo' })
+            memoLogic.mount()
+            await expectLogic(memoLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            listSpy.mockClear()
+
+            advanceClock(LIST_MEMO_WINDOW_MS - 1)
+            await expectLogic(memoLogic, () => {
+                memoLogic.actions.loadSessionRecordings()
+            })
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toNotHaveDispatchedActions(['reportRecordingsListFetched'])
+                .toFinishAllListeners()
+
+            expect(listSpy).not.toHaveBeenCalled()
+            expect(memoLogic.values.sessionRecordings).toEqual([aRecording])
+
+            memoLogic.unmount()
+        })
+
+        it('reads again when a load repeats a request the memo window no longer covers', async () => {
+            const advanceClock = mockClock()
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
+                )
+
+            const staleMemoLogic = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-memo-expired' })
+            staleMemoLogic.mount()
+            await expectLogic(staleMemoLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            listSpy.mockClear()
+
+            advanceClock(LIST_MEMO_WINDOW_MS + 1)
+            await expectLogic(staleMemoLogic, () => {
+                staleMemoLogic.actions.loadSessionRecordings()
+            })
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+
+            staleMemoLogic.unmount()
+        })
+
+        it('reads again when the refresh button repeats a request inside the memo window', async () => {
+            const advanceClock = mockClock()
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
+                )
+
+            const refreshLogic = sessionRecordingsPlaylistLogic({ logicKey: 'force-refresh-memo' })
+            refreshLogic.mount()
+            await expectLogic(refreshLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            listSpy.mockClear()
+
+            advanceClock(LIST_MEMO_WINDOW_MS - 1)
+            await expectLogic(refreshLogic, () => {
+                refreshLogic.actions.loadAllRecordings()
+            })
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+
+            refreshLogic.unmount()
+        })
+
+        it('reads again for a changed filter inside the memo window', async () => {
+            const advanceClock = mockClock()
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
+                )
+
+            const changedFilterLogic = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-memo-changed' })
+            changedFilterLogic.mount()
+            await expectLogic(changedFilterLogic)
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+            listSpy.mockClear()
+
+            advanceClock(LIST_MEMO_WINDOW_MS - 1)
+            await expectLogic(changedFilterLogic, () => {
+                changedFilterLogic.actions.setFilters({ filter_test_accounts: true })
+            })
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ filter_test_accounts: true }))
+
+            changedFilterLogic.unmount()
         })
     })
 
