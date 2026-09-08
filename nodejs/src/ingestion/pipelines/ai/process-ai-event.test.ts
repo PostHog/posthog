@@ -1236,6 +1236,33 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
         })
 
+        // Reasoning tokens make the output-cost path inspect the model as well.
+        it.each<{ description: string; properties: Record<string, unknown> }>([
+            { description: 'numeric model', properties: { $ai_model: 4 } },
+            { description: 'boolean model', properties: { $ai_model: true } },
+            { description: 'array model', properties: { $ai_model: ['gpt-4'] } },
+            { description: 'object model', properties: { $ai_model: { name: 'gpt-4' } } },
+            { description: 'numeric provider', properties: { $ai_provider: 1 } },
+            {
+                description: 'object framework',
+                properties: { $ai_provider: 'anthropic', $ai_framework: { name: 'vercel' } },
+            },
+        ])('keeps custom pricing when the event carries a $description', ({ properties }) => {
+            Object.assign(event.properties!, properties)
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 10
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Custom)
+        })
+
         // Every optional price OpenAI events consume is garbage at once, so dropping
         // the coercion on any single one puts it back in front of js-big-decimal. The
         // cache-write rates only apply to Anthropic events, covered separately below.

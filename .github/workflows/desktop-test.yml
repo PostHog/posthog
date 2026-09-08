@@ -11,11 +11,14 @@ on:
                 required: false
             POSTHOG_CODE_E2E_GATEWAY_URL:
                 required: false
-    push:
-        branches: [master]
-        paths:
-            - 'products/desktop/**'
-            - '.github/workflows/desktop-test.yml'
+    # A cron carries master coverage for this suite. Pull requests and merge queue
+    # batches run it per change, so the only gap left on master is drift from outside
+    # the repo: a new Electron, Playwright or runner-image version. Daily is enough for
+    # that, and it keeps demand on depot-macos-26 low, which is a fixed pool shared
+    # across Depot customers that cannot autoscale for a runner. 05:03 UTC holds this
+    # run clear of desktop-update-e2e.yml, the other daily job on that pool, at 07:00.
+    schedule:
+        - cron: '3 5 * * *'
 
 concurrency:
     group: desktop-test-${{ github.head_ref || github.ref }}
@@ -131,17 +134,20 @@ jobs:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
         #
-        # Also skipped on trunk-merge/** heads. Trunk's queue opens a real PR, so
-        # the merge_group arm never matches and this ran on every batch. Every
-        # batched PR already ran it in full, and depot-macos-26 is the suite's only
-        # macOS runner, where an hour-long wait at peak holds the queue instead of
-        # one author's PR. Scoped to same-repo heads so a fork cannot opt out by
-        # naming its branch trunk-merge/**. While the live-model `e2e` job still
-        # needs this one, it skips there too, the cascade merge_group relies on.
+        # A draft pull request skips this job. depot-macos-26 is a fixed pool that Depot
+        # shares between customers, and Apple's 24-hour minimum lease stops it from
+        # autoscaling, so a runner requested per draft push can wait many times longer
+        # than the job runs. The author gets the signal back on ready_for_review, which
+        # desktop-ci.yml dispatches on for this reason, the same way desktop-build.yml
+        # does.
+        #
+        # trunk-merge/** heads are exempt because Trunk opens its batch pull requests as
+        # drafts. Without that clause, the draft check would skip the one run that gates
+        # master.
         if: >-
             !cancelled() &&
             github.event_name != 'merge_group' &&
-            !(github.event.pull_request.head.repo.full_name == github.repository &&
+            (github.event.pull_request.draft != true ||
             startsWith(github.head_ref, 'trunk-merge/')) &&
             (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true')
         runs-on: depot-macos-26

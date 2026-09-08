@@ -996,8 +996,9 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
     BackfillRefusalReason.COHORT_INELIGIBLE: "refused_ineligible",
     BackfillRefusalReason.INVALID_HORIZON: "refused_ineligible",
     BackfillRefusalReason.PINNING_CAP_EXCEEDED: "refused_ineligible",
-    # Not transient: the sizing scan's read cap is deterministic, so a cohort that trips it trips it
-    # again on every later trigger until someone raises the limit. Nothing clears on its own.
+    # Not transient: the sizing scan's read and time caps are deterministic, so a cohort that trips
+    # one trips it again on every later trigger until someone raises the limit. Nothing clears on
+    # its own.
     BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
     BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
 }
@@ -1006,7 +1007,8 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
 # acks_late: a countdown message acked on receipt sits in one worker's memory for the whole window
 # and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
 # the redelivery this trades into is harmless. The queue matches the module's other
-# ClickHouse-touching tasks: the person creator runs a sizing scan capped at 30 s.
+# ClickHouse-touching tasks: the person creator runs a sizing scan bounded by
+# `BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS`.
 @shared_task(
     ignore_result=True,
     acks_late=True,

@@ -621,8 +621,8 @@ def _apply_denormalized_counters(team: Team, built: list[_BuiltTicket]) -> None:
 
 def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: dict[str, Tag]) -> int:
     # Phase 3: Persist tickets + comments in a single transaction (no network I/O). Ticket numbers
-    # are assigned under the same lock that guards bulk_create, so concurrent batch activities can't
-    # collide on unique_ticket_number_per_team.
+    # are assigned under the same advisory lock as create_with_number, so live creates and
+    # concurrent batch activities can't collide on unique_ticket_number_per_team.
     #
     # IMPORTANT: persist historical rows with bulk_create/bulk_update ONLY. These bypass the
     # post_save/pre_save receivers in products/conversations/backend/signals.py, which is what
@@ -632,6 +632,8 @@ def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: d
     # Comment.objects.create(), or .save() would fire those signals for every imported row —
     # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
     with transaction.atomic():
+        Ticket.objects.lock_ticket_number_allocation(team.id)
+        # nosemgrep: hot-parent-row-select-for-update -- preserves compatibility with Team-lock-only import allocators
         Team.objects.select_for_update().get(id=team.id)
         max_num = Ticket.objects.filter(team_id=team.id).aggregate(Max("ticket_number"))["ticket_number__max"] or 0
         tickets_to_create = [b.ticket for b in built]
