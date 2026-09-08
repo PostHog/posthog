@@ -141,6 +141,7 @@ export function AccountCustomPropertyEditor({
         <div className="flex flex-col gap-2 w-full">
             {definition.display_type === 'boolean' ? (
                 <LemonSwitch
+                    disabled={saving}
                     checked={draft === true}
                     onChange={setDraft}
                     size="small"
@@ -149,6 +150,7 @@ export function AccountCustomPropertyEditor({
                 />
             ) : definition.display_type === 'select' ? (
                 <LemonSelect
+                    disabledReason={saving ? 'Saving' : undefined}
                     value={typeof draft === 'string' ? draft : ''}
                     onChange={(next) => setDraft(next ?? '')}
                     options={(definition.options ?? []).map((option) => ({ value: option.label, label: option.label }))}
@@ -158,6 +160,7 @@ export function AccountCustomPropertyEditor({
                 />
             ) : isNumeric ? (
                 <LemonInput
+                    disabled={saving}
                     type="number"
                     suffix={definition.display_type === 'percent' ? <span>%</span> : undefined}
                     value={numericDraft}
@@ -173,6 +176,7 @@ export function AccountCustomPropertyEditor({
             ) : (
                 <LemonInput
                     type={definition.display_type === 'link' ? 'url' : 'text'}
+                    disabled={saving}
                     value={typeof draft === 'string' ? draft : ''}
                     onChange={setDraft}
                     onPressEnter={save}
@@ -194,7 +198,12 @@ export function AccountCustomPropertyEditor({
                 >
                     Clear value
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={onCancel} data-attr="account-property-cancel">
+                <LemonButton
+                    size="xsmall"
+                    onClick={onCancel}
+                    disabledReason={saving ? 'Saving' : undefined}
+                    data-attr="account-property-cancel"
+                >
                     Cancel
                 </LemonButton>
                 <LemonButton
