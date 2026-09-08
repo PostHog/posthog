@@ -70,3 +70,9 @@ def pace_seconds_harmonic(priority: Priority = Priority.NORMAL) -> float:
     walking pages) so it spreads its share of the budget instead of bursting into it and being
     shed. Advisory only — acquire/consume remain the sole admission authority."""
     return get_outbound_rate_limiter().pace_seconds(HARMONIC_ACCOUNT_KEY, priority=priority)
+
+
+def admission_interval_harmonic(priority: Priority = Priority.NORMAL) -> float:
+    """Seconds between admissions that keep a steady caller inside this priority's share of the
+    budget, from the policy alone. See OutboundRateLimiter.admission_interval_seconds."""
+    return get_outbound_rate_limiter().admission_interval_seconds(HARMONIC_ACCOUNT_KEY, priority=priority)

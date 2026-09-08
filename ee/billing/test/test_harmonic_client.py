@@ -22,6 +22,8 @@ HARMONIC_REQUEST = "ee.billing.salesforce_enrichment.harmonic_client.harmonic_re
 PACE_SECONDS_HARMONIC = "ee.billing.salesforce_enrichment.harmonic_client.pace_seconds_harmonic"
 ASYNCIO_SLEEP = "ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep"
 ASYNCIO_TO_THREAD = "ee.billing.salesforce_enrichment.harmonic_client.asyncio.to_thread"
+ADMISSION_INTERVAL_HARMONIC = "ee.billing.salesforce_enrichment.harmonic_client.admission_interval_harmonic"
+MONOTONIC = "ee.billing.salesforce_enrichment.harmonic_client.time.monotonic"
 
 # Captured at import time, before any test patches asyncio.sleep, so the fake sleeps below always
 # yield to the real event loop rather than recursing into whichever mock is active when they run.
@@ -317,6 +319,7 @@ async def test_get_enrichment_status_reraises_on_http_error():
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 async def test_enrich_companies_batch_paces_once_per_request(mock_sleep, mock_pace):
@@ -335,6 +338,26 @@ async def test_enrich_companies_batch_paces_once_per_request(mock_sleep, mock_pa
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.25)
+@patch(MONOTONIC, new=lambda: 1000.0)
+@patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
+@patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
+async def test_enrich_companies_batch_spaces_admissions_by_the_lane_interval_despite_headroom(mock_sleep, mock_pace):
+    # pace_seconds reads the window, which does not yet hold the calls this batch admitted but has
+    # not consumed, so headroom alone would let several admissions through at once.
+    domains = ["a.com", "b.com", "c.com"]
+    client = _client(priority=Priority.BATCH)
+    mock_request = AsyncMock(side_effect=[_found({"name": d}) for d in domains])
+    with patch(HARMONIC_REQUEST, new=mock_request):
+        results = await client.enrich_companies_batch(domains)
+
+    assert results == [{"name": d} for d in domains]
+    assert [call.args[0] for call in mock_sleep.await_args_list] == [0.25, 0.25]
+
+
+@pytest.mark.asyncio
+@patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 async def test_enrich_companies_batch_backs_off_a_full_window_after_a_shed_before_retrying(mock_sleep, mock_pace):
@@ -353,6 +376,7 @@ async def test_enrich_companies_batch_backs_off_a_full_window_after_a_shed_befor
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.0)
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot_frees(mock_pace):
     # With one more domain than the in-flight cap, the extra lookup must start once any slot
@@ -402,6 +426,7 @@ async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 async def test_enrich_companies_batch_retries_a_denied_domain_in_a_later_attempt(mock_sleep, mock_pace):
@@ -439,6 +464,7 @@ async def test_enrich_companies_batch_retries_a_denied_domain_in_a_later_attempt
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 @patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
@@ -517,6 +543,7 @@ async def test_enrich_companies_batch_skips_pacing_for_critical_priority(mock_sl
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
 async def test_enrich_companies_batch_names_the_domain_of_an_operational_failure(mock_capture, mock_sleep, mock_pace):
@@ -537,6 +564,7 @@ async def test_enrich_companies_batch_names_the_domain_of_an_operational_failure
 
 @pytest.mark.asyncio
 @patch(PACE_SECONDS_HARMONIC, return_value=0.0)
+@patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 async def test_enrich_companies_batch_with_a_single_domain(mock_sleep, mock_pace):
     # _enrich_specific_domain_debug calls enrich_companies_batch with exactly one domain; the

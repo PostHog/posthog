@@ -72,6 +72,8 @@ if pace > 0:
 `pace_seconds` returns **0 while a window still holds more than half of that priority's allowance**, so a short run is never slowed for a budget it cannot dent.
 Below that it spreads the allowance that is left over the time left in the window, which is the interval that keeps the caller admitted instead of shed.
 It reads the same reserved floors admission does, so a `BATCH` caller paces off the share it may actually take, not the whole window.
+A caller that keeps several calls in flight also asks `admission_interval_seconds(key, priority=...)` for the gap between admissions that fits its share of every window, and waits for whichever of the two is longer.
+`pace_seconds` reads the window, so it cannot see calls the caller admitted but has not consumed yet; the interval comes from the policy alone and holds through that gap and through a store outage.
 
 Two things it is not.
 It is **advisory** — `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.

@@ -1,3 +1,4 @@
+import time
 import asyncio
 from typing import Any, Optional
 
@@ -6,7 +7,7 @@ from django.conf import settings
 import aiohttp
 
 from posthog.dataclasses import frozen
-from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS, pace_seconds_harmonic
+from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS, admission_interval_harmonic, pace_seconds_harmonic
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -304,8 +305,9 @@ class AsyncHarmonicClient:
         """Enrich multiple domains concurrently, one task per domain.
 
         An asyncio.Semaphore bounds how many lookups run at once (_ENRICH_MAX_CONCURRENT_LOOKUPS); admission
-        for each request is paced individually against the shared egress budget, serialized through
-        a lock so only the wait blocks, not the request itself. A domain shed by the egress limiter
+        for each request is paced individually against the shared egress budget and held at least the
+        lane's admission interval after the previous one, serialized through a lock so only the wait
+        blocks, not the request itself. A domain shed by the egress limiter
         waits one budget window and retries, up to _ENRICH_MAX_ATTEMPTS. A domain still shed after
         every attempt is reported to error tracking and left None, distinctly from a genuine
         not-found or an operational failure (also None): callers persist these results against a
@@ -323,15 +325,24 @@ class AsyncHarmonicClient:
         results: list[dict[str, Any] | None] = [None] * len(domains)
         semaphore = asyncio.Semaphore(_ENRICH_MAX_CONCURRENT_LOOKUPS)
         pacing_lock = asyncio.Lock()
+        next_admission_at = 0.0
+
+        async def wait_for_admission() -> None:
+            nonlocal next_admission_at
+            async with pacing_lock:
+                pace = await asyncio.to_thread(pace_seconds_harmonic, self.priority)
+                # The interval keeps admissions inside the lane even while the limiter cannot yet
+                # see the calls this batch admitted but has not consumed.
+                wait = max(pace, next_admission_at - time.monotonic())
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                next_admission_at = time.monotonic() + admission_interval_harmonic(self.priority)
 
         async def enrich_one(index: int, domain: str) -> None:
             for attempt in range(1, _ENRICH_MAX_ATTEMPTS + 1):
                 async with semaphore:
                     if self.priority is not Priority.CRITICAL:
-                        async with pacing_lock:
-                            pace = await asyncio.to_thread(pace_seconds_harmonic, self.priority)
-                            if pace > 0:
-                                await asyncio.sleep(pace)
+                        await wait_for_admission()
 
                     try:
                         results[index] = await self._enrich_company_by_domain_observing_denial(domain)
