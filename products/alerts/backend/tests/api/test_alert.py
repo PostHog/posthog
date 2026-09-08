@@ -88,6 +88,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "snoozed_until": None,
             "skip_weekend": False,
             "schedule_restriction": None,
+            "schedule_anchor": None,
             "last_value": None,
             "investigation_agent_enabled": False,
             "investigation_gates_notifications": False,

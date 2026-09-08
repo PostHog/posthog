@@ -68,6 +68,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
         alert.team = MagicMock()
         alert.team.timezone = "UTC"
         alert.calculation_interval = "hourly"
+        alert.schedule_anchor = None
         for k, v in kwargs.items():
             setattr(alert, k, v)
         return alert

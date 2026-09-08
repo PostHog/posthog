@@ -177,11 +177,14 @@ def next_calendar_check_time(
                     CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
                     CalendarInterval.HOURLY: 60,
                 }[interval]
-                earliest_allowed = now + timedelta(minutes=cadence_minutes) if next_check_at is not None else now
+                earliest_allowed = next_check_at + timedelta(minutes=cadence_minutes) if next_check_at else now
+                earliest_allowed = max(earliest_allowed, now)
                 if anchor_utc < earliest_allowed:
                     elapsed_seconds = (earliest_allowed - anchor_utc).total_seconds()
                     intervals_to_advance = int((elapsed_seconds - 1) // (cadence_minutes * 60)) + 1
                     anchor_utc += timedelta(minutes=intervals_to_advance * cadence_minutes)
+                if anchor_utc <= now:
+                    anchor_utc += timedelta(minutes=cadence_minutes)
                 return anchor_utc
             case CalendarInterval.DAILY:
                 if anchor_utc <= now:

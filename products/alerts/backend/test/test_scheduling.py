@@ -130,16 +130,18 @@ class TestScheduleAnchor:
 
     @parameterized.expand(
         [
-            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 10, 35, tzinfo=UTC)),
-            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 50, tzinfo=UTC)),
+            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 9, 30, tzinfo=UTC), datetime(2026, 3, 18, 10, 35, tzinfo=UTC)),
+            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC), datetime(2026, 3, 18, 10, 35, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 30, tzinfo=UTC), datetime(2026, 3, 18, 9, 50, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC), datetime(2026, 3, 18, 9, 50, tzinfo=UTC)),
         ]
     )
     def test_next_check_respects_the_cadence_after_an_anchor_edit(
-        self, interval: CalendarInterval, expected: datetime
+        self, interval: CalendarInterval, now: datetime, expected: datetime
     ) -> None:
         result = next_calendar_check_time(
             interval,
-            now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+            now=now,
             tz_name="UTC",
             next_check_at=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
             schedule_anchor={"time": "09:35"},
