@@ -71,7 +71,6 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
 
     # Routed to the new dedicated queue
     assert captured["queue_name"] == "usage_reports_v2"
-    assert SQS_QUEUE_NAME == "usage_reports_v2"
 
     fake_producer.send_message.assert_called_once()
     call_kwargs = fake_producer.send_message.call_args.kwargs

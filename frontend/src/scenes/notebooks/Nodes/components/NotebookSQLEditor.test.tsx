@@ -156,7 +156,6 @@ describe('NotebookSQLEditor', () => {
     })
 
     it('uses a concrete embedded editor height by default', () => {
-        expect(EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT).toBe(333)
         expect(getEmbeddedSqlEditorStyle(undefined)).toEqual({
             height: EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
             minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
@@ -164,8 +163,6 @@ describe('NotebookSQLEditor', () => {
     })
 
     it('uses a shorter embedded editor height for edit panels', () => {
-        expect(EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT).toBe(150)
-        expect(EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT).toBe(150)
         expect(
             getEmbeddedSqlEditorStyle(
                 undefined,

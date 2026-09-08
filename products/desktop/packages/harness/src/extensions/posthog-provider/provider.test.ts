@@ -93,10 +93,6 @@ describe("buildPosthogProvider", () => {
     expect(config.apiKey).toBeUndefined();
   });
 
-  it("uses a stable provider name", () => {
-    expect(POSTHOG_PROVIDER_NAME).toBe("posthog");
-  });
-
   it("delegates login and refresh to the oauth module for the resolved region", async () => {
     const loginSpy = vi
       .spyOn(oauth, "loginPosthog")

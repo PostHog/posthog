@@ -191,7 +191,6 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
-            assert hasattr(result, "results")
             self.assertEqual(len(result.results), 4)
 
             date_to = now()

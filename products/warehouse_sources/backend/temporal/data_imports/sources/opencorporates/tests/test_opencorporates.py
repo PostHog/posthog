@@ -323,7 +323,6 @@ class TestSourceResponse:
         for endpoint in OPENCORPORATES_ENDPOINTS:
             response = _source(endpoint)
             assert response.name == endpoint
-            assert callable(response.items)
 
 
 class TestValidateCredentials:

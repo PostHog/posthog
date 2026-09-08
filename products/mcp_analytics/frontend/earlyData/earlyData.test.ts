@@ -32,7 +32,6 @@ describe('early data derivations', () => {
                 orderBy: ['timestamp DESC'],
             },
         })
-        expect(MCP_ACTIVITY_PAGE_SIZE).toBe(100)
         expect(MCP_ACTIVITY_MAX_ROWS).toBeGreaterThan(MCP_ACTIVITY_PAGE_SIZE)
         expect(MCP_ACTIVITY_COLUMNS).toContain('*')
         expect(MCP_ACTIVITY_COLUMNS.find((column) => column.endsWith('-- Tool'))).toContain('$mcp_exec_tool_call_name')

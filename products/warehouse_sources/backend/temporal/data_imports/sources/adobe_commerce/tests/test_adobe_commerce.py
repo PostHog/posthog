@@ -15,7 +15,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce import adobe_commerce
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.adobe_commerce import (
     HOST_NOT_ALLOWED_ERROR,
-    MAX_RESPONSE_BYTES,
     AdobeCommerceConfigurationError,
     AdobeCommerceCredentials,
     AdobeCommerceHostNotAllowedError,
@@ -386,7 +385,6 @@ class TestReadCappedJson:
 
     def test_body_within_the_cap_parses(self) -> None:
         assert _read_capped_json(_make_response(200, {"items": [{"id": 1}]})) == {"items": [{"id": 1}]}
-        assert MAX_RESPONSE_BYTES > 0
 
     def test_slow_body_is_abandoned_at_the_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A host that never completes a chunk (dripping bytes under the socket read timeout) must not

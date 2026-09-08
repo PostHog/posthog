@@ -7,7 +7,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.logic.services.local_skills import (
-    BUILD_HASH_FILENAME,
     BUILT_SKILLS_RELATIVE_PATH,
     LocalSkillsCache,
     populate_skills_directory,
@@ -179,7 +178,3 @@ class TestLocalSkills(BaseTest):
         destination = self.base_dir / "mount"
         populate_skills_directory(destination, base_dir=self.base_dir)
         self.assertTrue(not destination.exists() or not any(destination.iterdir()))
-
-    def test_module_constants_are_stable(self) -> None:
-        self.assertEqual(BUILD_HASH_FILENAME, ".build-hash")
-        self.assertEqual(BUILT_SKILLS_RELATIVE_PATH, Path("products/posthog_ai/dist/skills"))

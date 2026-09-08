@@ -1,7 +1,6 @@
 import { isDefaultSelectOption, selectOptionDocsUrl } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_EFFORT,
   FALLBACK_MODEL,
   getContextWindowOptions,
   getEffortOptions,
@@ -164,10 +163,6 @@ describe("model capability flags", () => {
 });
 
 describe("resolveEffortForModel", () => {
-  it("defaults the thinking level to high", () => {
-    expect(DEFAULT_EFFORT).toBe("high");
-  });
-
   it.each([
     // No explicit effort: effort-capable models fall back to the default.
     ["claude-fable-5", undefined, "high"],

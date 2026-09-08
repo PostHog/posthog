@@ -250,7 +250,6 @@ class TestSourceResponse:
         for endpoint in AVIATIONSTACK_ENDPOINTS:
             response = _source(endpoint)
             assert response.name == endpoint
-            assert callable(response.items)
 
 
 class TestValidateCredentials:

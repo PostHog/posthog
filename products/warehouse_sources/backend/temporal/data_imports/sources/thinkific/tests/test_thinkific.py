@@ -277,7 +277,6 @@ class TestSourceResponse:
         manager = _make_manager()
         resp = thinkific_source("k", "s", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
         assert resp.primary_keys == ["id"]
-        assert callable(resp.items)
 
 
 class TestValidateCredentials:

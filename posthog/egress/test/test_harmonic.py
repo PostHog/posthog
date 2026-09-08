@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.egress.harmonic.limiter import HARMONIC_ACCOUNT_KEY, consume_harmonic
+from posthog.egress.harmonic.limiter import consume_harmonic
 from posthog.egress.harmonic.observability import _parse_harmonic_rate_limit
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.backends import LimitsBackend
@@ -35,7 +35,6 @@ class TestHarmonicLimiterRegistration(SimpleTestCase):
     def test_policy_is_registered_for_the_global_key(self) -> None:
         # consume raises for a domain with no registered policy — this catches the registration
         # side effect being lost (e.g. an import shuffle dropping the register_policy call).
-        assert HARMONIC_ACCOUNT_KEY == "harmonic:account:default"
         assert consume_harmonic(source="test") is True
 
 

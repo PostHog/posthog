@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any
 
 import pytest
@@ -10,7 +10,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates import open_exchange_rates
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
     BASE_URL,
-    DEFAULT_BASE_CURRENCY,
     OpenExchangeRatesResumeConfig,
     OpenExchangeRatesRetryableError,
     _build_url,
@@ -395,12 +394,3 @@ class TestOpenExchangeRatesSourceResponse:
             response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
             assert response.name == endpoint
             assert response.primary_keys == OPEN_EXCHANGE_RATES_ENDPOINTS[endpoint].primary_keys
-
-    def test_default_base_currency_is_usd(self) -> None:
-        assert DEFAULT_BASE_CURRENCY == "USD"
-
-
-class TestUtcTodayUsage:
-    def test_datetime_now_is_timezone_aware(self) -> None:
-        # Guard the UTC handling that derives the `latest` value date and the historical window.
-        assert datetime.now(tz=UTC).tzinfo is not None

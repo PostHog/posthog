@@ -898,7 +898,6 @@ class TestSourceResponse:
         )
 
         # No HTTP happens until the pipeline iterates, so nothing needed mocking above.
-        assert callable(response.items)
         assert isinstance(cast("Iterable[Any]", response.items()), Iterable)
 
 

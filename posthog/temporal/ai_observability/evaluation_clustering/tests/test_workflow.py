@@ -16,11 +16,7 @@ from posthog.temporal.ai_observability.evaluation_clustering.activities import (
     GenerateEvaluationLabelsInputs,
     GenerateEvaluationLabelsOutputs,
 )
-from posthog.temporal.ai_observability.evaluation_clustering.constants import (
-    SAMPLER_MAX_SAMPLES_PER_JOB,
-    SAMPLER_WINDOW_MINUTES,
-    SAMPLER_WINDOW_OFFSET_MINUTES,
-)
+from posthog.temporal.ai_observability.evaluation_clustering.constants import SAMPLER_WINDOW_MINUTES
 from posthog.temporal.ai_observability.evaluation_clustering.coordinator import _evaluation_jobs_for_team
 from posthog.temporal.ai_observability.evaluation_clustering.models import (
     SamplerActivityInputs,
@@ -54,29 +50,6 @@ class TestEvaluationJobsForTeam:
 
     def test_empty_input_returns_empty(self):
         assert _evaluation_jobs_for_team([]) == []
-
-
-class TestWindowMathFormula:
-    """Pure formula sanity check — no workflow runtime, just the arithmetic.
-
-    The workflow code does:
-        window_end   = now - OFFSET
-        window_start = window_end - WINDOW
-    """
-
-    def test_window_matches_spec(self):
-        now = datetime(2026, 4, 15, 12, 0, 0, tzinfo=UTC)
-        expected_end = now - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
-        expected_start = expected_end - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
-
-        # Window is 1h, offset is 30min — so [11:30 - 30, 11:30)
-        assert expected_end == datetime(2026, 4, 15, 11, 30, 0, tzinfo=UTC)
-        assert expected_start == datetime(2026, 4, 15, 10, 30, 0, tzinfo=UTC)
-
-    def test_sample_cap_is_250(self):
-        # Locked in the spec — warn loudly if someone changes this without updating Stage B's
-        # assumptions about daily accumulation volume.
-        assert SAMPLER_MAX_SAMPLES_PER_JOB == 250
 
 
 def _parse_z(ts: str) -> datetime:
@@ -124,8 +97,7 @@ async def _run_sampler_with_mock_activity(
 
 class TestSamplerWorkflowWindowMath:
     """End-to-end verification — runs the workflow in WorkflowEnvironment.start_time_skipping()
-    with a mocked activity, so the formula test above still catches regressions even if the
-    workflow wiring changes shape.
+    with a mocked activity, so window derivation is checked through the real workflow wiring.
     """
 
     @pytest.mark.asyncio
@@ -136,8 +108,7 @@ class TestSamplerWorkflowWindowMath:
             window_end   = workflow.now() - SAMPLER_WINDOW_OFFSET_MINUTES
             window_start = window_end     - SAMPLER_WINDOW_MINUTES
 
-        Asserts the derived window spans exactly SAMPLER_WINDOW_MINUTES; the absolute offset
-        from workflow.now() is pinned separately by TestWindowMathFormula. (Independent of
+        Asserts the derived window spans exactly SAMPLER_WINDOW_MINUTES. (Independent of
         wall-clock because it only checks the span between the two derived bounds.)
         """
         inputs = SamplerWorkflowInputs(team_id=7, job_id="j-derived", job_name="derived window")

@@ -1,7 +1,7 @@
 import { murmur2Partition } from '~/common/kafka/murmur2'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { MERGE_EVENT_SCHEMA_VERSION, buildPersonMergeEventMessage } from './person-merge-event'
+import { buildPersonMergeEventMessage } from './person-merge-event'
 
 describe('buildPersonMergeEventMessage', () => {
     const teamId = 2
@@ -41,7 +41,6 @@ describe('buildPersonMergeEventMessage', () => {
 
     it('pins schema_version to 1', () => {
         expect(decode(build().value).schema_version).toBe(1)
-        expect(MERGE_EVENT_SCHEMA_VERSION).toBe(1)
     })
 
     it('carries the merge identities and timestamp verbatim', () => {

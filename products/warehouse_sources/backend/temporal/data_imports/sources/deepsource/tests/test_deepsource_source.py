@@ -54,7 +54,6 @@ class TestDeepsourceSource:
 
         assert response.name == endpoint
         assert response.primary_keys == DEEPSOURCE_ENDPOINTS[endpoint].primary_keys
-        assert callable(response.items)
 
 
 class TestDeepsourceNonRetryableErrors:

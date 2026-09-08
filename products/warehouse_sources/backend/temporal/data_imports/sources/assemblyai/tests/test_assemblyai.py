@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai
     base_url_for_region,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.settings import ENDPOINTS
 
 # RESTClient (list pagination and per-transcript hydration) builds its session via
 # make_tracked_session in the rest_client module.
@@ -250,9 +249,6 @@ class TestAssemblyAIRows:
 
 
 class TestAssemblyAISource:
-    def test_endpoints_inventory(self) -> None:
-        assert ENDPOINTS == ("transcripts",)
-
     def test_source_response_shape(self) -> None:
         response = assemblyai_source(
             "key", "us", "transcripts", team_id=1, job_id="j", resumable_source_manager=_make_manager()

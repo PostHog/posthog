@@ -819,11 +819,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             f"/api/organizations/@current/plugins/{id}/update_source",
             {"frontend.tsx": None},
         )
-        try:
+        with self.assertRaises(PluginSourceFile.DoesNotExist):
             PluginSourceFile.objects.get(plugin_id=id)
-            raise AssertionError("Should have thrown DoesNotExist")
-        except PluginSourceFile.DoesNotExist:
-            assert True
 
         # Check that the syntax for "site.ts" is slightly different
         self.client.patch(

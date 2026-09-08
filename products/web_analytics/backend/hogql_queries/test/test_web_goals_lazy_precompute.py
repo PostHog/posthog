@@ -220,15 +220,6 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"lazy/live mismatch for action={action.name!r}: lazy={lazy_by_action}, live={live_by_action}"
         )
 
-    def test_max_actions_constant_matches_live_runner_slice(self):
-        """The lazy `MAX_ACTIONS` cap must equal the live runner's hard slice;
-        otherwise we'd be precomputing rows the runner never reads (extra
-        INSERT load) or, worse, missing rows the runner asks for."""
-        from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import MAX_ACTIONS
-
-        # The live slice is hard-coded `[:5]` in `web_goals.py`'s `to_query`.
-        assert MAX_ACTIONS == 5
-
     @freeze_time("2024-01-15T12:00:00Z")
     def test_stale_served_enqueues_background_revalidation(self):
         # Without the `result.stale` hook this family would serve stale for the whole

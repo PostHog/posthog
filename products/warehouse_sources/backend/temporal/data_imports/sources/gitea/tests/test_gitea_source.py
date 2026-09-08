@@ -8,10 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.source import (
-    GITEA_WEBHOOK_RESOURCE_MAP,
-    GiteaSource,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.source import GiteaSource
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.source"
 
@@ -73,10 +70,6 @@ class TestGiteaSource:
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["issues"])
         assert [schema.name for schema in schemas] == ["issues"]
-
-    def test_webhook_resource_map(self):
-        assert GITEA_WEBHOOK_RESOURCE_MAP == {"issues": "issues", "pull_requests": "pull_request"}
-        assert self.source.webhook_resource_map == GITEA_WEBHOOK_RESOURCE_MAP
 
     def test_webhook_template_present(self):
         template = self.source.webhook_template

@@ -247,4 +247,3 @@ class TestSourceResponsePartitioning:
 def test_every_endpoint_builds_a_source_response(endpoint: str) -> None:
     response = _source(_make_manager(), endpoint=endpoint)
     assert response.name == endpoint
-    assert callable(response.items)

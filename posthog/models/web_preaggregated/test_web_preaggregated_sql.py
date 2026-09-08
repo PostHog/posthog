@@ -256,7 +256,6 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
         # Basic smoke test - ensures both insert queries execute without errors
         sync_execute(stats_insert)
         sync_execute(bounces_insert)
-        assert True
 
     def test_insert_queries_contain_all_columns_for_stats(self):
         stats_insert = WEB_STATS_INSERT_SQL(

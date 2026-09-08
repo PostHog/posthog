@@ -353,5 +353,4 @@ class TestTrelloSourceResponse:
     @parameterized.expand([(name,) for name in TRELLO_ENDPOINTS])
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
         response = _source(endpoint, _make_manager())
-        assert callable(response.items)
         assert response.primary_keys == [TRELLO_ENDPOINTS[endpoint].primary_key]

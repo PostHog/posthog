@@ -339,4 +339,3 @@ class TestXmattersSourceResponse:
         response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == [XMATTERS_ENDPOINTS[endpoint].primary_key]
-        assert callable(response.items)

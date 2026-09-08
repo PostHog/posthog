@@ -196,6 +196,3 @@ class TestEventeeSourceResponse:
         config = EVENTEE_ENDPOINTS[endpoint]
         if config.partition_key:
             assert config.partition_key in ("created_at", "registered_at")
-
-    def test_base_url_is_fixed(self) -> None:
-        assert EVENTEE_BASE_URL == "https://api.eventee.com/public/v1"

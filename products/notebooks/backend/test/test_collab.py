@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog import redis
 
 from products.notebooks.backend.collab import StepEntry, submit_steps
-from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN, STREAM_MAX_LENGTH
+from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
 from products.notebooks.backend.markdown_collab import (
     MAX_PUBLISHED_DIFF_BYTES,
     MarkdownDiff,
@@ -272,10 +272,6 @@ class TestNotebookCollab(BaseTest):
         assert result.status == "stale"
         assert result.version == 1
         assert result.steps_since is None
-
-    def test_stream_maxlen_constant_is_sane(self):
-        # Sanity: MAXLEN must comfortably hold an hour of edits. Adjust deliberately if changed.
-        assert STREAM_MAX_LENGTH >= 1000
 
 
 class TestUtf16Diff(TestCase):

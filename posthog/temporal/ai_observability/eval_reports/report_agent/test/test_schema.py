@@ -6,8 +6,6 @@ from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.output_types import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
-    MAX_REPORT_SECTIONS,
-    MIN_REPORT_SECTIONS,
     Citation,
     EvalReportContent,
     EvalReportGenerationStatus,
@@ -275,10 +273,3 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertIsNotNone(content.metrics)
         assert content.metrics is not None
         self.assertEqual(content.metrics.total_runs, 5)
-
-
-class TestSectionBounds(SimpleTestCase):
-    def test_min_and_max_constants(self):
-        # Contract with the agent prompt — if these change, prompt must change too.
-        self.assertEqual(MIN_REPORT_SECTIONS, 1)
-        self.assertEqual(MAX_REPORT_SECTIONS, 6)

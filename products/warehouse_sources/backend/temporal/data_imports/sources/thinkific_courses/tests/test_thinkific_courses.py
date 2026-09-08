@@ -254,7 +254,6 @@ class TestSourceResponse:
         assert resp.name == endpoint
         assert resp.primary_keys == config.primary_keys
         assert resp.sort_mode == "asc"
-        assert callable(resp.items)
 
     @parameterized.expand([("enrollments",), ("users",)])
     def test_partitioned_endpoint_partitions_by_created_at(self, endpoint: str) -> None:

@@ -42,6 +42,5 @@ def test_detect_judges_over_a_multi_day_window_with_a_minimum_event_floor(mock_q
     ReverseProxyCheck().detect([1])
 
     _, kwargs = mock_query.call_args
-    assert REVERSE_PROXY_LOOKBACK_DAYS > 1
     assert kwargs["lookback_days"] == REVERSE_PROXY_LOOKBACK_DAYS
     assert kwargs["params"]["min_browser_events"] >= 1

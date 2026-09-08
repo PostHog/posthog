@@ -492,7 +492,7 @@ class TestAdjustSource:
         # Building the SourceResponse must not issue a request; the pipeline drives iteration.
         session = _FakeSession([])
         with mock.patch.object(adjust, "make_tracked_session", return_value=session):
-            response = adjust_source(
+            adjust_source(
                 api_token="token",
                 app_tokens=None,
                 report="daily_report",
@@ -500,7 +500,6 @@ class TestAdjustSource:
                 resumable_source_manager=_FakeResumeManager(),
             )
         assert session.requested_urls == []
-        assert callable(response.items)
 
     def test_items_streams_rows(self) -> None:
         session = _FakeSession([_page([{"day": "2024-06-30", "installs": "3"}])])

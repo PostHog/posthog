@@ -47,7 +47,6 @@ from posthog.hogql.test.utils import (
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -103,9 +102,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
         return random_uuid
-
-    def test_extended_query_time(self):
-        self.assertEqual(HOGQL_INCREASED_MAX_EXECUTION_TIME, 600)
 
     def test_simple_case_with_row_dependent_results(self):
         response = execute_hogql_query(

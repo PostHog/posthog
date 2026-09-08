@@ -516,7 +516,6 @@ class TestSquadcastSourceResponse:
         response = squadcast_source("tok", "us", endpoint, MagicMock(), MagicMock())
         assert response.name == endpoint
         assert response.primary_keys == [SQUADCAST_ENDPOINTS[endpoint].primary_key]
-        assert callable(response.items)
 
 
 class TestValidateCredentials:

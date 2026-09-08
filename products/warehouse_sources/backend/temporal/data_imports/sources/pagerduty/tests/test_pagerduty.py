@@ -414,4 +414,3 @@ class TestPagerDutySourceResponse:
         response = pagerduty_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.name == endpoint
         assert response.primary_keys == [PAGERDUTY_ENDPOINTS[endpoint].primary_key]
-        assert callable(response.items)

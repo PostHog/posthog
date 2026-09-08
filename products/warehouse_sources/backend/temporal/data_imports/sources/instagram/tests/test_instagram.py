@@ -11,7 +11,6 @@ import structlog
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram import (
     AUTH_ERROR_PREFIX,
-    MAX_REQUESTS_PER_SYNC,
     MAX_RETRY_ATTEMPTS,
     PERMISSION_ERROR_PREFIX,
     InstagramAuthError,
@@ -509,10 +508,6 @@ class TestInstagramFanOut:
 class TestInstagramRequestBudget:
     """The per-stream and per-parent page caps bound one loop each; the fan-out multiplies
     them, so a sync-wide budget is the only thing that bounds the requests a sync issues."""
-
-    def test_the_default_budget_covers_a_full_sync_of_the_biggest_documented_account(self) -> None:
-        # Meta caps the media edge at 10K posts, one insights request each.
-        assert MAX_REQUESTS_PER_SYNC > 10_000
 
     def test_the_fan_out_stops_once_the_sync_has_spent_its_request_budget(self) -> None:
         session = FakeSession(

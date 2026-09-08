@@ -302,6 +302,5 @@ class TestSourceResponseShape:
         # Building the SourceResponse must not perform any I/O; requests only fire on iteration.
         session = MockSession.return_value
         session.headers = {}
-        response = baseten_source("k", "deployments", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert callable(response.items)
+        baseten_source("k", "deployments", team_id=1, job_id="j", resumable_source_manager=_make_manager())
         session.send.assert_not_called()

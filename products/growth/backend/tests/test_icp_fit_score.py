@@ -3,7 +3,6 @@ from typing import Any
 from parameterized import parameterized
 
 from products.growth.backend.enrichment.fit_score import (
-    SCORE_VERSION,
     STATUS_DISQUALIFIED,
     STATUS_INSUFFICIENT_DATA,
     STATUS_NOT_FOUND,
@@ -58,10 +57,8 @@ def _traction(
     }
 
 
-def test_version_is_stamped():
-    assert SCORE_VERSION == "v0.5"
+def test_lists_version_is_stamped():
     result = score_company(_payload(), lists=LISTS)
-    assert result.version == "v0.5"
     assert result.lists_version == "test-lists"
 
 

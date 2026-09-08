@@ -454,7 +454,6 @@ class TestSendRefreshSession:
             timeout=REFRESH_TIMEOUT_SECONDS,
         )
         assert result.success
-        assert REFRESH_SESSION_METHOD == "_posthog/refresh_session"
 
 
 _HOGLAND_URL = "https://hogland.prod-us.posthog.dev"

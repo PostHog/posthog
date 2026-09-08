@@ -124,10 +124,6 @@ class TestSignalsBilling(BaseTest):
     def _credits(self) -> dict[int, int]:
         return dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END))
 
-    def test_flat_credit_is_fifteen_dollars(self) -> None:
-        # 1 credit = $0.01, so $15 == 1500 credits.
-        self.assertEqual(SIGNALS_CREDITS_PER_REPORT_WITH_PR, 1500)
-
     def test_report_with_pr_billed_flat(self) -> None:
         report = self._report()
         self._pr_run(report, created_at=_at(10))

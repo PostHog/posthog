@@ -149,5 +149,4 @@ class TestOpenMeteoSource:
         assert response.name == "weather_current"
         assert response.primary_keys == ["location_id", "time_utc"]
         # Building the response must not reach the API; only iterating it does.
-        assert callable(response.items)
         assert isinstance(cast("Iterable[Any]", response.items()), Iterable)

@@ -324,7 +324,6 @@ class TestWebflowSource:
             response = webflow_source(
                 "token", "site-1", "pages", team_id=1, job_id="j", resumable_source_manager=manager
             )
-            assert callable(response.items)
             assert isinstance(response.items(), Iterable)
 
 

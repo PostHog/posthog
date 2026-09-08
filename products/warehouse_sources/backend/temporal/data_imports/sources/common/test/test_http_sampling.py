@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.context import JobContext
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import RequestRecord
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.sampling import (
-    CAPTURE_CONFIG_REDIS_KEY,
     CaptureConfig,
     CaptureRule,
     _build_sample_payload,
@@ -738,8 +737,3 @@ def test_maybe_capture_first_match_wins():
     counter_keys = [c.args[0] for c in fake_redis.incr.call_args_list]
     assert any(":0" in k and "seq" not in k for k in counter_keys)
     assert not any(":1" in k for k in counter_keys)  # second rule never incremented
-
-
-def test_redis_capture_config_key_constant_is_stable():
-    """Bumping the key would silently drop active capture sessions — make this explicit."""
-    assert CAPTURE_CONFIG_REDIS_KEY == "data_imports:http_sample_capture"

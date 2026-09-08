@@ -10,7 +10,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api import exchange_rates_api
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api import (
     BASE_URL,
-    DEFAULT_BASE_CURRENCY,
     MAX_RANGE_DAYS,
     ExchangeRatesApiError,
     ExchangeRatesApiResumeConfig,
@@ -347,6 +346,3 @@ class TestExchangeRatesApiSource:
             response = exchange_rates_api_source("key", endpoint, "EUR", None, mock.MagicMock(), mock.MagicMock())
             assert response.name == endpoint
             assert response.primary_keys == EXCHANGE_RATES_API_ENDPOINTS[endpoint].primary_keys
-
-    def test_default_base_currency_is_eur(self) -> None:
-        assert DEFAULT_BASE_CURRENCY == "EUR"

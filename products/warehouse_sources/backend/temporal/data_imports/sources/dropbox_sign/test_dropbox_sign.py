@@ -9,7 +9,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign import dropbox_sign
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.dropbox_sign import (
-    DROPBOX_SIGN_BASE_URL,
     DropboxSignResumeConfig,
     _get_headers,
     dropbox_sign_source,
@@ -261,9 +260,6 @@ class TestSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    def test_base_url_is_v3(self) -> None:
-        assert DROPBOX_SIGN_BASE_URL == "https://api.hellosign.com/v3"
 
 
 class TestRetryClassification:

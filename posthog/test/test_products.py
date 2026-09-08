@@ -64,8 +64,4 @@ class TestProducts(BaseTest):
                 )
 
     def test_reload_does_not_raise_error(self):
-        try:
-            Products.reload()
-            assert True
-        except Exception as e:
-            raise AssertionError(f"Products.reload() raised an exception: {e}") from e
+        Products.reload()

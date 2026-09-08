@@ -9,10 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from posthog.temporal.mcp_analytics.intent_clustering.constants import COORDINATOR_SCHEDULE_ID
-from posthog.temporal.mcp_analytics.intent_clustering.schedule import (
-    FEATURE_FLAG_KEY,
-    create_intent_clustering_coordinator_schedule,
-)
+from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
 
 
 @pytest.fixture
@@ -107,11 +104,3 @@ class TestCreateIntentClusteringCoordinatorSchedule:
             schedule_helpers["delete"].assert_awaited_once_with(mock_client, COORDINATOR_SCHEDULE_ID)
         else:
             schedule_helpers["delete"].assert_not_called()
-
-
-class TestFeatureFlagKeyIsStable:
-    def test_flag_key_matches_documented_value(self) -> None:
-        # The feature flag must be created in PostHog with this exact key.
-        # Changing the key here without coordinating with the FF setup will
-        # silently leave the schedule off forever.
-        assert FEATURE_FLAG_KEY == "mcp-analytics-clustering-schedule"

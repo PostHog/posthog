@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.data_warehouse.backend.logic.webhook_consumer.writer import PARQUET_SCHEMA, WebhookParquetWriter
+from products.data_warehouse.backend.logic.webhook_consumer.writer import WebhookParquetWriter
 
 
 class TestWebhookParquetWriter:
@@ -98,9 +98,3 @@ class TestWebhookParquetWriter:
         pf = pq.ParquetFile(buffer)
         metadata = pf.metadata
         assert metadata.row_group(0).column(0).compression == "ZSTD"
-
-    def test_parquet_schema_constant(self):
-        assert len(PARQUET_SCHEMA) == 3
-        assert PARQUET_SCHEMA.field("team_id").type == pa.int64()
-        assert PARQUET_SCHEMA.field("schema_id").type == pa.utf8()
-        assert PARQUET_SCHEMA.field("payload_json").type == pa.utf8()

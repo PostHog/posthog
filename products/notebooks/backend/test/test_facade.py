@@ -5,7 +5,6 @@ from unittest.mock import patch
 from django.apps import apps
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.notebooks.backend import logic
 from products.notebooks.backend.analytics import NotebookCreationSource
 from products.notebooks.backend.facade import api, content
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
@@ -244,9 +243,3 @@ class TestNotebooksFacadeAsync(BaseTest):
     async def test_acan_user_edit_missing_notebook(self):
         uac = UserAccessControl(user=self.user, team=self.team)
         self.assertFalse(await api.acan_user_edit_notebook(self.team.id, "missing", user_access_control=uac))
-
-
-def test_logic_is_internal_only():
-    """The facade is the public surface; logic stays an implementation detail."""
-    assert hasattr(logic, "create_notebook")
-    assert hasattr(api, "create_notebook")

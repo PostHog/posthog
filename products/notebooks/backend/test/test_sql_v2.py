@@ -1882,7 +1882,6 @@ class TestFrameStoreFlagResolution(SimpleTestCase):
             feature_enabled.return_value = flag_value
             self.assertEqual(is_frame_store_enabled(user), flag_value)
         self.assertEqual(feature_enabled.call_args.args[0], NOTEBOOKS_FRAME_STORE_FLAG)
-        self.assertEqual(NOTEBOOKS_FRAME_STORE_FLAG, "notebooks-frame-store")
 
 
 class TestSQLV2DataPlaneEndpoint(APIBaseTest):

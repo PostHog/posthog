@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source import BloomerangSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bloomerang import (
@@ -80,9 +79,3 @@ class TestBloomerangSource:
             assert deprecation is not None
             assert deprecation.version == expected_version
             assert deprecation.sunset_at is None  # vendor published no sunset date
-
-    def test_request_layer_stays_on_the_v2_wire(self):
-        # No per-version dispatch: `/v2` is a fixed path segment, so a legacy v1 pin rides the same
-        # wire as v2. Regressing this URL to v1 would move every v1-pinned source onto the vendor's
-        # deprecated API.
-        assert BASE_URL == "https://api.bloomerang.co/v2"

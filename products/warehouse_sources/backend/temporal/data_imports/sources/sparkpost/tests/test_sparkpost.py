@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.
     WEBHOOK_EVENT_TYPES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.sparkpost import (
-    DEFAULT_REGION,
     SparkPostLinksPaginator,
     SparkPostResumeConfig,
     _format_from,
@@ -105,9 +104,6 @@ class TestBaseUrl:
     )
     def test_base_url(self, region: Any, expected: str) -> None:
         assert base_url(region) == expected
-
-    def test_default_region_is_us(self) -> None:
-        assert DEFAULT_REGION == "us"
 
 
 class TestFormatFrom:

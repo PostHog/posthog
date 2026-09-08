@@ -9,7 +9,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago import lago as lago_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.lago import (
-    DEFAULT_API_HOST,
     LagoHostNotAllowedError,
     LagoResumeConfig,
     lago_source,
@@ -350,9 +349,6 @@ class TestRetries:
 
 
 class TestBaseUrl:
-    def test_default_host_constant(self):
-        assert DEFAULT_API_HOST == "https://api.getlago.com"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_requests_target_base_host(self, MockSession):
         session = MockSession.return_value

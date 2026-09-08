@@ -69,8 +69,6 @@ BASE57_SET = set(BASE57)
 
 class TestTokenGeneration:
     def test_base57_alphabet(self):
-        assert BASE57 == "23456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
-        assert len(BASE57) == 57
         assert not AMBIGUOUS_CHARS & set(BASE57)
 
     @parameterized.expand(

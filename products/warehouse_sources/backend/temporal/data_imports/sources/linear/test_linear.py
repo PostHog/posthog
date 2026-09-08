@@ -612,7 +612,6 @@ class TestLinearSource:
 
         assert response.name == "issues"
         assert response.primary_keys == ["id"]
-        assert callable(response.items)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_get_rows_threads_manager_through(self, mock_session_cls: MagicMock) -> None:

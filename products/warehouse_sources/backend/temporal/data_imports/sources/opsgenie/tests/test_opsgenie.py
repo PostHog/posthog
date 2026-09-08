@@ -364,4 +364,3 @@ class TestOpsgenieSourceResponse:
         response = _source(endpoint, _FakeManager())
         assert response.name == endpoint
         assert response.primary_keys == [OPSGENIE_ENDPOINTS[endpoint].primary_key]
-        assert callable(response.items)

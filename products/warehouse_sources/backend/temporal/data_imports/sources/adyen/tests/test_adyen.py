@@ -676,7 +676,6 @@ class TestAdyenSourceResponse:
             resumable_source_manager=_FakeManager(),
         )
 
-        assert callable(response.items)
         with mock.patch.object(adyen_module, "_get_session", return_value=_FakeSession([])):
             with pytest.raises(AdyenConfigurationError):
                 list(cast("Iterable[Any]", response.items()))

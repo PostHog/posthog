@@ -957,10 +957,6 @@ describe('renderDiscountReport()', () => {
             })
         )
 
-    it('pins the row limit to a literal, so the cap cannot drift with the code', () => {
-        expect(DISCOUNT_REPORT_ROW_LIMIT).toBe(200)
-    })
-
     it('lists everything and says nothing about omissions at exactly the limit', () => {
         const report = renderDiscountReport(manyEntries(DISCOUNT_REPORT_ROW_LIMIT))
         expect(report.split('\n').filter((line) => line.includes('50%'))).toHaveLength(DISCOUNT_REPORT_ROW_LIMIT)

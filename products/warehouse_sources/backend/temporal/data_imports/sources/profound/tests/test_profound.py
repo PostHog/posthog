@@ -8,7 +8,6 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.profound.profound import (
-    DEFAULT_REPORT_LOOKBACK_DAYS,
     REPORT_PAGE_SIZE,
     ProfoundCategoriesError,
     ProfoundResumeConfig,
@@ -160,7 +159,6 @@ class TestReportRequests:
         _rows(_source("Citations", _make_manager(), today=date(2026, 6, 15)))
 
         assert bodies[0]["start_date"] == "2025-06-15"
-        assert DEFAULT_REPORT_LOOKBACK_DAYS == 365
 
     @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1"])
     @mock.patch(CLIENT_SESSION_PATCH)

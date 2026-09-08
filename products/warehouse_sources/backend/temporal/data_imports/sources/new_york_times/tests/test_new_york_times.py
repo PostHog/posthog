@@ -294,9 +294,8 @@ class TestSourceResponse:
     def test_items_callable_is_lazy(self) -> None:
         # Building the SourceResponse must not make any HTTP calls — only iterating `items` does.
         with patch.object(new_york_times, "make_tracked_session") as mocked:
-            response = new_york_times_source("KEY", "top_stories", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
+            new_york_times_source("KEY", "top_stories", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
             assert mocked.call_count == 0
-            assert callable(response.items)
 
 
 @pytest.mark.parametrize("endpoint", list(NEW_YORK_TIMES_ENDPOINTS.keys()))

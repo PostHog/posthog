@@ -1,15 +1,11 @@
 from parameterized import parameterized
 
-from products.growth.backend.enrichment.score import SCORE_VERSION, IcpScoreInputs, compute_icp_score
+from products.growth.backend.enrichment.score import IcpScoreInputs, compute_icp_score
 
 
 # A country on the allowlist keeps the -5 penalty out of the way, so each case isolates its branch.
 def _inputs(**overrides) -> IcpScoreInputs:
     return IcpScoreInputs(country="US", **overrides)
-
-
-def test_version_is_stamped():
-    assert SCORE_VERSION == "clay-parity-2"
 
 
 def test_all_inputs_missing_scores_only_the_country_penalty():

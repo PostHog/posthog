@@ -887,7 +887,6 @@ class TestSentrySourceResumable:
 
         _, kwargs = mock_rest_api_resource.call_args
         assert kwargs["initial_paginator_state"] is None
-        assert callable(kwargs["resume_hook"])
 
         # save_checkpoint should forward the next page into manager.save_state
         kwargs["resume_hook"]({"next_url": "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0"})

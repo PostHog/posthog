@@ -10,7 +10,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.pandadoc import (
     PAGE_SIZE,
-    PANDADOC_BASE_URL,
     PandaDocResumeConfig,
     _build_query_params,
     _format_date_filter,
@@ -238,7 +237,6 @@ class TestPagination:
 
         _rows(pandadoc_source("key", "documents", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
 
-        assert PANDADOC_BASE_URL == "https://api.pandadoc.com/public/v1"
         assert urls[0].startswith("https://api.pandadoc.com/public/v1/documents")
 
     @mock.patch(CLIENT_SESSION_PATCH)

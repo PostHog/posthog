@@ -243,7 +243,6 @@ class TestPagination:
 
         _rows(_source())
         assert params[0]["page_size"] == PAGE_SIZE
-        assert PAGE_SIZE == 500
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_sync_session_registers_token_for_redaction(self, MockSession: mock.MagicMock) -> None:

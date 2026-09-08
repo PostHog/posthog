@@ -2,7 +2,7 @@
 
 import pytest
 
-from gateway import AI_PRODUCT, analytics_extra_properties, gateway_env, resolve_gateway_config
+from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
 
 
 @pytest.fixture(autouse=True)
@@ -86,11 +86,6 @@ def test_gateway_env_tags_ai_product_and_attribution():
         'X-PostHog-Properties: {"ai_product":"aio_stamphog","stamphog_pr_number":123,"stamphog_repo":"PostHog/posthog"}'
     )
     assert "x-posthog-property-" not in headers
-
-
-def test_ai_product_uses_aio_prefix_no_reserved_prefix():
-    assert AI_PRODUCT == "aio_stamphog"
-    assert not AI_PRODUCT.startswith("$")
 
 
 def test_header_values_are_single_line():

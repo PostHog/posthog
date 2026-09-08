@@ -39,7 +39,6 @@ class TestBoundedRetry:
 
     def test_default_retry_is_bounded_and_survives_clone(self) -> None:
         # urllib3 rebuilds the Retry via `new()` on each attempt; the cap must survive.
-        assert isinstance(DEFAULT_RETRY, BoundedRetry)
         assert isinstance(DEFAULT_RETRY.new(), BoundedRetry)
 
     @parameterized.expand(

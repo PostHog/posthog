@@ -346,7 +346,6 @@ class TestSourceResponse:
         for endpoint in MARKETSTACK_ENDPOINTS:
             response = _source(endpoint, symbols="AAPL")
             assert response.name == endpoint
-            assert callable(response.items)
 
 
 class TestValidateCredentials:

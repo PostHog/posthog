@@ -22,7 +22,6 @@ from products.marketing_analytics.backend.hogql_queries.utils import convert_tea
 from products.marketing_analytics.dags.marketing_precompute import (
     COST_MATERIALIZATION_GRAINS,
     DEFAULT_ROLLOUT_TEAM_IDS,
-    PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
     ensure_marketing_precompute_op,
@@ -104,10 +103,6 @@ class TestChunkRanges:
         start = datetime(2024, 1, 1, tzinfo=UTC)
         end = datetime(2024, 1, 5, tzinfo=UTC)
         assert chunk_ranges(start, end, 90) == [(start, end)]
-
-    def test_default_chunk_is_one_day(self):
-        # Conservative default: each INSERT scans a single day to bound CH memory.
-        assert PRECOMPUTE_CHUNK_DAYS == 1
 
 
 class TestGetSelectedTeamIds:

@@ -9,7 +9,6 @@ import {
   type CompletionSound,
   countRetiredHints,
   DEFAULT_HINT_MAX,
-  DEFAULT_WORKSPACE_MODE,
   getEffectiveCustomInstructions,
   useSettingsStore,
 } from "./settingsStore";
@@ -46,7 +45,6 @@ async function waitForPersistedWrite() {
 // reflects the initial values.
 describe("feature settingsStore defaults", () => {
   it("defaults the workspace mode to cloud with a local fallback", () => {
-    expect(DEFAULT_WORKSPACE_MODE).toBe("cloud");
     expect(useSettingsStore.getState().lastUsedWorkspaceMode).toBe("cloud");
     expect(useSettingsStore.getState().lastUsedLocalWorkspaceMode).toBe(
       "local",

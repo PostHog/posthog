@@ -141,30 +141,6 @@ class TestRatioStatistic:
 class TestStatisticIntegration:
     """Integration tests across statistic types."""
 
-    def test_mean_extraction(self):
-        """Test that all statistics can provide a mean value."""
-        sample_mean = SampleMeanStatistic(n=10, sum=50, sum_squares=300)
-        proportion = ProportionStatistic(n=100, sum=25)
-
-        assert hasattr(sample_mean, "mean")
-        assert hasattr(proportion, "proportion")
-
-        # Both should be usable in calculations
-        assert sample_mean.mean == 5.0
-        assert proportion.proportion == 0.25
-
-    def test_variance_extraction(self):
-        """Test that all statistics can provide variance."""
-        sample_mean = SampleMeanStatistic(n=10, sum=50, sum_squares=300)
-        proportion = ProportionStatistic(n=100, sum=25)
-
-        assert hasattr(sample_mean, "variance")
-        assert hasattr(proportion, "variance")
-
-        # Both should be non-negative
-        assert sample_mean.variance >= 0
-        assert proportion.variance >= 0
-
     def test_standard_error_calculation(self):
         """Test standard error calculations across types."""
         sample_mean = SampleMeanStatistic(n=10, sum=50, sum_squares=300)

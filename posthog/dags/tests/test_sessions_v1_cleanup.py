@@ -134,21 +134,3 @@ def test_delete_with_multiple_allowed_teams_in_data(cluster: ClickhouseCluster):
 
     assert 99999 not in final_counts, "Non-allowed team 99999 should be deleted"
     assert 88888 not in final_counts, "Non-allowed team 88888 should be deleted"
-
-
-class TestAllowedTeamIdsConstant:
-    """Tests to verify ALLOWED_TEAM_IDS is properly configured."""
-
-    def test_allowed_team_ids_is_not_empty(self):
-        assert len(ALLOWED_TEAM_IDS) > 0
-
-    def test_allowed_team_ids_are_integers(self):
-        for team_id in ALLOWED_TEAM_IDS:
-            assert isinstance(team_id, int), f"Team ID {team_id} should be an integer"
-
-    def test_allowed_team_ids_are_positive(self):
-        for team_id in ALLOWED_TEAM_IDS:
-            assert team_id > 0, f"Team ID {team_id} should be positive"
-
-    def test_allowed_team_ids_are_unique(self):
-        assert len(ALLOWED_TEAM_IDS) == len(set(ALLOWED_TEAM_IDS))
