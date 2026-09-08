@@ -880,6 +880,18 @@ export function MountedRealNotebookNodeComponent({
     const showSettings = forceEditing && Settings
     const showContent = !editOnly
     const isNotebookEditable = (notebookMode ?? mode) === 'edit'
+
+    // A parsed block id is a hash of the block's props, so any prop write moves it (a resize
+    // writes `height`). The widget's generation state lives on the server under the block id,
+    // so a block that carries no explicit id gets one the first time it renders for an editor.
+    useEffect(() => {
+        if (editOnly || !isNotebookEditable || notebookNodeType !== NotebookNodeType.GeneratedWidget) {
+            return
+        }
+        if (typeof node.props.nodeId !== 'string' || !node.props.nodeId) {
+            updateProps({ nodeId: node.id })
+        }
+    }, [editOnly, isNotebookEditable, node.id, node.props.nodeId, notebookNodeType, updateProps])
     const isResizeable =
         isNotebookEditable &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))

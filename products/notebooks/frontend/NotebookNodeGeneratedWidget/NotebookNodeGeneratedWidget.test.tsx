@@ -5,7 +5,7 @@ import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
+import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MarkdownNotebookV2 } from 'scenes/notebooks/Notebook/MarkdownNotebookV2Renderer'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookType } from 'scenes/notebooks/types'
@@ -137,6 +137,36 @@ describe('NotebookNodeGeneratedWidget', () => {
         )
 
         expect(await screen.findByText('Regenerating widget…')).toBeTruthy()
+    })
+
+    it('writes a durable node id into a widget tag that carries none', async () => {
+        logic.unmount()
+        const widgetWithoutNodeId = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent('<Widget showResults prompt="Render a globe" />'),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(widgetWithoutNodeId)
+        jest.spyOn(api.notebooks, 'markdownSave').mockResolvedValue(widgetWithoutNodeId)
+        logic = notebookLogic(logicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        // Without a written id the block's identity is a hash of its props, so the next prop
+        // write (a resize) moves it away from the id the mounted widget already generates under.
+        const nodeId = jest.mocked(notebooksWidgetStatus).mock.calls[0][2]
+        await waitFor(() =>
+            expect(getMarkdownNotebookMarkdown(logic.values.content ?? {})).toContain(`nodeId="${nodeId}"`)
+        )
+        // The edited document persists to local storage, where it would outlive this test.
+        logic.actions.clearLocalContent()
     })
 
     it('does not offer initial generation in the settings panel while status is still loading', async () => {

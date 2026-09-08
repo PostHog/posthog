@@ -290,7 +290,7 @@ def assert_widget_node_exists(notebook: Notebook, node_id: str) -> None:
         raise WidgetError("This widget identifier is invalid.", "invalid_node_id")
     if node_id in _widget_node_ids(notebook.content):
         return
-    raise WidgetError("This generated widget is no longer in the notebook.", "node_not_found")
+    raise WidgetError("This widget is not in the saved notebook. Reload the page and try again.", "node_not_found")
 
 
 def _dataframe_owners(notebook: Notebook) -> dict[str, str]:
