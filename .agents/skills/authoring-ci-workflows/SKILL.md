@@ -140,10 +140,11 @@ Four rules for the gate body:
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
    A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.
    The trap is the `changes` detector: clearing it with `== 'failure'` and then reading `needs.changes.outputs.*` reports green on cancellation, because those outputs are empty and the gate takes its "nothing to test" exit.
-2. **`needs` every job that produces coverage, and everything those jobs need.**
+2. **`needs` every job that produces coverage, and every upstream that can skip one.**
    If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
-   The usual shape is a `changes` detector or a test selector one step above the suite: it fails, the suite skips, and the gate reports success having run nothing ([measured on ci-nodejs](https://github.com/PostHog/posthog/actions/runs/32472790735)).
-   Name every job the dependencies reach, not only the direct ones.
+   The usual shape is a `changes` detector one step above the suite: it fails, the suite skips, and the gate reports success having run nothing ([measured on ci-nodejs](https://github.com/PostHog/posthog/actions/runs/32472790735)).
+   Name every job whose failure would skip one you do test, not only the direct ones.
+   Stop there. A test selector whose failure leaves the suite running in full is not gate-critical, and demanding it turns a recovered run into a red required check.
 3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
 4. **Every dependency's result must reach a fail-closed allowlist guard.**
    One inline `if` per dependency is the clearest form, but a shared shell helper or an `env:` block is equally fine: `WF007` traces each result through assignments, `${!var}` indirection, and helper argument positions within that step.
@@ -153,6 +154,7 @@ Four rules for the gate body:
 
 `WF007` enforces 1, 2, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 For rule 2 it walks the `needs:` graph above each dependency and reports any job the gate does not test, which is the half a linter can see.
+It follows an edge only when the upstream's failure would actually skip the job below it: no status function in that job's `if` means any failed upstream skips it, and a status function means it still runs unless its condition demands a value the failed upstream cannot supply.
 The half it cannot see is a coverage job with no `needs:` edge into the gate at all: "reporting job" and "coverage job" look identical from outside the graph, so that one is on you and the reviewer.
 
 ### What GitHub does with each conclusion

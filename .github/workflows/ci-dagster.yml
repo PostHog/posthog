@@ -730,7 +730,7 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
-        needs: [changes, select-tests, dagster]
+        needs: [changes, dagster]
         name: Dagster Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -738,14 +738,12 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
-                  # Change detection and test selection gate the matrix. A failure in either skips
-                  # it, and this gate reads a skip as a pass, so test both results directly.
+                  # Change detection gates the matrix. A failure there skips it, and this gate
+                  # reads a skip as a pass, so test its result directly. select-tests is not tested
+                  # here: an empty mode makes the matrix run in full, so a failed selector costs
+                  # runner time but never coverage.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
-                    exit 1
-                  fi
-                  if [[ "${{ needs.select-tests.result }}" != "success" && "${{ needs.select-tests.result }}" != "skipped" ]]; then
-                    echo "Dagster test selection did not succeed (result: ${{ needs.select-tests.result }})."
                     exit 1
                   fi
                   # The `needs.dagster.result` will be 'success' only if all jobs in the matrix succeeded.

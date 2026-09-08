@@ -23,12 +23,16 @@ dependencies' ``needs.*.result``. Three properties keep it honest:
    then reads ``needs.changes.outputs.*``, which is empty on a cancelled job, and
    takes its "nothing to test" exit — green, with zero tests run.
 
-3. ``needs`` closed under the dependency graph — the gate must name every job its
-   dependencies reach, not only the ones it needs directly. GitHub skips a job when a
-   job in its ``needs:`` fails, and the gate reads a skip as a pass. So a detector or
-   selector one step further up produces a green check with zero tests behind it when
-   it fails. Measured on ci-nodejs in run 32472790735: change detection failed, every
-   Node.js job skipped, and "Node.js Tests Pass" reported success.
+3. ``needs`` closed over the upstreams that can skip a dependency — the gate must name
+   every job whose failure would skip a job it does test, not only the ones it needs
+   directly. GitHub skips a job when a job in its ``needs:`` fails, and the gate reads a
+   skip as a pass, so a change detector one step further up produces a green check with
+   zero tests behind it. Measured on ci-nodejs in run 32472790735: change detection
+   failed, every Node.js job skipped, and "Node.js Tests Pass" reported success.
+
+   Only edges that carry the skip count. A test selector whose failure leaves the suite
+   running in full is not gate-critical, and demanding it would turn a recovered run
+   into a red required check.
 
 Gates are found two ways, because the "name it ``… Pass``" convention is not
 universally followed: by that name, and structurally when a step reads
@@ -62,6 +66,20 @@ GATE_NAME = re.compile(r"\bpass$", re.IGNORECASE)
 ALWAYS = re.compile(r"always\s*\(\s*\)")
 NOT_CANCELLED = re.compile(r"!\s*cancelled\s*\(\s*\)")
 READS_RESULT = re.compile(r"needs\.(?P<dep>[A-Za-z0-9_\-]+)\.result")
+STATUS_FUNCTION = re.compile(r"\b(?:always|cancelled|failure|success)\s*\(\s*\)")
+
+
+def _demands_a_value_from(upstream: str) -> re.Pattern[str]:
+    """Match a condition term that is false when ``upstream`` produced nothing.
+
+    An equality against a non-empty literal is the only common shape that turns
+    false on an empty output, whichever side the literal sits on. An inequality
+    (`!= 'none'`) is true on an empty value, so it lets the job run.
+    """
+    reference = rf"needs\.{re.escape(upstream)}\.(?:outputs\.[A-Za-z0-9_\-]+|result)"
+    literal = r"'[^']+'|\"[^\"]+\""
+    return re.compile(rf"(?:{reference}\s*==\s*(?:{literal})|(?:{literal})\s*==\s*{reference})")
+
 
 # `foo() {` / `function foo() {`, whose body ends at the first `}` sitting at or
 # left of the definition's own indentation. Brace counting would be the general
@@ -389,22 +407,50 @@ def _dependencies(job: Job) -> set[str]:
     return _declared_needs(job) | referenced
 
 
+def _skips_when_upstream_fails(job: Job, upstream: str) -> bool:
+    """Would ``job`` be skipped if ``upstream`` failed?
+
+    GitHub runs a job only when every job in its ``needs:`` succeeded, so a job
+    whose ``if`` calls no status function is skipped by any upstream failure. A job
+    that calls one runs anyway, and then reads that upstream's outputs as empty
+    strings. It is skipped only where its own condition demands a value from the
+    upstream, which an empty string cannot satisfy.
+
+    This is what separates a detector from a selector. `ci-e2e-playwright` reads
+    `needs.changes.outputs.shouldRun == 'true'`, so a failed `changes` skips the
+    suite. It never reads `select-specs`, and an empty selection makes the suite run
+    in full, so a failed selector costs runner time and no coverage.
+    """
+    condition = job.raw.get("if")
+    if not isinstance(condition, str):
+        return True
+    if not STATUS_FUNCTION.search(condition):
+        return True
+    return _demands_a_value_from(upstream).search(condition) is not None
+
+
 def _upstream_gaps(job: Job, jobs: dict[str, Job]) -> Iterator[str]:
-    """Jobs the gate's dependencies need, that the gate itself never tests.
+    """Jobs that a gate dependency needs, whose failure the gate would read as a pass.
 
     GitHub skips a job when a job in its ``needs:`` fails, and the gate reads a
     skip as a pass. A failure one step further up the graph therefore arrives at
-    the gate as a green verdict with no tests behind it. Only a closed set fixes
-    this: the gate must name every job its dependencies reach, so an upstream
-    failure meets a guard instead of disappearing into a skip.
+    the gate as a green verdict with no tests behind it. The gate has to name every
+    job that can skip one of its dependencies this way.
+
+    Only edges that propagate a skip count. An upstream a dependency recovers from
+    stays out, because failing the gate on it turns a recovered run into a red
+    required check.
     """
-    needs_graph = {name: _declared_needs(other) & jobs.keys() for name, other in jobs.items()}
     dependencies = _dependencies(job) & jobs.keys()
-    reached = {upstream for dep in dependencies for upstream in _reachable(dep, needs_graph)}
+    skip_graph = {
+        name: {up for up in _declared_needs(other) & jobs.keys() if _skips_when_upstream_fails(other, up)}
+        for name, other in jobs.items()
+    }
+    reached = {upstream for dep in dependencies for upstream in _reachable(dep, skip_graph)}
     for missing in sorted(reached - dependencies):
         yield (
-            f"upstream '{missing}' is not a dependency of this gate. A failure there skips the jobs "
-            f"that need it, and the gate reads those skips as a pass. Add '{missing}' to `needs:` "
+            f"upstream '{missing}' is not a dependency of this gate. A failure there skips a job the "
+            f"gate does test, and the gate reads that skip as a pass. Add '{missing}' to `needs:` "
             "and test its result"
         )
 
