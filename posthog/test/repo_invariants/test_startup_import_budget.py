@@ -41,6 +41,8 @@ FORBIDDEN_AT_SETUP = [
     "posthog.hogql.query",  # query execution entrypoint — drags the layers below in
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)
     "posthog.api.services.query",  # API query service — viewset-request-time only
+    "posthog.api.documentation",  # drf-spectacular schema machinery — request/schema-generation only
+    "rest_framework.test",  # DRF test client -> django.test, which some distro Django packages omit
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
