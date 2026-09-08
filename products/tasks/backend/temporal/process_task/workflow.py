@@ -421,6 +421,11 @@ _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 
 _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 
+# Overlap the deferred agent-server launch and the repo-independent context-layer mount
+# with the clone, instead of running them serially before/after it. Reorders recorded
+# activity commands, so it stays gated: replays of pre-rollout histories keep the serial order.
+_PATCH_ID_OVERLAP_PARALLEL_LAUNCH = "tasks-overlap-parallel-launch"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -2039,17 +2044,36 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
+        parallel_launch = overlap and workflow.patched(_PATCH_ID_OVERLAP_PARALLEL_LAUNCH)
         boot_path = "overlap" if overlap else "classic"
         launch_ms: int | None = None
         agent_prepare_ms: int | None = None
         agent_invoke_ms: int | None = None
-        if overlap:
-            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
-            launch_output = await self._launch_agent_server(created, defer_for_clone=True, used_snapshot=used_snapshot)
+        launch_task: asyncio.Task[StartAgentServerOutput] | None = None
+        context_task: asyncio.Task[None] | None = None
+        wants_context_layer = bool(prepared.environment_variables.get("POSTHOG_CONTEXT_LAYER_PATH"))
+
+        def _apply_launch_output(launch_output: StartAgentServerOutput | None) -> None:
+            nonlocal launch_ms, agent_prepare_ms, agent_invoke_ms
             launch_ms = launch_output.launch_ms if launch_output else None
             agent_prepare_ms = launch_output.prepare_ms if launch_output else None
             agent_invoke_ms = launch_output.invoke_ms if launch_output else None
             self._agent_shadow_launched = bool(launch_output and launch_output.shadow_launched)
+
+        if overlap:
+            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+            if parallel_launch:
+                # Fire the launch and the repo-independent context-layer mount now so they run
+                # under the clone instead of serially before/after it. Both are joined below.
+                launch_task = asyncio.create_task(
+                    self._launch_agent_server(created, defer_for_clone=True, used_snapshot=used_snapshot)
+                )
+                if wants_context_layer:
+                    context_task = asyncio.create_task(self._materialize_context_layer(created.sandbox_id))
+            else:
+                _apply_launch_output(
+                    await self._launch_agent_server(created, defer_for_clone=True, used_snapshot=used_snapshot)
+                )
 
         clone_ms: int | None = None
         failed_repositories: set[str] = set()
@@ -2179,13 +2203,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Gated on recorded activity output, not workflow.patched: the env var only
         # exists in histories written after the context layer shipped, so replays of
         # pre-rollout histories skip this command deterministically.
-        if prepared.environment_variables.get("POSTHOG_CONTEXT_LAYER_PATH"):
-            await workflow.execute_activity(
-                materialize_context_layer_in_sandbox,
-                MaterializeContextLayerInput(context=self.context, sandbox_id=created.sandbox_id),
-                start_to_close_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+        if wants_context_layer:
+            if context_task is not None:
+                await context_task
+            else:
+                await self._materialize_context_layer(created.sandbox_id)
+
+        if launch_task is not None:
+            _apply_launch_output(await launch_task)
 
         if overlap and not repo_ready_released:
             await self._mark_repo_ready(created.sandbox_id)
@@ -2347,6 +2372,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _materialize_context_layer(self, sandbox_id: str) -> None:
+        await workflow.execute_activity(
+            materialize_context_layer_in_sandbox,
+            MaterializeContextLayerInput(context=self.context, sandbox_id=sandbox_id),
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
     async def _launch_agent_server(

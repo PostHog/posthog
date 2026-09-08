@@ -146,6 +146,7 @@ class AgentServerLaunchMixin(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        wrap_repo_ready: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
@@ -200,9 +201,11 @@ class AgentServerLaunchMixin(SandboxBase):
         )
         launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
-        if repo_ready_file:
+        if repo_ready_file and wrap_repo_ready:
             # Keep the adapter process from inheriting a repository cwd that does not
             # exist yet, even if an overlaid agent-server mishandles its readiness flag.
+            # Skipped when the binary handles --repoReadyFile itself, so its boot and gateway
+            # warm run under the clone instead of after the repo-ready barrier releases.
             wait_for_repo = (
                 f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; "
                 f"{launch_started_at}; exec {server_cmd}"
@@ -211,7 +214,7 @@ class AgentServerLaunchMixin(SandboxBase):
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
-        launch_started_prefix = "" if repo_ready_file else f"{launch_started_at} && "
+        launch_started_prefix = "" if (repo_ready_file and wrap_repo_ready) else f"{launch_started_at} && "
 
         if allowed_domains is not None:
             return (
@@ -356,6 +359,15 @@ class AgentServerLaunchMixin(SandboxBase):
             )
             exec_permission_regex = None
 
+        # Drop the bash wait-for-repo wrapper when the binary blocks on --repoReadyFile itself,
+        # so its boot and gateway warm run under the clone. Stale overlays keep the wrapper.
+        wrap_repo_ready = bool(repo_ready_file) and not self.agent_server_supports_repo_ready_file()
+        if wrap_repo_ready:
+            logger.warning(
+                f"Installed agent-server in sandbox {self.id} predates --repoReadyFile; "
+                "gating launch on the repo-ready file so the clone still completes first"
+            )
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
@@ -381,6 +393,7 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            wrap_repo_ready=wrap_repo_ready,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,

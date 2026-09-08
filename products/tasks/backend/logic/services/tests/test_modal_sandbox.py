@@ -518,10 +518,18 @@ class TestModalSandboxAgentServer:
         assert "nohup" in command
         assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)" in command
 
-    def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
-        mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-        )
+    @pytest.mark.parametrize("binary_supports", [True, False])
+    def test_start_agent_server_repo_ready_wrapper_tracks_binary_support(
+        self, binary_supports: bool, mock_sandbox: Any
+    ):
+        # Newer binaries block on --repoReadyFile internally, so we drop the bash wait wrapper and
+        # let the boot/gateway warm run under the clone; a stale overlay that lacks the flag keeps it.
+        def _execute(command: str, *args: Any, **kwargs: Any) -> ExecutionResult:
+            if "grep -q repoReadyFile" in command:
+                return ExecutionResult(stdout="", stderr="", exit_code=0 if binary_supports else 1, error=None)
+            return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+
+        mock_sandbox.execute = MagicMock(side_effect=_execute)
 
         mock_sandbox.start_agent_server(
             repository="posthog/posthog",
@@ -533,11 +541,17 @@ class TestModalSandboxAgentServer:
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
-        barrier = command.index("while [ ! -f /tmp/workspace/.repo-ready ]; do sleep 0.1; done")
-        marker = command.index("export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)")
-        process = command.index("exec env", marker)
-        assert barrier < marker < process
         assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
+        if binary_supports:
+            # No wait wrapper: the process launches immediately and stamps the marker up front.
+            assert "while [ ! -f /tmp/workspace/.repo-ready ]" not in command
+            assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)" in command
+        else:
+            # Wait wrapper retained: barrier, then the launch marker, then the exec.
+            barrier = command.index("while [ ! -f /tmp/workspace/.repo-ready ]; do sleep 0.1; done")
+            marker = command.index("export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)")
+            process = command.index("exec env", marker)
+            assert barrier < marker < process
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(

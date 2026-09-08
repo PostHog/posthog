@@ -84,6 +84,18 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
+@pytest.mark.parametrize("wrap_repo_ready", [True, False])
+def test_docker_build_agent_server_command_never_wraps_repo_ready(wrap_repo_ready: bool, sandbox: DockerSandbox):
+    repo_ready_file = "/tmp/workspace/.repo-ready"
+    command = sandbox._build_agent_server_command(
+        None, "t1", "r1", "interactive", True, repo_ready_file=repo_ready_file, wrap_repo_ready=wrap_repo_ready
+    )
+    # Docker always relies on the binary blocking on --repoReadyFile; it never adds a bash wait
+    # wrapper, so wrap_repo_ready is inert here (only the base mixin gates the wrapper on it).
+    assert f"--repoReadyFile {shlex.quote(repo_ready_file)}" in command
+    assert "while [ ! -f" not in command
+
+
 def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
     with (

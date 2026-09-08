@@ -882,6 +882,9 @@ class DockerSandbox(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        # Docker relies on the binary blocking on --repoReadyFile; it never adds a wait wrapper,
+        # so this is accepted for signature parity with the base mixin and otherwise unused.
+        wrap_repo_ready: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
