@@ -457,7 +457,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     schedule_start_time = ScheduleStartTimeField(
         required=False,
         allow_null=True,
-        help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to use the default schedule.",
+        help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
