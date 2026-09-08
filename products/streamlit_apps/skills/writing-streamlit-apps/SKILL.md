@@ -1,6 +1,6 @@
 ---
 name: writing-streamlit-apps
-description: Write Streamlit app source code that runs well in a PostHog sandbox — the posthog_apps.query() bridge for reading PostHog data, the packages baked into the sandbox image, caching and session state across Streamlit reruns, layout and chart patterns, and single-file app.py structure. Use when authoring or debugging the Python source of a PostHog Streamlit app, when a query inside an app fails, or when asked to "write a streamlit app that shows PostHog data".
+description: Write Streamlit app source code that runs well in a PostHog sandbox — the posthog_apps.query() bridge for reading PostHog data, the packages baked into the sandbox image, caching and session state across Streamlit reruns, layout and chart patterns, and the app.py entry point with any helper modules and data files bundled beside it. Use when authoring or debugging the Python source of a PostHog Streamlit app, when a query inside an app fails, or when asked to "write a streamlit app that shows PostHog data".
 ---
 
 # Writing Streamlit apps for the PostHog sandbox
