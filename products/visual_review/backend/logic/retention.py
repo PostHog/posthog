@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from itertools import batched
 from uuid import UUID
 
-from django.db import connections
+from django.db import connections, transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
@@ -19,7 +19,7 @@ from ..db import WRITER_DB
 from ..facade.enums import RunStatus
 from ..models import Artifact, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
-from . import run_queries
+from . import artifact_store, run_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -151,9 +151,12 @@ class RetentionSweep:
         # When the repo has no protected-history run, the snapshot rows of the
         # newest completed run of a run type are the only thing left that names
         # the baseline hashes committed to the repo, whatever their branch.
+        # A partial run skips the identifiers outside its subset, so it names
+        # only part of the baseline and cannot take over as the keeper.
         newer_completed_run = self._runs().filter(
             run_type=OuterRef("run_type"),
             status=RunStatus.COMPLETED,
+            is_partial=False,
             created_at__gt=OuterRef("created_at"),
         )
         return list(
@@ -215,7 +218,8 @@ class RetentionSweep:
         )
 
     def _delete_artifact_rows(self, artifact_ids: list[UUID]) -> list[tuple[UUID, str]]:
-        with connections[WRITER_DB].cursor() as cursor:
+        with transaction.atomic(using=WRITER_DB), connections[WRITER_DB].cursor() as cursor:
+            artifact_store.lock_artifact_registry(self.repo.id)
             cursor.execute(
                 _DELETE_ARTIFACTS_SQL,
                 {"artifact_ids": [str(artifact_id) for artifact_id in artifact_ids], "team_id": self.team_id},

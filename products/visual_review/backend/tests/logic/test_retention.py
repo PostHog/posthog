@@ -47,6 +47,7 @@ class TestRetentionSweep:
         run_type: str = RunType.STORYBOOK,
         pr_number: int | None = 7,
         superseded_by: Run | None = None,
+        is_partial: bool = False,
         status: str = RunStatus.COMPLETED,
     ) -> Run:
         run = Run.objects.create(
@@ -57,6 +58,7 @@ class TestRetentionSweep:
             commit_sha="abc123",
             pr_number=pr_number,
             superseded_by=superseded_by,
+            is_partial=is_partial,
             status=status,
         )
         # created_at is auto_now_add, so the age has to be written afterwards.
@@ -118,6 +120,10 @@ class TestRetentionSweep:
 
         assert retention.sweep_repo(repo, now=now).runs_deleted == 0
         assert Run.objects.filter(id=latest.id).exists()
+
+        self._run(repo, now, age_days=2, branch="feature/z", pr_number=9, is_partial=True)
+
+        assert retention.sweep_repo(repo, now=now).runs_deleted == 0
 
         self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
 
