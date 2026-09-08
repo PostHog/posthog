@@ -14,6 +14,7 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_USAGE_INGESTION,
 } from '~/common/config/kafka-topics'
 import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
@@ -521,6 +522,9 @@ export type IngestionOutputsConfig = {
 
     INGESTION_OUTPUT_TOPHOG_TOPIC: string
     INGESTION_OUTPUT_TOPHOG_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_USAGE_INGESTION_TOPIC: string
+    INGESTION_OUTPUT_USAGE_INGESTION_PRODUCER: ProducerName
 }
 
 export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
@@ -562,5 +566,7 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
         INGESTION_OUTPUT_TOPHOG_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_USAGE_INGESTION_TOPIC: KAFKA_USAGE_INGESTION,
+        INGESTION_OUTPUT_USAGE_INGESTION_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
     }
 }

@@ -14,6 +14,7 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
+    UsageIngestionOutput,
 } from '~/common/outputs'
 import {
     AsyncOutput,
@@ -98,6 +99,7 @@ export interface IngestionConsumerDeps {
         | PersonMergeEventsOutput
         | AppMetricsOutput
         | TophogOutput
+        | UsageIngestionOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -316,7 +318,7 @@ export class IngestionConsumer {
                 EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
-            createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events'),
+            createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events', outputs),
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore: this.personsStore,
