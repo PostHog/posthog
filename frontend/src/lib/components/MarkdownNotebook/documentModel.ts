@@ -361,6 +361,10 @@ export function updateNotebookCodeBlockText(node: NotebookCodeBlockNode, nextTex
     return { ...node, text: nextText, refs: refs.length ? refs : undefined }
 }
 
+export function isMermaidCodeBlock(node: NotebookCodeBlockNode): boolean {
+    return node.language?.toLowerCase() === 'mermaid'
+}
+
 export function isCommentComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
     return node.type === 'component' && node.tagName === COMMENT_COMPONENT_TAG
 }

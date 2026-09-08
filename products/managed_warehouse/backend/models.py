@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -154,5 +155,123 @@ class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
             models.Index(
                 fields=["team", "environment_id", "schema_id", "-started_at"],
                 name="mw_source_job_latest_idx",
+            )
+        ]
+
+
+class ManagedWarehouseViewTranslationJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    class TriggerSource(models.TextChoices):
+        ADMIN = "admin", "Django admin"
+        PROVISIONING = "provisioning", "Provisioning"
+        RETRY = "retry", "Retry"
+
+    class Scope(models.TextChoices):
+        ENTIRE_ORGANIZATION = "entire_organization", "Entire organization"
+        SELECTED_VIEWS = "selected_views", "Selected views"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        COMPLETED_WITH_ERRORS = "completed_with_errors", "Completed with errors"
+        FAILED = "failed", "Failed"
+
+    organization = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+    )
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+    )
+    trigger_source = models.CharField(max_length=32, choices=TriggerSource.choices, default=TriggerSource.ADMIN)
+    scope = models.CharField(max_length=32, choices=Scope.choices, default=Scope.ENTIRE_ORGANIZATION)
+    selected_saved_query_ids = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
+    retry_of = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retry_jobs",
+    )
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
+    workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    total_count = models.PositiveIntegerField(default=0)
+    compiled_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    stale_count = models.PositiveIntegerField(default=0)
+    latest_error = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_managedwarehouseviewtranslationjob"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization"],
+                condition=models.Q(status__in=["pending", "running"]),
+                name="unique_active_mw_view_translation_job",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "-created_at"],
+                name="mw_view_translation_job_idx",
+            )
+        ]
+
+
+class ManagedWarehouseViewTranslationResult(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPILED = "compiled", "Compiled"
+        FAILED = "failed", "Failed"
+        STALE = "stale", "Stale"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    job = models.ForeignKey(
+        ManagedWarehouseViewTranslationJob,
+        on_delete=models.CASCADE,
+        related_name="results",
+    )
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+    )
+    saved_query_id = models.UUIDField()
+    saved_query_name = models.CharField(max_length=128)
+    is_materialized = models.BooleanField(default=False)
+    source_query_hash = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    trino_sql = models.TextField(null=True, blank=True)
+    trino_values = models.JSONField(default=dict, blank=True, encoder=DjangoJSONEncoder)
+    normalized_hogql = models.TextField(null=True, blank=True)
+    error_type = models.CharField(max_length=255, null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        db_table = "posthog_managedwarehouseviewtranslationresult"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "team", "saved_query_id"],
+                name="unique_mw_view_translation_result",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["job", "status"],
+                name="mw_view_translation_status_idx",
             )
         ]

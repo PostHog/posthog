@@ -799,6 +799,168 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
 
+    def test_drop_table_resolves_deleted_model_with_custom_db_table(self):
+        """
+        Valid pattern: the dropped table has a custom db_table, so its name does not match
+        <app_label>_<model> and the model is gone from the registry. The migration history
+        still records which model created the table.
+        """
+        create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="Dataset",
+            options={"db_table": "llm_analytics_dataset"},
+        )
+        create_migration = MagicMock()
+        create_migration.app_label = "ai_observability"
+        create_migration.name = "0001_adopt"
+        create_migration.operations = [create_op]
+        create_migration.dependencies = []
+
+        delete_model_op = create_mock_operation(migrations.DeleteModel, name="Dataset")
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[delete_model_op],
+            database_operations=[],
+        )
+        state_removal_migration = MagicMock()
+        state_removal_migration.app_label = "ai_observability"
+        state_removal_migration.name = "0032_dataset_versioning"
+        state_removal_migration.operations = [separate_op]
+        state_removal_migration.dependencies = [("ai_observability", "0001_adopt")]
+
+        drop_migration = MagicMock()
+        drop_migration.app_label = "ai_observability"
+        drop_migration.name = "0033_drop_legacy_dataset"
+        drop_migration.dependencies = [("ai_observability", "0032_dataset_versioning")]
+        drop_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="DROP TABLE IF EXISTS llm_analytics_dataset;")
+        ]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0001_adopt"): create_migration,
+            ("ai_observability", "0032_dataset_versioning"): state_removal_migration,
+            ("ai_observability", "0033_drop_legacy_dataset"): drop_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            drop_migration,
+            "products/ai_observability/backend/migrations/0033_drop_legacy_dataset.py",
+            mock_loader,
+        )
+
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
+    def test_drop_table_still_owned_by_live_model_in_another_app_stays_blocked(self):
+        """Unsafe pattern: the origin app created the model, then released it from state to another
+        app that kept the same db_table. The live table is now owned elsewhere. A DROP written in
+        the origin app must stay BLOCKED, not be validated by the stale CreateModel/DeleteModel pair
+        left in the origin app's history.
+
+        Uses llm_analytics_llmskill: ai_observability created it, migration 0005 released it from
+        state, and the live skills.LLMSkill model still maps to the table.
+        """
+        create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="LLMSkill",
+            options={"db_table": "llm_analytics_llmskill"},
+        )
+        create_migration = MagicMock()
+        create_migration.app_label = "ai_observability"
+        create_migration.name = "0001_adopt"
+        create_migration.operations = [create_op]
+        create_migration.dependencies = []
+
+        delete_model_op = create_mock_operation(migrations.DeleteModel, name="LLMSkill")
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[delete_model_op],
+            database_operations=[],
+        )
+        state_removal_migration = MagicMock()
+        state_removal_migration.app_label = "ai_observability"
+        state_removal_migration.name = "0005_release_skills_to_skills_app"
+        state_removal_migration.operations = [separate_op]
+        state_removal_migration.dependencies = [("ai_observability", "0001_adopt")]
+
+        drop_migration = MagicMock()
+        drop_migration.app_label = "ai_observability"
+        drop_migration.name = "0043_drop_legacy_llmskill"
+        drop_migration.dependencies = [("ai_observability", "0005_release_skills_to_skills_app")]
+        drop_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="DROP TABLE IF EXISTS llm_analytics_llmskill;")
+        ]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0001_adopt"): create_migration,
+            ("ai_observability", "0005_release_skills_to_skills_app"): state_removal_migration,
+            ("ai_observability", "0043_drop_legacy_llmskill"): drop_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            drop_migration,
+            "products/ai_observability/backend/migrations/0043_drop_legacy_llmskill.py",
+            mock_loader,
+        )
+
+        assert migration_risk.level == RiskLevel.BLOCKED
+        assert migration_risk.max_score == 5
+
+    def test_drop_table_resolves_the_most_recent_owner_of_a_reused_db_table(self):
+        """Unsafe pattern: a second model took over the db_table when the first was deleted from
+        state, and no migration ever removed that second model. Resolving the table to the first,
+        long-deleted model would pair the drop with an obsolete DeleteModel and pass it."""
+        legacy_create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="Legacy",
+            options={"db_table": "shared_table"},
+        )
+        create_migration = MagicMock()
+        create_migration.app_label = "myapp"
+        create_migration.name = "0001_create_legacy"
+        create_migration.operations = [legacy_create_op]
+        create_migration.dependencies = []
+
+        successor_create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="Successor",
+            options={"db_table": "shared_table"},
+        )
+        handover_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[create_mock_operation(migrations.DeleteModel, name="Legacy"), successor_create_op],
+            database_operations=[],
+        )
+        handover_migration = MagicMock()
+        handover_migration.app_label = "myapp"
+        handover_migration.name = "0002_successor_takes_over_table"
+        handover_migration.operations = [handover_op]
+        handover_migration.dependencies = [("myapp", "0001_create_legacy")]
+
+        drop_migration = MagicMock()
+        drop_migration.app_label = "myapp"
+        drop_migration.name = "0003_drop_shared_table"
+        drop_migration.dependencies = [("myapp", "0002_successor_takes_over_table")]
+        drop_migration.operations = [create_mock_operation(migrations.RunSQL, sql="DROP TABLE IF EXISTS shared_table;")]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("myapp", "0001_create_legacy"): create_migration,
+            ("myapp", "0002_successor_takes_over_table"): handover_migration,
+            ("myapp", "0003_drop_shared_table"): drop_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            drop_migration,
+            "myapp/migrations/0003_drop_shared_table.py",
+            mock_loader,
+        )
+
+        assert migration_risk.level == RiskLevel.BLOCKED
+        assert migration_risk.max_score == 5
+
     def test_drop_table_with_gap_between_state_removal_and_drop(self):
         """
         Valid pattern: State removal several migrations before drop.
@@ -2568,3 +2730,51 @@ class TestHotTableAlterPolicy:
         )
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+
+class TestGuardedCatchupMigrations:
+    """Generated squash tail files (NNNN_squash_YYYY_MM_DD_*) whose every op is
+    existence-guarded skip per-operation lock scoring and policies."""
+
+    GUARDED_FK_SQL = (
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'my_fk') THEN\n"
+        'ALTER TABLE "my_table" ADD CONSTRAINT "my_fk" FOREIGN KEY ("other_id") '
+        'REFERENCES "other_table" ("id") NOT VALID;\nEND IF; END $$;'
+    )
+    GUARDED_INDEX_SQL = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "my_idx" ON "my_table" ("col"); -- trailing-marker'
+
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def _migration(self, name, operations):
+        migration_class = type("Migration", (migrations.Migration,), {"operations": operations})
+        return migration_class(name, "posthog")
+
+    def _guarded_ops(self):
+        from posthog.migration_helpers.squash_idempotent import AddFieldIfMissing, AddIndexIfMissing
+
+        return [
+            AddFieldIfMissing(model_name="mymodel", name="col", field=models.IntegerField(null=False)),
+            AddIndexIfMissing(model_name="mymodel", index=models.Index(fields=["col"], name="my_idx")),
+            migrations.RunSQL(sql=self.GUARDED_FK_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.GUARDED_INDEX_SQL, reverse_sql=migrations.RunSQL.noop),
+            ValidateConstraint(model_name="mymodel", name="my_fk"),
+        ]
+
+    def test_squash_tail_with_only_guarded_ops_is_safe(self):
+        migration = self._migration("0002_squash_2026_08_21_finalize_fks", self._guarded_ops())
+        risk = self.analyzer.analyze_migration(migration, "posthog.0002")
+        assert risk.level == RiskLevel.SAFE
+        assert any("catch-up" in message for message in risk.info_messages)
+
+    def test_squash_tail_with_an_unguarded_op_is_analyzed_normally(self):
+        ops = [*self._guarded_ops(), migrations.RunSQL(sql='CREATE INDEX "no_guard" ON "my_table" ("col");')]
+        migration = self._migration("0003_squash_2026_08_21_schema_addons", ops)
+        risk = self.analyzer.analyze_migration(migration, "posthog.0003")
+        assert not risk.info_messages
+        assert risk.level == RiskLevel.BLOCKED
+
+    def test_guarded_ops_without_the_squash_name_keep_normal_analysis(self):
+        migration = self._migration("0812_backfill_fk", self._guarded_ops())
+        risk = self.analyzer.analyze_migration(migration, "posthog.0812")
+        assert not any("catch-up" in message for message in risk.info_messages)

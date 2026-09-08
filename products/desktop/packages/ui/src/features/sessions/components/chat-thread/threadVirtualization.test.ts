@@ -28,7 +28,13 @@ function sessionUpdate(
     turnComplete = false,
     timestamp,
     text,
-  }: { turnComplete?: boolean; timestamp?: number; text?: string } = {},
+    traceId,
+  }: {
+    turnComplete?: boolean;
+    timestamp?: number;
+    text?: string;
+    traceId?: string | null;
+  } = {},
 ): SessionUpdateItem {
   return {
     type: "session_update",
@@ -42,6 +48,7 @@ function sessionUpdate(
       childItems: new Map(),
       turnCancelled: false,
       turnComplete,
+      traceId,
     },
     timestamp,
   };
@@ -148,6 +155,19 @@ describe("flattenTurnRows", () => {
     ]);
     const flat = flattenTurnRows([done]);
     expect(flat.map((r) => r.turnTimestamp)).toEqual([undefined, 1234]);
+  });
+
+  it("carries the turn's trace id on the same row as its timestamp", () => {
+    const done = agentTurn("d", [
+      sessionUpdate("d1"),
+      sessionUpdate("d2", {
+        turnComplete: true,
+        timestamp: 1234,
+        traceId: "trace-d",
+      }),
+    ]);
+    const flat = flattenTurnRows([done]);
+    expect(flat.map((r) => r.turnTraceId)).toEqual([undefined, "trace-d"]);
   });
 
   it("carries the turn's copy text on the same row as its timestamp", () => {

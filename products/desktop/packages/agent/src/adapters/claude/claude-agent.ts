@@ -41,6 +41,7 @@ import {
   type Options,
   type Query,
   query,
+  type SDKMessage,
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -108,6 +109,7 @@ import {
   taskStateToPlanEntries,
 } from "./conversion/task-state";
 import type { EnrichedReadCache } from "./hooks";
+import type { MachineClaudeAuth } from "./machine-auth";
 import { createLocalToolsMcpServer } from "./mcp/local-tools";
 import {
   clearMcpToolMetadataCache,
@@ -147,6 +149,7 @@ import {
   toSdkEffort,
 } from "./session/options";
 import { SettingsManager } from "./session/settings";
+import { generateTraceparentHookNonce } from "./session/traceparent-hook";
 import {
   buildSideQuestionPrompt,
   collectSideQuestionAnswer,
@@ -320,13 +323,40 @@ function shouldEmitRawMessage(
   );
 }
 
+interface SdkTokenUsage {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}
+
+function sumSdkUsage(usage: SdkTokenUsage): number {
+  return (
+    (usage.input_tokens ?? 0) +
+    (usage.output_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0)
+  );
+}
+
+const CONTEXT_USAGE_TIMEOUT_MS = 5_000;
+
 async function fetchContextUsedTokens(
   sdkQuery: Query,
   logger: Logger,
 ): Promise<number | null> {
   try {
-    const usage = await sdkQuery.getContextUsage();
-    return usage.totalTokens;
+    const usage = await withTimeout(
+      sdkQuery.getContextUsage(),
+      CONTEXT_USAGE_TIMEOUT_MS,
+    );
+    if (usage.result === "timeout") {
+      logger.warn(
+        `Timed out after ${CONTEXT_USAGE_TIMEOUT_MS}ms fetching context usage from SDK`,
+      );
+      return null;
+    }
+    return usage.value.totalTokens;
   } catch (error) {
     logger.error("Failed to fetch context usage from SDK:", error);
     return null;
@@ -341,11 +371,16 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  machineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
+  protected override usesMachineAuth(): boolean {
+    return !!this.options?.machineAuth;
+  }
+
   readonly adapterName = "claude";
   declare session: Session;
   toolUseCache: ToolUseCache;
@@ -694,7 +729,48 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     const input = head.pendingInput;
     head.pendingInput = undefined;
+    head.dispatchedAt = performance.now();
     session.input.push(input);
+  }
+
+  /** Time the window between handing a prompt to the SDK and the SDK's first
+   *  emission for it. Nothing crosses the wire during that window, so without
+   *  this line a slow first turn cannot be attributed after the fact: the log
+   *  names both how long the wait was and which message ended it, which
+   *  separates pre-model setup (a `commands_changed` skill rescan, for
+   *  example) from the model call itself. */
+  private timeFirstSdkMessage(
+    session: Session,
+    sessionId: string,
+    message: SDKMessage,
+  ): void {
+    const turn =
+      session.activeTurn ?? session.turnQueue.find((t) => !t.settled);
+    if (turn?.dispatchedAt === undefined || turn.firstMessageTimed) {
+      return;
+    }
+    turn.firstMessageTimed = true;
+    this.logger.debug("First SDK message after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+      messageType: message.type,
+      messageSubtype: (message as { subtype?: string }).subtype,
+    });
+  }
+
+  /** Time to the first assistant message, which is the first output a person
+   *  sees. Reported once per turn so a slow turn splits into the wait before
+   *  the model answered and the tool work after it. */
+  private timeFirstModelOutput(session: Session, sessionId: string): void {
+    const turn = session.activeTurn;
+    if (turn?.dispatchedAt === undefined || turn.firstOutputTimed) {
+      return;
+    }
+    turn.firstOutputTimed = true;
+    this.logger.debug("First model output after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+    });
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -894,7 +970,27 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.dispatchQueuedInput(session);
-      turn.resolve(result);
+      // Attach the turn's gateway trace id (from the traceparent hook) so the
+      // server can stamp it on `_posthog/turn_complete`. Cleared here so a
+      // turn whose hook never fired cannot inherit the previous turn's id.
+      const traceId = session.currentTurnTraceId;
+      session.currentTurnTraceId = undefined;
+      if (
+        !traceId &&
+        session.traceparentHookInstalled &&
+        !turn.isLocalOnlyCommand
+      ) {
+        // Loud on purpose: an SDK or CLI change that stops surfacing hook
+        // output would otherwise degrade feedback attribution silently.
+        this.logger.warn("Gateway turn settled without a trace id", {
+          sessionId: session.sdkSessionId,
+        });
+      }
+      turn.resolve(
+        traceId
+          ? { ...result, _meta: { ...(result._meta ?? {}), traceId } }
+          : result,
+      );
     };
 
     // Reject the active turn without tearing down the consumer.
@@ -911,6 +1007,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       this.dispatchQueuedInput(session);
       turn.reject(error);
@@ -930,6 +1027,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         : [...session.turnQueue];
       session.activeTurn = null;
       session.turnQueue = [];
+      session.currentTurnTraceId = undefined;
       this.toolUseStreamCache.clear();
       for (const turn of turns) {
         if (!turn.settled) {
@@ -992,6 +1090,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.closeQueryStream(session);
           return;
         }
+
+        this.timeFirstSdkMessage(session, sessionId, message);
 
         if (
           session.emitRawSDKMessages &&
@@ -1211,6 +1311,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               }
             }
 
+            if (!isTaskNotification && lastAssistantTotalUsage === null) {
+              const usedTokens = await withAbort(
+                fetchContextUsedTokens(query, this.logger),
+                cancelController.signal,
+              );
+              const total =
+                usedTokens.result === "success" ? (usedTokens.value ?? 0) : 0;
+              if (total > 0) {
+                recordContextUsage(total);
+              }
+            }
+
             session.contextSize = windowSize();
             if (lastAssistantTotalUsage !== null) {
               session.contextUsed = lastAssistantTotalUsage;
@@ -1224,10 +1336,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   sessionUpdate: "usage_update",
                   used: lastAssistantTotalUsage,
                   size: windowSize(),
-                  cost: {
-                    amount: message.total_cost_usd,
-                    currency: "USD",
-                  },
                 },
               });
             }
@@ -1285,7 +1393,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            const result = handleResultMessage(message);
+            const result = handleResultMessage(
+              message,
+              session.activeTurn?.madeProgress === true,
+            );
             if (result.error) {
               if (!isTaskNotification) {
                 failActive(result.error);
@@ -1394,11 +1505,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 };
               }
 
-              const nextTotal =
-                lastStreamUsage.input_tokens +
-                lastStreamUsage.output_tokens +
-                lastStreamUsage.cache_read_input_tokens +
-                lastStreamUsage.cache_creation_input_tokens;
+              const nextTotal = sumSdkUsage(lastStreamUsage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1465,6 +1572,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              this.timeFirstModelOutput(session, sessionId);
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
@@ -1502,11 +1610,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 cache_read_input_tokens: number | null;
                 cache_creation_input_tokens: number | null;
               };
-              const nextTotal =
-                (usage.input_tokens ?? 0) +
-                (usage.output_tokens ?? 0) +
-                (usage.cache_read_input_tokens ?? 0) +
-                (usage.cache_creation_input_tokens ?? 0);
+              const nextTotal = sumSdkUsage(usage);
 
               if (recordContextUsage(nextTotal)) {
                 await this.client.sessionUpdate({
@@ -1515,10 +1619,21 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                     sessionUpdate: "usage_update",
                     used: nextTotal,
                     size: windowSize(),
-                    cost: null,
                   },
                 });
               }
+            }
+
+            if (
+              session.activeTurn &&
+              message.parent_tool_use_id === null &&
+              Array.isArray(message.message.content) &&
+              message.message.content.some(
+                (block) =>
+                  block.type === "tool_use" || block.type === "tool_result",
+              )
+            ) {
+              session.activeTurn.madeProgress = true;
             }
 
             const result = await handleUserAssistantMessage(message, context);
@@ -1870,7 +1985,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -1880,6 +1999,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.input = newInput;
       session.queryOptions = newOptions;
       session.abortController = newAbortController;
+      session.contextUsed = undefined;
 
       const result = await withTimeout(
         newQuery.initializationResult(),
@@ -2094,7 +2214,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
-        ...rerootedModelOptions(this.session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          this.session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const oneShot = query({
@@ -2204,7 +2328,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(prev.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          prev.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2595,7 +2723,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
-    const settingsManager = new SettingsManager(cwd);
+    const settingsManager = new SettingsManager(
+      cwd,
+      !!this.options?.machineAuth,
+    );
     await settingsManager.initialize();
 
     // The session's explicit pick outranks the shared claude settings file:
@@ -2701,6 +2832,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
 
     const taskState: TaskState = new Map();
+    const traceparentHookNonce = generateTraceparentHookNonce();
     const options = buildSessionOptions({
       cwd,
       mcpServers,
@@ -2711,6 +2843,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       systemPrompt,
       userProvidedOptions: meta?.claudeCode?.options,
       sessionId,
+      taskId: resolveTaskId(meta),
       isResume,
       forkSession,
       additionalDirectories: [
@@ -2736,6 +2869,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      traceparentHookNonce,
+      machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {
@@ -2788,6 +2923,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         rules: estimateRulesTokens(readClaudeMdQuietly(cwd, this.logger)),
       },
       taskState,
+      traceparentHookNonce,
+      traceparentHookInstalled:
+        typeof options.extraArgs?.settings === "string" &&
+        options.extraArgs.settings.includes(traceparentHookNonce),
 
       // Custom properties
       cwd,

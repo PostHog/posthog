@@ -59,6 +59,18 @@ def resolve_exception_class(exc: BaseException) -> str:
     return getattr(cause, "type", None) or type(cause).__name__
 
 
+def describe_failure(exc: BaseException) -> str:
+    """Name the exception that failed, for a record kept outside the worker logs.
+
+    ``str()`` of an ``ActivityError`` is always "Activity task failed". ``ApplicationError`` prints
+    its own ``type``, which Temporal sets to the original class name. A plain exception prints no
+    type, so this function adds it. The result goes in a Temporal payload, so it has a size limit.
+    """
+    cause: BaseException = unwrap_temporal_cause(exc) or exc
+    described = str(cause) if isinstance(cause, ApplicationError) else f"{type(cause).__name__}: {cause}"
+    return truncate_for_temporal_payload(described, MAX_ERROR_MESSAGE_CHARS)
+
+
 def resolve_error_trace(exc: BaseException) -> str:
     cause = unwrap_temporal_cause(exc)
     if cause is not None and cause.details and isinstance(cause.details[0], str):

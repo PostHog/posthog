@@ -11,10 +11,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.health_issue import HealthIssueSerializer
+from posthog.constants import AvailableFeature
 from posthog.models.health_issue import HealthIssue
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.redis import get_client
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.growth.backend.constants import github_sdk_versions_key
 
 
@@ -422,6 +425,95 @@ class TestHealthIssueAPI(APIBaseTest):
     def test_forbidden_methods(self, method, path):
         response = getattr(self.client, method.lower())(self._url(path))
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class TestHealthIssueAccessControl(APIBaseTest):
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/health_issues{path}"
+
+    def _create_issue(self, kind: str, unique_hash: str) -> HealthIssue:
+        return HealthIssue.objects.create(
+            team=self.team,
+            kind=kind,
+            severity=HealthIssue.Severity.WARNING,
+            payload={"pipeline_name": "salesforce sync", "error": "credentials expired"},
+            unique_hash=unique_hash,
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    @parameterized.expand(
+        [
+            ("external_data_failure", "external_data_source"),
+            ("materialized_view_failure", "warehouse_objects"),
+        ]
+    )
+    def test_restricted_member_does_not_see_kind_in_list(self, kind, resource):
+        self._create_issue(kind=kind, unique_hash="h1")
+        self._create_issue(kind="sdk_outdated", unique_hash="h2")
+        AccessControl.objects.create(team=self.team, resource=resource, access_level="none")
+
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["kind"] for result in response.json()["results"]], ["sdk_outdated"])
+
+    def test_restricted_member_summary_excludes_hidden_kind(self):
+        self._create_issue(kind="external_data_failure", unique_hash="h1")
+        self._create_issue(kind="sdk_outdated", unique_hash="h2")
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        response = self.client.get(self._url("/summary"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["unsnoozed"]["total"], 1)
+        self.assertEqual(response.json()["unsnoozed"]["by_kind"], {"sdk_outdated": 1})
+
+    @parameterized.expand(
+        [
+            ("retrieve", lambda client, url: client.get(url)),
+            ("resolve", lambda client, url: client.post(f"{url}/resolve")),
+            ("dismiss", lambda client, url: client.patch(url, {"dismissed": True})),
+            ("snooze", lambda client, url: client.patch(url, {"snoozed_until": "P7D"})),
+        ]
+    )
+    def test_restricted_member_object_action_returns_403(self, _name, request):
+        issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        response = request(self.client, self._url(f"/{issue.id}"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "You do not have viewer access to this resource.")
+
+    @parameterized.expand([("system_default", None), ("explicit_viewer", "viewer")])
+    def test_member_with_viewer_access_sees_declared_kind(self, _name, access_level):
+        issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
+        if access_level:
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level=access_level)
+
+        list_response = self.client.get(self._url())
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(issue.id)])
+
+        retrieve_response = self.client.get(self._url(f"/{issue.id}"))
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(retrieve_response.json()["summary"], "salesforce sync is failing to sync")
+
+    def test_org_admin_sees_hidden_kind_despite_none_default(self):
+        issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        list_response = self.client.get(self._url())
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(issue.id)])
+
+        retrieve_response = self.client.get(self._url(f"/{issue.id}"))
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
 
 
 class TestSnoozeDurationField(SimpleTestCase):

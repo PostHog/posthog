@@ -18,14 +18,18 @@ import {
     getExposureEventAndProperty,
     resolvedExposureEvent,
 } from 'scenes/experiments/exposureContract'
-import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
-import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
 import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
+
+import {
+    METRIC_CONTEXTS,
+    experimentMetricModalLogic,
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { sharedMetricDetailsModalLogic } from 'products/experiments/frontend/modals/SharedMetricDetailsModal/sharedMetricDetailsModalLogic'
 
 import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'

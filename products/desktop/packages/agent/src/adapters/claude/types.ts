@@ -62,6 +62,17 @@ export type Turn = {
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
   pendingInput?: SDKUserMessage;
+  /** `performance.now()` at the moment the prompt entered the SDK input
+   *  stream. The SDK emits nothing while it prepares a turn, so this is the
+   *  only anchor for measuring that silent window. */
+  dispatchedAt?: number;
+  /** Set once the first SDK message for this turn has been timed, so the
+   *  measurement is reported once instead of on every message. */
+  firstMessageTimed?: boolean;
+  /** Set once the first assistant message for this turn has been timed. */
+  firstOutputTimed?: boolean;
+  /** A top-level tool call or result was observed during this turn. */
+  madeProgress?: boolean;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
@@ -99,6 +110,16 @@ export type Session = BaseSession & {
   fastModeEnabled: boolean;
   /** Last title pushed via `session_info_update`, to dedupe turn-end polls. */
   lastTitle?: string;
+  /** Gateway-form trace id of the SDK turn now executing, reported by the
+   * traceparent hook (see session/traceparent-hook.ts); cleared on settle
+   * and on turn failure. */
+  currentTurnTraceId?: string;
+  /** Discriminator the traceparent hook embeds in its stderr prefix; the
+   * parser only accepts echoes carrying it. */
+  traceparentHookNonce?: string;
+  /** True when this session's CLI was launched with the traceparent hook, so a
+   * model turn that settles without a trace id is a real gap worth logging. */
+  traceparentHookInstalled: boolean;
   configOptions: SessionConfigOption[];
   accumulatedUsage: AccumulatedUsage;
   /** PostHog products used during this session, derived from MCP exec calls.

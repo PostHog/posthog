@@ -22,6 +22,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
@@ -170,7 +173,23 @@ function FreeformEditControls({
   };
 
   return (
-    <Flex align="center" gap="2" className="no-drag">
+    <div className="no-drag flex items-center gap-2">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              size="icon-sm"
+              aria-label="Copy link to canvas"
+              onClick={() =>
+                void copyCanvasLink(channelId, dashboardId, "canvas")
+              }
+            >
+              <LinkIcon size={14} />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">Copy link to canvas</TooltipContent>
+      </Tooltip>
       {editing && (
         // Autosave status — a non-interactive button showing a spinner while a
         // context save is in flight, "Saved" otherwise.
@@ -275,7 +294,7 @@ function FreeformEditControls({
         )}
         {editing ? "Done" : "Edit"}
       </Button>
-    </Flex>
+    </div>
   );
 }
 

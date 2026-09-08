@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from django.db.models import Q, QuerySet
 
 import structlog
+
+from posthog.dataclasses import frozen
 
 from .models.feature_flag import FeatureFlag
 
@@ -32,14 +33,15 @@ class FeatureFlagStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
-@dataclass
+@frozen
 class FeatureFlagRolloutSummary:
     # Whether the flag is effectively rolled out to everyone, independent of recent evaluation.
     effectively_full_rollout: bool
     # Whether any release condition has property filters (conditionally targeted vs. blanket rollout).
     has_targeting_conditions: bool
     # Highest rollout percentage across release conditions, or None when there are no conditions.
-    max_rollout_percentage: int | None
+    # A fractional rollout (e.g. 0.5) stays a float, matching how conditions store the value.
+    max_rollout_percentage: int | float | None
     # Whether the flag serves multiple variants.
     is_multivariate: bool
 
@@ -185,6 +187,10 @@ class FeatureFlagStatusChecker:
     ):
         self.feature_flag_id = feature_flag_id
         self.feature_flag = feature_flag
+        # Set when `get_status` reaches STALE through the configuration route, where the reason it
+        # returns already states the rollout. Callers that narrate the rollout separately read this
+        # rather than re-deriving the route from the flag.
+        self.reason_states_rollout = False
 
     def get_status(self) -> tuple[FeatureFlagStatus, FeatureFlagStatusReason]:
         if not self.feature_flag_id and not self.feature_flag:
@@ -236,6 +242,7 @@ class FeatureFlagStatusChecker:
             if is_flag_older_than_stale_threshold:
                 is_fully_rolled_out, rolled_out_reason = self.is_flag_fully_rolled_out(flag)
                 if is_fully_rolled_out:
+                    self.reason_states_rollout = True
                     return FeatureFlagStatus.STALE, rolled_out_reason
 
         return FeatureFlagStatus.ACTIVE, "Flag has no usage data yet"
@@ -268,7 +275,7 @@ class FeatureFlagStatusChecker:
         multivariate = filters.get("multivariate")
 
         has_targeting_conditions = False
-        max_rollout_percentage: int | None = None
+        max_rollout_percentage: int | float | None = None
         for group in groups:
             if group.get("properties"):
                 has_targeting_conditions = True

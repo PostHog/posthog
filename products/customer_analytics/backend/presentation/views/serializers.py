@@ -1005,10 +1005,15 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
     )
+    last_login = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the member last signed in, or null if they have never signed in.",
+    )
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user", "level"]
+        fields = ["id", "user", "level", "last_login"]
         read_only_fields = ["id", "user", "level"]
         extra_kwargs = {
             "id": {"help_text": "Organization membership ID."},
@@ -1829,7 +1834,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     references = CustomPropertyReferenceSerializer(
         many=True,
         read_only=True,
-        help_text="Workflows that use this property, resolved by definition id.",
+        help_text="Workflows that use this property, resolved by definition id when the caller can view workflows.",
+    )
+    has_workflow_reference = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a workflow updates this property. Always returned, even when workflow details are hidden.",
     )
 
     def validate(self, attrs):
@@ -1864,6 +1873,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_by",
             "updated_at",
             "references",
+            "has_workflow_reference",
         ]
 
 

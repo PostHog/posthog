@@ -1,6 +1,5 @@
 {% extends "admin/change_form.html" %}
 {% load i18n %}
-
 {% block extrahead %}
     {{ block.super }}
     {{ deactivation_reason_presets|json_script:"organization-deactivation-reason-presets" }}
@@ -94,7 +93,6 @@
         })
     </script>
 {% endblock %}
-
 {% block submit_buttons_bottom %}
     {{ block.super }}
 {% endblock %}
