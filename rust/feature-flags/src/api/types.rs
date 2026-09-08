@@ -1,4 +1,6 @@
 use crate::api::errors::FlagError;
+use crate::cohorts::cohort_models::CohortId;
+use crate::cohorts::cohort_operations::apply_cohort_membership_logic;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
@@ -481,6 +483,7 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
+    #[allow(clippy::too_many_arguments)]
     fn create_with_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
@@ -488,6 +491,7 @@ pub trait FromFeatureAndMatch {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        cohort_matches: Option<&HashMap<CohortId, bool>>,
         matching_context: PropertyMatchingContext,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
@@ -504,6 +508,7 @@ impl FromFeatureAndMatch for FlagDetails {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(Tz::UTC, false),
         )
     }
@@ -515,6 +520,7 @@ impl FromFeatureAndMatch for FlagDetails {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        cohort_matches: Option<&HashMap<CohortId, bool>>,
         matching_context: PropertyMatchingContext,
     ) -> Self {
         FlagDetails {
@@ -541,6 +547,7 @@ impl FromFeatureAndMatch for FlagDetails {
                     property_values,
                     group_property_values,
                     flag_evaluation_results,
+                    cohort_matches,
                     matching_context,
                 ))
             } else {
@@ -609,6 +616,7 @@ impl FlagDetails {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        cohort_matches: Option<&HashMap<CohortId, bool>>,
         matching_context: PropertyMatchingContext,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
@@ -685,6 +693,47 @@ impl FlagDetails {
                             key: property.key.clone(),
                             operator: operator_str,
                             value: expected,
+                            r#type: type_str,
+                            actual_value: None,
+                            matched: property_matched,
+                            explanation,
+                        });
+                        continue;
+                    }
+
+                    // Cohort filters resolve against cohort membership, not against person
+                    // properties. match_property() cannot evaluate them: In/NotIn returns Err,
+                    // and Exact looks up a person property named `id`. Both make every cohort
+                    // filter report matched=false, which contradicts the condition-level outcome
+                    // the matcher computed. Resolve them against the membership results instead,
+                    // through the same helper the matcher uses, so this explanation cannot drift
+                    // from the outcome it explains.
+                    if property.is_cohort() {
+                        let empty = HashMap::new();
+                        let matches = cohort_matches.unwrap_or(&empty);
+                        let property_matched =
+                            apply_cohort_membership_logic(std::slice::from_ref(property), matches)
+                                .unwrap_or(false);
+                        let cohort_id = property.get_cohort_id();
+                        let cohort_label = match cohort_id {
+                            Some(id) => format!("cohort {id}"),
+                            None => "the targeted cohort".to_string(),
+                        };
+                        // State the membership rather than the verdict. The frontend renders this
+                        // line with no pass/fail marker, so on a `not in` filter "did not match"
+                        // alone would leave the reader guessing which way membership went.
+                        let is_member = cohort_id
+                            .and_then(|id| matches.get(&id).copied())
+                            .unwrap_or(false);
+                        let explanation = if is_member {
+                            format!("Person is in {cohort_label}")
+                        } else {
+                            format!("Person is not in {cohort_label}")
+                        };
+                        property_analyses.push(PropertyAnalysis {
+                            key: property.key.clone(),
+                            operator: operator_str,
+                            value: property.value.clone().unwrap_or(Value::Null),
                             r#type: type_str,
                             actual_value: None,
                             matched: property_matched,
@@ -1464,6 +1513,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1567,6 +1617,7 @@ mod tests {
             Some(&person_props),
             Some(&group_props),
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1648,6 +1699,7 @@ mod tests {
             None,
             Some(&group_props),
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1711,6 +1763,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1744,6 +1797,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1778,6 +1832,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             None, // empty — dependency flag 42 absent
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1845,6 +1900,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -1922,6 +1978,7 @@ mod tests {
             Some(&property_values),
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1963,6 +2020,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -2009,6 +2067,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
@@ -2066,6 +2125,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
