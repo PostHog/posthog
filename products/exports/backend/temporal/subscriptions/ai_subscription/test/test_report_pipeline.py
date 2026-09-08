@@ -19,6 +19,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     RenderedChart,
     ValidatedChart,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    InsightReportEvidence,
+    ReportContextEvidence,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
@@ -27,6 +31,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
+    _all_contexts_failed_notice,
     _all_queries_failed_notice,
     _arequest_hogql_fix,
     _compose_synthesis_human_message,
@@ -458,6 +463,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     system_message = messages[0][1]
     assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
     assert "{{{" not in system_message  # no placeholder left unrendered
+    assert "Use that evidence to answer the prompt" in system_message
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -565,16 +571,7 @@ def test_synthesis_receives_sanitized_computed_context() -> None:
     assert message.count("</computed_context>") == 1
     assert "<system>" not in message
     assert "42 signups" in message
-
-
-def _wrap(
-    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
-) -> BaseException:
-    if cause is not None:
-        outer.__cause__ = cause
-    if context is not None:
-        outer.__context__ = context
-    return outer
+    assert "No supplemental queries were needed" in message
 
 
 @pytest.mark.parametrize(
@@ -675,6 +672,12 @@ async def test_computed_context_replans_without_freezing_a_stale_plan(
     mock_run.return_value = PlanExecution(rendered=[], failed_count=0, diagnostics=[], charts=[])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
     context = AiReportContexts(insights=(AiReportInsightContext(id=1, name="Signups", status="success"),))
+    report_context = ReportContextEvidence(
+        dashboards=(),
+        insights=(InsightReportEvidence(id=1, name="Signups", status="success", content="42 signups"),),
+        relevant_events=("user signed up",),
+        authorized_context_refs=("insight:1",),
+    )
 
     result = await generate_ai_report(
         team=MagicMock(),
@@ -682,14 +685,44 @@ async def test_computed_context_replans_without_freezing_a_stale_plan(
         prompt="x",
         window=_test_window(),
         ai_query_plan=_frozen_plan(),
-        formatted_context="42 signups",
-        context_provenance=context,
+        report_context=report_context,
     )
 
     mock_frozen.assert_not_called()
     mock_bep.assert_called_once()
+    assert mock_bep.call_args.kwargs["context_events"] == ("user signed up",)
     assert result.plan_to_persist is None
     assert result.context.contexts == context
+    assert result.authorized_context_refs == ("insight:1",)
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_all_failed_context_is_visible_and_marks_report_degraded(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
+) -> None:
+    mock_bep.return_value = _spec(steps=0).model_copy(update={"formatted_context": "Context unavailable"})
+    mock_run.return_value = PlanExecution(rendered=[], failed_count=0, diagnostics=[], charts=[])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    report_context = ReportContextEvidence(
+        dashboards=(),
+        insights=(InsightReportEvidence(id=1, name="Signups", status="failed", content="Context unavailable"),),
+    )
+
+    result = await generate_ai_report(
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        report_context=report_context,
+    )
+
+    assert result.markdown == _all_contexts_failed_notice() + "# Report"
+    props = _slo_completed(mock_capture)
+    assert props["degraded"] is True
+    assert props["failed_contexts"] == 1
 
 
 @patch(_SLO_CAPTURE)

@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import Collection
@@ -62,6 +63,7 @@ LOGGER = get_logger(__name__)
 # skipped sub still moves forward instead of re-firing every tick.
 _CREDIT_RESET_FALLBACK_DAYS = 31
 AI_REPORT_CONTEXT_KEY = "ai_report_context"
+AI_REPORT_GENERATION_TIMEOUT_SECONDS = 8 * 60
 
 
 async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
@@ -200,19 +202,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
-        delivery.context_refs = list(
-            dict.fromkeys(
-                [
-                    *(f"dashboard:{dashboard.id}" for dashboard in result.context.contexts.dashboards),
-                    *(
-                        f"insight:{insight.id}"
-                        for dashboard in result.context.contexts.dashboards
-                        for insight in dashboard.insights
-                    ),
-                    *(f"insight:{insight.id}" for insight in result.context.contexts.insights),
-                ]
-            )
-        )
+        delivery.context_refs = list(dict.fromkeys(result.authorized_context_refs))
         delivery.save(update_fields=["content_snapshot", "context_refs", "last_updated_at"])
 
     await _write()
@@ -374,10 +364,12 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
 
     try:
-        report_result = await build_ai_subscription_report(subscription)
+        report_result = await asyncio.wait_for(
+            build_ai_subscription_report(subscription),
+            timeout=AI_REPORT_GENERATION_TIMEOUT_SECONDS,
+        )
     except PromptRejectedError as exc:
-        # Structurally permanent: no creator, prompt now fails sanitization, or the
-        # planner returned a malformed plan. Re-firing wastes LLM tokens every cycle.
+        # Structurally permanent: no creator, no query access, or the prompt now fails sanitization.
         LOGGER.warning(
             "generate_ai_subscription_report.prompt_rejected",
             subscription_id=subscription.id,

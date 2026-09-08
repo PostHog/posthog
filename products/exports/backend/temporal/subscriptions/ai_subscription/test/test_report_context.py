@@ -3,8 +3,9 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -26,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
     _DashboardTile,
     _rank_dashboard_tiles,
     _SavedInsight,
+    _validated_saved_query,
     creator_can_access_report_context,
     resolve_report_context,
 )
@@ -75,6 +77,22 @@ def _hogql_query(variable_id: str, *, value: str) -> dict[str, Any]:
 
 
 class TestReportContextPureFunctions(SimpleTestCase):
+    def test_saved_queries_are_upgraded_on_a_copy_before_validation(self) -> None:
+        raw_query = _trends_query("legacy event")
+        insight = MagicMock(query=raw_query, query_from_filters=None)
+
+        def upgrade_query(query: dict[str, Any]) -> dict[str, Any]:
+            query["source"]["series"][0]["event"] = "upgraded event"
+            return query
+
+        with patch(f"{_MODULE}.upgrade", side_effect=upgrade_query) as upgrade_query_mock:
+            validated = _validated_saved_query(insight)
+
+        assert validated is not None
+        assert validated.series[0].event == "upgraded event"  # type: ignore[attr-defined]
+        assert raw_query["source"]["series"][0]["event"] == "legacy event"
+        upgrade_query_mock.assert_called_once()
+
     def test_ranking_is_popularity_first_then_layout_and_bounded(self) -> None:
         def tile(insight_id: int, y: float, x: float) -> _DashboardTile:
             return _DashboardTile(
@@ -209,6 +227,9 @@ class TestResolveReportContext(BaseTest):
         assert trends_query["properties"][0]["key"] == "$browser"
         assert variable_query["variables"]["saved-variable"]["value"] == "current value"
         assert evidence.insights[0].status == "success"
+        assert evidence.relevant_events == ("current event",)
+        assert evidence.authorized_context_refs == (f"insight:{trends.id}", f"insight:{variable.id}")
+        assert all(call.kwargs["include_prompt_framing"] is False for call in execute.call_args_list)
 
     def test_context_resolution_timeout_degrades_the_slow_query(self) -> None:
         subscription = self._subscription()
@@ -228,10 +249,48 @@ class TestResolveReportContext(BaseTest):
             patch(f"{_MODULE}.CONTEXT_QUERY_TIMEOUT_SECONDS", 1),
             patch(f"{_MODULE}.CONTEXT_RESOLUTION_TIMEOUT_SECONDS", 0.01),
             patch(_EXECUTOR, new_callable=AsyncMock, side_effect=slow_execute),
+            patch(f"{_MODULE}.cancel_query_on_cluster") as cancel_query,
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
 
         assert evidence.insights[0].status == "failed"
+        cancel_query.assert_called_once()
+
+    def test_outer_cancellation_cleans_up_running_context_queries(self) -> None:
+        subscription = self._subscription()
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Cancelled insight",
+            query=_trends_query("cancelled event"),
+        )
+        self._add_insight_context(subscription, insight)
+        started = asyncio.Event()
+        cleaned_up = asyncio.Event()
+
+        async def blocked_execute(*_args: object, **_kwargs: object) -> str:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaned_up.set()
+            return "unreachable"
+
+        async def run() -> None:
+            task = asyncio.create_task(resolve_report_context(subscription))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert cleaned_up.is_set()
+
+        with (
+            patch(_EXECUTOR, side_effect=blocked_execute),
+            patch(f"{_MODULE}.cancel_query_on_cluster") as cancel_query,
+        ):
+            async_to_sync(run)()
+
+        cancel_query.assert_called_once()
 
     def test_dashboard_ignores_malformed_filter_and_variable_overrides(self) -> None:
         subscription = self._subscription()
@@ -277,6 +336,14 @@ class TestResolveReportContext(BaseTest):
                 layouts={"sm": {"y": y, "x": x}},
             )
 
+        malformed = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Malformed but popular",
+            query={"kind": "not-a-query"},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=malformed, layouts={"sm": {"y": 0, "x": 0}})
+
         deleted_insight = Insight.objects.create(
             team=self.team,
             created_by=self.user,
@@ -301,6 +368,7 @@ class TestResolveReportContext(BaseTest):
         DashboardTile.objects.create(dashboard=dashboard, widget=widget)
 
         counts = {
+            malformed.id: 1_000,
             insights[0].id: 5,
             insights[1].id: 10,
             insights[2].id: 10,
@@ -363,7 +431,8 @@ class TestResolveReportContext(BaseTest):
                 "dashboard-variable": {
                     "variableId": "dashboard-variable",
                     "code_name": "report_event",
-                    "value": "dashboard value",
+                    "value": None,
+                    "isNull": True,
                 }
             },
         )
@@ -404,7 +473,41 @@ class TestResolveReportContext(BaseTest):
             "$geoip_country_code",
             "$browser",
         }
-        assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["value"] == "dashboard value"
+        assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["value"] is None
+        assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["isNull"] is True
+
+    def test_dashboard_tile_can_ignore_dashboard_filters(self) -> None:
+        subscription = self._subscription()
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Overridden",
+            filters={"properties": [{"key": "$geoip_country_code", "operator": "exact", "value": ["US"]}]},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Browsers",
+            query=_trends_query("pageview"),
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "ignoreDashboardFilters": True,
+                "properties": [{"key": "$browser", "operator": "exact", "value": ["Chrome"]}],
+            },
+        )
+        self._add_dashboard_context(subscription, dashboard)
+
+        with (
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
+        ):
+            async_to_sync(resolve_report_context)(subscription)
+
+        effective_query = execute.call_args.args[1].model_dump(mode="json")
+        assert {item["key"] for item in flatten_property_leaves(effective_query["properties"])} == {"$browser"}
 
     def test_all_context_queries_share_one_five_slot_semaphore(self) -> None:
         subscription = self._subscription()
@@ -561,6 +664,64 @@ class TestResolveReportContext(BaseTest):
         object_access.assert_not_called()
         execute.assert_not_called()
         assert evidence.insights[0].status == "failed"
+
+    def test_access_check_errors_remain_retryable(self) -> None:
+        subscription = self._subscription()
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Transient access failure",
+            query=_trends_query("event"),
+        )
+        self._add_insight_context(subscription, insight)
+
+        with (
+            patch(
+                f"{_MODULE}.UserAccessControl.check_access_level_for_resource",
+                side_effect=RuntimeError("permission service unavailable"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "permission service unavailable"),
+        ):
+            async_to_sync(resolve_report_context)(subscription)
+
+    def test_environment_subscription_can_use_root_project_context(self) -> None:
+        environment = Team.objects.create(
+            organization=self.organization,
+            name="Environment",
+            parent_team=self.team,
+        )
+        subscription = Subscription.objects.create(
+            team=environment,
+            created_by=self.user,
+            prompt="Summarize the selected context",
+            target_type=Subscription.SubscriptionTarget.EMAIL,
+            target_value="report@example.com",
+            frequency=Subscription.SubscriptionFrequency.WEEKLY,
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Root insight",
+            query=_trends_query("root event"),
+        )
+        SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            subscription=subscription,
+            insight=insight,
+        )
+
+        with (
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True),
+            patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        assert evidence.insights[0].id == insight.id
+        assert evidence.insights[0].status == "success"
+        execute.assert_awaited_once()
 
     def test_delivery_context_access_fails_closed_after_object_access_is_revoked(self) -> None:
         subscription = self._subscription()
@@ -735,6 +896,7 @@ class TestResolveReportContext(BaseTest):
         assert by_id[inaccessible.id].status == "failed"
         assert by_id[deleted.id].status == "failed"
         assert by_id[accessible.id].status == "success"
+        assert evidence.authorized_context_refs == (f"insight:{accessible.id}",)
         execute.assert_awaited_once()
         assert execute.call_args.kwargs["insight_id"] == accessible.id
         assert execute.call_args.kwargs["user"] == subscription.created_by

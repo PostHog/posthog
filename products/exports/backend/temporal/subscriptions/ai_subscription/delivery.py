@@ -21,6 +21,7 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
 from products.exports.backend.models.subscription_context import SubscriptionContext
@@ -31,7 +32,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
-    compact_report_context,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
@@ -179,6 +179,7 @@ class SubscriptionReportContext:
     window: ReportWindow
     ai_query_plan: dict | None
     context_selection: ReportContextSelection
+    creator_can_query: bool
 
 
 def _resolve_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
@@ -229,6 +230,12 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
             window=window,
             ai_query_plan=current.ai_query_plan,
             context_selection=selection,
+            creator_can_query=(
+                current.created_by is not None
+                and UserAccessControl(user=current.created_by, team=current.team).check_access_level_for_resource(
+                    "query", "viewer"
+                )
+            ),
         )
 
 
@@ -244,6 +251,8 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
+    if not context.creator_can_query:
+        raise PromptRejectedError("AI subscription creator no longer has query access; cannot deliver.")
 
     report_context = await resolve_report_context(subscription, context.context_selection)
 
@@ -253,8 +262,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         prompt=context.prompt,
         window=context.window,
         ai_query_plan=context.ai_query_plan,
-        formatted_context=(report_context.formatted_evidence if report_context.has_successful_evidence else ""),
-        context_provenance=compact_report_context(report_context),
+        report_context=report_context,
         trace_correlation_id=subscription.id,
     )
 

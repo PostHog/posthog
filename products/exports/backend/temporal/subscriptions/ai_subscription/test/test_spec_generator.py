@@ -23,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
+    PlannerResponseError,
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
@@ -863,7 +864,7 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
         structured = mock_chat.return_value.with_structured_output.return_value
         structured.invoke.return_value = "not a QueryPlan"
 
-        with pytest.raises(PromptRejectedError, match="malformed"):
+        with pytest.raises(PlannerResponseError, match="malformed"):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
 
     @patch(f"{_SG}.MaxChatOpenAI")
@@ -915,7 +916,7 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
         structured = mock_chat.return_value.with_structured_output.return_value
         structured.invoke.return_value = QueryPlan(overall_intent="nothing to query", steps=[])
 
-        with pytest.raises(PromptRejectedError, match="at least one query"):
+        with pytest.raises(PlannerResponseError, match="at least one query"):
             generate_query_plan(cleaned_prompt="prompt", context_blob="context", team=self.team, user=self.user)
 
 

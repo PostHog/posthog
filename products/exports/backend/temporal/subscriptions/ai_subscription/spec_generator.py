@@ -109,6 +109,10 @@ class PromptRejectedError(ValueError):
     pass
 
 
+class PlannerResponseError(Exception):
+    """The planner returned output that cannot produce a report for this run."""
+
+
 class StoredPlanInvalidError(Exception):
     """A persisted query plan no longer validates (e.g. the `QueryPlan` schema changed since it was
     frozen). The caller should self-heal by re-planning live rather than failing the delivery — unlike
@@ -606,9 +610,9 @@ def generate_query_plan(
 
     result = llm.invoke(messages)
     if not isinstance(result, QueryPlan):
-        raise PromptRejectedError("Planner returned a malformed plan.")
+        raise PlannerResponseError("Planner returned a malformed plan.")
     if not result.steps and not safe_formatted_context:
-        raise PromptRejectedError("Planner must return at least one query without computed context.")
+        raise PlannerResponseError("Planner must return at least one query without computed context.")
     return result
 
 
@@ -620,9 +624,13 @@ def build_enriched_prompt(
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]] = None,
     formatted_context: str = "",
+    context_events: Sequence[str] = (),
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
-    relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
+    prompt_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
+    relevant_events = list(dict.fromkeys((*prompt_events, *context_events)))[
+        : max(RELEVANT_EVENTS_LIMIT, len(prompt_events))
+    ]
     context_blob = build_context_blob(
         team,
         window,

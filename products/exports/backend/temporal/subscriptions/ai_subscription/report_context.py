@@ -1,6 +1,8 @@
 import math
+import uuid
 import asyncio
 from collections.abc import Collection, Sequence
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Literal, cast
@@ -10,10 +12,14 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.clickhouse.cancel import cancel_query_on_cluster
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_metadata import QueryEventsExtractor
 from posthog.models import Team, User
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 from posthog.sync import database_sync_to_async
 
@@ -100,6 +106,8 @@ class DashboardReportEvidence:
 class ReportContextEvidence:
     dashboards: tuple[DashboardReportEvidence, ...]
     insights: tuple[InsightReportEvidence, ...]
+    authorized_context_refs: tuple[str, ...] = ()
+    relevant_events: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.dashboards) + len(self.insights) > MAX_REPORT_CONTEXTS:
@@ -195,21 +203,18 @@ def _validated_saved_query(insight: Insight) -> BaseModel | None:
     raw_query = insight.query or insight.query_from_filters
     if not isinstance(raw_query, dict):
         return None
-    query = raw_query.get("source")
-    if not isinstance(query, dict):
-        query = raw_query
     try:
+        upgraded_query = upgrade(deepcopy(raw_query))
+        query = upgraded_query.get("source")
+        if not isinstance(query, dict):
+            query = upgraded_query
         return validate_assistant_query(query)
     except Exception:
         return None
 
 
 def _can_view(access_control: UserAccessControl, resource: Model) -> bool:
-    try:
-        return access_control.check_access_level_for_object(resource, "viewer")
-    except Exception as err:
-        capture_exception(err)
-        return False
+    return access_control.check_access_level_for_object(resource, "viewer")
 
 
 def creator_can_access_report_context(
@@ -219,22 +224,19 @@ def creator_can_access_report_context(
     expected_insight_ids = set(insight_ids)
     if subscription.created_by is None:
         return False
-    try:
-        access_control = UserAccessControl(user=subscription.created_by, team=subscription.team)
-        if not access_control.check_access_level_for_resource("query", "viewer"):
-            return False
-    except Exception as err:
-        capture_exception(err)
+    access_control = UserAccessControl(user=subscription.created_by, team=subscription.team)
+    if not access_control.check_access_level_for_resource("query", "viewer"):
         return False
     if not expected_dashboard_ids and not expected_insight_ids:
         return True
 
+    context_team_id = subscription.team.parent_team_id or subscription.team_id
     dashboards = list(
-        Dashboard.objects_including_soft_deleted.filter(id__in=expected_dashboard_ids, team_id=subscription.team_id)
+        Dashboard.objects_including_soft_deleted.filter(id__in=expected_dashboard_ids, team_id=context_team_id)
     )
     insights = list(
         insights_including_soft_deleted_for_team(
-            team_id=subscription.team_id,
+            team_id=context_team_id,
             insight_ids=expected_insight_ids,
         )
     )
@@ -321,33 +323,37 @@ def _load_dashboard(
     access_control: UserAccessControl,
     popularity_since: datetime,
 ) -> _SavedDashboard:
-    if dashboard.team_id != team.id or dashboard.deleted or not _can_view(access_control, dashboard):
+    context_team_id = team.parent_team_id or team.id
+    if dashboard.team_id != context_team_id or dashboard.deleted or not _can_view(access_control, dashboard):
         return _unavailable_dashboard(dashboard.id)
 
     tile_rows = list(
         DashboardTile.objects.filter(
             dashboard_id=dashboard.id,
             insight_id__isnull=False,
-            insight__team_id=team.id,
+            insight__team_id=context_team_id,
             insight__deleted=False,
-        ).select_related("insight")
+        ).select_related("insight", "insight__created_by")
     )
     candidates: list[_DashboardTile] = []
     for tile in tile_rows:
         insight = tile.insight
-        if insight is None or insight.team_id != team.id or not _can_view(access_control, insight):
+        if insight is None or insight.team_id != context_team_id or not _can_view(access_control, insight):
+            continue
+        saved_insight = _load_saved_insight(
+            insight,
+            filters_override=(
+                cast(JsonObject, tile.filters_overrides) if isinstance(tile.filters_overrides, dict) else None
+            ),
+            variables_override=(
+                cast(JsonObject, dashboard.variables) if isinstance(dashboard.variables, dict) else None
+            ),
+        )
+        if saved_insight.query is None:
             continue
         candidates.append(
             _DashboardTile(
-                insight=_load_saved_insight(
-                    insight,
-                    filters_override=(
-                        cast(JsonObject, tile.filters_overrides) if isinstance(tile.filters_overrides, dict) else None
-                    ),
-                    variables_override=(
-                        cast(JsonObject, dashboard.variables) if isinstance(dashboard.variables, dict) else None
-                    ),
-                ),
+                insight=saved_insight,
                 layout_y=_layout_coordinate(tile.layouts, "y"),
                 layout_x=_layout_coordinate(tile.layouts, "x"),
             )
@@ -357,7 +363,7 @@ def _load_dashboard(
     if candidates:
         try:
             viewer_counts = recent_unique_viewer_counts_by_insight(
-                team_id=team.id,
+                team_id=context_team_id,
                 insight_ids=[tile.insight.id for tile in candidates],
                 since=popularity_since,
             )
@@ -413,20 +419,16 @@ def _load_report_context(
         query_access = False
         access_control = None
     else:
-        try:
-            access_control = UserAccessControl(user=user, team=subscription.team)
-            query_access = access_control.check_access_level_for_resource("query", "viewer")
-        except Exception as err:
-            capture_exception(err)
-            access_control = None
-            query_access = False
+        access_control = UserAccessControl(user=user, team=subscription.team)
+        query_access = access_control.check_access_level_for_resource("query", "viewer")
 
+    context_team_id = subscription.team.parent_team_id or team_id
     dashboards_by_id = (
         {
             dashboard.id: dashboard
             for dashboard in Dashboard.objects_including_soft_deleted.filter(
                 id__in=dashboard_ids,
-                team_id=team_id,
+                team_id=context_team_id,
             )
         }
         if query_access
@@ -435,7 +437,7 @@ def _load_report_context(
     insights_by_id = (
         {
             insight.id: insight
-            for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+            for insight in insights_including_soft_deleted_for_team(team_id=context_team_id, insight_ids=insight_ids)
         }
         if query_access
         else {}
@@ -483,16 +485,38 @@ def _load_report_context(
 async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphore) -> _ExecutedInsight:
     if pending.context is None:
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
+    context = pending.context
+    client_query_id = f"ai-subscription-context-{uuid.uuid4().hex}"
+
+    async def cancel_query() -> None:
+        try:
+            await database_sync_to_async(cancel_query_on_cluster, thread_sensitive=False)(
+                context.team.pk, client_query_id
+            )
+        except Exception as err:
+            capture_exception(err)
+
     try:
         async with semaphore:
-            content = await asyncio.wait_for(
-                pending.context.execute_and_format(), timeout=CONTEXT_QUERY_TIMEOUT_SECONDS
-            )
-        safe_content = strip_llm_framing_markers(content, max_len=len(content))
+            with tags_context(
+                client_query_id=client_query_id,
+                team_id=context.team.pk,
+                trigger="ai_subscription_context",
+            ):
+                content = await asyncio.wait_for(
+                    context.execute_and_format(include_prompt_framing=False),
+                    timeout=CONTEXT_QUERY_TIMEOUT_SECONDS,
+                )
+        safe_content = strip_llm_framing_markers(content, max_len=DASHBOARD_CONTEXT_CHAR_BUDGET)
         status: ReportContextStatus = "truncated" if TRUNCATED_MARKER in safe_content else "success"
         return _ExecutedInsight(saved=pending.saved, status=status, content=safe_content)
     except asyncio.CancelledError:
+        await asyncio.shield(cancel_query())
         raise
+    except TimeoutError as err:
+        await cancel_query()
+        capture_exception(err)
+        return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
     except Exception as err:
         capture_exception(err)
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
@@ -507,6 +531,8 @@ def _to_insight_provenance(executed: _ExecutedInsight) -> InsightReportProvenanc
 
 
 def _dashboard_status(insights: Sequence[InsightReportProvenance]) -> ReportContextStatus:
+    if not insights:
+        return "failed"
     if any(insight.status == "truncated" for insight in insights):
         return "truncated"
     if insights and all(insight.status == "failed" for insight in insights):
@@ -636,7 +662,10 @@ async def resolve_report_context(
     subscription: Subscription, selection: ReportContextSelection | None = None
 ) -> ReportContextEvidence:
     """Execute a bounded snapshot of the subscription's durable contexts as report evidence."""
-    loaded = await database_sync_to_async(_load_report_context, thread_sensitive=True)(
+    if selection is not None and not selection.over_limit and not selection.dashboard_ids and not selection.insight_ids:
+        return ReportContextEvidence(dashboards=(), insights=())
+
+    loaded = await database_sync_to_async(_load_report_context, thread_sensitive=False)(
         subscription.id, subscription.team_id, selection
     )
     if loaded.over_limit:
@@ -726,18 +755,21 @@ async def resolve_report_context(
 
     tasks = [asyncio.create_task(_execute_insight(item, semaphore)) for item in all_pending]
     executed: list[_ExecutedInsight] = []
-    if tasks:
-        done, unfinished = await asyncio.wait(tasks, timeout=CONTEXT_RESOLUTION_TIMEOUT_SECONDS)
+    try:
+        if tasks:
+            done, _ = await asyncio.wait(tasks, timeout=CONTEXT_RESOLUTION_TIMEOUT_SECONDS)
+            executed = [
+                task.result()
+                if task in done and not task.cancelled() and task.exception() is None
+                else _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
+                for pending, task in zip(all_pending, tasks, strict=True)
+            ]
+    finally:
+        unfinished = [task for task in tasks if not task.done()]
         for task in unfinished:
             task.cancel()
         if unfinished:
             await asyncio.gather(*unfinished, return_exceptions=True)
-        executed = [
-            task.result()
-            if task in done and not task.cancelled() and task.exception() is None
-            else _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
-            for pending, task in zip(all_pending, tasks, strict=True)
-        ]
     executed_by_pending = {id(pending): result for pending, result in zip(all_pending, executed, strict=True)}
 
     dashboard_evidence: list[_UnboundedDashboardEvidence] = []
@@ -770,7 +802,32 @@ async def resolve_report_context(
 
     standalone_evidence = [executed_by_pending[id(pending)] for pending in standalone_pending]
     bounded_dashboards, bounded_insights = _bound_evidence(dashboard_evidence, standalone_evidence)
+    query_events = QueryEventsExtractor(team=loaded.team)
+    relevant_events = tuple(
+        dict.fromkeys(
+            event
+            for insight in (
+                *(insight for dashboard in loaded.dashboards if dashboard.available for insight in dashboard.insights),
+                *(insight for insight in loaded.insights if insight.available),
+            )
+            if insight.query is not None
+            for event in query_events.extract_events(insight.query)
+        )
+    )
+    authorized_context_refs = (
+        *(f"dashboard:{dashboard.id}" for dashboard in loaded.dashboards if dashboard.available),
+        *(
+            f"insight:{insight.id}"
+            for dashboard in loaded.dashboards
+            if dashboard.available
+            for insight in dashboard.insights
+            if insight.available
+        ),
+        *(f"insight:{insight.id}" for insight in loaded.insights if insight.available),
+    )
     return ReportContextEvidence(
         dashboards=bounded_dashboards,
         insights=bounded_insights,
+        authorized_context_refs=authorized_context_refs,
+        relevant_events=relevant_events,
     )

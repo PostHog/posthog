@@ -18,6 +18,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     SLACK_MRKDWN_SECTION_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
+    SubscriptionReportContext,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
@@ -29,8 +30,15 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    ReportContextEvidence,
+    ReportContextSelection,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+)
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
@@ -593,10 +601,22 @@ class TestFreezePlanPersistence:
         sub.ai_query_plan = ai_query_plan
         return sub
 
-    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+    def _context(self, sub: MagicMock, *, creator_can_query: bool = True) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
-        return MagicMock(), MagicMock(), window, sub.ai_query_plan
+        return SubscriptionReportContext(
+            team=MagicMock(),
+            user=MagicMock(),
+            prompt=sub.prompt,
+            window=window,
+            ai_query_plan=sub.ai_query_plan,
+            context_selection=ReportContextSelection(),
+            creator_can_query=creator_can_query,
+        )
+
+    @staticmethod
+    def _empty_evidence() -> ReportContextEvidence:
+        return ReportContextEvidence(dashboards=(), insights=())
 
     async def test_first_run_persists_freshly_generated_plan(self) -> None:
         sub = self._subscription(ai_query_plan=None)
@@ -606,6 +626,7 @@ class TestFreezePlanPersistence:
         }
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -636,6 +657,7 @@ class TestFreezePlanPersistence:
         )
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
             patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
             patch(f"{_DELIVERY}._persist_ai_query_plan", side_effect=Exception("db blip")),
             patch(f"{_DELIVERY}.capture_exception") as mock_capture,
@@ -650,6 +672,7 @@ class TestFreezePlanPersistence:
         sub = self._subscription(ai_query_plan=frozen)
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)) as mock_ctx,
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -668,3 +691,19 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
+
+    async def test_query_access_is_rejected_before_context_or_planner_work(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        with (
+            patch(
+                f"{_DELIVERY}._resolve_subscription_context",
+                return_value=self._context(sub, creator_can_query=False),
+            ),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock()) as resolve_context,
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock()) as generate,
+            pytest.raises(PromptRejectedError, match="query access"),
+        ):
+            await build_ai_subscription_report(sub)
+
+        resolve_context.assert_not_awaited()
+        generate.assert_not_awaited()

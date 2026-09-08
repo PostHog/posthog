@@ -141,6 +141,7 @@ async def test_persist_ai_report_writes_only_compact_context_provenance(team, us
                     AiReportDashboardContext(
                         id=123,
                         name="Activation",
+                        status="success",
                         insights=(
                             AiReportInsightContext(
                                 id=987,
@@ -159,6 +160,7 @@ async def test_persist_ai_report_writes_only_compact_context_provenance(team, us
                 ),
             ),
         ),
+        authorized_context_refs=("dashboard:123", "insight:987", "insight:456"),
     )
 
     await _persist_ai_report(delivery.id, result, prompt="full report prompt that must stay outside context")
@@ -171,6 +173,7 @@ async def test_persist_ai_report_writes_only_compact_context_provenance(team, us
                 {
                     "id": 123,
                     "name": "Activation",
+                    "status": "success",
                     "insights": [
                         {
                             "id": 987,

@@ -2,6 +2,7 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
+    resolve_effective_dashboard_filters,
 )
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
@@ -138,14 +139,14 @@ class InsightContext:
 
         query_dict = self.query.model_dump(mode="json")
 
-        if self.dashboard_filters:
-            query_dict = await database_sync_to_async(apply_dashboard_filters_to_dict)(
-                query_dict, self.dashboard_filters, self.team
+        if self.dashboard_filters or self.filters_override:
+            effective = resolve_effective_dashboard_filters(
+                query_dict,
+                self.dashboard_filters,
+                self.filters_override,
             )
-
-        if self.filters_override:
             query_dict = await database_sync_to_async(apply_dashboard_filters_to_dict)(
-                query_dict, self.filters_override, self.team
+                effective.query, effective.filters, self.team
             )
 
         if self.variables_override:
