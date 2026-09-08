@@ -193,7 +193,7 @@ export function ContextWikiPagePane({
               onClick={() => commit(baseHead)}
               disabled={save.isPending || !hasDraft}
             >
-              {save.isPending ? <Spinner size="md" /> : null}
+              {save.isPending ? <Spinner /> : null}
               Save
             </Button>
           </div>

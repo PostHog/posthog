@@ -18,7 +18,7 @@ export function Spin({
     <span
       className={cn(
         "inline-flex shrink-0",
-        spinning && "animate-spin",
+        spinning && "animate-spin motion-reduce:animate-none",
         className,
       )}
       {...props}

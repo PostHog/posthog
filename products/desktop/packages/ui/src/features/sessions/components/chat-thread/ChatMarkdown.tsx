@@ -94,7 +94,7 @@ const components: Components = {
           aria-label="Link loading"
         >
           {children}
-          <Spinner size="sm" />
+          <Spinner size="sm" aria-hidden="true" />
         </output>
       );
     }
