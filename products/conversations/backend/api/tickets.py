@@ -555,7 +555,10 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
         if (archived := validated_data.pop("archived", None)) is not None:
-            validated_data["archived_at"] = timezone.now() if archived else None
+            # Only move the stamp when the state changes, so a repeated archive keeps the time
+            # the ticket was first archived. bulk_archive leaves a no-op alone the same way.
+            if archived != (instance.archived_at is not None):
+                validated_data["archived_at"] = timezone.now() if archived else None
         return super().update(instance, validated_data)
 
 

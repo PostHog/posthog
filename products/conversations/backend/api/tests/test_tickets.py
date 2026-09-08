@@ -3462,6 +3462,25 @@ class TestTicketArchive(APIBaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.archived_at is None
 
+    def test_repeating_an_archive_keeps_the_original_time(self, mock_on_commit):
+        first = self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
+        archived_at = first.json()["archived_at"]
+
+        second = self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
+
+        # The stamp is the record of when the ticket left the queue, so a retry must not move it,
+        # and it must not log a change nobody made.
+        assert second.json()["archived_at"] == archived_at
+        self.ticket.refresh_from_db()
+        assert self.ticket.archived_at.isoformat().replace("+00:00", "Z") == archived_at
+        changes = [
+            change
+            for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id))
+            for change in log.detail["changes"]
+            if change["field"] == "archived_at"
+        ]
+        assert len(changes) == 1
+
     def test_archive_and_restore_are_in_the_activity_log(self, mock_on_commit):
         self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
         self.client.patch(self._ticket_url(self.ticket), {"archived": False}, format="json")
