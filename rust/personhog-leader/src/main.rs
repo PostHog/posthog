@@ -38,9 +38,8 @@ use personhog_leader::fencing::{
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
-use personhog_leader::service::{
-    prune_and_settle_tick, sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits,
-};
+use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::settle::prune_and_settle_tick;
 use personhog_leader::warming::{WarmClientPools, WarmingConfig, WarmingRetryPolicy};
 use personhog_leader::warnings::WarningsProducer;
 

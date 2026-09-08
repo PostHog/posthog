@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use personhog_leader::cache::{CachedPerson, DirtyMark, PartitionedCache, PersonCacheKey};
-use personhog_leader::service::drop_settled_death_documents;
+use personhog_leader::settle::drop_settled_death_documents;
 
 use common::test_cached_person;
 

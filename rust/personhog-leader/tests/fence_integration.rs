@@ -19,9 +19,8 @@ use personhog_leader::emitted::EmittedVersions;
 use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::PgFallback;
-use personhog_leader::service::{
-    drop_settled_death_documents, PersonHogLeaderService, PropertySizeLimits,
-};
+use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::settle::drop_settled_death_documents;
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;

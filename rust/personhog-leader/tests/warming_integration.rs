@@ -887,7 +887,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
     commit_writer_offset_at(&cluster, "personhog-writer", 0, 1);
     commit_writer_offset_at(&cluster, "personhog-writer", 1, 1);
 
-    personhog_leader::service::prune_and_settle_tick(
+    personhog_leader::settle::prune_and_settle_tick(
         &dirty_index,
         &cache,
         &locks,
@@ -910,7 +910,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
 
     // After publish, the next tick settles the waiting mark.
     cache.publish_warmed_partition(1);
-    personhog_leader::service::prune_and_settle_tick(
+    personhog_leader::settle::prune_and_settle_tick(
         &dirty_index,
         &cache,
         &locks,
@@ -962,7 +962,7 @@ async fn the_prune_tick_drains_a_multi_chunk_death_backlog() {
     }
     commit_writer_offset_at(&cluster, "personhog-writer", 0, total);
 
-    personhog_leader::service::prune_and_settle_tick(
+    personhog_leader::settle::prune_and_settle_tick(
         &dirty_index,
         &cache,
         &locks,
