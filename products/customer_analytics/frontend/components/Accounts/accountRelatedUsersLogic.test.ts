@@ -2,7 +2,9 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 import { OrganizationMemberType, Region } from '~/types'
@@ -122,6 +124,21 @@ describe('accountRelatedUsersLogic', () => {
             .toMatchValues({ membersResponse: buildResponse([]) })
         expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, search: 'Nobody' })
         expect(query).not.toHaveBeenCalled()
+    })
+
+    it('stays quiet when the viewer is denied access to the members endpoint', async () => {
+        jest.spyOn(api.organizationMembers, 'listForOrg').mockRejectedValue(
+            new ApiError('Forbidden', 403, undefined, { code: 'permission_denied' })
+        )
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
+        const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(captureException).not.toHaveBeenCalled()
+        expect(toastError).not.toHaveBeenCalled()
     })
 
     const buildEuRow = (

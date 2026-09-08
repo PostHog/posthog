@@ -37,7 +37,8 @@ export const DEFAULT_ACCOUNT_TAB: AccountExpansionTab = 'notes'
 
 export function getVisibleAccountExpansionTab(
     tab: string | undefined,
-    featureFlags: FeatureFlagsSet
+    featureFlags: FeatureFlagsSet,
+    canViewUsers: boolean
 ): AccountExpansionTab {
     if (!ACCOUNT_EXPANSION_TABS.includes(tab as AccountExpansionTab)) {
         return DEFAULT_ACCOUNT_TAB
@@ -46,6 +47,9 @@ export function getVisibleAccountExpansionTab(
         return DEFAULT_ACCOUNT_TAB
     }
     if (tab === 'tasks' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
+        return DEFAULT_ACCOUNT_TAB
+    }
+    if (tab === 'users' && !canViewUsers) {
         return DEFAULT_ACCOUNT_TAB
     }
     if ((tab === 'meetings' || tab === 'event_stream') && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {

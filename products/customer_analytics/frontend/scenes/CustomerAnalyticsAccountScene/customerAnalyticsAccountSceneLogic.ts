@@ -21,10 +21,12 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, UserType } from '~/types'
 
+import { canViewAccountRelatedUsers } from 'products/customer_analytics/frontend/components/Accounts/accountRelatedUsersAccess'
 import {
     AccountExpansionTab,
     DEFAULT_ACCOUNT_TAB,
@@ -46,6 +48,7 @@ function isAccountNotFound(error: unknown): boolean {
 export interface customerAnalyticsAccountSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     account: AccountApi | null
     accountLoadError: unknown
     accountLoading: boolean
@@ -111,7 +114,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
     props({} as CustomerAnalyticsAccountSceneLogicProps),
     key((props) => props.accountId),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
     })),
     actions({
         loadAccount: true,
@@ -164,9 +167,9 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
     }),
     selectors({
         activeTab: [
-            (s) => [s.requestedTab, s.featureFlags],
-            (requestedTab: string, featureFlags: FeatureFlagsSet): AccountExpansionTab =>
-                getVisibleAccountExpansionTab(requestedTab, featureFlags),
+            (s) => [s.requestedTab, s.featureFlags, s.user],
+            (requestedTab: string, featureFlags: FeatureFlagsSet, user: UserType | null): AccountExpansionTab =>
+                getVisibleAccountExpansionTab(requestedTab, featureFlags, canViewAccountRelatedUsers(user)),
         ],
         isAccountMissing: [
             (s) => [s.account, s.accountLoading, s.accountLoadError],
