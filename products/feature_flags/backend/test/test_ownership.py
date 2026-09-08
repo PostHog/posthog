@@ -30,6 +30,9 @@ class TestFlagOwnership(APIBaseTest):
     def _own_by_product_tour(self, flag: FeatureFlag) -> None:
         ProductTour.objects.create(team=self.team, name="t", internal_targeting_flag=flag)
 
+    def _own_by_archived_product_tour(self, flag: FeatureFlag) -> None:
+        ProductTour.objects.create(team=self.team, name="t", internal_targeting_flag=flag, archived=True)
+
     def _own_by_early_access(self, flag: FeatureFlag) -> None:
         EarlyAccessFeature.objects.create(team=self.team, name="f", stage="beta", feature_flag=flag)
 
@@ -43,6 +46,7 @@ class TestFlagOwnership(APIBaseTest):
             ("survey internal flag", "_own_by_survey_internal", "survey"),
             ("survey sampling flag", "_own_by_survey_sampling", "survey"),
             ("product tour", "_own_by_product_tour", "product_tour"),
+            ("archived product tour", "_own_by_archived_product_tour", "product_tour"),
             ("early access feature", "_own_by_early_access", "early_access_feature"),
             ("survey linked flag", "_reference_by_survey_linked_flag", None),
             ("nothing", None, None),

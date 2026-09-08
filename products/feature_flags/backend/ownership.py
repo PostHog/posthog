@@ -19,13 +19,19 @@ _OWNER_LABELS = {
 
 # `linked_flag` is absent on purpose: a survey or product tour may point at another product's flag
 # to target its audience, which references the flag without owning it.
-_OWNING_ACCESSORS: tuple[tuple[str, str], ...] = (
-    ("experiment_set", FLAG_OWNER_EXPERIMENT),
-    ("surveys_targeting_flag", FLAG_OWNER_SURVEY),
-    ("surveys_internal_targeting_flag", FLAG_OWNER_SURVEY),
-    ("surveys_internal_response_sampling_flag", FLAG_OWNER_SURVEY),
-    ("product_tours_internal_targeting_flag", FLAG_OWNER_PRODUCT_TOUR),
-    ("features", FLAG_OWNER_EARLY_ACCESS),
+#
+# The third element names the manager to read the relation through, or None for the default one.
+# Django builds a reverse accessor from the related model's default manager, and
+# `ProductTour.objects` hides archived tours. An archived tour keeps its `internal_targeting_flag`,
+# so the default manager would report that flag as free while a tour still holds it, and
+# unarchiving the tour would then produce the second owner this module exists to prevent.
+_OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
+    ("experiment_set", FLAG_OWNER_EXPERIMENT, None),
+    ("surveys_targeting_flag", FLAG_OWNER_SURVEY, None),
+    ("surveys_internal_targeting_flag", FLAG_OWNER_SURVEY, None),
+    ("surveys_internal_response_sampling_flag", FLAG_OWNER_SURVEY, None),
+    ("product_tours_internal_targeting_flag", FLAG_OWNER_PRODUCT_TOUR, "all_objects"),
+    ("features", FLAG_OWNER_EARLY_ACCESS, None),
 )
 
 
@@ -36,8 +42,11 @@ def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     owner. Production already satisfies that: of the owned flags in US, all but three have exactly
     one owner. `assert_flag_available_for` keeps it that way.
     """
-    for accessor, kind in _OWNING_ACCESSORS:
-        if getattr(flag, accessor).exists():
+    for accessor, kind, manager in _OWNING_ACCESSORS:
+        related = getattr(flag, accessor)
+        if manager is not None:
+            related = related(manager=manager)
+        if related.exists():
             return kind
     return None
 
