@@ -96,6 +96,62 @@ const conditionSetsNoun = (count: number): string => pluralize(count, 'condition
 
 const MAX_DETAILED_SET_CHANGES = 3
 
+// The aspects a sentence talks about, in the order it mentions them.
+const DESCRIBED_ASPECTS: ConditionSetAspect[] = ['criteria', 'rollout', 'variant']
+
+const describedAspects = (set: ConditionSetChange): ConditionSetAspect[] => {
+    const aspects = changedAspects(set)
+    return DESCRIBED_ASPECTS.filter((aspect) => aspects.includes(aspect))
+}
+
+const rolloutChangeFragment = (set: ConditionSetChange): JSX.Element => (
+    <>
+        from {rolloutLabel(rolloutOf(set.previous ?? set.group))} to {rolloutLabel(rolloutOf(set.group))}
+    </>
+)
+
+const variantChangeFragment = (set: ConditionSetChange): JSX.Element => (
+    <>
+        to <strong>{set.group.variant ?? 'none'}</strong>
+    </>
+)
+
+const aspectHeadClause = (set: ConditionSetChange, aspect: ConditionSetAspect): JSX.Element => {
+    const label = conditionSetLabel(set.group)
+    switch (aspect) {
+        case 'rollout':
+            return (
+                <>
+                    changed the rollout for {label} {rolloutChangeFragment(set)}
+                </>
+            )
+        case 'variant':
+            return (
+                <>
+                    changed the variant for {label} {variantChangeFragment(set)}
+                </>
+            )
+        default:
+            return <>changed the criteria for {label}</>
+    }
+}
+
+const aspectTailClause = (set: ConditionSetChange, aspect: ConditionSetAspect): JSX.Element => {
+    switch (aspect) {
+        case 'rollout':
+            return <>its rollout {rolloutChangeFragment(set)}</>
+        case 'variant':
+            return <>its variant {variantChangeFragment(set)}</>
+        default:
+            return <>its criteria</>
+    }
+}
+
+const conditionSetClause = (set: ConditionSetChange): JSX.Element => {
+    const [head, ...rest] = describedAspects(set)
+    return joinInline([aspectHeadClause(set, head), ...rest.map((aspect) => aspectTailClause(set, aspect))])
+}
+
 const describeConditionSetChanges = (
     filtersBefore: FeatureFlagFilters | undefined,
     filtersAfter: FeatureFlagFilters
@@ -103,20 +159,23 @@ const describeConditionSetChanges = (
     const diff = diffReleaseConditionSets(filtersBefore, filtersAfter)
     const added = diff.sets.filter((set) => set.status === 'added')
     const changed = diff.sets.filter((set) => set.status === 'changed')
-    const withAspect = (aspect: ConditionSetAspect): ConditionSetChange[] =>
-        changed.filter((set) => changedAspects(set).includes(aspect))
-    const descriptionOnly = changed.filter((set) => changedAspects(set).join() === 'description')
     const summarize = added.length + changed.length + diff.removed.length > MAX_DETAILED_SET_CHANGES
+    // A set that changed in more than one way reads better as a single clause than as an entry in
+    // each per-aspect list, where its label would repeat. Counts have no label to repeat.
+    const multiAspect: ConditionSetChange[] = summarize ? [] : changed.filter((set) => describedAspects(set).length > 1)
+    const withAspect = (aspect: ConditionSetAspect): ConditionSetChange[] =>
+        changed.filter((set) => !multiAspect.includes(set) && changedAspects(set).includes(aspect))
+    const descriptionOnly = changed.filter((set) => changedAspects(set).join() === 'description')
 
     // Past the detail limit every part collapses to "<verb> N condition sets"; the expanded view has the rest.
     const listOrCount = <T,>(
         sets: T[],
-        verbs: { detail: string; count: string },
+        verbs: { detail: string; count?: string },
         detail: (set: T) => JSX.Element
     ): JSX.Element =>
         summarize ? (
             <>
-                {verbs.count} {conditionSetsNoun(sets.length)}
+                {verbs.count ?? verbs.detail} {conditionSetsNoun(sets.length)}
             </>
         ) : (
             <>
@@ -130,36 +189,32 @@ const describeConditionSetChanges = (
     const criteriaChanges = withAspect('criteria')
     const variantChanges = withAspect('variant')
     if (rolloutChanges.length) {
-        const verbs = { detail: 'changed the rollout for', count: 'changed the rollout for' }
         parts.push(
-            listOrCount(rolloutChanges, verbs, (set) => (
+            listOrCount(rolloutChanges, { detail: 'changed the rollout for' }, (set) => (
                 <>
-                    {labelOf(set)} from {rolloutLabel(rolloutOf(set.previous ?? set.group))} to{' '}
-                    {rolloutLabel(rolloutOf(set.group))}
+                    {labelOf(set)} {rolloutChangeFragment(set)}
                 </>
             ))
         )
     }
     if (criteriaChanges.length) {
-        const verbs = { detail: 'changed the criteria for', count: 'changed the criteria for' }
-        parts.push(listOrCount(criteriaChanges, verbs, labelOf))
+        parts.push(listOrCount(criteriaChanges, { detail: 'changed the criteria for' }, labelOf))
     }
     if (variantChanges.length) {
-        const verbs = { detail: 'changed the variant for', count: 'changed the variant for' }
         parts.push(
-            listOrCount(variantChanges, verbs, (set) => (
+            listOrCount(variantChanges, { detail: 'changed the variant for' }, (set) => (
                 <>
-                    {labelOf(set)} to <strong>{set.group.variant ?? 'none'}</strong>
+                    {labelOf(set)} {variantChangeFragment(set)}
                 </>
             ))
         )
     }
+    parts.push(...multiAspect.map(conditionSetClause))
     if (descriptionOnly.length) {
         parts.push(
-            <>
-                changed the description of{' '}
-                {joinInline(descriptionOnly.map((set) => <>condition set {set.index + 1}</>))}
-            </>
+            listOrCount(descriptionOnly, { detail: 'changed the description of' }, (set) => (
+                <>condition set {set.index + 1}</>
+            ))
         )
     }
     if (added.length) {
@@ -221,7 +276,9 @@ const featureFlagActionsMapping: Record<
         const filtersAfter = change?.after as FeatureFlagFilters
 
         const hasConditionSets = Array.isArray(filtersAfter?.groups)
-        const isMultivariateFlag = filtersAfter?.multivariate
+        // A flag left with an empty variants list is a boolean flag again, so its payload is the
+        // boolean one. Reading the whole `multivariate` object here would leave that payload undescribed.
+        const isMultivariateFlag = !!filtersAfter?.multivariate?.variants?.length
 
         const changes: Description[] = []
         let expandedView: ExpandedView | undefined
@@ -233,17 +290,22 @@ const featureFlagActionsMapping: Record<
                     changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
                 })
             }
-            changes.push(...describeConditionSetChanges(filtersBefore, filtersAfter))
-            expandedView = {
-                label: 'Release conditions',
-                content: (
-                    <FeatureFlagReleaseConditionsChange
-                        flagId={logItem?.item_id ?? ''}
-                        activityId={logItem?.id ?? logItem?.created_at ?? ''}
-                        before={filtersBefore}
-                        after={filtersAfter}
-                    />
-                ),
+            const setChanges = describeConditionSetChanges(filtersBefore, filtersAfter)
+            changes.push(...setChanges)
+            if (setChanges.length > 0) {
+                // The expanded view tags what moved between the two condition set lists, so it has
+                // nothing to show for a save that left them alone.
+                expandedView = {
+                    label: 'Release conditions',
+                    content: (
+                        <FeatureFlagReleaseConditionsChange
+                            flagId={logItem?.item_id ?? ''}
+                            activityId={logItem?.id ?? logItem?.created_at ?? ''}
+                            before={filtersBefore}
+                            after={filtersAfter}
+                        />
+                    ),
+                }
             }
         }
 

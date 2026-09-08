@@ -62,8 +62,8 @@ function propertyKeys(group: FeatureFlagGroupType): string[] {
     })
 }
 
-// Two sets at the same position are treated as one edited set only when they still target the same
-// kind of thing. Without this, removing set 1 and appending an unrelated set would read as an edit.
+// Two sets target the same kind of thing when they share an aggregation group type and either share a
+// property key or both have no properties. Without this, an unrelated new set would read as an edit.
 function looksLikeSameSet(a: FeatureFlagGroupType, b: FeatureFlagGroupType): boolean {
     if ((a.aggregation_group_type_index ?? null) !== (b.aggregation_group_type_index ?? null)) {
         return false

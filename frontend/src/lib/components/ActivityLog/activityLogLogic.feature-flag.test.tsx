@@ -544,12 +544,24 @@ describe('the activity log logic', () => {
             )
         })
 
-        it('lists counts instead of every set when many sets change', async () => {
+        it.each([
+            {
+                name: 'lists every set at the detail limit',
+                initials: ['a', 'b', 'c'],
+                expected:
+                    'peter changed the rollout for Email address = a@example.com from 50% to 100%, Email address = b@example.com from 50% to 100% and Email address = c@example.com from 50% to 100% on test flag',
+            },
+            {
+                name: 'lists counts instead of every set past the detail limit',
+                initials: ['a', 'b', 'c', 'd'],
+                expected: 'peter changed the rollout for 4 condition sets on test flag',
+            },
+        ])('$name', async ({ initials, expected }) => {
             const emailSet = (email: string, rollout: number): Record<string, unknown> => ({
                 properties: [{ key: 'email', type: 'person', value: [email], operator: 'exact' }],
                 rollout_percentage: rollout,
             })
-            const emails = ['a', 'b', 'c', 'd', 'e'].map((name) => `${name}@example.com`)
+            const emails = initials.map((initial) => `${initial}@example.com`)
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
                     type: ActivityScope.FEATURE_FLAG,
@@ -562,9 +574,54 @@ describe('the activity log logic', () => {
 
             const actual = logic.values.humanizedActivity
 
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(expected)
+        })
+
+        it('counts condition sets whose description changed past the detail limit', async () => {
+            const describedSet = (initial: string, description: string): Record<string, unknown> => ({
+                properties: [{ key: 'email', type: 'person', value: [`${initial}@example.com`], operator: 'exact' }],
+                rollout_percentage: 50,
+                description,
+            })
+            const initials = ['a', 'b', 'c', 'd']
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: { groups: initials.map((initial) => describedSet(initial, 'before')), multivariate: null },
+                    after: { groups: initials.map((initial) => describedSet(initial, 'after')), multivariate: null },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the rollout for 5 condition sets on test flag'
+                'peter changed the description of 4 condition sets on test flag'
             )
+        })
+
+        it('names a set once when its criteria and rollout both change', async () => {
+            const emailSet = (email: string, rollout: number): Record<string, unknown> => ({
+                properties: [{ key: 'email', type: 'person', value: [email], operator: 'exact' }],
+                rollout_percentage: rollout,
+            })
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: { groups: [emailSet('a@example.com', 75)], multivariate: null },
+                    after: { groups: [emailSet('b@example.com', 100)], multivariate: null },
+                },
+            ])
+
+            const container = render(<>{logic.values.humanizedActivity[0].description}</>).container
+
+            expect(container).toHaveTextContent(
+                'peter changed the criteria for Email address = b@example.com and its rollout from 75% to 100% on test flag'
+            )
+            expect(container.textContent?.match(/Email address = b@example\.com/g)).toHaveLength(1)
         })
 
         it('does not mention variant rollout when only release conditions changed', async () => {
@@ -679,6 +736,31 @@ describe('the activity log logic', () => {
 
             const text = render(<>{logic.values.humanizedActivity[0].description}</>).container.textContent
             expect(text).not.toContain('changed payload')
+        })
+
+        it('offers no release conditions view when only a variant payload changed', async () => {
+            const groups = [{ properties: [], rollout_percentage: 50 }]
+            const multivariate = {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+            }
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: { groups, payloads: { control: 'old' }, multivariate },
+                    after: { groups, payloads: { control: 'new' }, multivariate },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            const text = render(<>{actual[0].description}</>).container.textContent ?? ''
+            expect(text.match(/changed payload/g)).toHaveLength(1)
+            expect(text).toContain('variant: control')
+            expect(actual[0].expandedView).toBeUndefined()
         })
 
         it('can handle changing variants from a multivariate flag', async () => {
@@ -862,6 +944,36 @@ describe('the activity log logic', () => {
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
                 'peter removed all variants on test flag'
             )
+        })
+
+        it('describes the payload change when the same save removes all variants', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [{ properties: [], rollout_percentage: 75 }],
+                        payloads: { control: 'a' },
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test-1', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
+                    after: {
+                        groups: [{ properties: [], rollout_percentage: 75 }],
+                        payloads: { true: 'b' },
+                        multivariate: { variants: [] },
+                    },
+                },
+            ])
+
+            const container = render(<>{logic.values.humanizedActivity[0].description}</>).container
+
+            expect(container).toHaveTextContent('changed payload to b')
+            expect(container).toHaveTextContent('removed all variants')
         })
 
         it('can handle removing the last variant from a multivariate flag', async () => {

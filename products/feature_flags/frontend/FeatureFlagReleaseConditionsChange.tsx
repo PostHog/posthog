@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -7,7 +8,7 @@ import { featureFlagReleaseConditionsLogic } from 'scenes/feature-flags/featureF
 import { FeatureFlagFilters } from '~/types'
 
 import { FeatureFlagConditionSetCard } from './FeatureFlagConditionSetCard'
-import { ConditionSetChange, changedAspects, diffReleaseConditionSets, rolloutOf } from './releaseConditionsDiff'
+import { ConditionSetChange, diffReleaseConditionSets, rolloutOf } from './releaseConditionsDiff'
 
 export interface FeatureFlagReleaseConditionsChangeProps {
     flagId: string
@@ -40,12 +41,18 @@ export function FeatureFlagReleaseConditionsChange({
     before,
     after,
 }: FeatureFlagReleaseConditionsChangeProps): JSX.Element {
+    // The logic resolves distinct ids and flag ids to names from the groups it is given, and this view
+    // also renders the sets that the change removed, so it needs both sides.
+    const filtersForNameResolution = useMemo(
+        (): FeatureFlagFilters => ({ ...after, groups: [...(after.groups ?? []), ...(before?.groups ?? [])] }),
+        [after, before]
+    )
     // The logic is keyed by id, and every history entry for one flag carries different filters,
     // so each entry needs its own key or they would all share one state.
     const logic = featureFlagReleaseConditionsLogic({
         id: `${flagId}-activity-${activityId}`,
         readOnly: true,
-        filters: after,
+        filters: filtersForNameResolution,
     })
     const { aggregationTargetName, getDistinctIdName, getFlagKey } = useValues(logic)
     const diff = diffReleaseConditionSets(before, after)
@@ -74,11 +81,7 @@ export function FeatureFlagReleaseConditionsChange({
                         getDistinctIdName={getDistinctIdName}
                         getFlagKey={getFlagKey}
                         tag={statusTag(set)}
-                        previousRolloutPercentage={
-                            set.previous && changedAspects(set).includes('rollout')
-                                ? rolloutOf(set.previous)
-                                : undefined
-                        }
+                        previousRolloutPercentage={set.previous ? rolloutOf(set.previous) : undefined}
                     />
                 </div>
             ))}
@@ -91,6 +94,7 @@ export function FeatureFlagReleaseConditionsChange({
                             <FeatureFlagConditionSetCard
                                 group={group}
                                 index={index}
+                                label={`Was set ${index + 1}`}
                                 aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                                 getDistinctIdName={getDistinctIdName}
                                 getFlagKey={getFlagKey}

@@ -11,6 +11,8 @@ import { urls } from 'scenes/urls'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
 
+import { rolloutOf } from './releaseConditionsDiff'
+
 export interface FeatureFlagConditionSetCardProps {
     group: FeatureFlagGroupType
     index: number
@@ -19,6 +21,8 @@ export interface FeatureFlagConditionSetCardProps {
     getFlagKey: (flagId: string) => string
     tag?: JSX.Element | null
     previousRolloutPercentage?: number
+    /** Title for the card. Defaults to the set's position. */
+    label?: string
 }
 
 /** Extract server-provided group_key_names from a property, if present. */
@@ -110,9 +114,10 @@ export function FeatureFlagConditionSetCard({
     getFlagKey,
     tag,
     previousRolloutPercentage,
+    label,
 }: FeatureFlagConditionSetCardProps): JSX.Element {
     const properties = withResolvedFlagLabels(group.properties, getFlagKey)
-    const rollout = group.rollout_percentage ?? 100
+    const rollout = rolloutOf(group)
     const rolloutChanged = previousRolloutPercentage !== undefined && previousRolloutPercentage !== rollout
 
     const getSummary = (): JSX.Element => {
@@ -133,7 +138,7 @@ export function FeatureFlagConditionSetCard({
     return (
         <div className="border rounded p-4 bg-surface-primary">
             <div className="flex items-center gap-2 flex-wrap">
-                <LemonSnack>Set {index + 1}</LemonSnack>
+                <LemonSnack>{label ?? `Set ${index + 1}`}</LemonSnack>
                 <span className="text-sm">{getSummary()}</span>
                 {tag}
             </div>
