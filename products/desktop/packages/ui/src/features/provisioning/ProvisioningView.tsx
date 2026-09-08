@@ -1,4 +1,4 @@
-import { Box, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useEffect, useRef } from "react";
 import { useProvisioningStore } from "./store";
 
@@ -20,23 +20,21 @@ export function ProvisioningView({ taskId }: ProvisioningViewProps) {
   }, []);
 
   return (
-    <Box height="100%">
-      <Flex direction="column" height="100%" p="3" gap="2">
-        <Flex align="center" gap="2">
-          <Spinner size="1" />
-          <Text className="font-medium text-[13px]">
-            Setting up worktree...
-          </Text>
-        </Flex>
-        <Box className="min-h-0 flex-1 rounded-(--radius-2) border border-(--gray-a5) bg-(--color-surface)">
+    <div className="h-full">
+      <div className="flex h-full flex-col gap-2 p-3">
+        <div className="flex items-center gap-2">
+          <Spinner size={14} />
+          <span className="font-medium text-[13px]">Loading</span>
+        </div>
+        <div className="min-h-0 flex-1 rounded-(--radius-2) border border-(--gray-a5) bg-(--color-surface)">
           <pre
             ref={scrollRef}
             className="m-0 h-full overflow-auto whitespace-pre-wrap break-all p-2 font-[var(--code-font-family)] text-(--gray-12) text-[13px]"
           >
             {text}
           </pre>
-        </Box>
-      </Flex>
-    </Box>
+        </div>
+      </div>
+    </div>
   );
 }

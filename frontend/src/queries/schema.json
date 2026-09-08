@@ -35385,6 +35385,9 @@
                     },
                     "type": "object"
                 },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
@@ -49746,6 +49749,10 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "recommended_only": {
+                    "description": "Restrict results to recordings above the replay relevance threshold.",
+                    "type": "boolean"
                 },
                 "response": {
                     "$ref": "#/definitions/RecordingsQueryResponse"

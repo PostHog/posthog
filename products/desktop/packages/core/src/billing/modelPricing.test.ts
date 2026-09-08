@@ -1,9 +1,11 @@
+import { customModelMeta } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   estimateUncachedInputCost,
   formatModelRates,
   modelCostInfo,
   modelListPrice,
+  toModelPickerOption,
 } from "./modelPricing";
 
 describe("modelPricing", () => {
@@ -23,6 +25,23 @@ describe("modelPricing", () => {
   it("returns null for unknown models so no wrong chip ever renders", () => {
     expect(modelCostInfo("totally-unknown-model")).toBeNull();
     expect(modelListPrice("totally-unknown-model")).toBeNull();
+  });
+
+  it("requires price data for every gateway model in the picker", () => {
+    expect(() =>
+      toModelPickerOption({
+        value: "future-gateway-model",
+        name: "Future gateway model",
+      }),
+    ).toThrowError("Missing pricing for gateway model: future-gateway-model");
+
+    expect(
+      toModelPickerOption({
+        value: "local-model",
+        name: "Local model",
+        _meta: customModelMeta(),
+      }),
+    ).toMatchObject({ kind: "custom" });
   });
 
   it("matches specific families before the broader ones they contain", () => {
