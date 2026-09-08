@@ -46,6 +46,7 @@ from products.alerts.backend.forecasting.engine import (
     intervals_between,
     min_forecast_points,
     validate_forecast_days_of_week,
+    validate_forecast_display,
     validate_forecast_horizon,
     validate_forecast_interval,
 )
@@ -476,6 +477,7 @@ def simulate_forecast_on_insight(
     trends_query = TrendsQuery.model_validate(query)
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
+    validate_forecast_display(trends_query.trendsFilter.display if trends_query.trendsFilter else None)
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     if (

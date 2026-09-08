@@ -2,7 +2,7 @@ from datetime import date
 from math import ceil, floor
 from typing import Protocol
 
-from posthog.schema import DateRange, ForecastConfig, FutureBreachForecastConfig, IntervalType
+from posthog.schema import ChartDisplayType, DateRange, ForecastConfig, FutureBreachForecastConfig, IntervalType
 
 from posthog.dataclasses import frozen
 
@@ -28,6 +28,13 @@ FORECAST_TOTAL_TIMEOUT_SECONDS = 70
 
 
 SUPPORTED_FORECAST_INTERVALS = frozenset({IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH})
+
+# Displays that a TrendsQuery hands to a runner of its own (see get_query_runner). None of them
+# returns the dense per-bucket series a forecast fits: the calendar heatmap returns no data array,
+# the box plot returns quartile rows, and the slope graph returns only the two range endpoints.
+SPECIALIZED_RUNNER_DISPLAY_TYPES = frozenset(
+    {ChartDisplayType.CALENDAR_HEATMAP, ChartDisplayType.BOX_PLOT, ChartDisplayType.SLOPE_GRAPH}
+)
 
 
 def bounded_training_points(requested: int, interval: IntervalType | None) -> int:
@@ -126,6 +133,14 @@ def validate_forecast_days_of_week(date_range: DateRange | None, interval: Inter
         raise ValueError(
             "Forecast alerts don't support a daily insight that excludes days of the week. "
             "Include all days, or switch the insight to a weekly interval."
+        )
+
+
+def validate_forecast_display(display: ChartDisplayType | None) -> None:
+    if display in SPECIALIZED_RUNNER_DISPLAY_TYPES:
+        raise ValueError(
+            "Forecast alerts don't support calendar heatmap, box plot, or slope graph insights. "
+            "Use a line, bar, or area chart."
         )
 
 

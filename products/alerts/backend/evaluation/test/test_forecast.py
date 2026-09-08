@@ -30,6 +30,7 @@ from products.alerts.backend.evaluation.forecast import (
     _index_for_target_date,
     _target_projection,
     evaluate_with_forecast,
+    simulate_forecast_on_insight,
 )
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.forecasting.engine import ForecastConfigurationError, ForecastResult
@@ -618,3 +619,31 @@ class TestForecastSimulationLookback:
             TrendsForecastExtractor().simulate(cast(Insight, SimpleNamespace()), query, context)
 
         extract.assert_not_called()
+
+
+@parameterized.expand([("calendar heatmap", "CalendarHeatmap"), ("box plot", "BoxPlot"), ("slope graph", "SlopeGraph")])
+def test_forecast_simulation_rejects_specialized_runner_displays(_name: str, display: str) -> None:
+    insight = cast(
+        Insight,
+        SimpleNamespace(
+            query={
+                "kind": "TrendsQuery",
+                "interval": "day",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "trendsFilter": {"display": display},
+            }
+        ),
+    )
+    team = cast(Team, SimpleNamespace(timezone="UTC", base_currency="USD"))
+
+    with (
+        patch("products.alerts.backend.evaluation.forecast.extract_trends_series") as extract,
+        pytest.raises(ValueError, match="calendar heatmap, box plot, or slope graph"),
+    ):
+        simulate_forecast_on_insight(
+            insight,
+            team,
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 1},
+        )
+
+    extract.assert_not_called()

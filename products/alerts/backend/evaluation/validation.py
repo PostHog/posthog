@@ -36,20 +36,12 @@ from products.alerts.backend.evaluation.funnel_strategies import strategy_for_vi
 from products.alerts.backend.forecasting.engine import (
     horizon_for_target_date,
     validate_forecast_days_of_week,
+    validate_forecast_display,
     validate_forecast_horizon,
     validate_forecast_interval,
 )
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
-
-# Displays that a TrendsQuery hands to a runner of its own (see get_query_runner). None of them
-# returns the dense per-bucket series a forecast fits: the calendar heatmap returns no data array,
-# the box plot returns quartile rows, and the slope graph returns only the two range endpoints.
-_SPECIALIZED_RUNNER_DISPLAY_TYPES = {
-    ChartDisplayType.CALENDAR_HEATMAP,
-    ChartDisplayType.BOX_PLOT,
-    ChartDisplayType.SLOPE_GRAPH,
-}
 
 
 @dataclass(frozen=True)
@@ -279,11 +271,7 @@ def _validate_forecast_config(
         )
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
-    if trends_query.trendsFilter and trends_query.trendsFilter.display in _SPECIALIZED_RUNNER_DISPLAY_TYPES:
-        raise ValueError(
-            "Forecast alerts don't support calendar heatmap, box plot, or slope graph insights. "
-            "Use a line, bar, or area chart."
-        )
+    validate_forecast_display(trends_query.trendsFilter.display if trends_query.trendsFilter else None)
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     if (
