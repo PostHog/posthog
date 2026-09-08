@@ -2249,6 +2249,24 @@
             "maxLength": 255,
             "type": "string"
         },
+        "schedule_anchor": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "time": {
+                            "description": "Local project time in HH:MM format. The scheduler uses this time as the cadence anchor.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["time"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Local time for alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to use the default schedule."
+        },
         "schedule_restriction": {
             "anyOf": [
                 {
