@@ -4,6 +4,10 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
+import type {
+  McpCallDetails,
+  McpResultMeta,
+} from "@posthog/harness/extensions/mcp/tool-bridge";
 import {
   type AgentContent,
   type AgentConversationEvent,
@@ -45,9 +49,23 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-const mcpToolDetailsSchema = z.object({
+// The schemas below derive from the one declaration of the envelope the
+// pi harness writes on a tool result's `details` (tool-bridge.ts), so the
+// read side and the write side cannot drift apart. The schema stays
+// lenient: sibling keys (the proxy tool's kind, piName, ...) are stripped,
+// and `result` is now a known key, so it survives parsing.
+const mcpResultMetaSchema: z.ZodType<McpResultMeta> = z.object({
+  structuredContent: z.record(z.string(), z.unknown()).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+const mcpToolDetailsSchema: z.ZodType<McpCallDetails> = z.object({
   posthog: z.object({
-    mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
+    mcp: z.object({
+      server: z.string().min(1),
+      tool: z.string().min(1),
+      result: mcpResultMetaSchema.optional(),
+    }),
   }),
 });
 
@@ -247,6 +265,15 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     if (mcpDetails.success) {
       const mcp = mcpDetails.data.posthog.mcp;
       toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
+
+      const resultMeta = mcp.result;
+      if (
+        resultMeta &&
+        (resultMeta.structuredContent !== undefined ||
+          resultMeta._meta !== undefined)
+      ) {
+        toolCall.rawOutput = { content: result.content, ...resultMeta };
+      }
     }
 
     const translator = isPiToolName(toolName)

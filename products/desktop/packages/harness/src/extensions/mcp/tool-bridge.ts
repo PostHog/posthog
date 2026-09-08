@@ -213,6 +213,67 @@ export function truncateBridgedContent(
   });
 }
 
+/**
+ * Structured fields of a `tools/call` result that pi never surfaces to the
+ * model, but a host UI needs: an inline UI app rides its payload on
+ * `structuredContent` and `_meta` (see the MCP `ui` extension). Callers put
+ * them on the tool result's `details`, which stay out of the model context.
+ */
+export interface McpResultMeta {
+  structuredContent?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+}
+
+/**
+ * The envelope a tool result's `details` carries so a host can classify an
+ * MCP call and render its UI app: `{ posthog: { mcp: { server, tool,
+ * result? } } }`. Both write sites (the bridge's registered tools and the
+ * `mcp` proxy tool) and the read side (a host translator, which validates
+ * with a schema derived from this type) go through this one declaration, so
+ * the sides cannot drift apart.
+ */
+export interface McpCallDetails {
+  posthog: {
+    mcp: {
+      server: string;
+      tool: string;
+      result?: McpResultMeta;
+    };
+  };
+}
+
+/**
+ * Build the `details.posthog` fragment for an MCP tool call: the descriptor
+ * a host classifies the call by, plus the structured result fields a UI app
+ * renders from, when the tool returned any. Optional fields are spread in
+ * only when present, so an absent field stays absent rather than explicit
+ * undefined.
+ */
+export function mcpCallDetails(
+  server: string,
+  tool: string,
+  result: McpResultMeta,
+): McpCallDetails["posthog"] {
+  const hasResult =
+    result.structuredContent !== undefined || result._meta !== undefined;
+  return {
+    mcp: {
+      server,
+      tool,
+      ...(hasResult
+        ? {
+            result: {
+              ...(result.structuredContent !== undefined && {
+                structuredContent: result.structuredContent,
+              }),
+              ...(result._meta !== undefined && { _meta: result._meta }),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 export async function invokeTool(
   client: Client,
   serverName: string,
@@ -220,7 +281,7 @@ export async function invokeTool(
   args: Record<string, unknown>,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<{ content: BridgedContent[] }> {
+): Promise<{ content: BridgedContent[] } & McpResultMeta> {
   if (signal?.aborted) {
     return { content: [{ type: "text", text: "Cancelled" }] };
   }
@@ -244,7 +305,15 @@ export async function invokeTool(
       throw new McpError(text || "Tool reported an error", serverName, "tool");
     }
 
-    return { content };
+    return {
+      content,
+      ...(result.structuredContent !== undefined && {
+        structuredContent: result.structuredContent as Record<string, unknown>,
+      }),
+      ...(result._meta !== undefined && {
+        _meta: result._meta as Record<string, unknown>,
+      }),
+    };
   } catch (err) {
     if (err instanceof McpError) throw err;
     throw new McpError(
@@ -541,7 +610,7 @@ export class ToolBridge {
 
       async execute(_toolCallId, params, signal) {
         onToolUsed?.(serverName);
-        const { content } = await invokeTool(
+        const { content, structuredContent, _meta } = await invokeTool(
           client,
           serverName,
           tool.name,
@@ -552,7 +621,10 @@ export class ToolBridge {
         return {
           content,
           details: {
-            posthog: { mcp: { server: serverName, tool: tool.name } },
+            posthog: mcpCallDetails(serverName, tool.name, {
+              structuredContent,
+              _meta,
+            }),
           },
         };
       },

@@ -68,6 +68,10 @@
       "types": "./dist/extensions/mcp/schema.d.ts",
       "import": "./dist/extensions/mcp/schema.js"
     },
+    "./extensions/mcp/tool-bridge": {
+      "types": "./dist/extensions/mcp/tool-bridge.d.ts",
+      "import": "./dist/extensions/mcp/tool-bridge.js"
+    },
     "./extensions/footer-focus-demo": {
       "types": "./dist/extensions/footer-focus-demo/index.d.ts",
       "import": "./dist/extensions/footer-focus-demo/index.js"

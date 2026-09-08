@@ -22,6 +22,8 @@ import type { ManagedServer, ServerManager } from "./server-manager";
 import {
   type BridgedContent,
   invokeTool,
+  type McpCallDetails,
+  mcpCallDetails,
   type SearchableTool,
   type ToolBridge,
 } from "./tool-bridge";
@@ -57,7 +59,14 @@ export type McpProxyDetails =
   | { kind: "error"; message: string }
   | { kind: "search"; query: string; hits: Hit[] }
   | { kind: "connect"; server: string; toolCount: number }
-  | { kind: "call"; server: string; tool: string; piName: string };
+  | {
+      kind: "call";
+      server: string;
+      tool: string;
+      piName: string;
+      /** Host classification + result fields a host UI needs to render a UI app (see McpCallDetails). */
+      posthog?: McpCallDetails["posthog"];
+    };
 
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[-_]/g, " ");
@@ -328,7 +337,7 @@ async function callOrConnect(
 
   manager.touch(owner);
   const timeoutMs = manager.getRequestTimeoutMs(owner);
-  const { content } = await invokeTool(
+  const { content, structuredContent, _meta } = await invokeTool(
     client,
     owner,
     meta.mcpName,
@@ -338,7 +347,19 @@ async function callOrConnect(
   );
   return {
     content,
-    details: { kind: "call", server: owner, tool: meta.mcpName, piName: name },
+    details: {
+      kind: "call",
+      server: owner,
+      tool: meta.mcpName,
+      piName: name,
+      // Same channel the directly-registered tools write (tool-bridge), so a
+      // host classifies proxy-routed calls and renders their UI apps the same
+      // way. Without this, a proxy-only host never learns which MCP tool ran.
+      posthog: mcpCallDetails(owner, meta.mcpName, {
+        structuredContent,
+        _meta,
+      }),
+    },
   };
 }
 
