@@ -364,8 +364,13 @@ describe('RecordingService', () => {
 
     describe('listBlocks', () => {
         function mockClickhouseResult(rows: any[]): void {
+            mockClickhouseBody(rows.map((row) => JSON.stringify(row)).join('\n'))
+        }
+
+        function mockClickhouseBody(body: string): void {
             mockClickhouse.query.mockResolvedValue({
-                json: jest.fn().mockResolvedValue(rows),
+                query_id: 'query-1',
+                text: jest.fn().mockResolvedValue(body),
             } as any)
         }
 
@@ -412,6 +417,39 @@ describe('RecordingService', () => {
                         max_bytes_to_read: '10000000000',
                     }),
                 })
+            )
+        })
+
+        it('ignores blank lines in the ClickHouse response', async () => {
+            mockClickhouseBody(
+                '\n' +
+                    JSON.stringify({
+                        start_time: '2024-01-01 00:00:00.000000',
+                        block_first_timestamps: ['2024-01-01 00:00:00.000000'],
+                        block_last_timestamps: ['2024-01-01 00:00:59.000000'],
+                        block_urls: ['s3://b/session_recordings/30d/1000-aaa?range=bytes=0-100'],
+                    }) +
+                    '\n\n'
+            )
+
+            const blocks = await service.listBlocks('sess-1', 1)
+
+            expect(blocks).toEqual([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01 00:00:00.000000',
+                    end_timestamp: '2024-01-01 00:00:59.000000',
+                },
+            ])
+        })
+
+        it('reports the query id when a row is not valid JSON', async () => {
+            mockClickhouseBody('{"start_time": ')
+
+            await expect(service.listBlocks('sess-1', 1)).rejects.toThrow(
+                'Failed to parse ClickHouse JSONEachRow response (query_id: query-1)'
             )
         })
 
