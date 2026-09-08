@@ -260,7 +260,7 @@ describe('accountSidebarConfigLogic', () => {
         expect(logic.values.isConfiguring).toBe(false)
     })
 
-    it('restores saved pins and shows one failure notification when saving fails', async () => {
+    it('keeps the draft open for retry and shows one notification when saving fails', async () => {
         silenceKeaLoadersErrors()
         const toastSpy = jest.spyOn(lemonToast, 'error')
         useMocks({
@@ -269,15 +269,20 @@ describe('accountSidebarConfigLogic', () => {
         })
         await mountLogic()
         logic.actions.beginConfiguring()
-        logic.actions.togglePinnedProperty({ kind: 'custom_property', id: 'custom-1' })
+        logic.actions.togglePinnedProperty({ kind: 'relationship', id: 'relationship-1' })
+        logic.actions.movePinnedProperty(1, 0)
 
         await expectLogic(logic, () => logic.actions.savePinnedProperties())
             .toDispatchActions(['persistPinnedPropertiesFailure'])
             .toFinishAllListeners()
 
         expect(logic.values.config?.pinned_properties).toEqual([{ kind: 'custom_property', id: 'custom-1' }])
-        expect(logic.values.draftPinnedProperties).toEqual([{ kind: 'custom_property', id: 'custom-1' }])
-        expect(logic.values.isConfiguring).toBe(false)
+        expect(logic.values.draftPinnedProperties).toEqual([
+            { kind: 'relationship', id: 'relationship-1' },
+            { kind: 'custom_property', id: 'custom-1' },
+        ])
+        expect(logic.values.isConfiguring).toBe(true)
+        expect(logic.values.canSavePinnedProperties).toBe(true)
         expect(toastSpy).toHaveBeenCalledTimes(1)
     })
 })

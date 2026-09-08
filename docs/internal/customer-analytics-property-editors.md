@@ -15,3 +15,6 @@ selection. An explicit empty list clears it.
 
 API keys and OAuth tokens require `account:write` to change pins. Session-authenticated
 viewers can personalize their own sidebar without permission to edit account values.
+
+A failed save keeps the pin selector open with the attempted selection and order.
+The user can retry the save or remove a rejected property.
