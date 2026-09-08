@@ -996,6 +996,28 @@ def team_api_test_factory():
                 "type": "validation_error",
             }
 
+        def test_revenue_analytics_config_rejects_unknown_event_keys_with_a_400(self) -> None:
+            # Wiring guard: the endpoint checks the event items itself, instead of letting the model
+            # setter raise a 500. The per-shape matrix lives in TestTeamSerializerValidationNoDB.
+            valid = self.client.patch(
+                "/api/environments/@current/",
+                {"revenue_analytics_config": {"events": [{"eventName": "purchase", "revenueProperty": "amount"}]}},
+                format="json",
+            )
+            assert valid.status_code == status.HTTP_200_OK, valid.json()
+            assert valid.json()["revenue_analytics_config"]["events"][0]["eventName"] == "purchase"
+
+            invalid = self.client.patch(
+                "/api/environments/@current/",
+                {"revenue_analytics_config": {"events": [{"event_name": "purchase"}]}},
+                format="json",
+            )
+            assert invalid.status_code == status.HTTP_400_BAD_REQUEST
+            assert "eventName" in invalid.json()["detail"]
+
+            self.team.revenue_analytics_config.refresh_from_db()
+            assert [event.eventName for event in self.team.revenue_analytics_config.events] == ["purchase"]
+
         def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
             self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
             self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
@@ -3590,6 +3612,36 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
         assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
         assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
+
+    # Every one of these shapes returned a 500 before the events field was validated in the
+    # serializer, because the model setter raises a Django ValidationError that DRF passes through.
+    @parameterized.expand(
+        [
+            [
+                "snake case keys",
+                [{"event_name": "purchase", "revenue_property": "amount"}],
+                "[0].event_name: Extra inputs are not permitted",
+            ],
+            [
+                "removed currency field",
+                [{"eventName": "p", "revenueProperty": "a", "currencyProperty": "USD"}],
+                "[0].currencyProperty: Extra inputs are not permitted",
+            ],
+            [
+                "unmodeled properties key",
+                [{"eventName": "p", "revenueProperty": "a", "properties": []}],
+                "[0].properties: Extra inputs are not permitted",
+            ],
+            ["missing required key", [{"eventName": "purchase"}], "[0].revenueProperty: Field required"],
+            ["bare string item", ["purchase"], "[0]: Input should be a valid dictionary"],
+            ["not a list", {"eventName": "purchase"}, "Input should be a valid list"],
+        ]
+    )
+    def test_invalid_revenue_analytics_config_events(self, _name: str, value: Any, expected_message: str) -> None:
+        serializer = TeamSerializer(data={"revenue_analytics_config": {"events": value}}, partial=True)
+        assert not serializer.is_valid()
+        errors = [str(error) for error in serializer.errors["revenue_analytics_config"]["events"]]
+        assert any(error.startswith(expected_message) for error in errors), errors
 
     @parameterized.expand(
         [
