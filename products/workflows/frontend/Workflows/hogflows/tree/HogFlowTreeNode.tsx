@@ -72,12 +72,12 @@ export function HogFlowTreeNode({
                         <Button
                             type="button"
                             variant="default"
-                            size="icon-sm"
+                            size="icon"
                             aria-label={`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
                             onClick={() => setBranchesOpen((open) => !open)}
                         >
                             <IconChevronDown
-                                className={cn('size-4 transition-transform', !branchesOpen && '-rotate-90')}
+                                className={cn('size-5 transition-transform', !branchesOpen && '-rotate-90')}
                             />
                         </Button>
                     </Tooltip>

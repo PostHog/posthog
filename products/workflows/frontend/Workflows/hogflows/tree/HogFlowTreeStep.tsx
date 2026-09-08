@@ -58,13 +58,14 @@ export function HogFlowTreeStep({
     const hasValidationIssue =
         validationResult?.valid === false || Object.keys(validationResult?.warnings ?? {}).length > 0
     const isAnimationTarget = animatingEdgePair?.endsWith(`->${action.id}`) ?? false
+    const hasFooterContent = !!action.description || !!step?.previews.length
 
     return (
         <Item
             variant="outline"
-            size="sm"
+            size="xs"
             className={cn(
-                'relative flex-nowrap bg-card',
+                'relative flex-nowrap !gap-2 bg-card !px-2 !py-1.5',
                 isSelected && 'border-ring ring-2 ring-ring/30',
                 isAnimationTarget && 'border-success',
                 'data-[workflow-tree-dragging]:opacity-50'
@@ -87,7 +88,7 @@ export function HogFlowTreeStep({
             {canDrag && (
                 <div
                     draggable
-                    className="relative z-10 -m-1 flex size-8 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                    className="relative z-10 -ms-0.5 -me-1 flex size-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
                     onDragStart={(event) => onDragStart(event, action.id, dragPreviewRef.current)}
                     onDragEnd={onDragEnd}
                     data-attr="workflow-tree-step-drag"
@@ -97,7 +98,7 @@ export function HogFlowTreeStep({
             )}
             <ItemMedia
                 variant="image"
-                className="relative z-10 !size-9 shrink-0 [&>img]:!size-5 [&>img]:!object-contain [&>svg]:!size-5 [&>svg]:shrink-0"
+                className="pointer-events-none relative z-10 !size-8 shrink-0 [&>img]:!size-6 [&>img]:!object-contain [&>svg]:!size-6 [&>svg]:shrink-0"
                 style={
                     step?.color
                         ? {
@@ -111,20 +112,79 @@ export function HogFlowTreeStep({
             >
                 {step?.icon}
             </ItemMedia>
-            <ItemContent className="pointer-events-none relative z-10 min-w-0">
-                <ItemTitle className="max-w-full truncate">{action.name}</ItemTitle>
-                {action.description && <ItemDescription className="truncate">{action.description}</ItemDescription>}
-                {!!step?.previews.length && (
-                    <div className="flex max-w-full flex-wrap gap-1">
-                        {step.previews.slice(0, 3).map((preview, index) => (
-                            <Badge key={`${preview.label}-${index}`} variant="default" className="max-w-48 truncate">
-                                {preview.icon}
-                                {preview.label}
-                            </Badge>
-                        ))}
+            <ItemContent className="pointer-events-none relative z-10 min-w-0 gap-0.5">
+                <div className="flex min-w-0 items-center gap-1">
+                    <ItemTitle className="pointer-events-none min-w-0 flex-1 max-w-full truncate leading-tight">
+                        {action.name}
+                    </ItemTitle>
+                    {canHaveActions && (
+                        <ItemActions
+                            className={cn(
+                                'pointer-events-auto',
+                                '!gap-px ms-auto shrink-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100',
+                                isSelected ? 'opacity-100' : 'opacity-20'
+                            )}
+                        >
+                            {canDuplicate && (
+                                <Button
+                                    type="button"
+                                    variant="default"
+                                    size="icon-sm"
+                                    aria-label="Duplicate step"
+                                    title="Duplicate step"
+                                    onClick={() => duplicateNodeBelow(action.id)}
+                                    data-attr="workflow-tree-duplicate-step"
+                                >
+                                    <IconCopy />
+                                </Button>
+                            )}
+                            <Button
+                                type="button"
+                                variant="default"
+                                size="icon-sm"
+                                aria-label="Delete step"
+                                title={canDelete ? 'Delete step' : 'Clean up branching steps first'}
+                                disabled={!canDelete}
+                                onClick={() => {
+                                    onNodesDelete([node])
+                                    setSelectedNodeId(null)
+                                }}
+                                data-attr="workflow-tree-delete-step"
+                            >
+                                <IconTrash />
+                            </Button>
+                        </ItemActions>
+                    )}
+                </div>
+                {hasFooterContent && (
+                    <div className="flex min-w-0 items-center gap-2">
+                        {action.description && (
+                            <ItemDescription className="pointer-events-none min-w-0 flex-1 truncate leading-tight">
+                                {action.description}
+                            </ItemDescription>
+                        )}
+                        {!!step?.previews.length && (
+                            <div className="pointer-events-none ms-auto flex min-w-0 shrink-0 items-center gap-1 overflow-hidden">
+                                {step.previews.slice(0, 3).map((preview, index) => (
+                                    <Badge
+                                        key={`${preview.label}-${index}`}
+                                        variant="default"
+                                        className="max-w-36 truncate"
+                                    >
+                                        {preview.icon}
+                                        {preview.label}
+                                    </Badge>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </ItemContent>
+            {collapseControl && (
+                <div className="pointer-events-auto relative z-10 -my-1.5 -me-2 flex w-10 shrink-0 items-center justify-center border-s">
+                    {collapseControl}
+                </div>
+            )}
             {hasValidationIssue && (
                 <Badge
                     variant="warning"
@@ -133,45 +193,6 @@ export function HogFlowTreeStep({
                 >
                     !
                 </Badge>
-            )}
-            {collapseControl && <div className="relative z-10 ms-auto shrink-0">{collapseControl}</div>}
-            {canHaveActions && (
-                <ItemActions
-                    className={cn(
-                        'relative z-10 me-4 shrink-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100',
-                        collapseControl ? 'ms-1' : 'ms-auto',
-                        isSelected ? 'opacity-100' : 'opacity-20'
-                    )}
-                >
-                    {canDuplicate && (
-                        <Button
-                            type="button"
-                            variant="default"
-                            size="icon-sm"
-                            aria-label="Duplicate step"
-                            title="Duplicate step"
-                            onClick={() => duplicateNodeBelow(action.id)}
-                            data-attr="workflow-tree-duplicate-step"
-                        >
-                            <IconCopy />
-                        </Button>
-                    )}
-                    <Button
-                        type="button"
-                        variant="default"
-                        size="icon-sm"
-                        aria-label="Delete step"
-                        title={canDelete ? 'Delete step' : 'Clean up branching steps first'}
-                        disabled={!canDelete}
-                        onClick={() => {
-                            onNodesDelete([node])
-                            setSelectedNodeId(null)
-                        }}
-                        data-attr="workflow-tree-delete-step"
-                    >
-                        <IconTrash />
-                    </Button>
-                </ItemActions>
             )}
             <div ref={dragPreviewRef} className="pointer-events-none absolute invisible" aria-hidden="true">
                 <div className="origin-top-left scale-150">

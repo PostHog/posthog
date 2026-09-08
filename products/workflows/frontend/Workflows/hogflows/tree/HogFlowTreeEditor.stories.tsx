@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import { Workflow } from '../../Workflow'
-import { workflowLogic } from '../../workflowLogic'
+import { NEW_WORKFLOW, workflowLogic } from '../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 import { EXAMPLE_WORKFLOWS } from './exampleWorkflows'
 import { HogFlowTreeEditor } from './HogFlowTreeEditor'
@@ -325,7 +325,11 @@ const meta: Meta<typeof HogFlowTreeEditor> = {
 }
 export default meta
 
-const PICKABLE_WORKFLOWS: Record<string, HogFlow> = { [COMPLEX_WORKFLOW_ID]: COMPLEX_WORKFLOW, ...EXAMPLE_WORKFLOWS }
+const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
+    new: NEW_WORKFLOW,
+    [COMPLEX_WORKFLOW_ID]: COMPLEX_WORKFLOW,
+    ...EXAMPLE_WORKFLOWS,
+}
 
 const InteractiveWorkflow = ({ id }: { id: string }): JSX.Element => (
     <BindLogic logic={workflowLogic} props={{ id }}>
@@ -336,6 +340,7 @@ const InteractiveWorkflow = ({ id }: { id: string }): JSX.Element => (
 )
 
 export const CustomerOnboardingAndRetention: StoryFn = () => <InteractiveWorkflow id={COMPLEX_WORKFLOW_ID} />
+export const NewWorkflow: StoryFn = () => <InteractiveWorkflow id="new" />
 export const SupportSlaRouting: StoryFn = () => <InteractiveWorkflow id="example-support-sla-routing" />
 export const RenewalWindowAlerts: StoryFn = () => <InteractiveWorkflow id="example-renewal-window-alerts" />
 export const PendingTicketCleanup: StoryFn = () => <InteractiveWorkflow id="example-pending-ticket-cleanup" />
