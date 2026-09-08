@@ -33,6 +33,7 @@ from products.endpoints.backend.logic.materialization import (
 )
 from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
+from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -110,6 +111,28 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
         self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(Node.objects.get(saved_query=saved_query)), timedelta(hours=24))
+
+    def test_enable_materialization_drops_the_cached_throttle_snapshot(self):
+        endpoint = create_endpoint_with_version(
+            name="throttle_snapshot_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, False)
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, False, version=1)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # A snapshot cached before the enable would hold the inline rate until it expired.
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name))
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name, version=1))
 
     def test_create_with_materialization_enabled_schedules_saved_query(self):
         response = self.client.post(
