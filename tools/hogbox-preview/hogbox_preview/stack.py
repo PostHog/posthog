@@ -33,6 +33,7 @@ Recipe (mount-over-image — the default, ~minutes per PR):
 
 from __future__ import annotations
 
+import re
 import sys
 import secrets
 
@@ -60,6 +61,22 @@ _CSRF_TRUSTED_ORIGINS = ",".join(f"https://*.boxes.hogland.{env}.posthog.dev" fo
 # the seed defaults ever change, change these too.
 _DEMO_EMAIL = "test@posthog.com"
 _DEMO_PASSWORD = "12345678"
+
+# A preview is a self-hosted, non-debug instance, and there the SPA discards every
+# posthog-js flag value and honors only the keys the server sends in
+# PERSISTED_FEATURE_FLAGS (areClientFeatureFlagsHonored in
+# frontend/src/lib/logic/featureFlagLogic.ts). Unset, that hides every flag-gated
+# product from the sidebar and renders every flagged surface in its pre-flag state,
+# so a preview cannot show flagged work at all. Enabling the checkout's own flag
+# list matches what `manage.py sync_feature_flags` gives a local dev instance,
+# minus the flags that command holds back.
+_FEATURE_FLAGS_TSX = "frontend/src/lib/constants.tsx"
+_SYNC_FEATURE_FLAGS_PY = "posthog/management/commands/sync_feature_flags.py"
+# Both blocks list one name per line as the first quoted token, so the same awk
+# reads them; only the quote character differs between the .tsx and the .py.
+_SINGLE_QUOTE = "\\047"
+_DOUBLE_QUOTE = "\\042"
+_FLAG_KEY = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 # PostHog's prod settings refuse to boot on the default SECRET_KEY, so the
 # override must supply one (the migrate `run --rm web` one-off needs it too).
@@ -262,6 +279,40 @@ class PostHogPreviewStack:
             timeout=600,
         )
 
+    def _quoted_names_in_block(self, path: str, start: str, end: str, quote: str) -> list[str]:
+        """First quoted token of every line between two markers of a file in the box."""
+        program = (
+            f"awk '/{start}/{{f=1;next}} f&&/{end}/{{exit}} f{{n=split($0,a,\"{quote}\"); if (n>1) print a[2]}}' {path}"
+        )
+        result = self.backend.exec(program, timeout=30)
+        if not result.ok:
+            return []
+        return [name for name in (line.strip() for line in result.stdout.splitlines()) if _FLAG_KEY.match(name)]
+
+    def persisted_feature_flags(self) -> str:
+        """The PR checkout's feature flag keys, comma-joined for PERSISTED_FEATURE_FLAGS.
+
+        Empty when the flag list can't be read: a preview that opens with its
+        flags off is better than one that fails to come up.
+        """
+        try:
+            keys = self._quoted_names_in_block(
+                f"{self.repo_dir}/{_FEATURE_FLAGS_TSX}",
+                "export const FEATURE_FLAGS",
+                "^}",
+                _SINGLE_QUOTE,
+            )
+            held_back = self._quoted_names_in_block(
+                f"{self.repo_dir}/{_SYNC_FEATURE_FLAGS_PY}",
+                "^INACTIVE_FLAGS = ",
+                "^\\]",
+                _DOUBLE_QUOTE,
+            )
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[hogbox-preview] feature flags left off (could not read the flag list): {e}\n")
+            return ""
+        return ",".join(sorted(set(keys) - set(held_back)))
+
     def write_override(self) -> None:
         # This override MUST stay in sync with hogland's
         # scripts/posthog-preview-setup.sh (the golden bake script). Both write
@@ -343,6 +394,9 @@ class PostHogPreviewStack:
             # inert no-op on an image that predates it.
             "      - USE_LOCAL_SETUP=1",
         ]
+        persisted_flags = self.persisted_feature_flags()
+        if persisted_flags:
+            lines.append(f"      - PERSISTED_FEATURE_FLAGS={persisted_flags}")
         lines += [
             "  plugins:",
             f"    image: {self.CDP_IMAGE}",
