@@ -59,8 +59,12 @@ function HogFlowEditorContent(): JSX.Element {
         setReactFlowWrapper(reactFlowWrapper)
     }, [setReactFlowWrapper])
 
+    // Fit once, on the first initialization. ReactFlow clears and sets this flag again each time a
+    // node is measured again, and a fit-view moves the canvas, which causes a new measurement.
+    const hasFitView = useRef(false)
     useEffect(() => {
-        if (nodesInitialized) {
+        if (nodesInitialized && !hasFitView.current) {
+            hasFitView.current = true
             fitView({ duration: 0 })
         }
     }, [fitView, nodesInitialized])

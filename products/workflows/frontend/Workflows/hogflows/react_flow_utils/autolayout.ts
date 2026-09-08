@@ -5,7 +5,7 @@ import { getElk } from 'lib/elk'
 
 import { TRIGGER_NODE_ID } from '../../workflowLogic'
 import type { HogFlowActionNode } from '../types'
-import { NODE_EDGE_GAP, NODE_HEIGHT, NODE_LAYER_GAP, NODE_NODE_GAP, NODE_WIDTH } from './constants'
+import { NODE_EDGE_GAP, NODE_LAYER_GAP, NODE_NODE_GAP, NODE_WIDTH } from './constants'
 
 /**
  * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm
@@ -27,7 +27,11 @@ const getElkPortSide = (position: Position): string => {
     }
 }
 
-export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[]): Promise<HogFlowActionNode[]> => {
+export const getFormattedNodes = async (
+    nodes: HogFlowActionNode[],
+    edges: Edge[],
+    nodeHeight: number
+): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_LAYER_GAP}`,
@@ -58,7 +62,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
             return {
                 ...node,
                 width: NODE_WIDTH,
-                height: NODE_HEIGHT,
+                height: nodeHeight,
                 targetPosition: 'top',
                 sourcePosition: 'bottom',
                 properties: {
@@ -110,7 +114,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         return {
             ...node,
             width: NODE_WIDTH,
-            height: NODE_HEIGHT,
+            height: nodeHeight,
             position: { x: layouted?.x ?? 0, y: layouted?.y ?? 0 },
         }
     })

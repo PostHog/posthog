@@ -1,8 +1,17 @@
+import { NodeChange, Position } from '@xyflow/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
 import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import {
+    BOTTOM_HANDLE_POSITION,
+    NODE_HEIGHT,
+    NODE_METRICS_SUMMARY_HEIGHT,
+    NODE_WIDTH,
+    TOP_HANDLE_POSITION,
+} from './react_flow_utils/constants'
+import { StepViewNodeHandle } from './steps/types'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -559,9 +568,106 @@ describe('hogFlowEditorLogic', () => {
             expect(byId('branch')).not.toBe(initialNodes.find((node) => node.id === 'branch'))
             expect(byId('branch')?.data.name).toBe('Renamed branch')
         })
+
+        it.each<{ name: string; change: NodeChange<HogFlowActionNode>; stored: Partial<HogFlowActionNode> }>([
+            {
+                // What ReactFlow's resize observer reports. A relayout here moves the nodes it
+                // just measured, and it then measures them again.
+                name: 'a measured size',
+                change: { id: 'branch', type: 'dimensions', dimensions: { width: 120, height: 44 }, resizing: false },
+                stored: { measured: { width: 120, height: 44 } },
+            },
+            {
+                // What a click on a step reports. A whole graph layout per click is the same
+                // waste, on the main thread, against the fit animation the click starts.
+                name: 'a selection',
+                change: { id: 'branch', type: 'select', selected: true },
+                stored: { selected: true },
+            },
+        ])('stores $name without relaying out the graph', async ({ change, stored }) => {
+            await applyFlow(makeFlow())
+            const positionsBefore = logic.values.nodes.map((node) => node.position)
+
+            await expectLogic(logic, () => {
+                logic.actions.onNodesChange([change])
+            }).toNotHaveDispatchedActions(['setNodes'])
+
+            expect(logic.values.nodes.map((node) => node.position)).toEqual(positionsBefore)
+            expect(logic.values.nodes.find((node) => node.id === 'branch')).toMatchObject(stored)
+        })
+
+        it('keeps a measurement that arrives while the layout runs', async () => {
+            await applyFlow(makeFlow())
+            const metricsHeight = NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT
+
+            // Metrics mode lays the graph out again, and ReactFlow measures the taller node while
+            // elk still works. elk answers a macrotask later, so its result lands last, built from
+            // nodes that predate the measurement.
+            await expectLogic(logic, () => {
+                logic.actions.setMode('metrics')
+                logic.actions.onNodesChange([
+                    {
+                        id: 'branch',
+                        type: 'dimensions',
+                        dimensions: { width: NODE_WIDTH, height: metricsHeight },
+                        resizing: false,
+                    },
+                ])
+            }).toDispatchActions(['setNodesRaw', 'setNodesRaw'])
+
+            // Losing it makes ReactFlow drop the node's handle bounds and measure it again, the
+            // round trip this whole change exists to stop.
+            expect(logic.values.nodes.find((node) => node.id === 'branch')?.measured).toEqual({
+                width: NODE_WIDTH,
+                height: metricsHeight,
+            })
+        })
+
+        it('keeps a rebuild that a mode change interrupts', async () => {
+            await applyFlow(makeFlow())
+
+            // A rebuild's nodes reach the store only when its layout lands. A mode change inside
+            // that window cancels the rebuild, so it has to lay out the rebuild's nodes rather
+            // than the ones they replaced.
+            await expectLogic(logic, () => {
+                logic.actions.resetFlowFromHogFlow(makeFlow('Renamed branch'))
+                logic.actions.setMode('metrics')
+            }).toDispatchActions(['setNodesRaw'])
+
+            const branch = logic.values.nodes.find((node) => node.id === 'branch')
+            expect(branch?.data.name).toBe('Renamed branch')
+            expect(branch?.height).toBe(NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT)
+        })
+
+        it('does not relayout for a mode that draws the same node', async () => {
+            await applyFlow(makeFlow())
+            const nodesBefore = logic.values.nodes
+
+            // Only the metrics summary changes how tall a node is, so this tab would lay the
+            // graph out to the coordinates it already has.
+            await expectLogic(logic, () => {
+                logic.actions.setMode('variables')
+            }).toNotHaveDispatchedActions(['setNodes'])
+
+            expect(logic.values.nodes).toBe(nodesBefore)
+        })
     })
 
-    describe('showDropzones branch-join placement', () => {
+    describe('opening straight into metrics mode', () => {
+        it('lays the first graph out at the metrics height', async () => {
+            // Mounting starts a layout at the build height, and the URL handler picks the mode up
+            // straight after, while that layout still holds the only copy of the graph.
+            expect(logic.values.nodes).toEqual([])
+
+            await expectLogic(logic, () => logic.actions.setMode('metrics')).toDispatchActions(['setNodesRaw'])
+
+            const heights = logic.values.nodes.map((node) => node.height)
+            expect(heights.length).toBeGreaterThan(0)
+            expect(heights).toEqual(heights.map(() => NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT))
+        })
+    })
+
+    describe('showDropzones placement', () => {
         const makeNode = (id: string): HogFlowActionNode =>
             ({
                 id,
@@ -627,6 +733,37 @@ describe('hogFlowEditorLogic', () => {
             logic.actions.setEdges(edges)
             logic.actions.showDropzones()
             expect(branchJoinDropzones()).toEqual(expected)
+        })
+
+        // The handle table stores every bottom handle at NODE_HEIGHT, so a node that the layout
+        // made taller contradicts its own stored handle. A dropzone placed off the stored handle
+        // then sits away from the edge it belongs to.
+        it.each([
+            { name: 'build mode', height: NODE_HEIGHT },
+            { name: 'metrics mode', height: NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT },
+        ])('centers an edge dropzone on the edge midpoint in $name', ({ height }) => {
+            const withGeometry = (id: string, y: number, handle: StepViewNodeHandle): HogFlowActionNode =>
+                ({ ...makeNode(id), position: { x: 0, y }, height, handles: [handle] }) as HogFlowActionNode
+            const source = withGeometry('trigger', 0, {
+                id: 'continue_trigger',
+                type: 'source',
+                position: Position.Bottom,
+                ...BOTTOM_HANDLE_POSITION,
+            })
+            const target = withGeometry('exit', 200, {
+                id: 'target_exit',
+                type: 'target',
+                position: Position.Top,
+                ...TOP_HANDLE_POSITION,
+            })
+
+            logic.actions.setNodesRaw([source, target])
+            logic.actions.setEdges([makeEdge('trigger', 'exit', 'continue')])
+            logic.actions.showDropzones()
+
+            const [dropzone] = logic.values.dropzoneNodes
+            const sourceBottom = source.position.y + height
+            expect(dropzone.position.y + NODE_HEIGHT / 2).toBe((sourceBottom + target.position.y) / 2)
         })
     })
 })
