@@ -382,24 +382,32 @@ export function captureInboxReportsImpressed(params: {
  * "opened from Needs decision" are one breakdown. Null when the report isn't in a loaded list
  * (a cold deep-link), in which case `rank` and `list_size` are null too.
  */
-export function captureInboxReportOpened(params: {
-    report: SignalReport
-    openMethod: InboxReportOpenMethod
-    previousReportId: string | null
-    rank: number | null
-    listSize: number | null
-    section: InboxReportSectionKey | null
-}): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
-        ...baseReportProperties(params.report),
-        status: params.report.status ?? null,
-        source_products: params.report.source_products ?? [],
-        open_method: params.openMethod,
-        previous_report_id: params.previousReportId,
-        rank: params.rank,
-        list_size: params.listSize,
-        section: params.section,
-    })
+export function captureInboxReportOpened(
+    params: {
+        report: SignalReport
+        openMethod: InboxReportOpenMethod
+        previousReportId: string | null
+        rank: number | null
+        listSize: number | null
+        section: InboxReportSectionKey | null
+    },
+    /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
+    options?: CaptureOptions
+): void {
+    captureInboxEvent(
+        INBOX_EVENTS.REPORT_OPENED,
+        {
+            ...baseReportProperties(params.report),
+            status: params.report.status ?? null,
+            source_products: params.report.source_products ?? [],
+            open_method: params.openMethod,
+            previous_report_id: params.previousReportId,
+            rank: params.rank,
+            list_size: params.listSize,
+            section: params.section,
+        },
+        options
+    )
 }
 
 export function captureInboxReportClosed(

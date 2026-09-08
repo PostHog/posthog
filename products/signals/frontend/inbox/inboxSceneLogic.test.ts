@@ -370,6 +370,29 @@ describe('inboxSceneLogic routing', () => {
         monitoring.unmount()
     })
 
+    // posthog-js drains its batch queue from its own `pagehide` handler, which is registered before
+    // this scene's. An open left to normal batching is enqueued after that drain and never leaves.
+    it('a page unload while an open is still waiting sends the open instantly, ahead of the close', () => {
+        const report = { id: 'r1', title: 'Crash on login' } as SignalReport
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(true)
+
+        // No list is mounted, so the rank never resolves and the open stays pending.
+        logic.actions.setSelectedReportId('r1')
+        logic.actions.loadSelectedReportSuccess(report)
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        window.dispatchEvent(new Event('pagehide'))
+
+        const inboxCalls = captureSpy.mock.calls.filter(([name]) =>
+            ['Inbox report opened', 'Inbox report closed'].includes(name as string)
+        )
+        expect(inboxCalls.map(([name]) => name)).toEqual(['Inbox report opened', 'Inbox report closed'])
+        expect(inboxCalls[0][2]).toEqual({ send_instantly: true })
+        expect(inboxCalls[1][2]).toEqual({ send_instantly: true })
+        captureSpy.mockRestore()
+    })
+
     it('stops the runs poll when opening another surface closes the panel', () => {
         // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
         // `setRunsOpen(false)`, so the poll teardown cannot hang off the `setRunsOpen` listener alone

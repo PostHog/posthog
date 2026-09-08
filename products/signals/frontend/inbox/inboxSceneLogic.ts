@@ -282,17 +282,20 @@ function captureOpenWhenRanked(
     const previousReportId = cache.previousReportId ?? null
     const deadline = Date.now() + OPEN_RANK_WAIT_MS
 
-    const fire = (resolved: ReturnType<typeof findReportRank>): void => {
+    const fire = (resolved: ReturnType<typeof findReportRank>, options?: CaptureOptions): void => {
         cache.pendingOpenCapture = undefined
         cache.disposables.dispose('openRank')
-        captureInboxReportOpened({
-            report: tracking.report,
-            openMethod,
-            previousReportId,
-            rank: resolved.rank,
-            listSize: resolved.listSize,
-            section: resolved.section,
-        })
+        captureInboxReportOpened(
+            {
+                report: tracking.report,
+                openMethod,
+                previousReportId,
+                rank: resolved.rank,
+                listSize: resolved.listSize,
+                section: resolved.section,
+            },
+            options
+        )
     }
     // The first read sees the list as the person left it, so a rank found there is the rank they
     // acted on, even while a filter refetch is in flight. Every later read waits for the lists to
@@ -306,7 +309,7 @@ function captureOpenWhenRanked(
         }
     }
 
-    cache.pendingOpenCapture = () => fire(findReportRank(tracking.report.id, flatList))
+    cache.pendingOpenCapture = (options?: CaptureOptions) => fire(findReportRank(tracking.report.id, flatList), options)
     fireWhenReady(true)
     if (!cache.pendingOpenCapture) {
         return
@@ -317,10 +320,15 @@ function captureOpenWhenRanked(
     }, 'openRank')
 }
 
-/** Send a still-waiting open now, so no close can precede it. */
-function flushPendingOpen(cache: Record<string, any>): void {
-    const capture = cache.pendingOpenCapture as (() => void) | undefined
-    capture?.()
+/**
+ * Send a still-waiting open now, so no close can precede it. The unload flush must pass its
+ * `options` on: posthog-js batches a capture that carries none, and it drains that queue from its
+ * own `pagehide` handler, which is registered at `init()` and therefore runs before this one. An
+ * open enqueued after the drain never leaves the page.
+ */
+function flushPendingOpen(cache: Record<string, any>, options?: CaptureOptions): void {
+    const capture = cache.pendingOpenCapture as ((options?: CaptureOptions) => void) | undefined
+    capture?.(options)
 }
 
 /**
@@ -384,7 +392,7 @@ function flushOpenReport(
     if (!open) {
         return
     }
-    flushPendingOpen(cache)
+    flushPendingOpen(cache, options)
     captureInboxReportClosed({ report: open.report, timeSpentMs: Date.now() - open.openedAt, closeMethod }, options)
     cache.openTracking = undefined
 }
