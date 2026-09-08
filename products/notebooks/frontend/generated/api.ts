@@ -12,6 +12,7 @@ import type {
     NotebookApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookComputeOptionsResponseApi,
     NotebookKernelConfigApi,
     NotebookKernelConfigResponseApi,
     NotebookKernelStatusResponseApi,
@@ -526,7 +527,7 @@ export const getNotebooksSqlV2StateRetrieveUrl = (projectId: string, shortId: st
 }
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
  */
 export const notebooksSqlV2StateRetrieve = async (
     projectId: string,
@@ -746,6 +747,23 @@ export const getNotebooksAllActivityRetrieveUrl = (projectId: string) => {
  */
 export const notebooksAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotebooksAllActivityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksKernelComputeOptionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notebooks/kernel/compute_options/`
+}
+
+/**
+ * Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, so a client can fetch it once and price any shape a user picks.
+ */
+export const notebooksKernelComputeOptionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<NotebookComputeOptionsResponseApi> => {
+    return apiMutator<NotebookComputeOptionsResponseApi>(getNotebooksKernelComputeOptionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

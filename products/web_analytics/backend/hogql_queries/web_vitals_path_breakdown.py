@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
+from posthog.hogql_queries.insights.trends.math_functions import PROPERTY_MATH_FUNCTIONS
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason

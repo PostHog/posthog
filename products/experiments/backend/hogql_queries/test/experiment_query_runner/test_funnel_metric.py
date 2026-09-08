@@ -280,6 +280,32 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     )
             group_idx += 1
 
+        # Exposures without a group key (flag evaluated before the group was set).
+        # These must not form an entity_id='' entity that pollutes a variant.
+        for user_idx in range(3):
+            user_id = f"user_keyless_{user_idx}"
+            _create_person(distinct_ids=[user_id], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=user_id,
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=user_id,
+                timestamp="2020-01-02T12:01:00Z",
+                properties={
+                    feature_flag_property: "control",
+                },
+            )
+
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)

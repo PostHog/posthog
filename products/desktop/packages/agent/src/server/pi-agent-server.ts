@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import {
   type AgentConversationEvent,
+  type AgentTurnUsage,
   MCP_TOOL_PERMISSION_OPTIONS,
   type McpToolPermissionDecision,
   type McpToolPermissionRequest,
@@ -37,13 +39,21 @@ import {
   type RpcExtensionUIResponse,
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
+import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
+import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
+import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig } from "./types";
+
+const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
+  "set_model",
+  "cycle_model",
+]);
 
 interface SseController {
   send(data: unknown): void;
@@ -60,6 +70,7 @@ interface PiCloudSession {
 const emptySchema = z.object({});
 const MAX_PENDING_EVENTS = 1_000;
 const MAX_PENDING_LOG_ENTRIES = 10_000;
+const MAX_COVERED_EVENT_IDS = 10_000;
 const LOG_FLUSH_ENTRY_COUNT = 100;
 
 const userMessageCommandSchema = z
@@ -122,6 +133,7 @@ export class PiAgentServer {
   });
   private readonly posthogAPI: PostHogAPIClient;
   private readonly eventStreamSender: TaskRunEventStreamSender | null;
+  private readonly nextEventId = createEventIdSource();
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
   private initializationPromise: Promise<void> | null = null;
@@ -143,6 +155,8 @@ export class PiAgentServer {
     McpToolPermissionRequest
   >();
   private rtkSavingsAttempted = false;
+  private runUsage = new RunUsageAccumulator();
+  private modelContextWindow: number | null = null;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -250,6 +264,7 @@ export class PiAgentServer {
         );
     }
     this.session = null;
+    this.runUsage = new RunUsageAccumulator();
     this.pendingMcpPermissions.clear();
     await this.flushConversationLog().catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
@@ -582,6 +597,13 @@ export class PiAgentServer {
         }),
     ]);
     const runState = taskRun?.state;
+    seedRunUsage(this.runUsage, runState?.token_usage);
+    // Before the prompt: its skills-store section counts the stubs on disk.
+    const storeSkillsInstalledCount = await syncStoreSkills(
+      runState,
+      { taskId: payload.task_id, runId: payload.run_id },
+      this.logger,
+    );
     const taskSnapshotKind = taskRun
       ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
@@ -591,13 +613,23 @@ export class PiAgentServer {
       typeof this.config.claudeCode?.systemPrompt === "string"
         ? this.config.claudeCode.systemPrompt
         : this.config.claudeCode?.systemPrompt?.append;
+    const storeSkillsInstructions = buildStoreSkillsInstructions(
+      storeSkillsInstalledCount,
+    );
+    const additionalInstructions =
+      `${configuredSystemPrompt ?? ""}${storeSkillsInstructions}` || undefined;
+    // A repo-less run gets the tools to discover and clone a repository, and the
+    // channel prompt that names them. Derive both from one condition so the tools
+    // and the prompt that describes them can never disagree.
+    const channelMode = !this.config.repositoryPath;
     const taskContext: TaskContext = {
       projectId: this.config.projectId,
       apiHost: this.config.apiUrl,
       taskId: this.config.taskId,
       cwd,
       environment: "cloud",
-      additionalInstructions: configuredSystemPrompt,
+      channelMode,
+      additionalInstructions,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
       task_id: payload.task_id,
@@ -621,7 +653,7 @@ export class PiAgentServer {
     });
 
     const extensions: PiRuntimeExtension[] = ["context-wiki"];
-    if (!this.config.repositoryPath) {
+    if (channelMode) {
       extensions.push("repository-tools");
     }
     if (this.config.autoPublish === true && this.config.createPr !== false) {
@@ -650,9 +682,12 @@ export class PiAgentServer {
       extensions,
       contextWikiPath: resolveContextWikiPath(),
     });
-    const runtime = new PiRuntime(client);
+    const runtime = new PiRuntime(
+      client,
+      () => this.modelContextWindow ?? undefined,
+    );
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
-      this.handleEvent(event),
+      this.handleConversationEvent(event),
     );
     const unsubscribeRuntime = runtime.onRuntimeEvent((event) => {
       if (event.type === "agent_settled") {
@@ -679,6 +714,7 @@ export class PiAgentServer {
       );
     }
     const runtimeState = await client.getState();
+    this.applyModelContextWindow(runtimeState);
     this.sessionFile = runtimeState.sessionFile ?? restoredSessionFile ?? null;
     const unsubscribe = () => {
       unsubscribeConversation();
@@ -699,6 +735,24 @@ export class PiAgentServer {
       taskId: payload.task_id,
       runId: payload.run_id,
     });
+  }
+
+  private handleConversationEvent(event: AgentConversationEvent): void {
+    if (event.type === "turn_completed" && event.usage) {
+      this.recordTurnUsage(event.usage);
+    }
+    this.handleEvent(event);
+  }
+
+  private recordTurnUsage(usage: AgentTurnUsage): void {
+    if (!this.runUsage.add(usage)) return;
+    reportRunUsage(
+      this.runUsage,
+      this.posthogAPI,
+      this.config.taskId,
+      this.config.runId,
+      this.logger,
+    );
   }
 
   private handleEvent(event: AgentConversationEvent): void {
@@ -795,7 +849,7 @@ export class PiAgentServer {
       case "user_message":
         return this.deliverUserMessage(runtime, params);
       case "cancel":
-        return client.abort();
+        return runtime.abort();
       case "queue_get":
         return client.getQueue();
       case "queue_clear": {
@@ -818,8 +872,27 @@ export class PiAgentServer {
           const response = piExtensionUIResponseSchema.parse(command);
           return this.respondExtensionUI(response);
         }
-        return runtime.sendCommand(command);
+        const result = await runtime.sendCommand(command);
+        if (MODEL_CHANGING_RPC_COMMANDS.has(command.type)) {
+          await this.refreshModelContextWindow(client);
+        }
+        return result;
       }
+    }
+  }
+
+  private applyModelContextWindow(state: RpcSessionState): void {
+    this.modelContextWindow =
+      typeof state.model?.contextWindow === "number"
+        ? state.model.contextWindow
+        : null;
+  }
+
+  private async refreshModelContextWindow(client: PiRpcClient): Promise<void> {
+    try {
+      this.applyModelContextWindow(await client.getState());
+    } catch (error) {
+      this.logger.debug("Failed to refresh Pi model context window", error);
     }
   }
 
@@ -986,7 +1059,12 @@ export class PiAgentServer {
     return sync;
   }
 
-  private broadcast(event: Record<string, unknown>): void {
+  private broadcast(rawEvent: Record<string, unknown>): void {
+    const eventId = this.nextEventId();
+    const event: Record<string, unknown> = {
+      ...rawEvent,
+      event_id: eventId,
+    };
     const isConversationEvent =
       event.type === "pi_event" || event.type === "pi_run_started";
     const isExtensionMessage =
@@ -1005,6 +1083,7 @@ export class PiAgentServer {
               method: "_posthog/pi_extension_event",
               params: event,
             },
+            event_id: eventId,
           }
         : {
             id: typeof event.id === "string" ? event.id : undefined,
@@ -1015,6 +1094,7 @@ export class PiAgentServer {
               event.type === "pi_event"
                 ? (event.event as AgentConversationEvent)
                 : undefined,
+            event_id: eventId,
           };
       const toolCallId = updatedToolCallId(logEntry.event);
       const pendingLogIndex = toolCallId
@@ -1024,9 +1104,19 @@ export class PiAgentServer {
         : -1;
       if (pendingLogIndex >= 0) {
         const previous = this.pendingLogEntries[pendingLogIndex];
+        const coveredEventIds = previous?.covered_event_ids ?? [];
+        if (
+          previous?.event_id &&
+          coveredEventIds.length < MAX_COVERED_EVENT_IDS
+        ) {
+          coveredEventIds.push(previous.event_id);
+        }
         this.pendingLogEntries[pendingLogIndex] = {
           ...logEntry,
           event: mergeToolCallUpdate(previous?.event, logEntry.event),
+          ...(coveredEventIds.length > 0
+            ? { covered_event_ids: coveredEventIds }
+            : {}),
         };
       } else {
         this.pendingLogEntries.push(logEntry);
@@ -1070,12 +1160,23 @@ export class PiAgentServer {
         : -1;
       if (pendingEventIndex >= 0) {
         const previous = this.pendingEvents[pendingEventIndex];
+        const coveredEventIds =
+          (previous?.covered_event_ids as string[] | undefined) ?? [];
+        if (
+          typeof previous?.event_id === "string" &&
+          coveredEventIds.length < MAX_COVERED_EVENT_IDS
+        ) {
+          coveredEventIds.push(previous.event_id);
+        }
         this.pendingEvents[pendingEventIndex] = {
           ...event,
           event: mergeToolCallUpdate(
             previous?.event as AgentConversationEvent | undefined,
             event.event as AgentConversationEvent | undefined,
           ),
+          ...(coveredEventIds.length > 0
+            ? { covered_event_ids: coveredEventIds }
+            : {}),
         };
       } else {
         this.pendingEvents.push(event);

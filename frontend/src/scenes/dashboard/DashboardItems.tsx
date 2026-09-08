@@ -38,11 +38,11 @@ import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLog
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
+import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
-import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
@@ -122,6 +122,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         setDashboardMode,
         setAddWidgetModalOpen,
         setPendingInsertion,
+        openTextTileModal,
+        openImageTileModal,
+        openButtonTileModal,
     } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
@@ -265,9 +268,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
             dashboard
                 ? getAddTileMenuItems({
-                      dashboardId: dashboard.id,
                       dashboardWidgetsEnabled,
                       onAddInsight: showAddInsightToDashboardModal,
+                      onAddText: openTextTileModal,
+                      onAddImage: openImageTileModal,
+                      onAddButton: openButtonTileModal,
                       push,
                       setAddWidgetModalOpen,
                       onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
@@ -280,6 +285,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             push,
             setAddWidgetModalOpen,
             setPendingInsertion,
+            openTextTileModal,
+            openImageTileModal,
+            openButtonTileModal,
         ]
     )
 
@@ -293,7 +301,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const dragConfig = useMemo(
         () => ({
             enabled: layoutEditMode && !isMobileView,
-            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
+            handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
@@ -597,6 +605,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         refresh={
                                             refreshDashboardTile ? () => refreshDashboardTile({ tile }) : undefined
                                         }
+                                        refreshAfterDisplayOptionsChange={
+                                            refreshDashboardTile
+                                                ? (updatedInsight) =>
+                                                      refreshDashboardTile({
+                                                          tile: { ...tile, insight: updatedInsight },
+                                                      })
+                                                : undefined
+                                        }
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}
@@ -625,7 +641,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         dashboardId={dashboard?.id}
                                         onEdit={() => {
                                             if (dashboard?.id) {
-                                                push(urls.dashboardTextTile(dashboard.id, tile.id))
+                                                push(urls.dashboardTile(dashboard.id, tile.id))
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
@@ -651,7 +667,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         isDraggingRef={isDragging}
                                         onEdit={() => {
                                             if (dashboard?.id) {
-                                                push(urls.dashboardButtonTile(dashboard.id, tile.id))
+                                                push(urls.dashboardTile(dashboard.id, tile.id))
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}

@@ -87,3 +87,10 @@ BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED: bool = get_from_env(
 BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS: int = get_from_env(
     "BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS", 500, type_cast=int
 )
+# Kill switch for incremental cohort dependency cache maintenance. Off, every cohort create, delete,
+# and dependency change rescans the whole team, which is the cost the incremental path removes. The
+# fallback exists because a wrong incremental update only shows up as a shorter recalculation chain,
+# which no dashboard surfaces, so a config flip has to be faster than a revert.
+COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE: bool = get_from_env(
+    "COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE", True, type_cast=str_to_bool
+)
