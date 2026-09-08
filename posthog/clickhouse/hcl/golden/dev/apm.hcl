@@ -1200,6 +1200,12 @@ SQL
     column "name" {
       type = "String"
     }
+    column "kind" {
+      type = "Int8"
+    }
+    column "flags" {
+      type = "UInt32"
+    }
     column "timestamp" {
       type = "DateTime64(6)"
     }
@@ -1212,38 +1218,32 @@ SQL
     column "service_name" {
       type = "String"
     }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
     column "instrumentation_scope" {
       type = "String"
     }
-    column "events" {
-      type = "Array(String)"
-    }
-    column "links" {
-      type = "Array(String)"
-    }
-    column "kind" {
-      type = "Int8"
-    }
-    column "flags" {
-      type = "UInt32"
+    column "attributes_map_str" {
+      type = "Map(String, String)"
     }
     column "dropped_attributes_count" {
       type = "UInt32"
     }
+    column "events" {
+      type = "Array(String)"
+    }
     column "dropped_events_count" {
       type = "UInt32"
+    }
+    column "links" {
+      type = "Array(String)"
     }
     column "dropped_links_count" {
       type = "UInt32"
     }
     column "status_code" {
       type = "Int16"
-    }
-    column "attributes_map_str" {
-      type = "Map(String, String)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
     }
     column "team_id" {
       type = "Int32"
