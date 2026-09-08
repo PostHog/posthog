@@ -107,7 +107,7 @@ from products.notebooks.backend.presentation.widget_throttles import (
     WidgetFrameBurstThrottle,
     WidgetFrameSustainedThrottle,
 )
-from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.notebooks.backend.sql_v2 import (
     PAGE_LOCK_TTL_SECONDS,
@@ -346,9 +346,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
             validated_data["short_id"] = short_id
 
         created_by = validated_data.pop("created_by", request.user)
-        content = validated_data.get("content")
-        if isinstance(content, dict):
-            validated_data["content"] = annotate_python_nodes(content)
         notebook = Notebook.objects.create(
             team=team,
             created_by=created_by,
@@ -422,9 +419,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
                                 "and this notebook is publicly shared."
                             )
 
-                    content = validated_data.get("content")
-                    if isinstance(content, dict):
-                        validated_data["content"] = annotate_python_nodes(content)
                     update_diff = markdown_collab.build_markdown_update_diff(
                         locked_instance.content, validated_data.get("content")
                     )
@@ -2217,7 +2211,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if result.status == "accepted":
             notebook_before = Notebook.objects.get(pk=notebook.pk)
             Notebook.objects.filter(pk=notebook.pk).update(
-                content=annotate_python_nodes(content) if isinstance(content, dict) else content,
+                content=content,
                 text_content=data.get("text_content", ""),
                 title=data.get("title", notebook.title),
                 version=result.version,
@@ -2324,8 +2318,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     validate_cell_count(locked_notebook.content, submitted_content)
                 except NotebookCellLimitExceeded as err:
                     raise serializers.ValidationError(str(err))
-                annotated_content = annotate_python_nodes(submitted_content)
-                diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
+                diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, submitted_content)
                 result = markdown_collab.submit_markdown_update(
                     locked_notebook.team_id,
                     str(locked_notebook.short_id),
@@ -2339,7 +2332,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 )
                 if result.status == "accepted":
                     notebook_before = Notebook.objects.get(pk=notebook.pk)
-                    locked_notebook.content = annotated_content
+                    locked_notebook.content = submitted_content
                     locked_notebook.text_content = data.get("text_content", "")
                     if "title" in data:
                         locked_notebook.title = data["title"]
