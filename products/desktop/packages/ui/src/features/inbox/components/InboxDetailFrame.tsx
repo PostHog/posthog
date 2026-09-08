@@ -2,7 +2,6 @@ import type { IconProps } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrameView } from "@posthog/ui/features/inbox/components/InboxDetailFrameView";
-import { ReportReviewersHeader } from "@posthog/ui/features/inbox/components/ReportReviewersHeader";
 import {
   SignalsList,
   SignalsListSkeleton,
@@ -20,6 +19,7 @@ interface InboxDetailFrameProps {
   backTo: InboxListRoute | (string & {});
   backLabel: string;
   showDismiss?: boolean;
+  showMetadata?: boolean;
   fallbackTitle: string;
   breadcrumb?: ReactNode;
   metaPrefix?: ReactNode;
@@ -58,6 +58,7 @@ export function InboxDetailFrame({
   aboveEvidence,
   secondaryTab,
   showDismiss = true,
+  showMetadata = true,
   children,
 }: InboxDetailFrameProps): React.JSX.Element {
   const { data: signalsResp } = useInboxReportSignals(report.id);
@@ -95,7 +96,6 @@ export function InboxDetailFrame({
       metaPrefix={metaPrefix}
       metaSuffix={metaSuffix}
       primaryAction={primaryAction}
-      reviewerHeader={<ReportReviewersHeader report={report} />}
       aboveSummary={aboveSummary}
       summarySection={summarySection}
       belowSummary={belowSummary}
@@ -106,6 +106,7 @@ export function InboxDetailFrame({
       runRepository={runRepository}
       aboveEvidence={aboveEvidence}
       secondaryTab={secondaryTab}
+      showMetadata={showMetadata}
       dismissButton={showDismiss ? dismissButton : undefined}
       dismissDialog={showDismiss ? dismissDialog : undefined}
     >

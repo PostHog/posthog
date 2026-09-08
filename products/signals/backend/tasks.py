@@ -2,11 +2,13 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
 from posthog.cloud_utils import get_cached_instance_license
@@ -27,6 +29,7 @@ from products.signals.backend.models import (
     SignalRepositoryAreaActivity,
     SignalScoutEmission,
     SignalScoutRun,
+    SignalScratchpad,
 )
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
@@ -594,6 +597,56 @@ def pause_inactive_signal_scouts() -> None:
                     },
                     groups=groups(organization=organization),
                 )
+
+
+# Grace before a lapsed scratchpad entry is hard-deleted. Expiry already hides the row from scout
+# searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
+# so a human can still see what the fleet remembered and when it lapsed before the row is gone.
+SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
+
+
+def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_DAYS) -> int:
+    """Hard-delete scratchpad rows whose `expires_at` passed more than `grace_days` ago.
+
+    Cross-team janitor sweep. A durable entry (`expires_at` NULL) is the large majority of the
+    store and is never touched — only a lapsed, time-boxed memory past its grace is removed.
+    Returns the count deleted.
+    """
+    cutoff = timezone.now() - timedelta(days=grace_days)
+    deleted, _ = (
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        SignalScratchpad.objects.unscoped().filter(expires_at__isnull=False, expires_at__lt=cutoff).delete()
+    )
+    return deleted
+
+
+@shared_task(
+    name="products.signals.backend.tasks.prune_expired_scratchpad_entries",
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=110,
+    time_limit=170,
+)
+@skip_team_scope_audit
+def prune_expired_scratchpad_entries_task() -> None:
+    """Daily janitor: hard-delete scratchpad entries long past their expiry.
+
+    A scout that writes a time-boxed memory almost never comes back to `forget` it, so expired
+    rows would otherwise pile up forever — expiry only hides a row from searches, it never removed
+    one. Runs here rather than on the coordinator's 30-minute tick, which stays bounded.
+    """
+    deleted = 0
+    try:
+        deleted = prune_expired_scratchpad_entries()
+    except SoftTimeLimitExceeded:
+        raise
+    except OperationalError as exc:
+        # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
+        logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
+    except Exception as exc:
+        capture_exception(exc)
+        logger.exception("signals_scout.scratchpad_prune_failed")
+    logger.info("signals_scout scratchpad prune finished", deleted=deleted)
 
 
 @shared_task(

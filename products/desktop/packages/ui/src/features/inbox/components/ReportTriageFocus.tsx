@@ -176,6 +176,10 @@ export function ReportTriageFocus({
     reviewedReportIdsRef.current.add(reportId);
     setExpanded(false);
     setChatOpen(false);
+    // Close the archive dialog so a confirm cannot act on the report that
+    // replaced the one it was opened for (for example after a reviewer removal
+    // drops the current report out of the "For you" queue).
+    setDismissOpen(false);
   }, [finishSession, reportId, setChatOpen]);
 
   // Triage is intentionally sequential, so the next destination is known as
@@ -193,21 +197,38 @@ export function ReportTriageFocus({
   );
   const dismissPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
 
+  // Gate on the hook's disabled reason, not just is_suggested_reviewer, so the
+  // hint stays hidden until the current-user query has resolved (a press with
+  // no meUuid silently no-ops).
+  const canRemoveSelfFromReviewers =
+    bulkActions.removeReviewerDisabledReason === null &&
+    report?.is_suggested_reviewer === true;
+  const removingReviewer = bulkActions.isRemovingReviewer;
+  const handleRemoveReviewer = useCallback(() => {
+    if (removingReviewer) return;
+    void bulkActions.removeReviewerSelected();
+  }, [bulkActions, removingReviewer]);
+
   const handleDismissConfirm = useCallback(
     async (result: DismissReportDialogResult) => {
       const ok = isDismissalReasonSnooze(result.reason)
-        ? await bulkActions.snoozeSelected()
+        ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
       if (ok) setDismissOpen(false);
     },
     [bulkActions],
   );
 
-  const goNext = useCallback(
-    () => setIndex((i) => Math.min(i + 1, reports.length - 1)),
-    [reports.length],
-  );
-  const goPrev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
+  // In the "For you" scope the removed report drops out of the queue once the
+  // refetch lands. Moving the index before that would skip the next report.
+  const goNext = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.min(i + 1, reports.length - 1));
+  }, [reports.length, removingReviewer]);
+  const goPrev = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.max(i - 1, 0));
+  }, [removingReviewer]);
   const handleExit = useCallback(() => {
     finishSession("exited");
     onExit();
@@ -250,11 +271,15 @@ export function ReportTriageFocus({
           break;
         case "a":
           event.preventDefault();
-          if (report) setDismissOpen(true);
+          if (report && !removingReviewer) setDismissOpen(true);
           break;
         case "o":
           event.preventDefault();
           handleOpenReport();
+          break;
+        case "x":
+          event.preventDefault();
+          if (canRemoveSelfFromReviewers) handleRemoveReviewer();
           break;
         case "Escape":
           event.preventDefault();
@@ -264,7 +289,17 @@ export function ReportTriageFocus({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dismissOpen, report, goNext, goPrev, handleExit, handleOpenReport]);
+  }, [
+    dismissOpen,
+    report,
+    removingReviewer,
+    goNext,
+    goPrev,
+    handleExit,
+    handleOpenReport,
+    canRemoveSelfFromReviewers,
+    handleRemoveReviewer,
+  ]);
 
   if (!report) {
     // The queue ran dry mid-session — every decision is made.
@@ -296,11 +331,18 @@ export function ReportTriageFocus({
           nextReport={nextReport}
           expanded={expanded}
           prShortcut={prShortcut}
+          canRemoveSelfFromReviewers={canRemoveSelfFromReviewers}
           actions={
             <ReportVerdictBanner
+              // Remount on report change so the PR popover cannot create a PR
+              // for the report that replaced the one it was opened for.
+              key={report.id}
               report={report}
               variant="triage-actions"
-              prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
+              prHotkey={
+                dismissOpen || removingReviewer || !prShortcut ? undefined : "c"
+              }
+              resolveHotkey={dismissOpen || removingReviewer ? undefined : "r"}
               surface="triage"
               triageId={triageIdRef.current}
             />

@@ -436,6 +436,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         project_id=ctx.team_id,
         scopes=scopes,
         interaction_origin=ctx.interaction_origin,
+        slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
     )
@@ -446,6 +447,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
+        slack_reply_context=ctx.slack_reply_context,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
         origin_product=task.origin_product,
         task_agent_key=task.mcp_builtin_agent_key,

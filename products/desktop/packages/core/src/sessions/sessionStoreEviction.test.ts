@@ -13,6 +13,7 @@ function seedWithEvents() {
     messageQueue: [],
     pendingPermissions: new Map(),
     status: "disconnected",
+    firstPromptForRunId: RUN,
   } as unknown as AgentSession);
   sessionStoreSetters.appendEvents(
     RUN,
@@ -24,7 +25,7 @@ function seedWithEvents() {
 afterEach(() => sessionStoreSetters.removeSession(RUN));
 
 describe("evictEvents / restoreEvents", () => {
-  it("clears a starting marker when the session arrives", () => {
+  it("keeps the starting marker until the first prompt arrives", () => {
     sessionStoreSetters.setTaskStarting(TASK);
 
     sessionStoreSetters.setSession({
@@ -35,6 +36,51 @@ describe("evictEvents / restoreEvents", () => {
       pendingPermissions: new Map(),
       status: "connected",
     } as unknown as AgentSession);
+
+    expect(sessionStore.getState().startingTaskIds[TASK]).toBeDefined();
+
+    sessionStoreSetters.updateSession(RUN, { firstPromptForRunId: RUN });
+    expect(sessionStore.getState().startingTaskIds[TASK]).toBeUndefined();
+  });
+
+  it("does not let an old run clear a successor startup marker", () => {
+    seedWithEvents();
+    sessionStoreSetters.setTaskStarting(TASK);
+
+    sessionStoreSetters.updateCloudStatus(RUN, { status: "failed" });
+
+    expect(sessionStore.getState().startingTaskIds[TASK]).toBeDefined();
+  });
+
+  it.each([
+    [
+      "a session error",
+      () => sessionStoreSetters.updateSession(RUN, { status: "error" }),
+    ],
+    [
+      "an offline disconnect",
+      () =>
+        sessionStoreSetters.updateSession(RUN, {
+          status: "disconnected",
+          errorMessage: "Offline",
+        }),
+    ],
+    [
+      "a terminal cloud status",
+      () => sessionStoreSetters.updateCloudStatus(RUN, { status: "failed" }),
+    ],
+  ])("clears the starting marker after %s", (_name, finishStartup) => {
+    sessionStoreSetters.setTaskStarting(TASK, RUN);
+    sessionStoreSetters.setSession({
+      taskRunId: RUN,
+      taskId: TASK,
+      events: [],
+      messageQueue: [],
+      pendingPermissions: new Map(),
+      status: "connected",
+    } as unknown as AgentSession);
+
+    finishStartup();
 
     expect(sessionStore.getState().startingTaskIds[TASK]).toBeUndefined();
   });
@@ -48,6 +94,7 @@ describe("evictEvents / restoreEvents", () => {
     const s = sessionStore.getState().sessions[RUN];
     expect(s.events).toHaveLength(0);
     expect(s.processedLineCount).toBe(0);
+    expect(s.firstPromptForRunId).toBe(RUN);
   });
 
   it("restoreEvents refills the transcript and freezes each event", () => {
@@ -63,7 +110,28 @@ describe("evictEvents / restoreEvents", () => {
     const s = sessionStore.getState().sessions[RUN];
     expect(s.events).toHaveLength(1);
     expect(s.processedLineCount).toBe(7);
+    expect(s.firstPromptForRunId).toBe(RUN);
     expect(Object.isFrozen(s.events[0])).toBe(true);
+  });
+
+  it("preserves run lifecycle facts when the same session is replaced", () => {
+    seedWithEvents();
+    sessionStoreSetters.updateSession(RUN, {
+      resumeAncestorRunIds: ["ancestor-run"],
+    });
+
+    sessionStoreSetters.setSession({
+      taskRunId: RUN,
+      taskId: TASK,
+      events: [],
+      messageQueue: [],
+      pendingPermissions: new Map(),
+      status: "connected",
+    } as unknown as AgentSession);
+
+    const session = sessionStore.getState().sessions[RUN];
+    expect(session.firstPromptForRunId).toBe(RUN);
+    expect(session.resumeAncestorRunIds).toEqual(["ancestor-run"]);
   });
 
   it.each([

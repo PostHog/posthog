@@ -10,8 +10,8 @@ import { cn } from 'lib/utils/css-classes'
 import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { Nav as AiFirstNavBar } from './ai-first/Nav'
-import { PanelLayoutPanels } from './ai-first/PanelLayoutPanels'
+import { NavBar } from './navbar/NavBar'
+import { PanelLayoutPanels } from './navbar/PanelLayoutPanels'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
@@ -129,7 +129,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         : {}
                 }
             >
-                <AiFirstNavBar />
+                <NavBar />
             </div>
 
             {/* Mobile-only positioning anchor for panel content. Decoupled from #project-panel-layout

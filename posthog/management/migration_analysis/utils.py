@@ -1,7 +1,6 @@
 """Utility classes and functions for migration analysis."""
 
 import re
-from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.apps import apps
@@ -167,6 +166,13 @@ def check_drop_properly_staged(
     - For "table": SeparateDatabaseAndState with DeleteModel for the model
     - For "column": SeparateDatabaseAndState with RemoveField for the model+field
     """
+    # A table a live model still owns is not an orphaned table: the model moved to another app or
+    # the name was reused there. This app's history still holds the old CreateModel and a later
+    # DeleteModel, so the staged-drop walk below would match a stale mapping and validate a drop of
+    # a live, in-use table. Refuse it here so the drop stays BLOCKED.
+    if target_type == "table" and _table_owned_by_live_model(table_name):
+        return False
+
     if not loader or not hasattr(loader, "disk_migrations"):
         return False
 
@@ -176,7 +182,7 @@ def check_drop_properly_staged(
     app_label = getattr(migration, "app_label", None)
     model_name = (
         _model_name_for_table(app_label, table_name)
-        or _model_name_from_migration_history(loader, app_label, table_name)
+        or _model_name_from_history(app_label, table_name, loader)
         or _extract_model_name_from_table(table_name, app_label)
     )
     if not model_name:
@@ -214,11 +220,24 @@ def check_drop_properly_staged(
     return False
 
 
+def _table_owned_by_live_model(table_name: str) -> bool:
+    """True if any app's live model currently maps to this table.
+
+    The staged-drop check resolves a dropped table back to the model that created it and looks for a
+    prior DeleteModel. That mapping goes stale when a table is moved to another app (or reused under
+    the same name) while keeping its db_table, because the origin app still has both the CreateModel
+    and a DeleteModel in its history. Scanning every app's live models catches the table that is
+    still owned, so a drop of it is not mistaken for a retired-table cleanup. Auto-created
+    many-to-many through tables count as owned: no model class declares them, but an M2M field does.
+    """
+    return any(model._meta.db_table == table_name for model in apps.get_models(include_auto_created=True))
+
+
 def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional[str]:
     """Resolve the model whose db_table matches via the app registry. Handles custom db_table
     names the string heuristic can't (e.g. legacy llm_analytics_* tables owned by the
     ai_observability app). Returns None for models no longer in the registry (deleted models);
-    callers fall back to the string heuristic."""
+    callers fall back to the migration history."""
     if not app_label:
         return None
     try:
@@ -231,50 +250,40 @@ def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional
     return None
 
 
-def _iter_state_operations(operations: Any) -> Iterator[Any]:
-    """Yield the operations that shape Django state, looking inside SeparateDatabaseAndState."""
-    for op in operations or []:
-        if op.__class__.__name__ == "SeparateDatabaseAndState":
-            yield from getattr(op, "state_operations", []) or []
-        else:
-            yield op
+def _model_name_from_history(app_label: Optional[str], table_name: str, loader: Any) -> Optional[str]:
+    """Resolve the model that created a table from the app's migration history.
 
+    The registry lookup only sees live models, so a model that was deleted, or one that moved to
+    a new db_table, leaves its old table unresolvable there. The CreateModel that declared the
+    table still records the mapping.
 
-def _model_name_from_migration_history(loader: Any, app_label: Optional[str], table_name: str) -> Optional[str]:
-    """Resolve the model that owns db_table `table_name` from the app's migration history.
-
-    `_model_name_for_table` only sees models still in the registry, and the string heuristic below
-    assumes db_table follows the `<app_label>_<model>` convention. A deleted model that set a custom
-    db_table satisfies neither — a model moved between apps keeps its original table, so
-    replay.SessionGroupSummary still lives on ee_group_session_summary. The history is the only
-    place left that connects the two."""
-    if not app_label:
+    `disk_migrations` has no order, so walk it by migration name and keep the last match. A table
+    name that two models used over time then resolves to the more recent one, deterministically.
+    """
+    if not app_label or not loader or not hasattr(loader, "disk_migrations"):
         return None
 
-    tables_by_model: dict[str, str] = {}
-    for (migration_app, _), migration in sorted(getattr(loader, "disk_migrations", {}).items()):
-        if migration_app != app_label:
+    latest_owner: Optional[str] = None
+    for key, historical_migration in sorted(loader.disk_migrations.items(), key=lambda item: item[0]):
+        if key[0] != app_label:
             continue
-        for op in _iter_state_operations(getattr(migration, "operations", [])):
-            model_name = getattr(op, "name", "")
-            db_table = _db_table_set_by_operation(op)
-            if model_name and db_table:
-                tables_by_model[model_name.lower()] = db_table
-
-    for model_name, db_table in tables_by_model.items():
-        if db_table == table_name:
-            return model_name
-    return None
+        for op in _create_model_operations(getattr(historical_migration, "operations", [])):
+            name = getattr(op, "name", "")
+            created_table = (getattr(op, "options", None) or {}).get("db_table") or f"{app_label}_{name.lower()}"
+            if created_table == table_name:
+                latest_owner = name
+    return latest_owner
 
 
-def _db_table_set_by_operation(op: Any) -> Optional[str]:
-    """Return the db_table an operation gives its model, or None if it sets no table."""
-    op_type = op.__class__.__name__
-    if op_type == "CreateModel":
-        return (getattr(op, "options", None) or {}).get("db_table")
-    if op_type == "AlterModelTable":
-        return getattr(op, "table", None)
-    return None
+def _create_model_operations(operations: Any) -> list[Any]:
+    """Collect CreateModel operations, including those staged inside SeparateDatabaseAndState."""
+    found = []
+    for op in operations:
+        if op.__class__.__name__ == "SeparateDatabaseAndState":
+            found.extend(_create_model_operations(getattr(op, "state_operations", [])))
+        elif op.__class__.__name__ == "CreateModel":
+            found.append(op)
+    return found
 
 
 def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = None) -> Optional[str]:

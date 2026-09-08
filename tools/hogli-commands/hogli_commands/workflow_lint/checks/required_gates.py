@@ -1,11 +1,20 @@
-"""Collate gates must run unconditionally and fail closed on every dependency.
+"""Collate gates must run on every completed run and fail closed on every dependency.
 
 A "collate gate" is the job that emits a required status check by inspecting its
 dependencies' ``needs.*.result``. Two properties keep it honest:
 
-1. ``if: always()`` — the gate must run and emit an explicit verdict. Worker jobs
-   should use ``!cancelled()`` so they actually stop when a run is superseded, but
-   the gate itself is what branch protection reads, so it has to report.
+1. ``if: !cancelled()`` — the gate must emit an explicit verdict on every run that
+   is not superseded. On a cancelled run a ``!cancelled()`` job records conclusion
+   ``cancelled``, never ``skipped``, and branch protection passes only
+   ``success``/``skipped``/``neutral``, so the gate still fails closed while CI
+   failure-rate metrics stop counting superseded runs as failures. ``always()``
+   would instead run the gate after the cancel and report ``failure``.
+
+   Extra predicates may only be OR-ed on. A disjunction cannot be false while
+   ``!cancelled()`` is true, so cancellation stays the gate's one false predicate
+   and the conclusion stays ``cancelled``. A conjunction gives the gate a second
+   way to be false, and a job skipped by its own condition records ``skipped``,
+   which branch protection reads as a pass.
 
 2. Allowlist **per dependency** — assert ``success``/``skipped`` and block
    everything else. One bad dependency is enough, so judging the step as a whole
@@ -17,7 +26,7 @@ dependencies' ``needs.*.result``. Two properties keep it honest:
 Gates are found two ways, because the "name it ``… Pass``" convention is not
 universally followed: by that name, and structurally when a step reads
 ``needs.<dep>.result`` in its shell or environment. Detection is independent of
-the job condition so a gate missing ``always()`` cannot disappear from the rule.
+the job condition so a gate missing ``!cancelled()`` cannot disappear from the rule.
 Jobs that inspect results without gating anything opt out with ``ALLOW_MARKER``
 plus a reason.
 
@@ -44,6 +53,7 @@ ALLOW_MARKER = "hogli-lint: not-a-required-gate"
 
 GATE_NAME = re.compile(r"\bpass$", re.IGNORECASE)
 ALWAYS = re.compile(r"always\s*\(\s*\)")
+NOT_CANCELLED = re.compile(r"!\s*cancelled\s*\(\s*\)")
 READS_RESULT = re.compile(r"needs\.(?P<dep>[A-Za-z0-9_\-]+)\.result")
 
 # `foo() {` / `function foo() {`, whose body ends at the first `}` sitting at or
@@ -137,15 +147,54 @@ def _is_gate(job: Job) -> bool:
     return any(READS_RESULT.search(source) for source in _result_sources(job))
 
 
-def _uses_only_always(condition: object) -> bool:
+def _normalized_condition(condition: object) -> str | None:
     if not isinstance(condition, str):
-        return False
+        return None
     normalized = condition.strip()
     if normalized.startswith("${{") or normalized.endswith("}}"):
         if not (normalized.startswith("${{") and normalized.endswith("}}")):
-            return False
+            return None
         normalized = normalized[3:-2].strip()
-    return ALWAYS.fullmatch(normalized) is not None
+    return normalized
+
+
+def _condition_matches(condition: object, pattern: re.Pattern[str]) -> bool:
+    normalized = _normalized_condition(condition)
+    return normalized is not None and pattern.fullmatch(normalized) is not None
+
+
+def _uses_only_not_cancelled(condition: object) -> bool:
+    return _condition_matches(condition, NOT_CANCELLED)
+
+
+def _gate_condition_ok(condition: object) -> bool:
+    """``!cancelled()``, alone or OR-ed with predicates that can only widen it.
+
+    ci-backend cancels its own run when a repo or OpenAPI check fails
+    deterministically, so under a bare ``!cancelled()`` a real failure would
+    report ``cancelled``. OR-ing that signal back on keeps the honest verdict:
+    the disjunct is true, so the gate dispatches despite the cancel and reports
+    ``failure``. ``&&`` anywhere is rejected — see the module docstring.
+    """
+    normalized = _normalized_condition(condition)
+    if normalized is None or "&&" in normalized:
+        return False
+    return any(NOT_CANCELLED.fullmatch(term.strip()) for term in normalized.split("||"))
+
+
+def _step_runs_whenever_gate_runs(job: Job, step: Step) -> bool:
+    """Guards only count in steps that execute on every path the gate takes.
+
+    No ``if`` and ``always()`` both run the step whenever the enclosing job
+    runs. A step-level ``!cancelled()`` only covers every path when the job
+    itself is bare ``!cancelled()``: an OR-widened gate dispatches specifically
+    while ``cancelled()`` is true, and there the step is skipped — its guard
+    would certify nothing on the one path the widening exists for.
+    """
+    condition = step.raw.get("if")
+    if condition is None or _condition_matches(condition, ALWAYS):
+        return True
+    return _uses_only_not_cancelled(condition) and _uses_only_not_cancelled(job.raw.get("if"))
 
 
 def _without_heredocs(bash: str) -> str:
@@ -272,7 +321,7 @@ def _trace_step(job: Job, step: Step) -> tuple[set[str], dict[str, set[str]]]:
         loops = _loop_names(scope.body)
         lines = scope.body.splitlines()
 
-        if step.raw.get("if") is None or _uses_only_always(step.raw.get("if")):
+        if _step_runs_whenever_gate_runs(job, step):
             for index in range(len(lines)):
                 guard_operand = _guard_operand(lines, index)
                 if guard_operand is not None:
@@ -330,8 +379,12 @@ def _dependencies(job: Job) -> set[str]:
 
 
 def _problems(job: Job) -> Iterator[str]:
-    if not _uses_only_always(job.raw.get("if")):
-        yield "required-check gate must use unconditional `if: always()` so it always emits a verdict"
+    if not _gate_condition_ok(job.raw.get("if")):
+        yield (
+            "required-check gate must use `if: ${{ !cancelled() }}` so it emits a verdict on every "
+            "completed run and reports `cancelled` (not `failure`) when superseded. Extra predicates "
+            "may only be OR-ed on; `&&` lets the gate skip, which branch protection reads as a pass"
+        )
 
     step_traces = [_trace_step(job, step) for step in job.steps]
     for dep in sorted(_dependencies(job)):
@@ -347,12 +400,13 @@ def _problems(job: Job) -> Iterator[str]:
 class RequiredGateCheck(WorkflowCheck):
     id = "WF007-required-check-gates"
     label = "required-check gates"
-    description = "collate gates use always() and allowlist each dependency's result"
+    description = "collate gates use !cancelled() and allowlist each dependency's result"
 
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Use only `if: always()` on the gate, and test every dependency as "
+            "Use `if: ${{ !cancelled() }}` on the gate, OR-ing on any extra predicate rather than "
+            "`&&`-ing it, and test every dependency as "
             '`!= "success" && != "skipped"` rather than `== "failure"`. Inline tests, an `env:` '
             "block and a shared shell helper all work, so long as the failing branch exits nonzero. "
             "A job that reads results without gating anything opts out with "

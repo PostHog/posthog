@@ -104,16 +104,19 @@ Optimize for the fewest shell round trips.
 - Never rerun a command solely to reproduce output you already have.`;
 }
 
-export function buildChannelPrompt(repositoryToolsAvailable: boolean): string {
+export function buildChannelPrompt(
+  cwd: string,
+  repositoryToolsAvailable: boolean,
+): string {
   if (!repositoryToolsAvailable) {
     return `## Channel task
-This task may not need a repository. Treat the working directory as task-specific scratch space and do not use another checkout.`;
+This task may not need a repository. Your working directory is \`${cwd}\`, task-specific scratch space. Do not use another checkout.`;
   }
 
   return `## Channel task (no repository attached)
 You are running in a PostHog channel as a general-purpose assistant. This task may not need a code repository. It could be data analysis via PostHog tools, drafting a message, or answering a question. Do not assume you need a repo.
 
-- Your working directory is a scratch directory, not a git checkout. Treat it as empty.
+- Your working directory is \`${cwd}\`, a scratch directory, not a git checkout. Treat it as empty.
 - Decide from the user's request and the channel CONTEXT.md, if present, whether the task requires a code repository. If it doesn't, do the work in the scratch directory.
 - Do not \`cd\` into or edit an existing checkout elsewhere on the machine. Another task may be using it.
 
@@ -156,7 +159,9 @@ export function buildTaskSystemPrompt(
   );
 
   if (context.channelMode) {
-    sections.push(buildChannelPrompt(capabilities.repositoryTools === true));
+    sections.push(
+      buildChannelPrompt(context.cwd, capabilities.repositoryTools === true),
+    );
   }
 
   if (context.customInstructions) {

@@ -2,9 +2,10 @@
 
 Handles ``POST /slack/command-callback`` — the webhook Slack hits when a user
 runs ``/posthog ...`` in a channel or DM. The vocabulary mirrors the
-``@PostHog <command>`` mention path (``help``, ``rules ...``, ``project ...``);
-free-text task creation stays on the mention path because slash commands lack
-the thread context the task workflow depends on.
+``@PostHog <command>`` mention path (``rules ...``, ``project ...``), and
+``help`` is answered here only: a mention of it replies with a pointer back to
+this surface. Free-text task creation stays on the mention path because slash
+commands lack the thread context the task workflow depends on.
 
 Slack imposes a hard 3-second response budget on slash commands — a slow first
 response surfaces to the user as ``operation_timeout``. Cheap validation and
