@@ -1292,9 +1292,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
-     * Uncached authoritative read of committed mapping rows, for re-emitting them to
-     * ClickHouse. The batch caches are bypassed on purpose: a healing emission must
-     * carry the committed version, not an optimistic in-batch state.
+     * Bypasses the batch caches on purpose: a healing emission must carry the
+     * committed version, not an optimistic in-batch state.
      */
     fetchPersonDistinctIdMappings(teamId: Team['id'], distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
         return this.personRepository.fetchPersonDistinctIdMappings(teamId, distinctIds)

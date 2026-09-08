@@ -177,10 +177,8 @@ describe('PostgresPersonMerge merge events', () => {
         await expect(result.kafkaAck).resolves.toBeUndefined()
     })
 
-    // A crash between a merge's commit and its produce loses the mapping message; the
-    // replayed event lands in the noop branch, which must re-emit the committed mapping
-    // exactly once per debounce window (unbounded re-emission would flood the topic and
-    // keep the ClickHouse overrides table from converging).
+    // Both directions matter: never emitting loses the healing, and emitting on every
+    // duplicate $identify floods the topic and keeps the overrides table from converging.
     it('an already-satisfied merge re-emits the committed mappings once per debounce window', async () => {
         mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
         const person = { id: 'p1', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson

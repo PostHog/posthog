@@ -166,11 +166,8 @@ export interface PersonRepository {
     ): Promise<Record<string, string[]>>
 
     /**
-     * Fetch the committed mapping rows for the given distinct ids, as ready-to-produce
-     * ClickHouse messages carrying the current person uuid and mapping-row version.
-     * Reads the authoritative side: emitted rows must reflect committed truth, since a
-     * stale pairing re-emitted with its version would overwrite a newer mapping.
-     * Distinct ids without a live mapping are absent from the result.
+     * Reads the authoritative side: a stale pairing re-emitted with its version would
+     * overwrite a newer mapping. Ids without a live mapping are absent from the result.
      */
     fetchPersonDistinctIdMappings(teamId: TeamId, distinctIds: string[]): Promise<PersonDistinctIdMapping[]>
 

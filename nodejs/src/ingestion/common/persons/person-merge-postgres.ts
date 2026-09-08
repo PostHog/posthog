@@ -130,9 +130,8 @@ export interface PostgresMergePolicy {
     isTombstoneTeam: ValueMatcher<number>
     mergeEvents: MergeEventsConfig
     /**
-     * When set, merges that find their request already satisfied re-emit the committed
-     * mappings to ClickHouse (debounced), healing rows lost to a crash between a prior
-     * merge's commit and its produce. Absent means the behavior is off.
+     * When set, already-satisfied merges re-emit the committed mappings (debounced),
+     * healing ClickHouse rows lost between a prior merge's commit and its produce.
      */
     noopMappingDebounce?: MergeMappingDebounce
 }
@@ -235,11 +234,9 @@ export class PostgresPersonMerge {
     }
 
     /**
-     * Re-emits the committed mappings for a merge request found already satisfied,
-     * debounced per (team, distinct id). A crash between a prior merge's commit and
-     * its produce loses the mapping message for good, because the replayed event
-     * lands here and would otherwise produce nothing. Returns the produce ack to
-     * chain on the result; resolved when disabled or everything was debounced.
+     * A crash between a prior merge's commit and its produce loses the mapping message
+     * for good, because the replayed event lands in a satisfied branch and would
+     * otherwise produce nothing. Re-emit the committed mappings, debounced.
      */
     private async reemitSatisfiedMappings(distinctIds: string[]): Promise<{ kafkaAck: Promise<void> }> {
         const debounce = this.policy.noopMappingDebounce
@@ -382,8 +379,8 @@ export class PostgresPersonMerge {
             // Both Distinct IDs point at an existing Person
 
             if (otherPerson.id == mergeIntoPerson.id) {
-                // Nothing to do in Postgres, but the pair may carry a mapping whose
-                // ClickHouse message a crashed prior merge never produced.
+                // Same person already; re-emit in case a crashed prior merge never
+                // produced the pair's mapping.
                 const { kafkaAck } = await this.reemitSatisfiedMappings([otherPersonDistinctId, mergeIntoDistinctId])
                 return {
                     survivor: mergeIntoPerson,
@@ -1160,8 +1157,8 @@ export class PostgresPersonMerge {
                     )
 
                     if (!refreshedPerson) {
-                        // A concurrent merge absorbed the source; its mapping messages may
-                        // be lost if that consumer crashed before producing, so re-emit.
+                        // A concurrent merge absorbed the source; re-emit in case its
+                        // produce was lost to a crash.
                         const { kafkaAck } = await this.reemitSatisfiedMappings([sourceDistinctId, targetDistinctId])
                         return mergeSuccess(currentTargetPerson, kafkaAck, true)
                     }
@@ -1177,8 +1174,7 @@ export class PostgresPersonMerge {
                     )
 
                     if (!refreshedPerson) {
-                        // Same as the source case: the target went away to a concurrent
-                        // merge whose produce may have been lost, so re-emit.
+                        // Same as the source case above.
                         const { kafkaAck } = await this.reemitSatisfiedMappings([sourceDistinctId, targetDistinctId])
                         return mergeSuccess(currentTargetPerson, kafkaAck, true)
                     }
