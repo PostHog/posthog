@@ -313,7 +313,9 @@ function _isCustomSnapshot(x: unknown): x is customEvent {
 }
 
 function _isPluginSnapshot(x: unknown): x is pluginEvent {
-    return (x as pluginEvent).type === 6
+    // rrweb types `data` as always present, but captured snapshots reach us with it null,
+    // and every consumer below reads the plugin name off it
+    return (x as pluginEvent).type === 6 && isString((x as pluginEvent).data?.plugin)
 }
 
 function isFullSnapshotEvent(x: unknown): x is fullSnapshotEvent {
