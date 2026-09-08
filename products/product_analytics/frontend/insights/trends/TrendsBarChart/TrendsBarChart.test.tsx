@@ -6,7 +6,14 @@ import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/test
 
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import {
+    buildTrendsQuery,
+    chart,
+    createInsightTooltipAccessor,
+    getHogChart,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
@@ -219,6 +226,19 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             ...extra,
         })
 
+    // The aggregated chart is horizontal, and `bars.maxBandSize` holds each row to 48px at the top
+    // of the plot. The index-based hover helpers aim at the plot's vertical center, which on a
+    // one-row chart is blank space that takes no hover and no click, so aim at the row itself.
+    const hoverFirstRow = (): HTMLElement => {
+        const wrapper = screen.getByLabelText(/chart with/i).parentElement!
+        fireEvent.mouseMove(wrapper, { clientX: dimensions.plotLeft + 10, clientY: dimensions.plotTop + 10 })
+        return wrapper
+    }
+
+    const clickFirstRow = (): void => {
+        fireEvent.click(hoverFirstRow())
+    }
+
     it('renders custom axis titles in horizontal aggregated mode', async () => {
         renderInsight({
             query: aggregatedBar({
@@ -365,7 +385,11 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
-        const tooltip = await chart.hoverTooltip(0)
+        hoverFirstRow()
+        const tooltipEl = chart.getTooltip()
+        expect(tooltipEl).not.toBeNull()
+        const tooltip = createInsightTooltipAccessor(tooltipEl!)
+        expect(tooltip.element.textContent).not.toBe('')
         expect(tooltip.title()).toBe('')
     })
 
@@ -375,7 +399,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
-        await chart.clickAtIndex(0)
+        clickFirstRow()
 
         await waitFor(
             () => {
@@ -398,7 +422,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
-        await chart.clickAtIndex(0)
+        clickFirstRow()
 
         await waitFor(
             () => {

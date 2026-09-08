@@ -1003,6 +1003,85 @@ describe('hog-charts scales', () => {
         })
     })
 
+    describe('createBarScales — maxBandSize', () => {
+        // plotHeight 400 gives a single band the whole plot without a cap.
+        const tallDims = { ...dimensions, plotTop: 0, plotHeight: 400 }
+        const series = [makeSeries({ key: 's', data: [10] })]
+
+        it('caps a single row to the maximum band size instead of the whole plot', () => {
+            const { band } = createBarScales(series, ['a'], tallDims, {
+                axisOrientation: 'horizontal',
+                maxBandSize: 48,
+            })
+            expect(band.bandwidth()).toBeCloseTo(48, 5)
+            expect(band('a')).toBeCloseTo(tallDims.plotTop + 6, 5)
+        })
+
+        it('leaves rows that are already thinner than the cap alone', () => {
+            const labels = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+            const uncapped = createBarScales(series, labels, tallDims, { axisOrientation: 'horizontal' })
+            const capped = createBarScales(series, labels, tallDims, {
+                axisOrientation: 'horizontal',
+                maxBandSize: 48,
+            })
+            expect(uncapped.band.bandwidth()).toBeLessThan(48)
+            expect(capped.band.bandwidth()).toBeCloseTo(uncapped.band.bandwidth(), 5)
+        })
+
+        it('keeps every row when the cap shortens the band range', () => {
+            const { band } = createBarScales(series, ['a', 'b'], tallDims, {
+                axisOrientation: 'horizontal',
+                fitToHeight: true,
+                minBandSize: 24,
+                maxBandSize: 48,
+            })
+            expect(band.domain()).toEqual(['a', 'b'])
+            expect(band.bandwidth()).toBeCloseTo(48, 5)
+        })
+
+        it('takes the smaller of maxBandRange and the cap', () => {
+            const { band } = createBarScales(series, ['a'], tallDims, {
+                axisOrientation: 'horizontal',
+                maxBandRange: 20,
+                maxBandSize: 48,
+            })
+            expect(band.bandwidth()).toBeCloseTo(16, 5)
+        })
+
+        it('caps vertical bars too', () => {
+            const { band } = createBarScales(series, ['a'], dimensions, { maxBandSize: 48 })
+            expect(band.bandwidth()).toBeCloseTo(48, 5)
+        })
+
+        // Stacked breakdowns repeat one band key per row so the rows share a band and stack.
+        const stackedRows = ['band', 'band', 'band', 'band', 'band']
+        const stackedSeries = stackedRows.map((_, i) =>
+            makeSeries({ key: `s${i}`, data: stackedRows.map((__, j) => (i === j ? (i + 1) * 10 : 0)) })
+        )
+
+        it('sizes the cap off the distinct bands when rows repeat a band key', () => {
+            const { band } = createBarScales(stackedSeries, stackedRows, tallDims, {
+                axisOrientation: 'horizontal',
+                maxBandSize: 48,
+            })
+            expect(band.domain()).toEqual(['band'])
+            expect(band.bandwidth()).toBeCloseTo(48, 5)
+        })
+
+        it('keeps every stacked row when the cap shortens the range', () => {
+            const { band, value } = createBarScales(stackedSeries, stackedRows, tallDims, {
+                axisOrientation: 'horizontal',
+                fitToHeight: true,
+                minBandSize: 24,
+                maxBandSize: 48,
+            })
+            expect(band.bandwidth()).toBeCloseTo(48, 5)
+            // A row budget measured against the shortened range would drop the last rows, and the
+            // value axis would then stop short of the value only they carry.
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(50)
+        })
+    })
+
     describe('createBarScales — horizontal fitToHeight', () => {
         // plotHeight 100 / minBandSize 24 => 4 rows fit.
         const shortDims = { ...dimensions, plotTop: 0, plotHeight: 100 }

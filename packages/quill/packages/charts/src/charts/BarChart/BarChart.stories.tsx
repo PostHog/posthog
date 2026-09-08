@@ -190,6 +190,28 @@ export const HorizontalWideValueLabels: Story = {
     },
 }
 
+// The same single row as HorizontalAggregatedSingle, with the thickness cap. Drop `maxBandSize`
+// and the row takes the whole plot height, so the bar covers its own category label and value.
+export const HorizontalAggregatedSingleCapped: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = {
+            barLayout: 'stacked',
+            showGrid: true,
+            axisOrientation: 'horizontal',
+            bars: { maxBandSize: 48 },
+        }
+        const series: Series[] = [{ key: 'all', label: 'All events', color: '', data: [103000] }]
+        return (
+            <Stage height={320}>
+                <BarChart series={series} labels={['All events']} config={config} theme={theme}>
+                    <ValueLabels />
+                </BarChart>
+            </Stage>
+        )
+    },
+}
+
 export const SingleSeries: Story = {
     render: () => {
         const theme = useReactiveTheme()

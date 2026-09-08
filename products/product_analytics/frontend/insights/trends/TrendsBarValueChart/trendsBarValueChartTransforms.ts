@@ -24,11 +24,15 @@ export function buildTrendsBarValueSeries(items: TrendsBarValueItem[], opts: Bui
     ]
 }
 
+// Thickest a single breakdown row may draw (px). Without the cap, a breakdown that resolves to one
+// row takes the whole plot height and the bar paints as a block instead of reading as a bar.
+export const AGGREGATED_MAX_BAND_SIZE = 48
+
 export function buildTrendsBarValueConfig(): BarChartConfig {
     return {
         axisOrientation: 'horizontal',
         showGrid: true,
         barCornerRadius: 4,
-        bars: { fitToHeight: true },
+        bars: { fitToHeight: true, maxBandSize: AGGREGATED_MAX_BAND_SIZE },
     }
 }

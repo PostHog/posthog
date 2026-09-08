@@ -43,6 +43,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
+import { AGGREGATED_MAX_BAND_SIZE } from '../TrendsBarValueChart/trendsBarValueChartTransforms'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
@@ -285,8 +286,10 @@ export function TrendsBarChart({
             // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
             // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
-            // instead of clamping them to 0.
-            bars: { fitToHeight: embedded, divergingStack: true },
+            // instead of clamping them to 0. maxBandSize caps the row thickness: a breakdown that
+            // resolves to one row gives that row the whole height, and the bar then paints as a
+            // block over its own label and value.
+            bars: { fitToHeight: embedded, divergingStack: true, maxBandSize: AGGREGATED_MAX_BAND_SIZE },
         }
     }, [
         yAxisScaleType,
